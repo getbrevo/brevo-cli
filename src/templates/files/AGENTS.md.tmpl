@@ -1,0 +1,47 @@
+# {{APP_NAME}} — Agent Context
+
+This project is a Brevo OAuth 2.0 integration scaffolded with the Brevo CLI.
+
+> **This is a test app** for local OAuth testing. Not for production use.
+
+## What this does
+Implements the authorization code flow to obtain access tokens for the Brevo API.
+
+## Project structure
+```
+.
+├── app-config.json          App metadata (app ID, redirect URIs, scopes)
+├── .gitignore               Ignores .env.local and build artifacts
+├── AGENTS.md                AI agent guidance (this file)
+├── CLAUDE.md                Claude Code guidance
+├── README.md                Human-facing setup guide
+└── src/
+    └── oauth/               Self-contained OAuth test feature
+        ├── package.json     Dependencies and scripts
+        ├── server.js        Test server — Express app + dotenv + routes
+        ├── handler.js       OAuth routes (/auth/login, /auth/callback, /auth/refresh)
+        ├── token-store.js   In-memory token management (swap for DB in production)
+        ├── .env.example     Credential template (safe to commit)
+        └── .env.local       Local credentials (gitignored — never commit)
+```
+
+## OAuth server
+- OAuth uses realm-based paths: `/realms/{realm}/oauth/...`
+- Default realm: `partner`
+- Token endpoint expects `application/x-www-form-urlencoded` body (not query params)
+- Grant types used by this scaffold: `authorization_code` (callback) and `refresh_token` (`/auth/refresh`)
+- Other grant types supported by the Brevo OAuth server but not wired into this scaffold: `client_credentials`
+
+## OAuth flow
+1. `/auth/login` — generates CSRF state, redirects user to `{OAUTH_BASE}/realms/{realm}/oauth/authorize`
+2. User authorizes -> OAuth server redirects to `/auth/callback` with an auth code
+3. Server validates state, exchanges code for access + refresh tokens via `POST /realms/{realm}/oauth/token`
+4. Verifies connection via `GET /realms/{realm}/oauth/userinfo`
+5. `/auth/refresh` — refreshes tokens using `refresh_token` grant
+
+## Development
+```bash
+yarn --cwd src/oauth install
+# or: npm --prefix src/oauth install
+brevo app start oauth        # port is read from app-config.json; override with --port
+```

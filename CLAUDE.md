@@ -1,0 +1,145 @@
+# CLAUDE.md — Brevo CLI
+
+## Project
+
+Brevo Developer CLI (`@getbrevo/cli`) — create, manage, and test OAuth integrations from the terminal.
+
+- **Language:** TypeScript (CommonJS, ES2022 target)
+- **Runtime:** Node.js >= 20.15.0
+- **Package manager:** Yarn >= 1.19.1
+
+## Public repository — review before committing
+
+This repo is **public** at `github.com/getbrevo/brevo-cli` and the package publishes to the **public npm registry** under `@getbrevo`. Every commit, PR title, PR description, issue, and review comment is world-readable and indexed by search engines. Treat each commit and PR as a public release.
+
+**Never commit:**
+
+- Real API keys (`xkeysib-…`), OAuth client secrets, refresh tokens, session tokens, or anything from `~/.brevo/credentials.json`
+- `.env` files, `.brevo.json` linked-project config, real `app-config.json` from a Brevo account
+- Internal infrastructure URLs, non-production hostnames, internal Slack/Confluence links, or internal Jira issue *content*
+- Customer or account identifiers (real org IDs, account IDs, app UUIDs from production), names, emails, IP addresses, log dumps containing PII
+- Screenshots that contain any of the above
+- Internal-only design docs, RFCs, or roadmap details
+
+**Test fixtures must use placeholders.** API keys → `xkeysib-test-…`, app IDs → fake UUIDs, hostnames → `example.com` or `localhost`, emails → `user@example.com`. Mirror the format of real values without using real values.
+
+**PR titles, descriptions, and commit messages are public.** Reference Jira tickets by key only (`BEX-169`) — the URL maps to a private Jira so the link is fine, but don't restate private ticket content (customer names, internal incident details, security-sensitive context) in the public PR body. If a change is driven by a security fix, keep the public commit message high-level and coordinate disclosure separately.
+
+**Before every commit:**
+
+1. Run `git diff --staged` and skim the full diff — confirm no secrets, real customer data, or internal URLs slipped in
+2. Check `git status` for accidentally staged files (`.env`, `credentials.json`, `.brevo.json`, screenshots, scratch files)
+3. Confirm the commit message and any PR body would be safe to publish on a billboard
+
+**Before every PR:**
+
+- Re-read the title and body for internal context that doesn't belong in public
+- Confirm any added test fixtures use placeholder data
+- If you're unsure whether something is sensitive, ask before pushing
+
+## Build & run
+
+```bash
+yarn install            # install dependencies
+yarn build              # compile TS + copy templates to dist/
+yarn link:dev           # build + yarn link for local testing
+yarn dev                # watch mode (tsc --watch)
+```
+
+## Test
+
+```bash
+yarn test               # jest --passWithNoTests
+yarn test:ci            # jest --coverage
+```
+
+All tests live in `src/__tests__/` mirroring the `src/` structure. Tests use Jest with `ts-jest`. Mocks go inline in test files (no shared mock directory).
+
+## Lint & format
+
+```bash
+yarn lint               # eslint (quiet mode)
+yarn lint:fix           # eslint --fix
+yarn format             # prettier --write
+yarn format:check       # prettier --check
+```
+
+Pre-commit hook (husky + lint-staged) runs prettier and eslint on staged `.ts` files, then runs the full test suite.
+
+## Project structure
+
+```
+src/
+  bin/index.ts              CLI entry point (commander setup, error handling)
+  commands/
+    definitions.ts          Command/option registry (all commands declared here)
+    login.ts, logout.ts     Auth commands
+    init.ts, whoami.ts      Setup/info commands
+    app/                    App subcommands (create, list, scaffold, start, test, update, delete, credentials)
+  services/                 Business logic (appService, accountService)
+  api/                      HTTP client (client.ts)
+  lib/                      Shared utilities (config, constants, errors, logger, validators, ui)
+  lang/en.ts                All user-facing strings (single source of truth)
+  templates/
+    index.ts                Template loader + manifest
+    files/*.tmpl            Scaffold templates (11 files; manifest in `templates/index.ts`)
+  types.ts                  Shared TypeScript interfaces
+  __tests__/                Tests (mirrors src/ structure)
+```
+
+## Key conventions
+
+- **All user-facing strings** live in `src/lang/en.ts` — never hardcode messages in command files.
+- **CLI command references** (e.g. `brevo app create`) are defined in `src/lib/constants.ts` as `CLI.*` — use these instead of string literals.
+- **Commands** are registered declaratively in `src/commands/definitions.ts` — handler functions live in their own files.
+- **Error handling** uses `CliError` (user-facing) and `ApiError` (HTTP errors) from `src/lib/errors.ts`. Commands are wrapped with `withCommandHandler()`.
+- **JSON output** — every command supports `--json` via `jsonOutput()` from `src/lib/json-output.ts`.
+- **`brevo app update`** supports `--name`, `--redirect-url` (repeatable, appends), and `--app-id` flags. Without flags it pushes the full `app-config.json` (current behavior). With flags it merges: flag values override/append existing values from `app-config.json` or the API. After a successful update, `app-config.json` is written back if it exists and the app ID matches.
+- **Scaffold templates** in `src/templates/files/*.tmpl` use `{{VARIABLE}}` placeholders. Variables are defined in `scaffold.ts` and listed in `templates/index.ts`. Templates must reference both `npm` and `yarn` (not npm-only). Use `brevo app start oauth` (not `brevo app start`).
+- **Credentials** are stored in `~/.brevo/credentials.json`. App credentials (clientId/clientSecret) are cached per app ID under an `apps` key.
+
+## Testing patterns
+
+- Mock external dependencies (`inquirer`, `../container`, `../lib/config`) at the top of test files.
+- Use `jest.spyOn(process.stdout, 'write')` to capture CLI output.
+- Services are tested against mocked API client responses.
+- Template tests verify variable substitution, not file I/O.
+
+## Adding a new command
+
+1. Create handler in `src/commands/` (or `src/commands/app/` for app subcommands)
+2. Wrap with `withCommandHandler()` for consistent error handling
+3. Register in `src/commands/definitions.ts`
+4. Add user-facing strings to `src/lang/en.ts`
+5. Add CLI references to `src/lib/constants.ts` if needed
+6. Write tests in `src/__tests__/commands/`
+
+## Versioning & releases
+
+This project uses [changesets](https://github.com/changesets/changesets) for versioning. Packages publish to the public npm registry (`registry.npmjs.org`) under the `@getbrevo` scope.
+
+```bash
+yarn changeset            # create a new changeset (interactive)
+yarn version:packages     # consume changesets, bump version, update CHANGELOG
+yarn publish:packages     # publish to npm
+```
+
+**When to add a changeset:** any PR that changes user-visible behavior (new feature, bug fix, breaking change). Run `yarn changeset` and commit the generated file with your PR.
+
+**CI/CD:**
+- `.github/workflows/push.yaml` — runs lint, test, build on every push/PR to `main`
+- `.github/workflows/release.yaml` — when changesets merge to `main`, opens a "Version Packages" PR; merging that PR publishes to npm
+- `.github/workflows/pre-release.yaml` — pushes to `release-*` branches publish alpha prereleases to npm
+
+**Secrets required:**
+- `NPM_TOKEN` — npm access token with `publish` permission scoped to `@getbrevo` (set in repo Settings → Secrets)
+- `GITHUB_TOKEN` — auto-provided by GitHub Actions
+
+**Workflow / publishing changes — treat as security review, not style review.** Any edit to `.github/workflows/release.yaml` or `.github/workflows/pre-release.yaml`:
+
+- Code-owner review is required (enforced via `CODEOWNERS`)
+- Keep every `uses:` pinned to a commit SHA with a version comment
+- Keep `persist-credentials: false` on every checkout in any job that has access to publish secrets
+- Keep `id-token: write` and `NPM_CONFIG_PROVENANCE=true` on the publishing step
+
+If a contributor proposes removing any of these, push back — don't silently drop them to make a diff cleaner.

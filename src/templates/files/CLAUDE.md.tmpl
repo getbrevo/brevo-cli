@@ -1,0 +1,59 @@
+# CLAUDE.md — {{APP_NAME}}
+
+## Project
+Brevo OAuth integration for app `{{APP_ID}}`.
+Scaffolded with the [Brevo CLI](https://github.com/getbrevo/brevo-cli).
+
+> **This is a test app** scaffolded by the Brevo CLI to help you test your OAuth integration locally.
+
+## Run
+```bash
+yarn --cwd src/oauth install
+# or: npm --prefix src/oauth install
+brevo app start oauth        # port is read from app-config.json; override with --port
+```
+
+## Structure
+```
+.
+├── app-config.json          App metadata (ID, scopes, redirect URLs)
+├── .gitignore               Ignores .env.local and build artifacts
+├── AGENTS.md                AI agent guidance
+├── CLAUDE.md                Claude Code guidance (this file)
+├── README.md                Human-facing setup guide
+└── src/
+    └── oauth/               Self-contained OAuth test feature
+        ├── package.json     Dependencies and scripts
+        ├── server.js        Test server entry point
+        ├── handler.js       OAuth routes (/auth/login, /auth/callback, /auth/refresh)
+        ├── token-store.js   In-memory token store
+        ├── .env.example     Credential template (committed)
+        └── .env.local       Local credentials (gitignored — never commit)
+```
+
+## OAuth server
+- OAuth endpoints use realm-based paths: `/realms/{realm}/oauth/...`
+- Default realm: `partner`
+- Env vars `OAUTH_BASE` and `OAUTH_REALM` control the OAuth server and realm
+
+### Endpoints used
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /realms/{realm}/oauth/authorize` | Authorization (redirect user here) |
+| `POST /realms/{realm}/oauth/token` | Exchange code or refresh token for access token |
+| `GET /realms/{realm}/oauth/userinfo` | Fetch user profile with Bearer token |
+| `POST /realms/{realm}/oauth/revoke` | Revoke a token |
+| `POST /realms/{realm}/oauth/introspect` | Token introspection (RFC 7662) |
+| `GET /realms/{realm}/.well-known/openid-configuration` | OIDC discovery |
+
+## Key flows
+- `/auth/login` — generates random CSRF state, redirects to OAuth authorize endpoint
+- `/auth/callback` — validates state, POSTs code to `/realms/{realm}/oauth/token`, stores tokens
+- `/auth/refresh` — refreshes tokens using `refresh_token` grant
+
+## Next steps
+- Replace the in-memory token store in `src/oauth/token-store.js` with a real database (the global singleton is process-local so data is lost on restart, and it is not session-isolated, so multiple users/sessions/tabs can read or overwrite the same in-memory tokens)
+- Handle token-refresh failures — `/auth/refresh` currently returns a 500 on any error; surface 401 vs 5xx distinctly so callers can re-trigger `/auth/login` when the refresh token has expired
+- Add `/auth/logout` that calls `POST /realms/{realm}/oauth/revoke` and clears the token store (the endpoint is supported by the OAuth server but the scaffold doesn't use it yet)
+- Add automated tests around the callback and refresh routes (e.g. with `supertest` + axios mocks) before extending the flow
+- Persist (or rotate) the CSRF `state` per session — the scaffold stores a single global state, which is fine for solo localhost testing but not for anything else

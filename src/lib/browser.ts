@@ -1,0 +1,11 @@
+import { execFile } from 'child_process';
+
+export function openBrowser(url: string): void {
+  if (process.platform === 'darwin') {
+    execFile('open', [url]);
+  } else if (process.platform === 'win32') {
+    execFile('cmd', ['/c', 'start', '', url]);
+  } else {
+    execFile('xdg-open', [url]);
+  }
+}

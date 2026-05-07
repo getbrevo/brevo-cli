@@ -1,0 +1,83 @@
+# {{APP_NAME}}
+
+Brevo OAuth integration for testing and implementing app authorization flows, scaffolded with the Brevo CLI.
+
+> **This is a starter / test app** to help you exercise the OAuth flow locally. Treat it as a reference — it is not intended for production use.
+
+## Setup
+
+1. Install dependencies for the oauth feature:
+
+   ```bash
+   yarn --cwd src/oauth install
+   # or: npm --prefix src/oauth install
+   ```
+
+2. Start the local OAuth test server (the CLI reads `app-config.json` for port and redirect URLs):
+
+   ```bash
+   brevo app start oauth
+   # or choose a port: brevo app start oauth --port 3000
+   ```
+
+3. Open the login URL printed by the CLI (typically `http://localhost:<port>/auth/login`). The OAuth server redirects back to `http://localhost:<port>/auth/callback` — make sure that URL is registered on your app's redirect list.
+
+## Project structure
+
+```
+.
+├── app-config.json           App config — ID, scopes, redirect URLs
+├── .gitignore                Ignores .env.local and build artifacts
+├── AGENTS.md                 AI agent guidance
+├── CLAUDE.md                 Claude Code guidance
+├── README.md                 (this file)
+└── src/
+    └── oauth/                Self-contained OAuth test feature
+        ├── package.json      Dependencies & `yarn start` script
+        ├── server.js         Test server entry point
+        ├── handler.js        OAuth routes (/auth/login, /auth/callback, /auth/refresh)
+        ├── token-store.js    In-memory token management
+        ├── .env.example      Credential template (committed)
+        └── .env.local        Local credentials (gitignored, chmod 600)
+```
+
+## Credentials
+
+- Client ID and secret are written to `src/oauth/.env.local` during scaffold (file permissions `600`).
+- Re-fetch them any time with `brevo app credentials --app-id {{APP_ID}} --reveal-secret`.
+- `.env.local` is in `.gitignore` — **never commit it**.
+
+## Security
+
+- Never commit `src/oauth/.env.local` — it contains your client secret.
+- The test server uses a random `state` parameter for CSRF protection and binds to localhost only.
+- Access tokens are kept in process memory; restarting the server clears them.
+
+## Updating your app
+
+Push changes to Brevo directly from the CLI:
+
+```bash
+brevo app update --name "New Name"
+brevo app update --redirect-url https://myapp.com/callback
+brevo app update --name "New Name" --redirect-url https://myapp.com/callback
+```
+
+`--redirect-url` is repeatable and **appends** to existing URLs.
+
+To avoid unintentionally accumulating stale redirect URLs over time:
+
+- Periodically review your redirect list and remove obsolete entries in `app-config.json`.
+- Run `brevo app update` **without flags** to replace the remote configuration with the local file.
+- When flags are provided, the local `app-config.json` is updated automatically after a successful API call.
+
+Outside this project directory, target an app by ID:
+
+```bash
+brevo app update --app-id {{APP_ID}} --name "New Name"
+```
+
+## Docs
+
+- [Brevo API Documentation](https://developers.brevo.com)
+- [Brevo CLI](https://github.com/getbrevo/brevo-cli)

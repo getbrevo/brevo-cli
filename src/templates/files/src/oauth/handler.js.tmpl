@@ -1,0 +1,206 @@
+// Test handler — for local OAuth testing only. Not for production use.
+const fs = require('fs');
+const path = require('path');
+const express = require('express');
+const axios = require('axios');
+const tokenStore = require('./token-store');
+
+const router = express.Router();
+
+// Sanitise untrusted values before embedding in HTML to prevent XSS
+function escapeHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Shared styles for token display pages (callback + refresh)
+const PAGE_STYLES =
+  '<style>' +
+  '*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}' +
+  'body{font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:rgb(250,245,227);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 16px}' +
+  '.page-card{background:#fff;border:1px solid #e3e3e3;border-radius:16px;padding:40px;width:100%;max-width:560px;text-align:center}' +
+  '.page-card h2{color:#1b1b1b;font-size:22px;margin-bottom:8px}' +
+  '.page-card .subtitle{color:#696969;font-size:14px;margin-bottom:24px}' +
+  'a{color:#1b1b1b}' +
+  '.token-wrapper{position:relative;margin-top:6px}' +
+  '.token-value{display:block;padding:10px;background:#fff;border:1px solid #cfcfcf;border-radius:8px;font-family:monospace;font-size:13px;filter:blur(5px);user-select:none;cursor:pointer;transition:filter .2s}' +
+  '.token-value.revealed{filter:none;user-select:text;cursor:text}' +
+  '.reveal-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1b1b1b;color:#fff;border:none;padding:8px 16px;border-radius:16px;font-size:13px;font-weight:600;cursor:pointer}' +
+  '.reveal-btn.hidden{display:none}' +
+  '.request-details{text-align:left;margin:16px 0;background:#f5f5f5;border:1px solid #e3e3e3;padding:16px 20px;border-radius:16px;font-size:13px}' +
+  '.request-details strong{color:#1b1b1b}' +
+  '.request-details dt{font-weight:600;margin-top:8px;color:#1b1b1b}' +
+  '.request-details dd{margin:2px 0 0 0;font-family:monospace;word-break:break-all;color:#696969}' +
+  '.token-section{text-align:left;margin:16px 0;background:#f5f5f5;border:1px solid #e3e3e3;padding:20px;border-radius:16px;word-break:break-all}' +
+  '.footer-text{color:#858585;font-size:12px;margin-top:16px}' +
+  '</style>';
+
+const REVEAL_SCRIPT =
+  '<script>document.querySelectorAll(".reveal-btn").forEach(function(btn){btn.addEventListener("click",function(){btn.parentElement.querySelector(".token-value").classList.add("revealed");btn.classList.add("hidden")})});</script>';
+
+const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const REDIRECT_URI = process.env.REDIRECT_URI || '{{REDIRECT_URI}}';
+const OAUTH_BASE = process.env.OAUTH_BASE || '{{OAUTH_BASE}}';
+const OAUTH_REALM = process.env.OAUTH_REALM || '{{OAUTH_REALM}}';
+const PORT = process.env.PORT || 3009;
+
+const realmPath = `${OAUTH_BASE}/realms/${OAUTH_REALM}/oauth`;
+
+// Read scopes from app-config.json (default to 'all' if missing/corrupt)
+let SCOPES = 'all';
+try {
+  const appConfig = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'app-config.json'), 'utf-8'));
+  if (appConfig.auth && appConfig.auth.scopes) SCOPES = appConfig.auth.scopes.join(' ');
+} catch {
+  console.warn('Warning: Could not read app-config.json — defaulting scopes to "all".');
+}
+
+// Step 1: Redirect user to authorization page
+router.get('/login', (req, res) => {
+  const state = require('crypto').randomBytes(16).toString('hex');
+  tokenStore.setState(state);
+
+  const authUrl = `${realmPath}/authorize?` +
+    `response_type=code` +
+    `&client_id=${encodeURIComponent(CLIENT_ID)}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&state=${state}` +
+    `&scope=${encodeURIComponent(SCOPES)}`;
+
+  res.redirect(authUrl);
+});
+
+// Step 2: Handle the OAuth callback
+router.get('/callback', async (req, res) => {
+  const { code, state, error, error_description } = req.query;
+
+  if (error) {
+    console.error('OAuth error:', error, error_description || '');
+    return res.status(400).send(`Authorization denied: ${escapeHtml(error_description || error)}`);
+  }
+
+  if (!code || typeof code !== 'string') {
+    return res.status(400).send('Missing authorization code.');
+  }
+
+  if (state !== tokenStore.getState()) {
+    return res.status(400).send('Invalid state parameter.');
+  }
+
+  try {
+    // Step 3: Exchange authorization code for tokens
+    const tokenResponse = await axios.post(
+      `${realmPath}/token`,
+      new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        code,
+        redirect_uri: REDIRECT_URI,
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+
+    const { access_token, refresh_token, expires_in } = tokenResponse.data;
+    tokenStore.saveTokens({ access_token, refresh_token, expires_in });
+
+    // Step 4: Verify the access token via userinfo
+    const userInfoResponse = await axios.get(`${realmPath}/userinfo`, {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+
+    // Step 5: Log token status (tokens are only visible in the browser)
+    console.log(`\nAccess token received (expires in ${expires_in}s)`);
+    console.log('Refresh token received');
+    console.log('View tokens in your browser (masked — click to reveal).');
+    console.log(`Token refresh: http://localhost:${PORT}/auth/refresh`);
+    console.log('Next: use the access token to call the Brevo API, or open src/oauth/handler.js to see how the flow is wired.');
+
+    // Set no-cache headers — tokens are sensitive (local development only)
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.send(
+      `<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Brevo OAuth — Success</title>${PAGE_STYLES}</head>` +
+      '<body>' +
+      '<div class="page-card">' +
+      '<h2>Authorization successful!</h2>' +
+      '<p class="subtitle">Tokens are masked for security. Click to reveal.</p>' +
+      '<div class="request-details"><strong>Authorization Request</strong><dl>' +
+      `<dt>Client ID</dt><dd>${escapeHtml(CLIENT_ID)}</dd>` +
+      `<dt>Redirect URI</dt><dd>${escapeHtml(REDIRECT_URI)}</dd>` +
+      `<dt>Scopes</dt><dd>${escapeHtml(SCOPES)}</dd>` +
+      '</dl></div>' +
+      '<div class="token-section">' +
+      `<p><strong>Access Token</strong> (expires in ${expires_in}s):</p>` +
+      '<div class="token-wrapper">' +
+      `<code class="token-value">${escapeHtml(access_token)}</code>` +
+      '<button class="reveal-btn">Click to reveal</button></div>' +
+      '<div style="margin-top:16px"><p><strong>Refresh Token:</strong></p>' +
+      '<div class="token-wrapper">' +
+      `<code class="token-value">${escapeHtml(refresh_token)}</code>` +
+      '<button class="reveal-btn">Click to reveal</button></div></div>' +
+      '</div>' +
+      '<p style="margin-top:16px"><a href="/auth/refresh">Refresh token</a></p>' +
+      '</div>' +
+      REVEAL_SCRIPT +
+      '</body></html>',
+    );
+  } catch (error) {
+    console.error('OAuth error:', error.response?.data || error.message);
+    res.status(500).send('Authorization failed. Check terminal for details.');
+  }
+});
+
+// Token refresh — exchanges the stored refresh token for a new access token
+router.get('/refresh', async (req, res) => {
+  const refreshToken = tokenStore.getRefreshToken();
+  if (!refreshToken) {
+    return res.status(400).send('No refresh token available. Complete /auth/login first.');
+  }
+
+  try {
+    const tokenResponse = await axios.post(
+      `${realmPath}/token`,
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        refresh_token: refreshToken,
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+
+    const { access_token, refresh_token, expires_in } = tokenResponse.data;
+    tokenStore.saveTokens({ access_token, refresh_token, expires_in });
+
+    console.log(`\nAccess token refreshed (expires in ${expires_in}s)`);
+    console.log('View token in your browser (masked — click to reveal).');
+
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.send(
+      `<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Brevo OAuth — Token Refreshed</title>${PAGE_STYLES}</head>` +
+      '<body>' +
+      '<div class="page-card">' +
+      '<h2>Token refreshed!</h2>' +
+      '<p class="subtitle">Click to reveal the token.</p>' +
+      '<div class="token-section">' +
+      `<p><strong>Access Token</strong> (expires in ${expires_in}s):</p>` +
+      '<div class="token-wrapper">' +
+      `<code class="token-value">${escapeHtml(access_token)}</code>` +
+      '<button class="reveal-btn">Click to reveal</button></div>' +
+      '</div>' +
+      '<p class="footer-text">You can close this window and return to the terminal.</p>' +
+      '</div>' +
+      REVEAL_SCRIPT +
+      '</body></html>',
+    );
+  } catch (error) {
+    console.error('Refresh error:', error.response?.data || error.message);
+    res.status(500).send('Token refresh failed. Check terminal for details.');
+  }
+});
+
+module.exports = router;

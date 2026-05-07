@@ -1,0 +1,128 @@
+name: Prerelease
+
+on:
+  push:
+    branches:
+      - "release-*"
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  prerelease:
+    name: Changesets Prerelease
+    runs-on: ubuntu-latest
+
+    # Gates the prerelease publish behind required reviewers, scoped to
+    # `release-*` branches only. Configure in Settings → Environments:
+    #   - Required reviewers: <release team>
+    #   - Deployment branches: pattern `release-*`
+    #   - Secrets: NPM_TOKEN
+    environment: npm-prerelease
+
+    permissions:
+      contents: write
+      pull-requests: write
+      # Required for npm provenance.
+      id-token: write
+
+    steps:
+      - name: Checkout Repo
+        # actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # actions/setup-node@v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 20.15.0
+          registry-url: "https://registry.npmjs.org/"
+          scope: "@getbrevo"
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+        env:
+          HUSKY: 0
+
+      - name: Check for pre.json file existence
+        id: check_files
+        # andstor/file-existence-action@v2.0.0
+        uses: andstor/file-existence-action@558493d6c74bf472d87c84eab196434afc2fa029
+        with:
+          files: ".changeset/pre.json"
+
+      - name: Enter prerelease mode (alpha by default)
+        if: steps.check_files.outputs.files_exists == 'false' && !contains(github.event.head_commit.message, 'Exit prerelease')
+        run: yarn changeset pre enter alpha
+
+      - name: Build
+        run: yarn build
+
+      - name: Test
+        run: yarn test
+
+      - name: Create prerelease PR
+        # changesets/action@v1.7.0
+        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf
+        with:
+          title: "chore(release): version packages (alpha)"
+          version: yarn version:packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to npm
+        id: changesets
+        if: steps.check_files.outputs.files_exists == 'true' && contains(github.event.head_commit.message, 'Version Packages')
+        # changesets/action@v1.7.0
+        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf
+        with:
+          version: echo "This step should never version"
+          publish: yarn publish:packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Send Slack Notification
+        if: steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true'
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PACKAGE_RELEASE_WEBHOOK_URL }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL is not set; skipping notification."
+            exit 0
+          fi
+
+          name=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[0].name')
+          version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[0].version')
+
+          # Resolve the merged "Version Packages" PR for this commit so the
+          # Slack message links to the actual changeset diff. `// empty`
+          # makes jq emit nothing (instead of the literal "null") when the
+          # commit has no associated PR — otherwise `[ -n "$pr_number" ]`
+          # would pass on the string "null" and we'd build .../pull/null.
+          pr_number=$(gh api "repos/${REPO}/commits/${GITHUB_SHA}/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -n "$pr_number" ]; then
+            change_set_link="https://github.com/${REPO}/pull/${pr_number}"
+          else
+            encoded_tag=$(printf '%s@%s' "$name" "$version" | jq -sRr @uri)
+            change_set_link="https://github.com/${REPO}/releases/tag/${encoded_tag}"
+          fi
+
+          payload=$(jq -n \
+            --arg version            "$version" \
+            --arg changeSetLink      "$change_set_link" \
+            --arg actor              "$ACTOR" \
+            --arg preReleaseWarning  ":warning: *This is a pre-release version — not intended for production use.*" \
+            '{version: $version, changeSetLink: $changeSetLink, actor: $actor, preReleaseWarning: $preReleaseWarning}')
+
+          curl -X POST -H 'Content-type: application/json' \
+            -d "$payload" \
+            "$SLACK_WEBHOOK_URL"

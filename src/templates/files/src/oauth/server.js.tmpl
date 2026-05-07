@@ -1,0 +1,226 @@
+// Test server — for local OAuth testing only. Not for production use.
+// Run with: brevo app start oauth
+
+const path = require('path');
+const fs = require('fs');
+
+const envPath = path.join(__dirname, '.env.local');
+if (!fs.existsSync(envPath)) {
+  console.error('\nError: .env.local not found at', envPath);
+  console.error('Copy .env.example to .env.local and fill in your credentials:\n');
+  console.error(`  Source: ${path.join(__dirname, '.env.example')}\n`);
+  process.exit(1);
+}
+
+require('dotenv').config({ path: envPath });
+
+if (!process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+  console.error('\nError: CLIENT_ID and CLIENT_SECRET must be set in .env.local');
+  console.error('Get your credentials with: brevo app credentials --reveal-secret\n');
+  process.exit(1);
+}
+
+if (!process.env.OAUTH_BASE || process.env.OAUTH_BASE.startsWith('{{')) {
+  console.error('\nError: OAUTH_BASE is not set or contains a placeholder.');
+  console.error('Check your .env.local file and set a valid OAuth base URL.\n');
+  process.exit(1);
+}
+if (!process.env.OAUTH_REALM || process.env.OAUTH_REALM.startsWith('{{')) {
+  console.error('\nError: OAUTH_REALM is not set or contains a placeholder.');
+  console.error('Check your .env.local file and set a valid OAuth realm.\n');
+  process.exit(1);
+}
+
+const express = require('express');
+const authRouter = require('./handler');
+
+const app = express();
+const PORT = process.env.PORT || 3009;
+
+const REDIRECT_URI = process.env.REDIRECT_URI || '{{REDIRECT_URI}}';
+let SCOPES = 'all';
+try {
+  const appConfig = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'app-config.json'), 'utf-8'));
+  if (appConfig.auth && appConfig.auth.scopes) SCOPES = appConfig.auth.scopes.join(' ');
+} catch {
+  console.warn('Warning: Could not read app-config.json — defaulting scopes to "all".');
+}
+const AUTH_URL = `${process.env.OAUTH_BASE}/realms/${process.env.OAUTH_REALM}/oauth/authorize`
+  + `?response_type=code`
+  + `&client_id=${encodeURIComponent(process.env.CLIENT_ID)}`
+  + `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`
+  + `&state=[random]`
+  + `&scope=${encodeURIComponent(SCOPES)}`;
+
+app.use('/auth', authRouter);
+
+app.use(express.urlencoded({ extended: true }));
+
+app.get('/', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{APP_NAME}} — OAuth Test</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: rgb(250, 245, 227);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 16px;
+    }
+    .brevo-logo {
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .brevo-logo svg { height: 48px; }
+    .card {
+      background: #fff;
+      border: 1px solid #e3e3e3;
+      border-radius: 16px;
+      padding: 40px;
+      width: 100%;
+      max-width: 500px;
+      text-align: center;
+    }
+    .card h2 {
+      color: #1b1b1b;
+      font-size: 22px;
+      margin-bottom: 6px;
+    }
+    .card p.sub {
+      color: #696969;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 16px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      text-align: center;
+      margin-bottom: 12px;
+      height: 40px;
+      line-height: 24px;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-primary { background: #1b1b1b; color: #fff; }
+    .btn-secondary {
+      background: #fff;
+      color: #1b1b1b;
+      border: 1px solid #cfcfcf;
+    }
+    .hint {
+      background: #f5f5f5;
+      border: 1px solid #e3e3e3;
+      border-radius: 16px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #696969;
+      margin-bottom: 16px;
+      text-align: left;
+    }
+    .hint code {
+      background: rgba(0,0,0,0.06);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    .auth-url {
+      background: #f5f5f5;
+      border: 1px solid #e3e3e3;
+      border-radius: 16px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: #696969;
+      text-align: left;
+      margin-bottom: 16px;
+      word-break: break-all;
+    }
+    .auth-url strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+      color: #1b1b1b;
+    }
+    .auth-url code {
+      font-family: monospace;
+      font-size: 11px;
+      color: #858585;
+    }
+    .footer {
+      margin-top: 16px;
+      color: #858585;
+      font-size: 12px;
+    }
+    .btn-primary, .btn-secondary { display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .spinner {
+      display: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(0,0,0,0.15);
+      border-top-color: #1b1b1b;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    .btn-primary .spinner { border-color: rgba(255,255,255,0.3); border-top-color: #fff; }
+    .btn.loading .spinner { display: inline-block; }
+    .btn.loading { pointer-events: none; opacity: 0.7; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="brevo-logo">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 28" fill="none">
+      <path fill="#0B996E" d="M73.825 17.178c0-4.037 2.55-6.876 6.175-6.876 3.626 0 6.216 2.838 6.216 6.876 0 4.04-2.59 6.716-6.216 6.716-3.626 0-6.175-2.8-6.175-6.716Zm-3.785 0c0 5.957 4.144 10.155 9.96 10.155 5.816 0 10-4.198 10-10.155 0-5.957-4.144-10.314-10-10.314-5.857 0-9.96 4.279-9.96 10.314ZM50.717 7.104l7.81 19.989h3.665l7.81-19.99h-3.945l-5.658 15.433h-.08L54.662 7.104h-3.945Zm-15.18 9.354c.239-3.679 2.67-6.156 5.977-6.156 2.867 0 5.02 1.84 5.338 4.598h-6.614c-2.35 0-3.626.28-4.58 1.56h-.121v-.002Zm-3.784.6c0 5.957 4.183 10.274 9.96 10.274 3.904 0 7.33-1.999 8.803-5.158l-3.186-1.6c-1.115 2.079-3.267 3.318-5.618 3.318-2.83 0-5.379-2.159-5.379-4.238 0-1.078.718-1.56 1.753-1.56h12.63v-1.078c0-5.997-3.825-10.155-9.323-10.155-5.497 0-9.641 4.278-9.641 10.195M20.916 27.09h3.586V14.82c0-2.64 1.632-4.519 3.905-4.519.956 0 1.951.32 2.43.759.359-.96.917-1.918 1.753-2.878-.957-.799-2.59-1.32-4.184-1.32-4.382 0-7.49 3.278-7.49 7.956v12.274-.002ZM3.586 13.86V4.104h5.896c1.992 0 3.307 1.16 3.307 2.918 0 1.999-1.713 3.518-5.218 4.677-2.39.76-3.466 1.4-3.865 2.16l-.12.001Zm0 9.795v-4.077c0-1.8 1.514-3.558 3.626-4.238 1.873-.64 3.425-1.28 4.74-1.959 1.754 1.04 2.829 2.838 2.829 4.718 0 3.198-3.028 5.556-7.132 5.556H3.586ZM0 27.093h7.968c6.057 0 10.597-3.798 10.597-8.835 0-2.76-1.394-5.237-3.864-6.837 1.275-1.28 1.873-2.759 1.873-4.558 0-3.717-2.67-6.196-6.693-6.196H0v26.426Z"/>
+    </svg>
+  </div>
+
+  <div class="card">
+    <h2>{{APP_NAME}}</h2>
+    <p class="sub">Local OAuth testing server</p>
+    <p class="hint">Before starting, make sure the redirect URL in <code>app-config.json</code> matches this server's port (<code>${PORT}</code>).</p>
+    <div class="auth-url">
+      <strong>Authorization URL</strong>
+      <code>${AUTH_URL}</code>
+    </div>
+    <a href="/auth/login" id="start-btn" class="btn btn-primary"><span>Start OAuth Flow</span><span class="spinner"></span></a>
+    <a href="/auth/refresh" id="refresh-btn" class="btn btn-secondary"><span>Refresh Token</span><span class="spinner"></span></a>
+    <p class="footer">Running on localhost &middot; Not for production use</p>
+  </div>
+  <script>
+    document.querySelectorAll(".btn").forEach(function (btn) {
+      btn.addEventListener("click", function () { btn.classList.add("loading"); });
+    });
+    window.addEventListener("pageshow", function () {
+      document.querySelectorAll(".btn.loading").forEach(function (btn) { btn.classList.remove("loading"); });
+    });
+  </script>
+</body>
+</html>`);
+});
+
+app.listen(PORT, '127.0.0.1', () => {
+  const url = `http://localhost:${PORT}`;
+  console.log(`\nTest server running at ${url}`);
+  console.log(`Opening browser...\n`);
+
+  const { execFile } = require('child_process');
+  const open = process.platform === 'darwin' ? ['open', [url]]
+    : process.platform === 'win32' ? ['cmd', ['/c', 'start', url]]
+    : ['xdg-open', [url]];
+  execFile(open[0], open[1], () => {});
+});

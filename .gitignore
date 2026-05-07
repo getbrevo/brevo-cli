@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+.brevo.json
+coverage/
+.claude/
+package-lock.json

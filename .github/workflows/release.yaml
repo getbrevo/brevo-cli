@@ -1,0 +1,197 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Version & Publish
+    runs-on: ubuntu-latest
+
+    # Gates the job behind a GitHub environment with required reviewers.
+    # Configure in repo Settings → Environments → npm-publish:
+    #   - Required reviewers: <release team>
+    #   - Deployment branches: only `main`
+    #   - Secrets: NPM_TOKEN, SLACK_*_WEBHOOK_URL
+    # Every publish then requires an explicit human approval click.
+    environment: npm-publish
+
+    permissions:
+      contents: write
+      pull-requests: write
+      # Required for npm provenance: the runner mints an OIDC token that
+      # npm uses to bind the published tarball to this workflow + commit.
+      id-token: write
+
+    steps:
+      - name: Checkout
+        # actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          # Don't leave the GITHUB_TOKEN in `.git/config` after checkout —
+          # any later step that shells out can no longer reuse it.
+          persist-credentials: false
+
+      - name: Setup Node.js
+        # actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 20.15.0
+          cache: yarn
+          registry-url: https://registry.npmjs.org/
+          scope: "@getbrevo"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build
+        run: yarn build
+
+      - name: Test
+        run: yarn test
+
+      - name: Compute next release info
+        id: next
+        run: |
+          yarn changeset status --output=/tmp/status.json 2>/dev/null || true
+          if [ ! -s /tmp/status.json ]; then
+            echo "has_changesets=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          RELEASE_COUNT=$(jq '.releases | length' /tmp/status.json)
+          if [ "$RELEASE_COUNT" -eq 0 ]; then
+            echo "has_changesets=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          NAME=$(jq -r '.releases[0].name' /tmp/status.json)
+          VERSION=$(jq -r '.releases[0].newVersion' /tmp/status.json)
+          {
+            echo "has_changesets=true"
+            echo "name=$NAME"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create Release PR or Publish
+        id: changesets
+        # changesets/action@v1.7.0
+        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf
+        with:
+          version: yarn version:packages
+          publish: yarn publish:packages
+          title: "${{ steps.next.outputs.has_changesets == 'true' && format('chore(release): {0}@{1}', steps.next.outputs.name, steps.next.outputs.version) || 'chore(release): version packages' }}"
+          commit: "${{ steps.next.outputs.has_changesets == 'true' && format('chore(release): {0}@{1}', steps.next.outputs.name, steps.next.outputs.version) || 'chore(release): version packages' }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Tells npm to attach a signed provenance attestation to the
+          # published tarball. Anyone can verify on npmjs.com that
+          # @getbrevo/cli@x.y.z came from this repo + this workflow run.
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Enhance release PR description
+        if: steps.changesets.outputs.pullRequestNumber != '' && steps.next.outputs.has_changesets == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+          NAME: ${{ steps.next.outputs.name }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          EXISTING_BODY=$(gh pr view "$PR_NUMBER" --json body -q .body)
+
+          # Drop the auto-generated boilerplate intro; keep from the first "# Releases" header.
+          STRIPPED=$(printf '%s\n' "$EXISTING_BODY" | sed -n '/^# Releases/,$p')
+          [ -z "$STRIPPED" ] && STRIPPED="$EXISTING_BODY"
+
+          {
+            printf ':package: *Release summary*\n\n'
+            printf '| Package | Version |\n'
+            printf '|---|---|\n'
+            printf '| `%s` | **v%s** |\n\n' "$NAME" "$VERSION"
+            printf '> Merging this PR publishes the new version to the public npm registry and triggers Slack notifications.\n\n'
+            printf -- '---\n\n'
+            printf '%s\n' "$STRIPPED"
+          } > /tmp/pr-body.md
+
+          gh pr edit "$PR_NUMBER" --body-file /tmp/pr-body.md
+
+      - name: Notify Slack of upcoming release
+        if: steps.changesets.outputs.pullRequestNumber != '' && steps.next.outputs.has_changesets == 'true'
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_UPCOMING_RELEASE_ANNOUNCEMENT_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          PKG_NAME: ${{ steps.next.outputs.name }}
+          PKG_NEW_VERSION: ${{ steps.next.outputs.version }}
+          ACTOR: ${{ github.actor }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL is not set; skipping notification."
+            exit 0
+          fi
+
+          TAG="${PKG_NAME}@${PKG_NEW_VERSION}"
+          RELEASE_PR_URL="https://github.com/${REPO}/pull/${PR_NUMBER}"
+
+          PAYLOAD=$(jq -nc \
+            --arg repository   "$REPO" \
+            --arg tag          "$TAG" \
+            --arg releasePrUrl "$RELEASE_PR_URL" \
+            --arg actor        "@$ACTOR" \
+            '{
+              repository:   $repository,
+              tag:          $tag,
+              releasePrUrl: $releasePrUrl,
+              actor:        $actor
+            }')
+
+          curl -X POST -H 'Content-type: application/json' \
+            -d "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Send Slack Notification
+        if: steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true'
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PACKAGE_RELEASE_WEBHOOK_URL }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL is not set; skipping notification."
+            exit 0
+          fi
+
+          name=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[0].name')
+          version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[0].version')
+
+          # Resolve the merged "Version Packages" PR for this commit so the
+          # Slack message links to the actual changeset diff. `// empty`
+          # makes jq emit nothing (instead of the literal "null") when the
+          # commit has no associated PR — otherwise `[ -n "$pr_number" ]`
+          # would pass on the string "null" and we'd build .../pull/null.
+          pr_number=$(gh api "repos/${REPO}/commits/${GITHUB_SHA}/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -n "$pr_number" ]; then
+            change_set_link="https://github.com/${REPO}/pull/${pr_number}"
+          else
+            encoded_tag=$(printf '%s@%s' "$name" "$version" | jq -sRr @uri)
+            change_set_link="https://github.com/${REPO}/releases/tag/${encoded_tag}"
+          fi
+
+          payload=$(jq -n \
+            --arg version            "$version" \
+            --arg changeSetLink      "$change_set_link" \
+            --arg actor              "$ACTOR" \
+            --arg preReleaseWarning  "" \
+            '{version: $version, changeSetLink: $changeSetLink, actor: $actor, preReleaseWarning: $preReleaseWarning}')
+
+          curl -X POST -H 'Content-type: application/json' \
+            -d "$payload" \
+            "$SLACK_WEBHOOK_URL"
