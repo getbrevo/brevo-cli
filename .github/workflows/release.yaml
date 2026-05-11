@@ -17,7 +17,11 @@ jobs:
     # Configure in repo Settings → Environments → npm-publish:
     #   - Required reviewers: <release team>
     #   - Deployment branches: only `main`
-    #   - Secrets: NPM_TOKEN, SLACK_*_WEBHOOK_URL
+    #   - Secrets: SLACK_*_WEBHOOK_URL
+    #     (NPM_TOKEN is no longer used — auth is via npm Trusted Publishing.
+    #      Configure the trusted publisher on npmjs.com for @getbrevo/cli:
+    #      repo getbrevo/brevo-cli, workflow .github/workflows/release.yaml,
+    #      environment npm-publish.)
     # Every publish then requires an explicit human approval click.
     environment: npm-publish
 
@@ -45,6 +49,12 @@ jobs:
           cache: yarn
           registry-url: https://registry.npmjs.org/
           scope: "@getbrevo"
+
+      # npm Trusted Publishing (OIDC) requires npm >= 11.5.1.
+      # Node 20.15.0 ships with npm 10.x, so upgrade explicitly.
+      # Pin the version — do not use @latest.
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@11.5.1
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -87,7 +97,13 @@ jobs:
           commit: "${{ steps.next.outputs.has_changesets == 'true' && format('chore(release): {0}@{1}', steps.next.outputs.name, steps.next.outputs.version) || 'chore(release): version packages' }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # No NPM_TOKEN — auth is via npm Trusted Publishing (OIDC).
+          # The npm CLI uses the runner's OIDC token (id-token: write) to
+          # authenticate to the registry. The trust relationship must be
+          # configured on npmjs.com for @getbrevo/cli: repo getbrevo/brevo-cli,
+          # workflow .github/workflows/release.yaml, environment npm-publish.
+          # https://docs.npmjs.com/trusted-publishers
+          #
           # Tells npm to attach a signed provenance attestation to the
           # published tarball. Anyone can verify on npmjs.com that
           # @getbrevo/cli@x.y.z came from this repo + this workflow run.

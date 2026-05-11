@@ -131,9 +131,11 @@ yarn publish:packages     # publish to npm
 - `.github/workflows/release.yaml` — when changesets merge to `main`, opens a "Version Packages" PR; merging that PR publishes to npm
 - `.github/workflows/pre-release.yaml` — pushes to `release-*` branches publish alpha prereleases to npm
 
+**npm auth: Trusted Publishing (OIDC), no long-lived token.** Publishes authenticate to npm via the GitHub Actions OIDC token (`id-token: write`) — there is no `NPM_TOKEN` secret. The trust relationship is configured on npmjs.com for `@getbrevo/cli` and binds publishes to: repo `getbrevo/brevo-cli`, the specific workflow file, and the GitHub environment (`npm-publish` for stable, `npm-prerelease` for alphas). See https://docs.npmjs.com/trusted-publishers.
+
 **Secrets required:**
-- `NPM_TOKEN` — npm access token with `publish` permission scoped to `@getbrevo` (set in repo Settings → Secrets)
 - `GITHUB_TOKEN` — auto-provided by GitHub Actions
+- `SLACK_*_WEBHOOK_URL` — only for release announcements (configured in the `npm-publish` environment)
 
 **Workflow / publishing changes — treat as security review, not style review.** Any edit to `.github/workflows/release.yaml` or `.github/workflows/pre-release.yaml`:
 
@@ -141,5 +143,7 @@ yarn publish:packages     # publish to npm
 - Keep every `uses:` pinned to a commit SHA with a version comment
 - Keep `persist-credentials: false` on every checkout in any job that has access to publish secrets
 - Keep `id-token: write` and `NPM_CONFIG_PROVENANCE=true` on the publishing step
+- Do not reintroduce `NPM_TOKEN` — auth is OIDC. If publishing breaks, fix the trusted-publisher config on npmjs.com, do not paper over it with a static token.
+- Keep the npm CLI pinned to a version that supports Trusted Publishing (>= 11.5.1). Do not use `npm@latest`.
 
 If a contributor proposes removing any of these, push back — don't silently drop them to make a diff cleaner.
