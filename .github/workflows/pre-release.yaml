@@ -65,7 +65,7 @@ jobs:
 
       - name: Create prerelease PR
         # changesets/action@v1.7.0
-        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf
+        uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b
         with:
           title: "chore(release): version packages (alpha)"
           version: yarn version:packages
@@ -76,7 +76,7 @@ jobs:
         id: changesets
         if: steps.check_files.outputs.files_exists == 'true' && contains(github.event.head_commit.message, 'Version Packages')
         # changesets/action@v1.7.0
-        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf
+        uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b
         with:
           version: echo "This step should never version"
           publish: yarn publish:packages
