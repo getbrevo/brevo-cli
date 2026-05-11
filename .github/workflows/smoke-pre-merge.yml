@@ -1,0 +1,61 @@
+name: Smoke (pre-merge)
+
+# Runs on the release path only:
+#   - pull_request to main FROM `changeset-release/main` (publish gate)
+#   - push to main (post-merge canary)
+#   - workflow_dispatch (manual rerun / ad-hoc smoke on a feature PR)
+# Feature PRs are skipped via the job-level `if:` to save robot-account quota.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-pre-merge-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke test (pre-merge)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.head_ref == 'changeset-release/main')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20.15.0
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Run smoke test against PR branch build
+        run: yarn smoke --ci --against=local --report=smoke-report.json
+        env:
+          BREVO_API_KEY: ${{ secrets.BREVO_TEST_API_KEY }}
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            smoke-report.json
+            /tmp/brevo-smoke-*.log
+          if-no-files-found: ignore
+          retention-days: 14

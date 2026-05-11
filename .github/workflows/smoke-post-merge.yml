@@ -1,0 +1,82 @@
+name: Smoke (post-merge)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to test (defaults to npm `latest` tag)"
+        required: false
+
+concurrency:
+  group: smoke-post-merge
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke test (published)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20.15.0
+          cache: yarn
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Wait for npm propagation
+        env:
+          EXPECTED_TAG: ${{ github.event.release.tag_name || inputs.version }}
+        run: |
+          set -eu
+          # Release tags from changesets look like `@getbrevo/cli@1.2.3`.
+          # `${var##*@}` strips everything up to and including the last `@`,
+          # leaving the bare version. If no tag is provided we just trust npm's
+          # `latest` and proceed.
+          if [ -z "$EXPECTED_TAG" ]; then
+            echo "no expected tag supplied; trusting npm latest"
+            exit 0
+          fi
+          want="${EXPECTED_TAG##*@}"
+          echo "waiting for @getbrevo/cli@${want} to appear on npm..."
+          for i in $(seq 1 30); do
+            got=$(npm view @getbrevo/cli@latest version 2>/dev/null || true)
+            if [ "$got" = "$want" ]; then
+              echo "npm now serves ${got}"
+              exit 0
+            fi
+            echo "  npm has '${got}', expected '${want}' — retrying in 10s (${i}/30)"
+            sleep 10
+          done
+          echo "::error::npm did not serve ${want} within 5 minutes; aborting"
+          exit 1
+
+      - name: Run smoke test against published version
+        run: yarn smoke --ci --against=published --report=smoke-report.json
+        env:
+          BREVO_API_KEY: ${{ secrets.BREVO_TEST_API_KEY }}
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            smoke-report.json
+            /tmp/brevo-smoke-*.log
+          if-no-files-found: ignore
+          retention-days: 30

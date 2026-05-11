@@ -31,6 +31,7 @@
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
     "mock": "npx @stoplight/prism-cli mock mock/openapi.yaml --port 3112",
+    "smoke": "tsx scripts/smoke-test.ts",
     "clean": "rm -rf dist",
     "prepare": "husky",
     "prepublishOnly": "npm run clean && npm run build && npm test",
@@ -55,6 +56,7 @@
     "lint-staged": "^15.2.0",
     "prettier": "^3.2.0",
     "ts-jest": "^29.2.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   },
   "lint-staged": {

@@ -16,7 +16,10 @@ jobs:
     # `release-*` branches only. Configure in Settings → Environments:
     #   - Required reviewers: <release team>
     #   - Deployment branches: pattern `release-*`
-    #   - Secrets: NPM_TOKEN
+    #     npm Trusted Publishing. Configure the trusted publisher on
+    #     npmjs.com for @getbrevo/cli: repo getbrevo/brevo-cli,
+    #     workflow .github/workflows/pre-release.yaml, environment
+    #     npm-prerelease.)
     environment: npm-prerelease
 
     permissions:
@@ -27,19 +30,23 @@ jobs:
 
     steps:
       - name: Checkout Repo
-        # actions/checkout@v4
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      # actions/setup-node@v4
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+      - uses: actions/setup-node@v6
         with:
           node-version: 20.15.0
           registry-url: "https://registry.npmjs.org/"
           scope: "@getbrevo"
           cache: yarn
+
+      # npm Trusted Publishing (OIDC) requires npm >= 11.5.1.
+      # Node 20.15.0 ships with npm 10.x, so upgrade explicitly.
+      # Pin the version — do not use @latest.
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@11.5.1
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -82,7 +89,11 @@ jobs:
           publish: yarn publish:packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # No NPM_TOKEN — auth is via npm Trusted Publishing (OIDC).
+          # The trust relationship must be configured on npmjs.com for
+          # @getbrevo/cli: repo getbrevo/brevo-cli, workflow
+          # .github/workflows/pre-release.yaml, environment npm-prerelease.
+          # https://docs.npmjs.com/trusted-publishers
           NPM_CONFIG_PROVENANCE: "true"
 
       - name: Send Slack Notification
