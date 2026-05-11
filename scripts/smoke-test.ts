@@ -31,6 +31,7 @@ interface Options {
   reportPath: string | null;
   ci: boolean;
   against: 'local' | 'published';
+  withInit: boolean;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -42,10 +43,12 @@ function parseArgs(argv: string[]): Options {
     reportPath: null,
     ci: false,
     against: 'local',
+    withInit: false,
   };
   for (const arg of argv) {
     if (arg === '--skip-auth') opts.skipAuth = true;
     else if (arg === '--verbose') opts.verbose = true;
+    else if (arg === '--with-init') opts.withInit = true;
     else if (arg === '--ci') {
       opts.ci = true;
       opts.verbose = true;
@@ -87,6 +90,7 @@ Flags:
   --report=<path>              Write JSON run summary to <path>.
   --ci                         CI mode: API-key auth via BREVO_API_KEY (instead of browser).
   --against=local|published    Install strategy (default local).
+  --with-init                  Also exercise the 'brevo app init' wizard (skipped by default).
   -h, --help                   Show this help.
 `);
 }
@@ -1036,8 +1040,12 @@ async function main(): Promise<void> {
     ['Scaffold', stepScaffold],
     ['Start briefly', stepStartBriefly],
     ['Delete main test app', stepDeleteMainApp],
-    ['brevo app init wizard', stepInitWizard],
-    ['Delete init-created app', stepDeleteInitApp],
+    ...(opts.withInit
+      ? ([
+          ['brevo app init wizard', stepInitWizard],
+          ['Delete init-created app', stepDeleteInitApp],
+        ] as Array<[string, StepFn]>)
+      : []),
     ['Logout', stepLogout],
     ['Final cleanup', stepFinalCleanup],
   ];

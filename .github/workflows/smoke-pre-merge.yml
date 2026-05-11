@@ -1,22 +1,3 @@
-# End-to-end smoke test that runs on pull requests targeting `main`.
-# Intended as the pre-merge gate: the changesets "Version Packages" PR (and
-# every other PR to main) cannot be merged until smoke passes.
-#
-# Branch protection setup (required for the gate to actually gate):
-#   Repo Settings → Branches → Branch protection rules for `main` →
-#   "Require status checks to pass before merging" → add
-#   `Smoke test (pre-merge)` as a required check.
-# Without that branch protection rule, smoke runs informationally but does
-# not block merges.
-#
-# Prerequisites:
-#   - Repo secret `BREVO_TEST_API_KEY` — API key for a dedicated robot
-#     Brevo account used *only* by CI. Never a real user's account.
-#   - PRs from forks do NOT receive repository secrets, so smoke will fail
-#     auth on fork PRs. For external contributions, a maintainer needs to
-#     run the smoke locally before merging (or push the branch into the
-#     getbrevo/brevo-cli repo so the secret is available).
-
 name: Smoke (pre-merge)
 
 on:
@@ -25,10 +6,6 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Cancel older pre-merge runs on the same PR when new commits land — saves
-  # robot-account churn during iteration. (cancel-in-progress is safe for
-  # pre-merge because the script's trap cleanup deletes any app it created
-  # before the run is killed.)
   group: smoke-pre-merge-${{ github.ref }}
   cancel-in-progress: true
 

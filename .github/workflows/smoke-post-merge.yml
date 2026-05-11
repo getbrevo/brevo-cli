@@ -1,20 +1,3 @@
-# End-to-end smoke test that runs AFTER a release is published, against the
-# `@getbrevo/cli@latest` version on the public npm registry. Verifies what
-# real users actually receive when they install the package.
-#
-# Lifecycle: the changesets "Version Packages" PR merges to main → release.yaml
-# publishes to npm → GitHub release event fires → THIS workflow runs against
-# the just-published version.
-#
-# Prerequisites (configure before enabling):
-#   - Repo secret `BREVO_TEST_API_KEY` — API key for a dedicated robot
-#     Brevo account used *only* by CI. Never a real user's account.
-#   - The robot account must have permission to create/list/delete OAuth apps.
-#
-# Triggers:
-#   - Automatic on every published GitHub release.
-#   - Manual via workflow_dispatch with an optional version input for reruns.
-
 name: Smoke (post-merge)
 
 on:
