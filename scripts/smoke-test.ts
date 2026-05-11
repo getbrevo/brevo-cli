@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /*
  * Smoke test for @getbrevo/cli.
- * See docs/superpowers/specs/2026-05-11-smoke-test-design.md for the design.
  */
 
 import { spawn, spawnSync, ChildProcess } from 'node:child_process';
@@ -460,7 +459,15 @@ async function stepAuth(state: State): Promise<string> {
     execOrThrow('brevo', ['login', '--json'], state);
   } else {
     process.stdout.write(`  ${COLOR.cyan}⏳ waiting for browser login...${COLOR.reset}\n`);
-    const r = await execStreaming('brevo', ['login'], state);
+    // --json short-circuits the post-login "Would you like to create an app?"
+    // prompt (see src/commands/login.ts) that would otherwise block the smoke
+    // run when the account has zero apps. The smoke test creates its own app
+    // in stepAppLifecycle, so that prompt is never useful here.
+    //
+    // Trade-off: --json also suppresses the browser-fallback URL. If your
+    // browser doesn't auto-open, the run will appear to hang. Run the login
+    // manually first (`brevo login`) then use `yarn smoke --skip-auth`.
+    const r = await execStreaming('brevo', ['login', '--json'], state);
     if (r.exitCode !== 0) throw new Error('brevo login failed');
   }
 

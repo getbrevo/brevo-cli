@@ -140,7 +140,7 @@ yarn publish:packages     # publish to npm
 **Workflow / publishing changes — treat as security review, not style review.** Any edit to `.github/workflows/release.yaml` or `.github/workflows/pre-release.yaml`:
 
 - Code-owner review is required (enforced via `CODEOWNERS`)
-- Keep every **third-party** `uses:` pinned to a commit SHA with a version comment (e.g. `changesets/action`, `andstor/file-existence-action`). First-party `actions/*` (GitHub-published, like `actions/checkout`, `actions/setup-node`, `actions/upload-artifact`) may use a major version tag (`@v4`).
+- Keep every **third-party** `uses:` pinned to a commit SHA with a version comment (e.g. `changesets/action`, `andstor/file-existence-action`). First-party `actions/*` (GitHub-published, like `actions/checkout`, `actions/setup-node`, `actions/upload-artifact`) may use a major-version tag (e.g. `actions/checkout@v6`, `actions/setup-node@v6`, `actions/upload-artifact@v4`).
 - Keep `persist-credentials: false` on every checkout in any job that has access to publish secrets
 - Keep `id-token: write` and `NPM_CONFIG_PROVENANCE=true` on the publishing step
 - Do not reintroduce `NPM_TOKEN` — auth is OIDC. If publishing breaks, fix the trusted-publisher config on npmjs.com, do not paper over it with a static token.
