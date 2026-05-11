@@ -158,10 +158,24 @@ yarn test           # run jest
 yarn test:ci        # jest --coverage
 yarn lint           # ESLint on src/
 yarn format         # prettier --write
+yarn smoke          # end-to-end smoke test against the real API (see below)
 yarn clean          # remove dist/
 ```
 
 A husky pre-commit hook runs prettier and eslint on staged `.ts` files and then runs the full test suite.
+
+### Smoke test
+
+`yarn smoke` exercises the full CLI lifecycle (login → app create → scaffold → start → delete → logout) against the real Brevo API. App creation, scaffold, and start always run via the individual commands (`brevo app create`, `brevo app scaffold`, `brevo app start`). The interactive `brevo app init` wizard is **not** part of the default run — pass `--with-init` to also exercise it as an extra step (which creates and deletes a second app).
+
+```bash
+yarn smoke                       # default run (no init wizard)
+yarn smoke --with-init           # also exercise `brevo app init`
+yarn smoke --skip-auth           # assume already logged in
+yarn smoke --ci                  # API-key auth via BREVO_API_KEY (non-interactive)
+yarn smoke --against=published   # run against the published npm package instead of local build
+yarn smoke --help                # full flag list
+```
 
 ### Publishing
 
