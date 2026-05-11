@@ -1,5 +1,5 @@
 ---
-'@getbrevo/cli': minor
+'@getbrevo/cli': major
 ---
 
 Initial release of `@getbrevo/cli` — the Brevo Developer CLI for creating, managing, and testing OAuth integrations from the terminal. Published to the public npm registry (`registry.npmjs.org`) under `@getbrevo/cli`.

@@ -1,7 +1,14 @@
 name: Smoke (pre-merge)
 
+# Runs on the release path only:
+#   - pull_request to main FROM `changeset-release/main` (publish gate)
+#   - push to main (post-merge canary)
+#   - workflow_dispatch (manual rerun / ad-hoc smoke on a feature PR)
+# Feature PRs are skipped via the job-level `if:` to save robot-account quota.
 on:
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -17,6 +24,10 @@ jobs:
     name: Smoke test (pre-merge)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.head_ref == 'changeset-release/main')
 
     steps:
       - name: Checkout
