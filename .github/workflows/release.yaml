@@ -93,7 +93,7 @@ jobs:
       - name: Create Release PR or Publish
         id: changesets
         # changesets/action@v1.7.0
-        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf
+        uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b
         with:
           version: yarn version:packages
           publish: yarn publish:packages
