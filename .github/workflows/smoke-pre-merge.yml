@@ -1,0 +1,76 @@
+# End-to-end smoke test that runs on pull requests targeting `main`.
+# Intended as the pre-merge gate: the changesets "Version Packages" PR (and
+# every other PR to main) cannot be merged until smoke passes.
+#
+# Branch protection setup (required for the gate to actually gate):
+#   Repo Settings → Branches → Branch protection rules for `main` →
+#   "Require status checks to pass before merging" → add
+#   `Smoke test (pre-merge)` as a required check.
+# Without that branch protection rule, smoke runs informationally but does
+# not block merges.
+#
+# Prerequisites:
+#   - Repo secret `BREVO_TEST_API_KEY` — API key for a dedicated robot
+#     Brevo account used *only* by CI. Never a real user's account.
+#   - PRs from forks do NOT receive repository secrets, so smoke will fail
+#     auth on fork PRs. For external contributions, a maintainer needs to
+#     run the smoke locally before merging (or push the branch into the
+#     getbrevo/brevo-cli repo so the secret is available).
+
+name: Smoke (pre-merge)
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Cancel older pre-merge runs on the same PR when new commits land — saves
+  # robot-account churn during iteration. (cancel-in-progress is safe for
+  # pre-merge because the script's trap cleanup deletes any app it created
+  # before the run is killed.)
+  group: smoke-pre-merge-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke test (pre-merge)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        # actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        # actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 20.15.0
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Run smoke test against PR branch build
+        run: yarn smoke --ci --against=local --report=smoke-report.json
+        env:
+          BREVO_API_KEY: ${{ secrets.BREVO_TEST_API_KEY }}
+
+      - name: Upload smoke artifacts
+        if: always()
+        # actions/upload-artifact@v4
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with:
+          name: smoke-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            smoke-report.json
+            /tmp/brevo-smoke-*.log
+          if-no-files-found: ignore
+          retention-days: 14
