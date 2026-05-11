@@ -16,7 +16,6 @@ jobs:
     # `release-*` branches only. Configure in Settings → Environments:
     #   - Required reviewers: <release team>
     #   - Deployment branches: pattern `release-*`
-    #   - Secrets: (none — NPM_TOKEN is no longer used; auth is via
     #     npm Trusted Publishing. Configure the trusted publisher on
     #     npmjs.com for @getbrevo/cli: repo getbrevo/brevo-cli,
     #     workflow .github/workflows/pre-release.yaml, environment
