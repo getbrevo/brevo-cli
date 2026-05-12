@@ -1,6 +1,9 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { scaffoldCommand } from '../../../commands/app/scaffold';
+
+const tmpPath = (name: string): string => path.join(os.tmpdir(), name);
 
 jest.mock('inquirer', () => ({
   prompt: jest.fn(),
@@ -91,7 +94,7 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: '/tmp/test-scaffold' }); // dir prompt
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-scaffold') }); // dir prompt
 
     await scaffoldCommand({ appId: '1' });
 
@@ -116,7 +119,7 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: '/tmp/test-json' });
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-json') });
 
     await scaffoldCommand({ appId: '1', json: true });
 
@@ -138,7 +141,7 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: '/tmp/test-creds' });
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-creds') });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -159,7 +162,7 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: '/tmp/test-version' });
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-version') });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -184,7 +187,7 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: '/tmp/test-redirect' });
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-redirect') });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -205,7 +208,7 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: '/tmp/test-fallback' });
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-fallback') });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -227,7 +230,7 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: '/tmp/test-pick' });
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-pick') });
 
     await scaffoldCommand({});
 
@@ -250,7 +253,7 @@ describe('app/scaffold', () => {
     });
 
     mockPrompt
-      .mockResolvedValueOnce({ outputDir: '/tmp/existing' }) // dir prompt
+      .mockResolvedValueOnce({ outputDir: tmpPath('existing') }) // dir prompt
       .mockResolvedValueOnce({ action: 'overwrite' }); // action prompt
 
     await scaffoldCommand({ appId: '1' });
@@ -273,7 +276,7 @@ describe('app/scaffold', () => {
     });
 
     mockPrompt
-      .mockResolvedValueOnce({ outputDir: '/tmp/merge' })
+      .mockResolvedValueOnce({ outputDir: tmpPath('merge') })
       .mockResolvedValueOnce({ action: 'merge' });
 
     await scaffoldCommand({ appId: '1' });
