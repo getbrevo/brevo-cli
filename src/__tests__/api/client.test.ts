@@ -11,12 +11,11 @@ jest.mock('../../lib/hidden-input', () => ({
   readHiddenInput: jest.fn().mockResolvedValue('new-key'),
 }));
 
-function createTestClient(
-  authHeader: Record<string, string> | undefined = { 'api-key': 'test-api-key' },
-) {
+function createTestClient(authHeader?: Record<string, string>) {
+  const headers = authHeader ?? { 'api-key': 'test-api-key' };
   return new ApiClient({
     baseUrl: 'https://api.brevo.com',
-    getAuthHeader: () => authHeader,
+    getAuthHeader: () => headers,
   });
 }
 
@@ -390,7 +389,9 @@ describe('api client', () => {
       });
 
       await expect(client.get('/v3/account')).rejects.toThrow('boom');
-      await expect(client.get('/v3/account')).rejects.not.toThrow(/\x1B/);
+      await expect(client.get('/v3/account')).rejects.not.toThrow(
+        new RegExp(String.fromCharCode(0x1b)),
+      );
     });
   });
 

@@ -1,9 +1,11 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { scaffoldCommand } from '../../../commands/app/scaffold';
 
-const tmpPath = (name: string): string => path.join(os.tmpdir(), name);
+// fs is fully mocked below, so these paths are never written. We deliberately
+// avoid os.tmpdir() to keep tests off any shared, world-writable directory
+// (SonarSource S5443) — the strings only flow into mocked fs calls.
+const tmpPath = (name: string): string => path.join(__dirname, '__sandbox__', name);
 
 jest.mock('inquirer', () => ({
   prompt: jest.fn(),

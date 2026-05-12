@@ -139,7 +139,7 @@ describe('config', () => {
       ['empty tokenType', { accessToken: 'at', refreshToken: 'rt', tokenType: '' }],
       [
         'NaN expiresAt',
-        { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresAt: NaN },
+        { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresAt: Number.NaN },
       ],
       [
         'Infinity expiresAt',

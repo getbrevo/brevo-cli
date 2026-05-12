@@ -77,9 +77,9 @@ function parseVersion(v: string): ParsedVersion | undefined {
   const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(v.trim());
   if (!match || !match[1] || !match[2] || !match[3]) return undefined;
   return {
-    major: parseInt(match[1], 10),
-    minor: parseInt(match[2], 10),
-    patch: parseInt(match[3], 10),
+    major: Number.parseInt(match[1], 10),
+    minor: Number.parseInt(match[2], 10),
+    patch: Number.parseInt(match[3], 10),
     prerelease: match[4] ?? '',
   };
 }
@@ -99,7 +99,7 @@ function comparePrerelease(a: string, b: string): number {
     const aNum = /^\d+$/.test(ai);
     const bNum = /^\d+$/.test(bi);
     if (aNum && bNum) {
-      const diff = parseInt(ai, 10) - parseInt(bi, 10);
+      const diff = Number.parseInt(ai, 10) - Number.parseInt(bi, 10);
       if (diff !== 0) return diff > 0 ? 1 : -1;
       continue;
     }
@@ -156,10 +156,10 @@ export function writeCache(cachePath: string, cache: UpdateCheckCache): void {
 
 export async function fetchLatestVersion(
   name: string,
-  opts: UpdateNotifierOptions = { pkg: { name, version: '0.0.0' } },
+  opts?: UpdateNotifierOptions,
 ): Promise<string | undefined> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
-  const timeoutMs = opts.fetchTimeoutMs ?? FETCH_TIMEOUT_MS;
+  const fetchImpl = opts?.fetchImpl ?? fetch;
+  const timeoutMs = opts?.fetchTimeoutMs ?? FETCH_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
