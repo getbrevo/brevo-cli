@@ -11,6 +11,8 @@ jest.mock('../../lib/config', () => ({
   saveOauthCredentials: jest.fn(),
   clearCredentials: jest.fn(),
   getCredentialsPath: jest.fn().mockReturnValue('/home/user/.brevo/credentials.json'),
+  getOrganizationId: jest.fn().mockReturnValue(undefined),
+  clearAppsCache: jest.fn(),
 }));
 
 jest.mock('../../services/browser-auth', () => ({
@@ -363,6 +365,81 @@ describe('loginCommand', () => {
       authenticated: true,
       email: 'test@brevo.com',
     });
+  });
+
+  it('wipes apps cache on api-key login when organization changes', async () => {
+    process.env.BREVO_API_KEY = 'new-key';
+    const { getOrganizationId, clearAppsCache } = require('../../lib/config');
+    (getOrganizationId as jest.Mock).mockReturnValue('org-OLD');
+    (accountService.validateApiKey as jest.Mock).mockResolvedValue({
+      email: 'new@brevo.com',
+      organization_id: 'org-NEW',
+      user_id: 999,
+    });
+
+    await loginCommand({ suppressNextSteps: true });
+
+    expect(clearAppsCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves apps cache on api-key login when organization is unchanged', async () => {
+    process.env.BREVO_API_KEY = 'same-key';
+    const { getOrganizationId, clearAppsCache } = require('../../lib/config');
+    (getOrganizationId as jest.Mock).mockReturnValue('org-SAME');
+    (accountService.validateApiKey as jest.Mock).mockResolvedValue({
+      email: 'same@brevo.com',
+      organization_id: 'org-SAME',
+      user_id: 1,
+    });
+
+    await loginCommand({ suppressNextSteps: true });
+
+    expect(clearAppsCache).not.toHaveBeenCalled();
+  });
+
+  it('preserves apps cache on first-ever login (no previous account)', async () => {
+    process.env.BREVO_API_KEY = 'first-key';
+    const { getOrganizationId, clearAppsCache } = require('../../lib/config');
+    (getOrganizationId as jest.Mock).mockReturnValue(undefined);
+    (accountService.validateApiKey as jest.Mock).mockResolvedValue({
+      email: 'first@brevo.com',
+      organization_id: 'org-FIRST',
+      user_id: 1,
+    });
+
+    await loginCommand({ suppressNextSteps: true });
+
+    expect(clearAppsCache).not.toHaveBeenCalled();
+  });
+
+  it('wipes apps cache on browser login when organization changes', async () => {
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+
+    const { runBrowserLoginFlow } = require('../../services/browser-auth');
+    (runBrowserLoginFlow as jest.Mock).mockResolvedValue({
+      accessToken: 'at-1',
+      refreshToken: 'rt-1',
+      expiresIn: 3600,
+      tokenType: 'Bearer',
+    });
+
+    const { client } = require('../../container');
+    (client.getWithBearer as jest.Mock).mockResolvedValue({
+      email: 'oauth@brevo.com',
+      organization_id: 'org-NEW',
+      user_id: 3003,
+      companyName: 'Acme',
+    });
+
+    const { getOrganizationId, clearAppsCache } = require('../../lib/config');
+    (getOrganizationId as jest.Mock).mockReturnValue('org-OLD');
+
+    await loginCommand({ browser: true, suppressNextSteps: true });
+
+    expect(clearAppsCache).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
   });
 
   it('--json mode emits only JSON to stdout (browser path)', async () => {

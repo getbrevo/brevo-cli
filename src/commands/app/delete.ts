@@ -9,7 +9,7 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
-import { deleteAppName, readProjectConfig } from '../../lib/config';
+import { deleteAppCredentials, deleteAppName, readProjectConfig } from '../../lib/config';
 
 function isSafeToDelete(dir: string): boolean {
   const resolved = path.resolve(dir);
@@ -76,6 +76,7 @@ export const deleteCommand = withCommandHandler(
     deleteSpinner.stop();
 
     deleteAppName(appId);
+    deleteAppCredentials(appId);
 
     if (options.json) {
       jsonOutput({ deleted: true, appId });

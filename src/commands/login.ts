@@ -4,6 +4,8 @@ import {
   saveOauthCredentials,
   clearCredentials,
   getCredentialsPath,
+  getOrganizationId,
+  clearAppsCache,
 } from '../lib/config';
 import {
   CLI,
@@ -24,6 +26,17 @@ import { printBox, createSpinner } from '../lib/ui';
 import { jsonOutput } from '../lib/json-output';
 import { AccountResponse } from '../types';
 import { runBrowserLoginFlow } from '../services/browser-auth';
+
+// On re-login, the cached per-app clientId/clientSecret values belong to apps
+// owned by the previously-authenticated organization. A new organization cannot
+// see those apps, so keeping the cache risks surfacing stale or wrong-account
+// secrets. Same organization → keep the cache to avoid an unnecessary refetch.
+function wipeAppsCacheIfAccountChanged(newOrganizationId: string): void {
+  const previousOrganizationId = getOrganizationId();
+  if (previousOrganizationId && previousOrganizationId !== newOrganizationId) {
+    clearAppsCache();
+  }
+}
 
 async function promptApiKey(): Promise<string> {
   const { key } = await inquirer.prompt([
@@ -136,6 +149,8 @@ export const loginCommand = withCommandHandler(
         throw new CliError('Authentication failed.');
       }
 
+      wipeAppsCacheIfAccountChanged(account.organization_id);
+
       saveCredentials(apiKey, {
         email: account.email,
         organizationId: account.organization_id,
@@ -185,6 +200,8 @@ export const loginCommand = withCommandHandler(
       if (!account) {
         throw new CliError('Authentication failed.');
       }
+
+      wipeAppsCacheIfAccountChanged(account.organization_id);
 
       saveOauthCredentials(tokensToStore, {
         email: account.email,

@@ -226,6 +226,49 @@ describe('config', () => {
       const result = getAppCredentials(uuid);
       expect(result).toEqual(cred);
     });
+
+    it('deleteAppCredentials removes only the targeted app', () => {
+      const { deleteAppCredentials } = require('../../lib/config');
+      saveAppCredentials('1', { clientId: 'c1', clientSecret: 's1' });
+      saveAppCredentials('2', { clientId: 'c2', clientSecret: 's2' });
+
+      deleteAppCredentials('1');
+
+      expect(getAppCredentials('1')).toBeUndefined();
+      expect(getAppCredentials('2')).toEqual({ clientId: 'c2', clientSecret: 's2' });
+    });
+
+    it('deleteAppCredentials is a no-op for unknown appId', () => {
+      const { deleteAppCredentials } = require('../../lib/config');
+      saveAppCredentials('1', { clientId: 'c1', clientSecret: 's1' });
+
+      expect(() => deleteAppCredentials('does-not-exist')).not.toThrow();
+      expect(getAppCredentials('1')).toEqual({ clientId: 'c1', clientSecret: 's1' });
+    });
+
+    it('clearAppsCache wipes apps and appNames but preserves auth/account', () => {
+      const { clearAppsCache, saveAppName, getAppNames } = require('../../lib/config');
+      saveCredentials('xkeysib-keep', {
+        email: 'keep@example.com',
+        organizationId: 'org-keep',
+        userId: 42,
+      });
+      saveAppCredentials('1', { clientId: 'c1', clientSecret: 's1' });
+      saveAppCredentials('2', { clientId: 'c2', clientSecret: 's2' });
+      saveAppName('1', 'My App');
+
+      clearAppsCache();
+
+      // Auth + account untouched
+      expect(getApiKey()).toBe('xkeysib-keep');
+      expect(getEmail()).toBe('keep@example.com');
+      expect(isAuthenticated()).toBe(true);
+
+      // App credentials and names wiped
+      expect(getAppCredentials('1')).toBeUndefined();
+      expect(getAppCredentials('2')).toBeUndefined();
+      expect(getAppNames()).toEqual({});
+    });
   });
 
   describe('credentials migration', () => {
