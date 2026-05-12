@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 // ──────────────── Directory ────────────────
 
@@ -197,12 +197,12 @@ export function getApiKey(): string | undefined {
     return process.env.BREVO_API_KEY;
   }
   const auth = readCredentials().auth;
-  return auth && auth.kind === 'api-key' ? auth.apiKey : undefined;
+  return auth?.kind === 'api-key' ? auth.apiKey : undefined;
 }
 
 export function getAccessToken(): string | undefined {
   const auth = readCredentials().auth;
-  return auth && auth.kind === 'oauth' ? auth.accessToken : undefined;
+  return auth?.kind === 'oauth' ? auth.accessToken : undefined;
 }
 
 export function getAuthCred(): AuthCred | undefined {
@@ -353,7 +353,7 @@ export function saveAppName(appId: string, name: string): void {
   if (!appId || !name) return;
   const creds = readCredentials();
   creds.appNames = {
-    ...(creds.appNames ?? {}),
+    ...creds.appNames,
     [appId]: { name, savedAt: Date.now() },
   };
   writeCredentials(creds);

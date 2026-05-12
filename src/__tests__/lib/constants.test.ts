@@ -10,10 +10,10 @@ describe('API_BASE', () => {
   const originalEnv = process.env.BREVO_API_URL;
 
   afterEach(() => {
-    if (originalEnv !== undefined) {
-      process.env.BREVO_API_URL = originalEnv;
-    } else {
+    if (originalEnv === undefined) {
       delete process.env.BREVO_API_URL;
+    } else {
+      process.env.BREVO_API_URL = originalEnv;
     }
   });
 
@@ -96,10 +96,10 @@ describe('URL path stripping', () => {
   });
 
   afterEach(() => {
-    if (originalEnv !== undefined) {
-      process.env.BREVO_API_URL = originalEnv;
-    } else {
+    if (originalEnv === undefined) {
       delete process.env.BREVO_API_URL;
+    } else {
+      process.env.BREVO_API_URL = originalEnv;
     }
     jest.resetModules();
   });

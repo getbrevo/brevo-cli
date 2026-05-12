@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Command } from 'commander';
 import { installAuthGuard } from '../lib/auth-guard';
 import { logError, logInfo, logWarn, logSuccess } from '../lib/logger';
 import { EXIT_CODES } from '../lib/exit-codes';
-import { CliError, AbortError } from '../lib/errors';
+import { CliError, AbortError, AuthExpiredError } from '../lib/errors';
 import { messages } from '../lang/en';
 import { readHiddenInput } from '../lib/hidden-input';
 import { saveCredentials, clearCredentials, getAuthCred, updateOauthTokens } from '../lib/config';
 import { ENDPOINTS, OAUTH_PROXY_URL, warnIfPathStripped } from '../lib/constants';
 import { refreshAccessToken, RefreshError } from '../services/oauth-refresh';
-import { AuthExpiredError } from '../lib/errors';
 import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
 import { client } from '../container';

@@ -61,8 +61,9 @@ export const whoamiCommand = withCommandHandler(
         });
       } else {
         const authKind = getAuthCred()?.kind;
-        const kindLabel =
-          authKind === 'oauth' ? ' (browser login)' : authKind === 'api-key' ? ' (API key)' : '';
+        let kindLabel = '';
+        if (authKind === 'oauth') kindLabel = ' (browser login)';
+        else if (authKind === 'api-key') kindLabel = ' (API key)';
         logInfo(
           `\n  ${messages.WHOAMI_AUTHENTICATED(account.email, account.companyName || 'N/A')}${kindLabel}\n` +
             `  Organization: ${account.organization_id}\n` +

@@ -149,7 +149,7 @@ describe('whoamiCommand', () => {
       kind: 'oauth',
       accessToken: 'at',
       refreshToken: 'rt',
-      expiresAt: Date.now() + 3600_000,
+      expiresAt: Date.now() + 3_600_000,
       tokenType: 'Bearer',
     });
     (accountService.getAccount as jest.Mock).mockResolvedValue({
@@ -170,7 +170,7 @@ describe('whoamiCommand', () => {
       kind: 'oauth',
       accessToken: 'at',
       refreshToken: 'rt',
-      expiresAt: Date.now() + 3600_000,
+      expiresAt: Date.now() + 3_600_000,
       tokenType: 'Bearer',
     });
     (accountService.getAccount as jest.Mock).mockResolvedValue({

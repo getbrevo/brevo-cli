@@ -362,7 +362,7 @@ describe('api client', () => {
       expect(sanitizeErrorMessage('\x1B]0;evil\x07hello')).toBe('hello');
     });
 
-    it('strips control characters but keeps \\t \\n \\r', () => {
+    it(String.raw`strips control characters but keeps \t \n \r`, () => {
       expect(sanitizeErrorMessage('a\x00b\x08c')).toBe('abc');
       expect(sanitizeErrorMessage('line1\nline2\tcol\rend')).toBe('line1\nline2\tcol\rend');
     });

@@ -218,44 +218,47 @@ export const loginCommand = withCommandHandler(
     logSuccess(messages.AUTH_SUCCESS(account.email));
     logInfo(messages.AUTH_SAVED(getCredentialsPath()));
 
-    if (!options.suppressNextSteps) {
-      let apps: import('../types').OAuthApp[] = [];
-      const appsSpinner = createSpinner('Checking your apps...');
-      try {
-        apps = await appService.fetchAppsList();
-        appsSpinner.stop();
-      } catch {
-        appsSpinner.stop();
-      }
+    if (options.suppressNextSteps) return;
 
-      if (apps.length > 0) {
-        printBox("What's next?", [
-          CLI.APP_CREATE,
-          CLI.APP_LIST,
-          CLI.APP_SCAFFOLD(),
-          CLI.APP_CREDENTIALS(),
-        ]);
-      } else if (!process.stdin.isTTY) {
-        logInfo(`\n  ${messages.AUTH_NEXT}\n`);
-      } else {
-        process.stdout.write('\n');
-        const { shouldCreate } = await inquirer.prompt([
-          {
-            type: 'confirm',
-            name: 'shouldCreate',
-            message: messages.AUTH_CREATE_APP_PROMPT,
-            default: true,
-          },
-        ]);
-
-        if (shouldCreate) {
-          process.stdout.write('\n');
-          await createCommand({});
-          return;
-        }
-
-        logInfo(`\n  ${messages.AUTH_NEXT}\n`);
-      }
+    let apps: import('../types').OAuthApp[] = [];
+    const appsSpinner = createSpinner('Checking your apps...');
+    try {
+      apps = await appService.fetchAppsList();
+      appsSpinner.stop();
+    } catch {
+      appsSpinner.stop();
     }
+
+    if (apps.length > 0) {
+      printBox("What's next?", [
+        CLI.APP_CREATE,
+        CLI.APP_LIST,
+        CLI.APP_SCAFFOLD(),
+        CLI.APP_CREDENTIALS(),
+      ]);
+      return;
+    }
+    if (!process.stdin.isTTY) {
+      logInfo(`\n  ${messages.AUTH_NEXT}\n`);
+      return;
+    }
+
+    process.stdout.write('\n');
+    const { shouldCreate } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'shouldCreate',
+        message: messages.AUTH_CREATE_APP_PROMPT,
+        default: true,
+      },
+    ]);
+
+    if (shouldCreate) {
+      process.stdout.write('\n');
+      await createCommand({});
+      return;
+    }
+
+    logInfo(`\n  ${messages.AUTH_NEXT}\n`);
   },
 );

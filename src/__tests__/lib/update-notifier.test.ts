@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   compareVersions,
   isNewer,
@@ -396,18 +396,18 @@ describe('startUpdateCheck', () => {
   });
 });
 
-describe('notifyUpdate', () => {
-  function makeStream(): { stream: NodeJS.WriteStream; output: string[] } {
-    const output: string[] = [];
-    const stream = {
-      write: (chunk: string) => {
-        output.push(chunk);
-        return true;
-      },
-    } as unknown as NodeJS.WriteStream;
-    return { stream, output };
-  }
+function makeStream(): { stream: NodeJS.WriteStream; output: string[] } {
+  const output: string[] = [];
+  const stream = {
+    write: (chunk: string) => {
+      output.push(chunk);
+      return true;
+    },
+  } as unknown as NodeJS.WriteStream;
+  return { stream, output };
+}
 
+describe('notifyUpdate', () => {
   it('writes a banner when cached latest is newer', async () => {
     const { stream, output } = makeStream();
     await notifyUpdate(

@@ -140,9 +140,9 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       ],
       handler: (opts) =>
         updateCommand({
-          appId: opts.appId as string | undefined,
-          name: opts.name as string | undefined,
-          redirectUri: opts.redirectUri as string[] | undefined,
+          appId: opts.appId,
+          name: opts.name,
+          redirectUri: opts.redirectUri,
           yes: Boolean(opts.yes),
           json: Boolean(opts.json),
         }),

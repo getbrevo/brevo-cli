@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 // Set a temp config dir BEFORE importing config module
 const TEST_CONFIG_DIR = path.join(
@@ -21,6 +21,13 @@ import {
   readProjectConfig,
   hasLocalApp,
 } from '../../lib/config';
+
+function writeRawCredentials(data: object): void {
+  fs.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(TEST_CONFIG_DIR, 'credentials.json'), JSON.stringify(data, null, 2), {
+    mode: 0o600,
+  });
+}
 
 describe('config', () => {
   beforeEach(() => {
@@ -89,8 +96,6 @@ describe('config', () => {
 
     it('migrates legacy top-level apiKey into auth union on read', () => {
       // Write the legacy shape directly
-      const path = require('path');
-      const fs = require('fs');
       fs.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
       fs.writeFileSync(
         path.join(TEST_CONFIG_DIR, 'credentials.json'),
@@ -146,11 +151,9 @@ describe('config', () => {
         { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresAt: Infinity },
       ],
     ])('rejects corrupted OAuth credential: %s', (_label, partial) => {
-      const pathMod = require('path');
-      const fsMod = require('fs');
-      fsMod.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
-      fsMod.writeFileSync(
-        pathMod.join(TEST_CONFIG_DIR, 'credentials.json'),
+      fs.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(
+        path.join(TEST_CONFIG_DIR, 'credentials.json'),
         JSON.stringify({
           auth: { kind: 'oauth', expiresAt: 1, ...(partial as Record<string, unknown>) },
           apps: {},
@@ -272,15 +275,6 @@ describe('config', () => {
   });
 
   describe('credentials migration', () => {
-    function writeRawCredentials(data: object): void {
-      fs.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
-      fs.writeFileSync(
-        path.join(TEST_CONFIG_DIR, 'credentials.json'),
-        JSON.stringify(data, null, 2),
-        { mode: 0o600 },
-      );
-    }
-
     it('should migrate old multi-profile format with activeProfile', () => {
       writeRawCredentials({
         profiles: {

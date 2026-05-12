@@ -84,7 +84,7 @@ function mapErrorCode(status: number, apiCode?: string): ErrorCode | undefined {
 export class ApiClient {
   private onAuthFailure?: AuthFailureHandler;
 
-  constructor(private deps: ApiClientDeps) {}
+  constructor(private readonly deps: ApiClientDeps) {}
 
   setOnAuthFailure(handler: AuthFailureHandler): void {
     this.onAuthFailure = handler;
@@ -137,7 +137,7 @@ export class ApiClient {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       ...opts.headers,
-      ...(authHeader ?? {}),
+      ...authHeader,
     };
 
     logHttp(opts.method, opts.path);
@@ -151,7 +151,9 @@ export class ApiClient {
         signal: AbortSignal.timeout(30_000),
       });
     } catch (err) {
-      throw new ApiError(messages.ERR_NETWORK, 0, ErrorCode.NETWORK_ERROR);
+      const apiErr = new ApiError(messages.ERR_NETWORK, 0, ErrorCode.NETWORK_ERROR);
+      (apiErr as Error).cause = err;
+      throw apiErr;
     }
 
     logHttpResponse(response.status, opts.path);

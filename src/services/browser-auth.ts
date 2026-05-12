@@ -63,10 +63,10 @@ export async function runBrowserLoginFlow(opts: RunBrowserLoginOptions): Promise
 
   return new Promise<OAuthTokens>((resolve, reject) => {
     let settled = false;
-    const settle = (fn: () => void) => {
-      if (settled) return;
+    const claimSettlement = (): boolean => {
+      if (settled) return false;
       settled = true;
-      fn();
+      return true;
     };
 
     const server = http.createServer((req, res) => {
@@ -133,10 +133,10 @@ export async function runBrowserLoginFlow(opts: RunBrowserLoginOptions): Promise
           }
           logDebug('loopback POST accepted', { hasScope: tokens.scope !== undefined });
           res.writeHead(204, { 'Access-Control-Allow-Origin': proxyOrigin }).end();
-          settle(() => {
+          if (claimSettlement()) {
             server.close();
             resolve(tokens);
-          });
+          }
         });
         return;
       }
@@ -156,7 +156,7 @@ export async function runBrowserLoginFlow(opts: RunBrowserLoginOptions): Promise
 
     server.on('error', (err) => {
       logDebug('loopback server error', { message: (err as Error).message });
-      settle(() => reject(err));
+      if (claimSettlement()) reject(err);
     });
 
     server.listen(0, '127.0.0.1', () => {
@@ -177,10 +177,10 @@ export async function runBrowserLoginFlow(opts: RunBrowserLoginOptions): Promise
     });
 
     const timer = setTimeout(() => {
-      settle(() => {
+      if (claimSettlement()) {
         server.close();
         reject(new CliError(messages.AUTH_BROWSER_TIMEOUT));
-      });
+      }
     }, timeoutMs);
     timer.unref?.();
 

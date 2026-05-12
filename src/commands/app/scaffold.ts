@@ -58,6 +58,99 @@ function formatFileTree(filePaths: string[]): string {
   return lines.join('\n');
 }
 
+interface AppContext {
+  appDetails: Awaited<ReturnType<typeof appService.resolveAppCredentials>> extends infer R
+    ? R extends { app: infer A }
+      ? A
+      : null
+    : null;
+  clientId: string;
+  clientSecret: string;
+  redirectUrls: string[];
+  redirectUri: string;
+}
+
+async function fetchAppContext(appId: string, silent?: boolean): Promise<AppContext> {
+  const spinner = createSpinner('Fetching app details...', { silent });
+  const result = await appService.resolveAppCredentials(appId);
+  spinner.stop();
+  const appDetails = result?.app ?? null;
+  if (result) {
+    if (result.diffs.length > 0) {
+      logWarn(
+        `Local credentials for app ${appId} differ from server (${result.diffs.join(', ')}). Updating local cache.`,
+      );
+    }
+    appService.syncAppCredentials(appId, result.app);
+  }
+  const serverRedirectUrls = appDetails?.redirect_uris ?? [];
+  const redirectUrls = serverRedirectUrls.length > 0 ? serverRedirectUrls : [DEFAULT_REDIRECT_URI];
+  const localhostUri = redirectUrls.find(
+    (url: string) => url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1'),
+  );
+  return {
+    appDetails: appDetails as AppContext['appDetails'],
+    clientId: appDetails?.client_id || PLACEHOLDER_CLIENT_ID,
+    clientSecret: appDetails?.client_secret || 'YOUR_CLIENT_SECRET',
+    redirectUrls,
+    redirectUri: localhostUri || DEFAULT_REDIRECT_URI,
+  };
+}
+
+async function resolveTargetDir(
+  defaultDir: string,
+): Promise<{ targetDir: string; mergeOnly: boolean; chooseAgain: boolean }> {
+  const { outputDir } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'outputDir',
+      message: messages.APP_SCAFFOLD_DIR_PROMPT,
+      default: defaultDir,
+    },
+  ]);
+  const targetDir = path.resolve(outputDir);
+
+  if (!fs.existsSync(targetDir)) {
+    return { targetDir, mergeOnly: false, chooseAgain: false };
+  }
+
+  const { action } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'action',
+      message: messages.APP_SCAFFOLD_DIR_EXISTS,
+      choices: [
+        { name: 'Overwrite existing files', value: 'overwrite' },
+        { name: 'Merge (keep existing, add missing)', value: 'merge' },
+        { name: 'Choose a different path', value: 'new' },
+      ],
+    },
+  ]);
+  return {
+    targetDir,
+    mergeOnly: action === 'merge',
+    chooseAgain: action === 'new',
+  };
+}
+
+function writeScaffoldFiles(
+  files: Array<{ name: string; content: string }>,
+  targetDir: string,
+  mergeOnly: boolean,
+): number {
+  let written = 0;
+  for (const file of files) {
+    const filePath = path.join(targetDir, file.name);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    if (mergeOnly && fs.existsSync(filePath)) continue;
+    // Write .env.local with restricted permissions to protect secrets
+    const writeOptions = file.name.endsWith('.env.local') ? { mode: 0o600 } : {};
+    fs.writeFileSync(filePath, file.content, { encoding: 'utf-8', ...writeOptions });
+    written++;
+  }
+  return written;
+}
+
 export const scaffoldCommand = withCommandHandler(
   async (options: { appId?: string; json?: boolean }): Promise<void> => {
     // Refuse to scaffold inside an existing project — app-config.json in cwd
@@ -67,89 +160,23 @@ export const scaffoldCommand = withCommandHandler(
       throw new CliError(messages.APP_SCAFFOLD_ALREADY_IN_PROJECT);
     }
 
-    let appId = options.appId;
+    const appId = options.appId ?? (await appService.pickApp('Select an app:'));
+    const ctx = await fetchAppContext(appId, options.json);
 
-    // Pick app if not specified
-    if (!appId) {
-      appId = await appService.pickApp('Select an app:');
-    }
-
-    // Fetch app details from API and sync local cache
-    const spinner = createSpinner('Fetching app details...', { silent: options.json });
-    const result = await appService.resolveAppCredentials(appId);
-    spinner.stop();
-    const appDetails = result?.app ?? null;
-    if (result) {
-      if (result.diffs.length > 0) {
-        logWarn(
-          `Local credentials for app ${appId} differ from server (${result.diffs.join(', ')}). Updating local cache.`,
-        );
-      }
-      appService.syncAppCredentials(appId, result.app);
-    }
-    const clientId = appDetails?.client_id || PLACEHOLDER_CLIENT_ID;
-    const clientSecret = appDetails?.client_secret || 'YOUR_CLIENT_SECRET';
-
-    // Use redirect URLs from the app (set during app create).
-    // For the local test server, prefer a localhost URL from the registered
-    // list. Fall back to DEFAULT_REDIRECT_URI so the scaffold works out of
-    // the box even when only production URLs are registered.
-    const serverRedirectUrls = appDetails?.redirect_uris ?? [];
-    const redirectUrls =
-      serverRedirectUrls.length > 0 ? serverRedirectUrls : [DEFAULT_REDIRECT_URI];
-    const localhostUri = redirectUrls.find(
-      (url: string) => url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1'),
-    );
-    const redirectUri = localhostUri || DEFAULT_REDIRECT_URI;
-
-    // Prompt for output directory — default to app name slugified for filesystem
     const slug =
-      (appDetails?.name || 'my-app')
+      (ctx.appDetails?.name || 'my-app')
         .toLowerCase()
         .replaceAll(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '') || 'my-app';
-    const defaultDir = `./${slug}`;
-    const { outputDir } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'outputDir',
-        message: messages.APP_SCAFFOLD_DIR_PROMPT,
-        default: defaultDir,
-      },
-    ]);
 
-    const targetDir = path.resolve(outputDir);
-
-    // Handle existing directory
-    let mergeOnly = false;
-    if (fs.existsSync(targetDir)) {
-      const { action } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'action',
-          message: messages.APP_SCAFFOLD_DIR_EXISTS,
-          choices: [
-            { name: 'Overwrite existing files', value: 'overwrite' },
-            { name: 'Merge (keep existing, add missing)', value: 'merge' },
-            { name: 'Choose a different path', value: 'new' },
-          ],
-        },
-      ]);
-
-      if (action === 'new') {
-        return scaffoldCommand({ ...options, appId });
-      }
-
-      if (action === 'merge') {
-        mergeOnly = true;
-      }
+    const { targetDir, mergeOnly, chooseAgain } = await resolveTargetDir(`./${slug}`);
+    if (chooseAgain) {
+      return scaffoldCommand({ ...options, appId });
     }
 
-    const rawAppName = appDetails?.name || path.basename(targetDir);
-    // Sanitize app name: strip characters that could break JSON or template injection
+    const rawAppName = ctx.appDetails?.name || path.basename(targetDir);
     const appName = rawAppName.replaceAll(/["\\\n\r\t]/g, '').trim() || 'my-app';
-
-    const scopes = appDetails?.scopes ?? ['all'];
+    const scopes = ctx.appDetails?.scopes ?? ['all'];
 
     const pkg = JSON.parse(
       fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'),
@@ -160,10 +187,10 @@ export const scaffoldCommand = withCommandHandler(
       '{{APP_NAME}}': appName,
       '{{APP_SLUG}}': slug,
       '{{APP_ID}}': String(appId),
-      '{{CLIENT_ID}}': clientId,
-      '{{CLIENT_SECRET}}': clientSecret,
-      '{{REDIRECT_URI}}': redirectUri,
-      '{{REDIRECT_URLS_JSON}}': JSON.stringify(redirectUrls),
+      '{{CLIENT_ID}}': ctx.clientId,
+      '{{CLIENT_SECRET}}': ctx.clientSecret,
+      '{{REDIRECT_URI}}': ctx.redirectUri,
+      '{{REDIRECT_URLS_JSON}}': JSON.stringify(ctx.redirectUrls),
       '{{SCOPES_JSON}}': JSON.stringify(scopes),
       '{{OAUTH_BASE}}': OAUTH_BASE,
       '{{OAUTH_REALM}}': OAUTH_REALM,
@@ -171,23 +198,9 @@ export const scaffoldCommand = withCommandHandler(
       '{{MIN_CLI_VERSION}}': MIN_CLI_VERSION,
     };
 
-    // Create directory structure
     fs.mkdirSync(path.join(targetDir, 'src', 'oauth'), { recursive: true });
-
-    // Load all templates from .tmpl files with variable substitution
     const files = loadAllTemplates(vars);
-
-    let written = 0;
-    for (const file of files) {
-      const filePath = path.join(targetDir, file.name);
-      // Ensure parent directory exists for nested files
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      if (mergeOnly && fs.existsSync(filePath)) continue;
-      // Write .env.local with restricted permissions to protect secrets
-      const writeOptions = file.name.endsWith('.env.local') ? { mode: 0o600 } : {};
-      fs.writeFileSync(filePath, file.content, { encoding: 'utf-8', ...writeOptions });
-      written++;
-    }
+    const written = writeScaffoldFiles(files, targetDir, mergeOnly);
 
     if (options.json) {
       jsonOutput({ scaffolded: written, directory: targetDir });
@@ -197,7 +210,6 @@ export const scaffoldCommand = withCommandHandler(
     logSuccess(messages.APP_SCAFFOLD_SUCCESS(written));
     logInfo(formatFileTree(files.map((f) => f.name)));
 
-    // Show next steps
     const relativeDir = path.relative(process.cwd(), targetDir) || '.';
     printBox(
       messages.APP_SCAFFOLD_NEXT_STEPS_TITLE,

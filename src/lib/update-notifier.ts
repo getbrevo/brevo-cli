@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { messages } from '../lang/en';
 
 const REGISTRY_URL = (name: string): string =>
@@ -75,7 +75,7 @@ interface ParsedVersion {
 
 function parseVersion(v: string): ParsedVersion | undefined {
   const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(v.trim());
-  if (!match || !match[1] || !match[2] || !match[3]) return undefined;
+  if (!match?.[1] || !match[2] || !match[3]) return undefined;
   return {
     major: Number.parseInt(match[1], 10),
     minor: Number.parseInt(match[2], 10),

@@ -42,30 +42,37 @@ function redactSensitiveFields(data: unknown): unknown {
 
 export function logHttp(method: string, path: string): void {
   if (isDebug()) {
-    process.stderr.write(`  ${color('90', `→ ${method} ${path}`)}\n`);
+    const line = `→ ${method} ${path}`;
+    process.stderr.write(`  ${color('90', line)}\n`);
   }
 }
 
 export function logHttpResponse(status: number, path: string): void {
   if (isDebug()) {
     const code = status >= 200 && status < 300 ? '32' : '31';
-    process.stderr.write(`  ${color(code, `← ${status} ${path}`)}\n`);
+    const line = `← ${status} ${path}`;
+    process.stderr.write(`  ${color(code, line)}\n`);
   }
 }
 
 export function logDebug(context: string, data: unknown): void {
   if (isDebug()) {
     const safe = redactSensitiveFields(data);
-    process.stderr.write(`  ${color('90', `[debug] ${context}: ${JSON.stringify(safe)}`)}\n`);
+    const line = `[debug] ${context}: ${JSON.stringify(safe)}`;
+    process.stderr.write(`  ${color('90', line)}\n`);
   }
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) return error.stack ?? error.message;
+  if (typeof error === 'object' && error !== null) return JSON.stringify(error);
+  return String(error);
 }
 
 export function logError(message: string, error?: unknown): void {
   process.stderr.write(`\n  ${color('31', '✗')} ${message}\n`);
   if (isDebug() && error) {
-    process.stderr.write(
-      `  ${color('90', error instanceof Error ? error.stack || error.message : String(error))}\n`,
-    );
+    process.stderr.write(`  ${color('90', formatError(error))}\n`);
   } else if (error) {
     process.stderr.write(`  ${color('90', 'Run with --debug for full details')}\n`);
   }
