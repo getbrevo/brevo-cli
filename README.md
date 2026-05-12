@@ -232,6 +232,7 @@ Contributions are welcome. See [`AGENTS.md`](./AGENTS.md) and [`CLAUDE.md`](./CL
 ## Resources
 
 - [Brevo Developers](https://developers.brevo.com)
+- [CLI reference](https://developers.brevo.com/docs/cli-reference) — full command and option documentation
 - [Package on npm](https://www.npmjs.com/package/@getbrevo/cli)
 - [Repository](https://github.com/getbrevo/brevo-cli)
 - [Issue tracker](https://github.com/getbrevo/brevo-cli/issues)

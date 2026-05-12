@@ -4,6 +4,8 @@
 
 Brevo Developer CLI (`@getbrevo/cli`) — TypeScript CLI for managing OAuth app integrations with the Brevo platform.
 
+Public CLI reference: https://developers.brevo.com/docs/cli-reference — the authoritative user-facing command/flag/exit-code documentation. Keep this in sync when changing user-visible behaviour.
+
 ## Public repository
 
 Repo (`github.com/getbrevo/brevo-cli`) and package (`@getbrevo/cli` on the public npm registry) are **public**. Every commit, PR, and issue is world-readable.

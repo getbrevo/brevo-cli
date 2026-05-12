@@ -42,3 +42,4 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 - npm: <https://www.npmjs.com/package/@getbrevo/cli>
 - Repo: <https://github.com/getbrevo/brevo-cli>
 - Brevo developer docs: <https://developers.brevo.com>
+- CLI reference: <https://developers.brevo.com/docs/cli-reference>
