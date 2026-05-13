@@ -3,25 +3,29 @@
 
 This project uses the [Brevo Developer CLI](https://www.npmjs.com/package/@getbrevo/cli) (`brevo` binary) to manage Brevo OAuth applications.
 
-## AI agents — install the skill first
+## AI agents — start here
 
-If you're an AI assistant helping with this CLI and the `brevo-cli` Claude Code skill is **not** installed at `~/.claude/skills/brevo-cli/`, install it before doing any other work:
+Pick the path that matches your tooling:
 
-```bash
-brevo skill:cli install
-```
+- **You are Claude** (Claude Code, Claude Desktop, or any agent that reads `~/.claude/skills/`) — install the brevo-cli skill before doing other work, if it isn't already at `~/.claude/skills/brevo-cli/`:
 
-The skill loads the canonical command reference, decision tree, hard rules, and exit codes in the format Claude Code consumes directly. Once installed it auto-refreshes on every `brevo` invocation so it stays in sync with the running CLI version (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`).
+  ```bash
+  brevo skill:cli install
+  ```
 
-If installation isn't possible (no Claude Code, no write access to `~/.claude/skills/`, sandboxed environment), keep using this `AGENTS.md` as the fallback reference — it covers the same surface in less depth.
+  The skill loads the canonical decision tree, hard rules, and exit codes in the format Claude consumes directly. Once installed it auto-refreshes on every `brevo` invocation so it stays in sync with the running CLI version (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`).
 
-## Before starting a new session (skill already installed)
+- **You are any other AI agent** (Cursor, Copilot CLI, Gemini CLI, Codex, etc.) — **do not run `brevo skill:cli install`**. The skill format is Claude-specific and the install would land in a directory your tooling doesn't read. Use this `AGENTS.md` as your reference instead — it covers the same surface in less depth.
 
-Verify the installed brevo-cli skill is up to date before doing any work:
+If installation isn't possible for a Claude agent (no write access to `~/.claude/skills/`, sandboxed environment), fall back to this `AGENTS.md`.
 
-1. Read the installed skill version from `~/.claude/skills/brevo-cli/.brevo-skill.json` (`version` field).
-2. Compare against the CLI version: `brevo --version`.
-3. **If they don't match, stop and tell the user to update** — ask them to run any `brevo` command (auto-refreshes the skill) or `brevo skill:cli install` to force-reinstall. Do not proceed with stale guidance.
+## Before starting a new session
+
+- **Claude agents (skill installed):** verify the skill is up to date before doing any work.
+  1. Read the installed skill version from `~/.claude/skills/brevo-cli/.brevo-skill.json` (`version` field).
+  2. Compare against the CLI version: `brevo --version`.
+  3. **If they don't match, stop and tell the user to update** — ask them to run any `brevo` command (auto-refreshes the skill) or `brevo skill:cli install` to force-reinstall. Do not proceed with stale guidance.
+- **Non-Claude agents** (reading this `AGENTS.md` directly): no version check needed. This file ships inside the `@getbrevo/cli` package, so it's already in lockstep with whatever CLI version is installed.
 
 ## When to use it
 
@@ -45,8 +49,8 @@ Verify the installed brevo-cli skill is up to date before doing any work:
 | `brevo app delete` | Delete an app (`--app-id`, `--force`, `--json`) |
 | `brevo app scaffold` | Generate starter OAuth code (`--app-id`, `--json`) |
 | `brevo app start oauth` | Run the scaffolded OAuth test server (`--port`) |
-| `brevo skill:cli install` | Install the brevo-cli Claude Code skill (auto-refreshes on every `brevo` run) |
-| `brevo skill:cli uninstall` | Remove the brevo-cli skill from `~/.claude/skills/` |
+| `brevo skill:cli install` | Install the brevo-cli Claude Code skill (Claude-only; auto-refreshes on every `brevo` run) |
+| `brevo skill:cli uninstall` | Remove the brevo-cli skill from `~/.claude/skills/` (Claude-only) |
 
 Run `brevo --help` or `brevo <command> --help` for the full set.
 

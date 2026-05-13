@@ -30,3 +30,7 @@ Discovery is doc-driven rather than interrupting interactive runs: `agent-contex
 - Document previously undocumented env vars in `AGENTS.md`: `BREVO_CLAUDE_HOME` (override Claude Code home used by `skill:cli`) and `BREVO_NO_UPDATE_NOTIFIER` (suppress the npm update-available notice).
 - Round out `AGENTS.md` command table: add the missing `brevo logout` row and the `--yes` flag on `app update`; list `--json` consistently across every command that supports it.
 - Add the missing `whoami` mapping to the `SKILL.md` decision tree.
+- Disambiguate Claude vs non-Claude agents across docs and command surface:
+  - `SKILL.md` intro callout splits the "reading this from the repo" guidance — Claude installs the skill, other agents read `AGENTS.md` instead.
+  - `brevo skill:cli {install,uninstall} --help` descriptions now flag the commands as Claude-only.
+  - `brevo skill:cli install` prints a follow-up hint after a fresh install pointing non-Claude tools at `AGENTS.md`.

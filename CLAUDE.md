@@ -108,6 +108,8 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 
 **Whenever you change user-visible CLI behavior, update both files in the same PR.** An out-of-sync skill actively misleads any AI helping a user with this CLI — that's worse than no skill at all.
 
+**Keep `AGENTS.md` and `SKILL.md` in sync with each other.** Even when no CLI behavior changed, if you edit one of these files, check the other still aligns before opening the PR. They cover the same command surface, hard rules, version-check procedure, and exit codes — `AGENTS.md` is the broader reference (also documents env vars and the Claude-vs-non-Claude install path), `SKILL.md` is the Claude-focused subset. Pure-doc edits aren't "user-visible CLI behavior," so the rule above doesn't catch them — this rule does. If a difference is intentional (e.g. AGENTS.md branches by agent type because SKILL.md is Claude-only by construction), say so in the PR description so a future reader doesn't try to "fix" it.
+
 **What counts as user-visible:**
 
 - New or removed commands or subcommands.

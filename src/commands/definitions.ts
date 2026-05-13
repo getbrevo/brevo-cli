@@ -207,18 +207,19 @@ export const appCommandGroup: SubcommandGroupDefinition = {
 
 export const skillCommandGroup: SubcommandGroupDefinition = {
   name: 'skill:cli',
-  description: 'Install the brevo-cli Claude Code skill',
+  description: 'Install the brevo-cli Claude Code skill (Claude only)',
   commands: [
     {
       name: 'install',
-      description: 'Install the brevo-cli skill into ~/.claude/skills/',
+      description:
+        'Install the brevo-cli skill into ~/.claude/skills/ (Claude only — other AI tools should read agent-context/AGENTS.md instead)',
       examples: ['brevo skill:cli install', 'brevo skill:cli install --json'],
       options: [{ flags: '--json', description: 'Output as JSON' }],
       handler: (opts) => skillInstallCommand({ json: Boolean(opts.json) }),
     },
     {
       name: 'uninstall',
-      description: 'Remove the brevo-cli skill from ~/.claude/skills/',
+      description: 'Remove the brevo-cli skill from ~/.claude/skills/ (Claude only)',
       examples: ['brevo skill:cli uninstall', 'brevo skill:cli uninstall --json'],
       options: [{ flags: '--json', description: 'Output as JSON' }],
       handler: (opts) => skillUninstallCommand({ json: Boolean(opts.json) }),

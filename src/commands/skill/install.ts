@@ -13,12 +13,18 @@ export const installCommand = withCommandHandler(
       return;
     }
 
+    let installedFresh = false;
     for (const r of results) {
       if (r.status === 'already-installed') {
         logInfo(`\n  ${messages.SKILL_INSTALL_ALREADY(r.name, r.version)}`);
       } else {
         logSuccess(messages.SKILL_INSTALL_SUCCESS(r.name, r.version, r.path));
+        installedFresh = true;
       }
+    }
+
+    if (installedFresh) {
+      logInfo(`\n  ${messages.SKILL_INSTALL_CLAUDE_ONLY}`);
     }
   },
 );

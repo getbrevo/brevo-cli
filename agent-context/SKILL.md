@@ -7,7 +7,10 @@ description: Use when working in a project that uses the Brevo Developer CLI (th
 
 This project uses the Brevo Developer CLI to create and manage Brevo OAuth applications. Treat the `brevo` binary as the canonical entry point — don't shell out to `curl https://api.brevo.com/...` for things the CLI already covers.
 
-> **Reading this from the repo rather than `~/.claude/skills/brevo-cli/`?** Install it as a Claude Code skill with `brevo skill:cli install` so your tooling loads it natively and keeps it auto-refreshed. The repo copy is bundled with the npm package; the installed copy is what Claude Code actually consumes.
+> **Reading this from the repo rather than `~/.claude/skills/brevo-cli/`?**
+>
+> - **If you're Claude** (Claude Code, Claude Desktop, or any agent that reads `~/.claude/skills/`): install it as a skill with `brevo skill:cli install` so your tooling loads it natively and keeps it auto-refreshed. The repo copy is bundled with the npm package; the installed copy is what Claude actually consumes.
+> - **If you're any other AI agent** (Cursor, Copilot CLI, Gemini, Codex, etc.): **don't run `brevo skill:cli install`** — the skill format is Claude-specific and would land in a directory your tooling doesn't read. Use `agent-context/AGENTS.md` as your reference instead; it covers the same surface in less depth.
 
 ## Before starting a new session
 
