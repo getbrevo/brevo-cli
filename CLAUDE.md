@@ -119,7 +119,7 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 
 **What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
 
-**Don't forget to bump the SKILL.md version** in `src/skills/index.ts` (`SKILL_CATALOG[brevo-cli].version`) when SKILL.md content materially changes — that's what triggers auto-refresh on installed users.
+**Skill version tracks the CLI version automatically.** `SKILL_CATALOG[brevo-cli].version` is computed at module-init from `package.json` (`CLI_VERSION` in `src/skills/index.ts`), so every published CLI release auto-refreshes installed skills — even when `SKILL.md` content didn't change. You only need to land your changeset; the skill version takes care of itself.
 
 ## Testing patterns
 

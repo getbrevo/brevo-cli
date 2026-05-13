@@ -19,13 +19,15 @@ describe('skill/install', () => {
     stdoutSpy.mockRestore();
   });
 
+  const fakeSkillPath = '/home/user/.claude/skills/brevo-cli';
+
   it('installs every catalog skill', async () => {
     (skillService.installAll as jest.Mock).mockReturnValue([
       {
         name: 'brevo-cli',
         version: '1.0.0',
         status: 'installed',
-        path: '/tmp/skills/brevo-cli',
+        path: fakeSkillPath,
       },
     ]);
 
@@ -42,7 +44,7 @@ describe('skill/install', () => {
         name: 'brevo-cli',
         version: '1.0.0',
         status: 'already-installed',
-        path: '/tmp/skills/brevo-cli',
+        path: fakeSkillPath,
       },
     ]);
 
@@ -58,7 +60,7 @@ describe('skill/install', () => {
         name: 'brevo-cli',
         version: '1.0.0',
         status: 'installed',
-        path: '/tmp/skills/brevo-cli',
+        path: fakeSkillPath,
       },
     ]);
 
@@ -70,7 +72,7 @@ describe('skill/install', () => {
         name: 'brevo-cli',
         version: '1.0.0',
         status: 'installed',
-        path: '/tmp/skills/brevo-cli',
+        path: fakeSkillPath,
       },
     ]);
   });

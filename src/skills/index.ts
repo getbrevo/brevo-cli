@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 /**
@@ -8,12 +9,15 @@ import * as path from 'node:path';
  * SKILL.md ...`). Keeping a single source avoids drift between the
  * programmatic install path and the documented manual path.
  *
+ * **Skill version is the CLI version.** Every published CLI release carries
+ * its own bundled `agent-context/`, so installed skills auto-refresh after a
+ * CLI upgrade even if `SKILL.md` itself didn't change. This eliminates the
+ * "forgot to bump skill version when editing SKILL.md" failure mode.
+ *
  * To add a new skill:
  *   1. Drop SKILL.md (+ any supporting files) under `agent-context/<subdir>/`,
  *      or directly under `agent-context/` if it shares the brevo-cli layout.
  *   2. Add an entry below with `subdir` pointing at the right directory.
- *   3. Bump `version` when content materially changes so the auto-refresh
- *      pass (and the marker comparison) can detect a refresh-worthy diff.
  */
 
 export interface SkillEntry {
@@ -21,7 +25,7 @@ export interface SkillEntry {
   name: string;
   /** Short one-line summary. */
   description: string;
-  /** Semantic version of the skill content. Bump when SKILL.md changes. */
+  /** Tracks the CLI version (see `CLI_VERSION` below). */
   version: string;
   /**
    * Subdirectory under `SKILLS_BUNDLE_DIR` that holds this skill's files.
@@ -33,12 +37,33 @@ export interface SkillEntry {
   files: string[];
 }
 
+/**
+ * CLI version pulled from the bundled `package.json` at module-init.
+ *
+ * Resolved relative to this file so the same lookup works under ts-jest
+ * (`src/skills/` → repo root) and the published tarball
+ * (`node_modules/@getbrevo/cli/dist/skills/` → package root). Falls back to
+ * `'0.0.0'` if the file is missing or malformed — the auto-refresh pass
+ * then never fires, which is the safe default.
+ */
+function readCliVersion(): string {
+  try {
+    const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { version?: unknown };
+    return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+export const CLI_VERSION = readCliVersion();
+
 export const SKILL_CATALOG: readonly SkillEntry[] = [
   {
     name: 'brevo-cli',
     description:
       'Agent primer for the Brevo Developer CLI — decision tree, hard rules, and command map for the `brevo` binary.',
-    version: '1.4.0',
+    version: CLI_VERSION,
     subdir: '',
     files: ['SKILL.md'],
   },

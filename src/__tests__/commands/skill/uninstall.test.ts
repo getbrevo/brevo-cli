@@ -19,9 +19,11 @@ describe('skill/uninstall', () => {
     stdoutSpy.mockRestore();
   });
 
+  const fakeSkillPath = '/home/user/.claude/skills/brevo-cli';
+
   it('uninstalls every installed Brevo skill', async () => {
     (skillService.uninstallAll as jest.Mock).mockReturnValue([
-      { name: 'brevo-cli', path: '/tmp/skills/brevo-cli' },
+      { name: 'brevo-cli', path: fakeSkillPath },
     ]);
 
     await uninstallCommand({});
@@ -29,7 +31,7 @@ describe('skill/uninstall', () => {
     expect(skillService.uninstallAll).toHaveBeenCalledWith();
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('Uninstalled brevo-cli');
-    expect(output).toContain('/tmp/skills/brevo-cli');
+    expect(output).toContain(fakeSkillPath);
   });
 
   it('reports a friendly no-op when nothing is installed', async () => {
@@ -43,7 +45,7 @@ describe('skill/uninstall', () => {
 
   it('outputs JSON when --json', async () => {
     (skillService.uninstallAll as jest.Mock).mockReturnValue([
-      { name: 'brevo-cli', path: '/tmp/skills/brevo-cli' },
+      { name: 'brevo-cli', path: fakeSkillPath },
     ]);
 
     await uninstallCommand({ json: true });
@@ -53,7 +55,7 @@ describe('skill/uninstall', () => {
       {
         uninstalled: true,
         name: 'brevo-cli',
-        path: '/tmp/skills/brevo-cli',
+        path: fakeSkillPath,
       },
     ]);
   });
