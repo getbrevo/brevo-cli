@@ -70,10 +70,10 @@ describe('skill-notifier', () => {
       ).toBe(true);
     });
 
-    it('skips while running `brevo skill <anything>`', () => {
+    it('skips while running `brevo skill:cli <anything>`', () => {
       expect(
         shouldSkipSkillAutoRefresh({
-          argv: ['node', 'brevo', 'skill', 'install', 'brevo-cli'],
+          argv: ['node', 'brevo', 'skill:cli', 'install'],
           env: {},
         }),
       ).toBe(true);

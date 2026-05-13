@@ -7,7 +7,7 @@ const UNAUTHENTICATED_COMMANDS = new Set(['login', 'help', 'init', 'whoami', 'lo
 // Subcommand groups whose entire subtree is local-only and never needs auth.
 // Skill management touches files under ~/.claude/ — there is nothing to call
 // against the Brevo API.
-const UNAUTHENTICATED_GROUPS = new Set(['skill']);
+const UNAUTHENTICATED_GROUPS = new Set(['skill:cli']);
 
 export function installAuthGuard(program: Command): void {
   program.hook('preAction', (thisCommand, actionCommand) => {

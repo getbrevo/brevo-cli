@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 
 /**
- * Catalog of Brevo-authored agent skills installable via `brevo skill install`.
+ * Catalog of Brevo-authored agent skills installable via `brevo skill:cli install`.
  *
  * Source content lives under `agent-context/` at the repo root — the same
  * directory the README documents for manual install (`cp .../agent-context/
@@ -17,7 +17,7 @@ import * as path from 'node:path';
  */
 
 export interface SkillEntry {
-  /** Stable, kebab-case identifier used in `brevo skill install <name>`. */
+  /** Stable, kebab-case identifier for the skill catalog entry. */
   name: string;
   /** Short one-line summary. */
   description: string;
@@ -38,7 +38,7 @@ export const SKILL_CATALOG: readonly SkillEntry[] = [
     name: 'brevo-cli',
     description:
       'Agent primer for the Brevo Developer CLI — decision tree, hard rules, and command map for the `brevo` binary.',
-    version: '1.3.0',
+    version: '1.4.0',
     subdir: '',
     files: ['SKILL.md'],
   },

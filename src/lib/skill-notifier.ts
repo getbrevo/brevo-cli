@@ -26,7 +26,7 @@ export function shouldSkipSkillAutoRefresh(opts: SkillAutoRefreshOptions = {}): 
   // --json callers want deterministic, machine-readable output on stdout/stderr.
   if (argv.includes('--json')) return true;
   // The user is already managing skills — let their explicit command do the work.
-  if (argv.length > 2 && argv[2] === 'skill') return true;
+  if (argv.length > 2 && argv[2] === 'skill:cli') return true;
   // Dedicated opt-out for users who hand-edit their installed SKILL.md and
   // don't want it clobbered on the next `brevo` run.
   if (env.BREVO_NO_SKILL_AUTOREFRESH === '1' || env.BREVO_NO_SKILL_AUTOREFRESH === 'true') {
@@ -63,7 +63,7 @@ export function autoRefreshOutdatedSkills(opts: SkillAutoRefreshOptions = {}): v
 
 // ──────────────── First-run install prompt ────────────────
 // Surface a friendly offer during the `brevo login` / `brevo app init` flows
-// so users don't have to discover `brevo skill install` themselves. We keep
+// so users don't have to discover `brevo skill:cli install` themselves. We keep
 // this conservative: TTY only, never under --json, and a dedicated opt-out
 // env var so users who don't want any prompts can mute it independently of
 // the auto-refresh opt-out.

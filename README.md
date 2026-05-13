@@ -121,7 +121,7 @@ Environment overrides:
 | `BREVO_OAUTH_PROXY_URL` | OAuth proxy used by browser login (HTTPS required, except for `localhost`) | `https://oauth-cli.brevo.com` |
 | `BREVO_CONFIG_HOME` | Override for the credentials directory | `~/.brevo/` |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs | off |
-| `BREVO_NO_SKILL_PROMPT` | Set to `1` to suppress the first-run `brevo skill install` prompt | off |
+| `BREVO_NO_SKILL_PROMPT` | Set to `1` to suppress the first-run `brevo skill:cli install` prompt | off |
 | `NO_COLOR` / `FORCE_COLOR` | Disable / force ANSI colour output | – |
 | `DEBUG` or `--debug` | Verbose HTTP and error logging | off |
 
@@ -139,10 +139,10 @@ If you use Claude Code, Cursor, Aider, Copilot CLI, or another agent that reads 
 The CLI installs and maintains the skill for you:
 
 ```bash
-brevo skill install brevo-cli
+brevo skill:cli install
 ```
 
-This copies `SKILL.md` into `~/.claude/skills/brevo-cli/`. Every subsequent `brevo` invocation auto-refreshes it when the bundled version is newer than the installed one — you'll see a `↻ refreshed brevo-cli skill (vX → vY)` notice on stderr when that happens. Opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`. Remove with `brevo skill uninstall brevo-cli`.
+This copies `SKILL.md` into `~/.claude/skills/brevo-cli/`. Every subsequent `brevo` invocation auto-refreshes it when the bundled version is newer than the installed one — you'll see a `↻ refreshed brevo-cli skill (vX → vY)` notice on stderr when that happens. Opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`. Remove with `brevo skill:cli uninstall`.
 
 ### Manual install (escape hatch)
 
@@ -152,7 +152,7 @@ If you prefer not to install via the CLI, copy the files in directly:
 # AGENTS.md — append into your existing AGENTS.md, or copy if you don't have one
 cat node_modules/@getbrevo/cli/agent-context/AGENTS.md >> AGENTS.md
 
-# Claude Code skill — note the directory name matches what `brevo skill install` uses
+# Claude Code skill — note the directory name matches what `brevo skill:cli install` uses
 mkdir -p .claude/skills/brevo-cli
 cp node_modules/@getbrevo/cli/agent-context/SKILL.md .claude/skills/brevo-cli/SKILL.md
 ```

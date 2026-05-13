@@ -24,8 +24,8 @@ This project uses the [Brevo Developer CLI](https://www.npmjs.com/package/@getbr
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Generate starter OAuth code (`--app-id`) |
 | `brevo app start oauth` | Run the scaffolded OAuth test server (`--port`) |
-| `brevo skill install` | Install Brevo-published Claude Code skills (auto-refreshes on every `brevo` run) |
-| `brevo skill uninstall` | Remove Brevo-installed skills from `~/.claude/skills/` |
+| `brevo skill:cli install` | Install the brevo-cli Claude Code skill (auto-refreshes on every `brevo` run) |
+| `brevo skill:cli uninstall` | Remove the brevo-cli skill from `~/.claude/skills/` |
 
 Run `brevo --help` or `brevo <command> --help` for the full set.
 
@@ -47,7 +47,7 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 | `BREVO_OAUTH_PROXY_URL` | Override OAuth proxy used by browser login |
 | `BREVO_CONFIG_HOME` | Override credentials directory (default `~/.brevo/`) |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs |
-| `BREVO_NO_SKILL_PROMPT` | Set to `1` to suppress the first-run `brevo skill install` prompt at login/init |
+| `BREVO_NO_SKILL_PROMPT` | Set to `1` to suppress the first-run `brevo skill:cli install` prompt at login/init |
 | `DEBUG=1` or `--debug` | Verbose HTTP and error logging |
 
 ## Safety

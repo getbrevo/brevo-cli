@@ -78,12 +78,12 @@ describe('auth-guard', () => {
     const hooks = (program as any)._lifeCycleHooks?.preAction;
     if (hooks && hooks.length > 0) {
       const originalArgv = process.argv;
-      process.argv = ['node', 'brevo', 'skill', 'list'];
+      process.argv = ['node', 'brevo', 'skill:cli', 'install'];
 
-      // Same leaf name as `app list` but parented under `skill` — must bypass auth.
+      // Same leaf name as `app list` but parented under `skill:cli` — must bypass auth.
       const mockActionCommand = {
-        name: () => 'list',
-        parent: { name: () => 'skill' },
+        name: () => 'install',
+        parent: { name: () => 'skill:cli' },
       } as unknown as Command;
       await hooks[0](program, mockActionCommand);
 

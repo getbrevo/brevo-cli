@@ -25,7 +25,7 @@ function getSkillTargetDir(name: string): string {
 // ──────────────── Install marker ────────────────
 // A `.brevo-skill.json` file inside each installed skill records the version
 // and source. It lets the auto-refresh pass decide whether a refresh is needed
-// and lets `brevo skill uninstall` confirm we only delete directories the CLI
+// and lets `brevo skill:cli uninstall` confirm we only delete directories the CLI
 // created — never something the user dropped in `~/.claude/skills/` manually.
 
 const MARKER_FILE = '.brevo-skill.json';

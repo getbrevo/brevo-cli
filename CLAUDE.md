@@ -103,7 +103,7 @@ src/
 
 The CLI ships two agent-facing docs at the repo root, both bundled into the published tarball via `package.json` `files:`:
 
-- `agent-context/SKILL.md` — the Claude Code skill. Installed into `~/.claude/skills/brevo-cli/` by `brevo skill install brevo-cli` and **auto-refreshed** on every subsequent `brevo` invocation (opt out: `BREVO_NO_SKILL_AUTOREFRESH=1`). It is also the source `src/skills/index.ts` reads via `SKILLS_BUNDLE_DIR` — there is no second copy.
+- `agent-context/SKILL.md` — the Claude Code skill. Installed into `~/.claude/skills/brevo-cli/` by `brevo skill:cli install` and **auto-refreshed** on every subsequent `brevo` invocation (opt out: `BREVO_NO_SKILL_AUTOREFRESH=1`). It is also the source `src/skills/index.ts` reads via `SKILLS_BUNDLE_DIR` — there is no second copy.
 - `agent-context/AGENTS.md` — the broader `agents.md`-format reference for any agent-aware tool.
 
 **Whenever you change user-visible CLI behavior, update both files in the same PR.** An out-of-sync skill actively misleads any AI helping a user with this CLI — that's worse than no skill at all.
@@ -115,7 +115,7 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - New or removed `BREVO_*` env vars, or changes to existing-var semantics.
 - Changed defaults (new opt-in/opt-out, changed prompt behavior).
 - Changed exit codes or error messages that scripts may match on.
-- Removed features that the docs currently advertise (e.g. removing `brevo skill update` requires removing it from both docs).
+- Removed features that the docs currently advertise (e.g. removing `brevo skill:cli update` requires removing it from both docs).
 
 **What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
 
