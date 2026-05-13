@@ -1,6 +1,6 @@
 ---
 name: brevo-cli
-description: Use when working in a project that uses the Brevo Developer CLI (the `brevo` binary from `@getbrevo/cli`) — managing OAuth apps, scaffolding integrations, running the local OAuth test server, or invoking any `brevo …` command. Trigger keywords - brevo, brevo cli, brevo app, app-config.json, OAuth Brevo, BREVO_API_KEY, getbrevo.
+description: Use when working in a project that uses the Brevo Developer CLI (the `brevo` binary from `@getbrevo/cli`) — managing OAuth apps, scaffolding integrations, running the local OAuth test server, or invoking any `brevo …` command. Activates on: brevo, brevo cli, brevo app, app-config.json, OAuth Brevo, BREVO_API_KEY, getbrevo.
 ---
 
 # Brevo CLI
@@ -30,9 +30,9 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 
 ### 2. Is this skill up to date?
 
-1. Read the installed skill version from `~/.claude/skills/brevo-cli/.brevo-skill.json` (`version` field).
-2. Compare against `brevo --version` from step 1.
-3. **If they don't match, stop and tell the user to update** — ask them to run any `brevo` command (auto-refreshes the skill) or `brevo skill:cli install` to force-reinstall. Do not proceed with stale guidance.
+* [ ] Read the installed skill version from `~/.claude/skills/brevo-cli/.brevo-skill.json` (`version` field).
+* [ ] Compare against `brevo --version` from step 1.
+* [ ] If they don't match, **stop and tell the user to update** — running any `brevo` command auto-refreshes the skill, or `brevo skill:cli install` force-reinstalls. Do not proceed with stale guidance.
 
 ## Decision tree
 
@@ -63,6 +63,11 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 ## Exit codes
 
 `0` success · `1` general error · `2` aborted · `3` auth failure · `4` network · `5` not found.
+
+## Before sharing or committing output
+
+* [ ] No `xkeysib-…` API keys, client secrets, refresh tokens, or contents of `~/.brevo/credentials.json` / `.env.local` in messages, logs, or diffs.
+* [ ] Real production account / org / app IDs redacted to placeholders before sharing diagnostics.
 
 ## How this skill stays current
 
