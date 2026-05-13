@@ -85,15 +85,13 @@ export const CLI = {
   APP_CREATE: 'brevo app create',
   APP_LIST: 'brevo app list',
   APP_SCAFFOLD: (appId?: string) =>
-    appId == null ? 'brevo app scaffold --app-id <id>' : `brevo app scaffold --app-id ${appId}`,
+    appId ? `brevo app scaffold --app-id ${appId}` : 'brevo app scaffold --app-id <id>',
   APP_CREDENTIALS: (appId?: string) =>
-    appId == null
-      ? 'brevo app credentials --app-id <id>'
-      : `brevo app credentials --app-id ${appId}`,
+    appId ? `brevo app credentials --app-id ${appId}` : 'brevo app credentials --app-id <id>',
   APP_CREDENTIALS_REVEAL: (appId?: string) =>
-    appId == null
-      ? 'brevo app credentials --reveal-secret'
-      : `brevo app credentials --reveal-secret --app-id ${appId}`,
+    appId
+      ? `brevo app credentials --reveal-secret --app-id ${appId}`
+      : 'brevo app credentials --reveal-secret',
   APP_UPDATE: 'brevo app update',
   APP_DELETE: 'brevo app delete',
   APP_START: (feature?: string) =>

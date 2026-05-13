@@ -29,13 +29,13 @@ async function resolveSecretReveal(
       default: false,
     },
   ]);
-  if (!confirmed) {
-    return { display: messages.CLIENT_SECRET_HIDDEN_HUMAN, revealed: false };
+  if (confirmed) {
+    return {
+      display: app.client_secret || messages.CLIENT_SECRET_NOT_AVAILABLE,
+      revealed: true,
+    };
   }
-  return {
-    display: app.client_secret || messages.CLIENT_SECRET_NOT_AVAILABLE,
-    revealed: true,
-  };
+  return { display: messages.CLIENT_SECRET_HIDDEN_HUMAN, revealed: false };
 }
 
 function printCredentialsHuman(
