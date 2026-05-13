@@ -21,11 +21,32 @@ If installation isn't possible for a Claude agent (no write access to `~/.claude
 
 ## Before starting a new session
 
-- **Claude agents (skill installed):** verify the skill is up to date before doing any work.
+Run two preflight checks before any other work.
+
+### 1. Is `brevo` installed?
+
+Run `brevo --version`. If you get `command not found` (or any "no such binary" error), the CLI isn't installed. **Stop and tell the user to install it:**
+
+```bash
+npm install -g @getbrevo/cli
+# or
+yarn global add @getbrevo/cli
+```
+
+Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is the canonical entry point. Only continue once `brevo --version` returns a version string.
+
+### 2. Is your reference up to date with the installed CLI?
+
+- **Claude agents (skill installed at `~/.claude/skills/brevo-cli/`):**
   1. Read the installed skill version from `~/.claude/skills/brevo-cli/.brevo-skill.json` (`version` field).
-  2. Compare against the CLI version: `brevo --version`.
+  2. Compare against `brevo --version` from step 1.
   3. **If they don't match, stop and tell the user to update** — ask them to run any `brevo` command (auto-refreshes the skill) or `brevo skill:cli install` to force-reinstall. Do not proceed with stale guidance.
-- **Non-Claude agents** (reading this `AGENTS.md` directly): no version check needed. This file ships inside the `@getbrevo/cli` package, so it's already in lockstep with whatever CLI version is installed.
+- **Non-Claude agents (reading this `AGENTS.md` directly):** make sure you're reading the canonical bundled copy, not a stale fork.
+  1. Locate the canonical `AGENTS.md`. It ships inside the installed `@getbrevo/cli` package:
+     - Global npm install: `$(npm root -g)/@getbrevo/cli/agent-context/AGENTS.md`
+     - Global yarn install: `$(yarn global dir)/node_modules/@getbrevo/cli/agent-context/AGENTS.md`
+     - Local install: `node_modules/@getbrevo/cli/agent-context/AGENTS.md`
+  2. If the `AGENTS.md` you're currently reading isn't that file, **switch to the canonical copy** — your current copy may be stale (e.g. one committed into the user's repo from an older CLI version). The bundled copy is always in lockstep with the running CLI version, so no separate version string check is needed once you're reading it.
 
 ## When to use it
 

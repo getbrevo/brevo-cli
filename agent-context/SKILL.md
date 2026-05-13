@@ -14,10 +14,24 @@ This project uses the Brevo Developer CLI to create and manage Brevo OAuth appli
 
 ## Before starting a new session
 
-Verify this skill is up to date before doing any work:
+Run two preflight checks before any other work.
+
+### 1. Is `brevo` installed?
+
+Run `brevo --version`. If you get `command not found` (or any "no such binary" error), the CLI isn't installed. **Stop and tell the user to install it:**
+
+```bash
+npm install -g @getbrevo/cli
+# or
+yarn global add @getbrevo/cli
+```
+
+Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is the canonical entry point. Only continue once `brevo --version` returns a version string.
+
+### 2. Is this skill up to date?
 
 1. Read the installed skill version from `~/.claude/skills/brevo-cli/.brevo-skill.json` (`version` field).
-2. Compare against the CLI version: `brevo --version`.
+2. Compare against `brevo --version` from step 1.
 3. **If they don't match, stop and tell the user to update** — ask them to run any `brevo` command (auto-refreshes the skill) or `brevo skill:cli install` to force-reinstall. Do not proceed with stale guidance.
 
 ## Decision tree
