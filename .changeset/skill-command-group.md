@@ -23,3 +23,10 @@ Discovery is doc-driven rather than interrupting interactive runs: `agent-contex
 - `agent-context/SKILL.md` is the single source of truth — the CLI reads it directly via `SKILLS_BUNDLE_DIR`; manual-copy users and `brevo skill:cli install` users see the same file.
 - Installs are tracked with a `.brevo-skill.json` marker so auto-refresh and uninstall stay safe.
 - Skill test fixtures route through a repo-local `src/__tests__/**/__sandbox__/` directory (gitignored) instead of `os.tmpdir()` — addresses SonarCloud `S5443`.
+
+**Docs**
+
+- Fix `AGENTS.md` env-var table: the debug toggle is `BREVO_DEBUG=1`, not `DEBUG=1` (the latter never enabled debug logging — `src/lib/logger.ts` only reads `BREVO_DEBUG`).
+- Document previously undocumented env vars in `AGENTS.md`: `BREVO_CLAUDE_HOME` (override Claude Code home used by `skill:cli`) and `BREVO_NO_UPDATE_NOTIFIER` (suppress the npm update-available notice).
+- Round out `AGENTS.md` command table: add the missing `brevo logout` row and the `--yes` flag on `app update`; list `--json` consistently across every command that supports it.
+- Add the missing `whoami` mapping to the `SKILL.md` decision tree.

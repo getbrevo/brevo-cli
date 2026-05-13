@@ -34,15 +34,16 @@ Verify the installed brevo-cli skill is up to date before doing any work:
 
 | Command | Purpose |
 |---|---|
-| `brevo login` | Authenticate (browser by default; set `BREVO_API_KEY` for non-interactive) |
-| `brevo whoami` | Show the authenticated account |
+| `brevo login` | Authenticate (`--browser` forces interactive; set `BREVO_API_KEY` for non-interactive; `--json`) |
+| `brevo logout` | Clear stored credentials (`--force`, `--json`) |
+| `brevo whoami` | Show the authenticated account (`--json`) |
 | `brevo app init` | Guided setup (login, create, scaffold) |
-| `brevo app list` | List OAuth apps |
-| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`) |
-| `brevo app update` | Update name / redirect URLs (`--app-id`, `--name`, `--redirect-uri`) |
-| `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`) |
-| `brevo app delete` | Delete an app (`--app-id`, `--force`) |
-| `brevo app scaffold` | Generate starter OAuth code (`--app-id`) |
+| `brevo app list` | List OAuth apps (`--json`) |
+| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--json`) |
+| `brevo app update` | Update name / redirect URLs (`--app-id`, `--name`, `--redirect-uri`, `--yes`, `--json`) |
+| `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`, `--json`) |
+| `brevo app delete` | Delete an app (`--app-id`, `--force`, `--json`) |
+| `brevo app scaffold` | Generate starter OAuth code (`--app-id`, `--json`) |
 | `brevo app start oauth` | Run the scaffolded OAuth test server (`--port`) |
 | `brevo skill:cli install` | Install the brevo-cli Claude Code skill (auto-refreshes on every `brevo` run) |
 | `brevo skill:cli uninstall` | Remove the brevo-cli skill from `~/.claude/skills/` |
@@ -66,8 +67,10 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 | `BREVO_API_URL` | Override API base (HTTPS required, except `localhost`) |
 | `BREVO_OAUTH_PROXY_URL` | Override OAuth proxy used by browser login |
 | `BREVO_CONFIG_HOME` | Override credentials directory (default `~/.brevo/`) |
+| `BREVO_CLAUDE_HOME` | Override Claude Code home used by `skill:cli` (default `~/.claude/`) |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs |
-| `DEBUG=1` or `--debug` | Verbose HTTP and error logging |
+| `BREVO_NO_UPDATE_NOTIFIER` | Set to `1` to suppress the npm update-available notice |
+| `BREVO_DEBUG=1` or `--debug` | Verbose HTTP and error logging |
 
 ## Safety
 

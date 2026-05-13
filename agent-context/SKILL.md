@@ -21,6 +21,7 @@ Verify this skill is up to date before doing any work:
 
 - "Set me up from scratch" → `brevo app init`
 - "Authenticate" → `brevo login` (or `BREVO_API_KEY=xkeysib-... brevo login` for CI)
+- "Who am I logged in as?" → `brevo whoami --json`
 - "Show / pick an app" → `brevo app list --json`
 - "Create an app" → `brevo app create --name "<name>" --distribution private --redirect-uri <url> --json`
 - "Update app metadata" → `brevo app update --app-id <id> --name "<name>"` and/or `--redirect-uri <url>` (repeatable)
