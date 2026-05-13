@@ -169,22 +169,6 @@ export const skillService = {
     return SKILL_CATALOG.map((entry) => this.install(entry.name, options));
   },
 
-  uninstall(name: string): UninstallResult {
-    const entry = getSkill(name);
-    if (!entry) {
-      throw new CliError(unknownSkillMessage(name));
-    }
-    const targetDir = getSkillTargetDir(entry.name);
-    const marker = readMarker(targetDir);
-    if (!marker) {
-      throw new CliError(notInstalledMessage(name));
-    }
-    // Marker presence is our proof of ownership — never recursively delete a
-    // directory the CLI didn't create, even if it happens to share the name.
-    fs.rmSync(targetDir, { recursive: true, force: true });
-    return { name: entry.name, path: targetDir };
-  },
-
   uninstallAll(): UninstallResult[] {
     return SKILL_CATALOG.flatMap((entry) => {
       const targetDir = getSkillTargetDir(entry.name);
@@ -259,8 +243,4 @@ export function shouldSkipAutoRefresh(opts: AutoRefreshOptions = {}): boolean {
 function unknownSkillMessage(name: string): string {
   const available = SKILL_CATALOG.map((s) => s.name).join(', ');
   return `Unknown skill "${name}". Available: ${available}`;
-}
-
-function notInstalledMessage(name: string): string {
-  return `Skill "${name}" is not installed.`;
 }

@@ -19,7 +19,6 @@ import { registerAll } from '../lib/command-registry';
 import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
 import { startUpdateCheck, notifyUpdate, shouldShowBannerBefore } from '../lib/update-notifier';
 import { skillService } from '../services/skill';
-import { maybeShowSkillBanner } from '../lib/skill-banner';
 import { warnIfCliBelowMinVersion } from '../lib/min-version-check';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
@@ -178,9 +177,6 @@ earlyNotify
     // installed skill that's behind the bundled catalog so the AI tool always
     // sees the latest primer. Opt out with BREVO_NO_SKILL_AUTOREFRESH=1.
     skillService.autoRefreshOutdated();
-    // One-shot discovery banner for users who haven't installed the skill.
-    // Writes a flag to ~/.brevo/skill-banner.json so it never repeats.
-    maybeShowSkillBanner();
     // Force exit — Node's native fetch keeps TCP connections alive which can
     // prevent the process from exiting when running against local servers.
     process.exit(0);

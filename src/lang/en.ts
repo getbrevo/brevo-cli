@@ -180,21 +180,14 @@ export const messages = {
   // Skill
   SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string) =>
     `Installed ${name}@${version} → ${dir}`,
-  SKILL_INSTALL_OVERWRITTEN: (name: string, version: string, dir: string) =>
-    `Reinstalled ${name}@${version} → ${dir}`,
   SKILL_INSTALL_ALREADY: (name: string, version: string) =>
     `${name}@${version} is already up to date.`,
   SKILL_UNINSTALL_SUCCESS: (name: string, dir: string) => `Uninstalled ${name} from ${dir}`,
   SKILL_UNINSTALL_NONE: 'No Brevo skills installed.',
-  SKILL_NOT_INSTALLED: (name: string, cmd: string) =>
-    `Skill "${name}" is not installed. Install it with ${cmd}.`,
   SKILL_AUTOREFRESHED: (name: string, oldVer: string, newVer: string) =>
     `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
   SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>
     `⚠ failed to refresh ${name} skill: ${err}`,
-  SKILL_BANNER_LINE_1: 'Brevo ships a Claude Code skill for AI assistants.',
-  SKILL_BANNER_LINE_2: 'Run `brevo skill:cli install` to enable it.',
-  SKILL_BANNER_LINE_3: "(You'll only see this notice once.)",
 
   // General
   ABORTED: 'Aborted.',

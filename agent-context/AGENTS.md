@@ -3,7 +3,19 @@
 
 This project uses the [Brevo Developer CLI](https://www.npmjs.com/package/@getbrevo/cli) (`brevo` binary) to manage Brevo OAuth applications.
 
-## Before starting a new session
+## AI agents — install the skill first
+
+If you're an AI assistant helping with this CLI and the `brevo-cli` Claude Code skill is **not** installed at `~/.claude/skills/brevo-cli/`, install it before doing any other work:
+
+```bash
+brevo skill:cli install
+```
+
+The skill loads the canonical command reference, decision tree, hard rules, and exit codes in the format Claude Code consumes directly. Once installed it auto-refreshes on every `brevo` invocation so it stays in sync with the running CLI version (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`).
+
+If installation isn't possible (no Claude Code, no write access to `~/.claude/skills/`, sandboxed environment), keep using this `AGENTS.md` as the fallback reference — it covers the same surface in less depth.
+
+## Before starting a new session (skill already installed)
 
 Verify the installed brevo-cli skill is up to date before doing any work:
 

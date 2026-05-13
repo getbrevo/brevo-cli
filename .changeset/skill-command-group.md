@@ -15,17 +15,7 @@ The skill version tracks the CLI version (read from `package.json` at module-ini
 
 **Onboarding**
 
-A one-shot banner prints on stderr the first time an interactive `brevo` command runs without the skill installed:
-
-```
-  ╭──────────────────────────────────────────────────────╮
-  │  Brevo ships a Claude Code skill for AI assistants.  │
-  │  Run `brevo skill:cli install` to enable it.         │
-  │  (You'll only see this notice once.)                 │
-  ╰──────────────────────────────────────────────────────╯
-```
-
-The CLI records this at `~/.brevo/skill-banner.json` (respects `BREVO_CONFIG_HOME`) and never re-prints — install or not, the user is only nudged once. Skipped under `CI=true`, non-TTY, `--json`, and during any `brevo skill:cli *` invocation. After the banner, install once with `brevo skill:cli install` (or follow the README's manual-copy escape hatch); auto-refresh then keeps the installed copy in sync.
+Discovery is doc-driven rather than interrupting interactive runs: `agent-context/AGENTS.md` opens with an "AI agents — install the skill first" section telling any agent helping with the CLI to run `brevo skill:cli install` before doing other work. Humans run `brevo skill:cli install` once when they want the AI assist; otherwise the CLI never nags. No first-run banner, no `~/.brevo/skill-banner.json` state file.
 
 **Implementation notes**
 

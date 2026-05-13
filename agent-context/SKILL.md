@@ -7,6 +7,8 @@ description: Use when working in a project that uses the Brevo Developer CLI (th
 
 This project uses the Brevo Developer CLI to create and manage Brevo OAuth applications. Treat the `brevo` binary as the canonical entry point — don't shell out to `curl https://api.brevo.com/...` for things the CLI already covers.
 
+> **Reading this from the repo rather than `~/.claude/skills/brevo-cli/`?** Install it as a Claude Code skill with `brevo skill:cli install` so your tooling loads it natively and keeps it auto-refreshed. The repo copy is bundled with the npm package; the installed copy is what Claude Code actually consumes.
+
 ## Before starting a new session
 
 Verify this skill is up to date before doing any work:

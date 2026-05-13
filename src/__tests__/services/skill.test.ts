@@ -121,34 +121,6 @@ describe('services/skill', () => {
     });
   });
 
-  describe('uninstall', () => {
-    it('removes the installed skill directory', () => {
-      skillService.install('brevo-cli');
-      const result = skillService.uninstall('brevo-cli');
-      expect(result.name).toBe('brevo-cli');
-      expect(fs.existsSync(path.join(tmpHome, 'skills', 'brevo-cli'))).toBe(false);
-    });
-
-    it('throws when the skill is not installed', () => {
-      expect(() => skillService.uninstall('brevo-cli')).toThrow(CliError);
-    });
-
-    it('throws CliError for an unknown skill', () => {
-      expect(() => skillService.uninstall('does-not-exist')).toThrow(CliError);
-    });
-
-    it('refuses to remove a directory without our marker (safety)', () => {
-      // Simulate a user-authored directory at the install path — no marker
-      // file. The CLI must not blow it away even if the name matches.
-      const target = path.join(tmpHome, 'skills', 'brevo-cli');
-      fs.mkdirSync(target, { recursive: true });
-      fs.writeFileSync(path.join(target, 'user-file.md'), 'do not delete');
-
-      expect(() => skillService.uninstall('brevo-cli')).toThrow(CliError);
-      expect(fs.existsSync(path.join(target, 'user-file.md'))).toBe(true);
-    });
-  });
-
   describe('uninstallAll', () => {
     it('returns an empty list when nothing is installed', () => {
       expect(skillService.uninstallAll()).toEqual([]);
