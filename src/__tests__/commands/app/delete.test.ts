@@ -2,8 +2,8 @@ import { deleteCommand } from '../../../commands/app/delete';
 
 const mockRmSync = jest.fn();
 const mockExistsSync = jest.fn().mockReturnValue(true);
-jest.mock('fs', () => ({
-  ...jest.requireActual('fs'),
+jest.mock('node:fs', () => ({
+  ...jest.requireActual('node:fs'),
   rmSync: (...args: unknown[]) => mockRmSync(...args),
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
 }));

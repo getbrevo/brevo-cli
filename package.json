@@ -78,7 +78,8 @@
   },
   "homepage": "https://github.com/getbrevo/brevo-cli#readme",
   "bugs": {
-    "url": "https://github.com/getbrevo/brevo-cli/issues"
+    "url": "https://github.com/getbrevo/brevo-cli/issues",
+    "email": "support@brevo.com"
   },
   "publishConfig": {
     "access": "public",

@@ -7,6 +7,7 @@ Brevo Developer CLI (`@getbrevo/cli`) — create, manage, and test OAuth integra
 - **Language:** TypeScript (CommonJS, ES2022 target)
 - **Runtime:** Node.js >= 20.15.0
 - **Package manager:** Yarn >= 1.19.1
+- **Public CLI reference:** https://developers.brevo.com/docs/cli-reference — keep behaviour, flags, and exit codes in sync with this page when changing user-facing commands.
 
 ## Public repository — review before committing
 

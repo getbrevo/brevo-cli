@@ -57,7 +57,7 @@ function registerCommand(parent: Command, def: CommandDefinition): void {
 
   cmd.action((...actionArgs) => {
     // Commander passes positional args first, then options object, then Command
-    const opts = actionArgs[actionArgs.length - 2] as Record<string, unknown>;
+    const opts = actionArgs.at(-2) as Record<string, unknown>;
     const positionalArgs = actionArgs.slice(0, -2);
     return def.handler(opts, ...positionalArgs);
   });

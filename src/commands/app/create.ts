@@ -95,9 +95,7 @@ export const createCommand = withCommandHandler(
     // 3. Redirect URI(s) — already validated by collectUrls parser when passed via flag
     let redirectUrls = options.redirectUri ?? [];
     if (redirectUrls.length === 0) {
-      if (!process.stdin.isTTY) {
-        redirectUrls = [DEFAULT_REDIRECT_URI];
-      } else {
+      if (process.stdin.isTTY) {
         // Find an available port for the default redirect URL
         const availablePort = await findAvailablePort(DEFAULT_PORT);
         const defaultRedirect =
@@ -156,9 +154,7 @@ export const createCommand = withCommandHandler(
             },
           ]);
           const another = String(anotherRaw).toLowerCase().trim().startsWith('y');
-          if (!another) {
-            addMore = false;
-          } else {
+          if (another) {
             const { nextUrl } = await inquirer.prompt([
               {
                 type: 'input',
@@ -168,8 +164,12 @@ export const createCommand = withCommandHandler(
               },
             ]);
             redirectUrls.push((nextUrl as string).trim());
+          } else {
+            addMore = false;
           }
         }
+      } else {
+        redirectUrls = [DEFAULT_REDIRECT_URI];
       }
     }
 

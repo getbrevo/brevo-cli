@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 // ──────────────── Directory ────────────────
 
@@ -197,12 +197,12 @@ export function getApiKey(): string | undefined {
     return process.env.BREVO_API_KEY;
   }
   const auth = readCredentials().auth;
-  return auth && auth.kind === 'api-key' ? auth.apiKey : undefined;
+  return auth?.kind === 'api-key' ? auth.apiKey : undefined;
 }
 
 export function getAccessToken(): string | undefined {
   const auth = readCredentials().auth;
-  return auth && auth.kind === 'oauth' ? auth.accessToken : undefined;
+  return auth?.kind === 'oauth' ? auth.accessToken : undefined;
 }
 
 export function getAuthCred(): AuthCred | undefined {
@@ -322,8 +322,26 @@ export function saveAppCredentials(appId: string, cred: AppCredential): void {
   writeCredentials(creds);
 }
 
+// Wipe the per-app credential and name caches without touching auth/account
+// fields. Used when re-login detects a different account — the cached
+// clientId/clientSecret values belong to apps the new account cannot see.
+export function clearAppsCache(): void {
+  const creds = readCredentials();
+  creds.apps = {};
+  delete creds.appNames;
+  writeCredentials(creds);
+}
+
 export function getAppCredentials(appId: string): AppCredential | undefined {
   return readCredentials().apps[appId];
+}
+
+export function deleteAppCredentials(appId: string): void {
+  if (!appId) return;
+  const creds = readCredentials();
+  if (!(appId in creds.apps)) return;
+  delete creds.apps[appId];
+  writeCredentials(creds);
 }
 
 // Locally cached app names mirror values from `app update` and `app credentials`.
@@ -335,7 +353,7 @@ export function saveAppName(appId: string, name: string): void {
   if (!appId || !name) return;
   const creds = readCredentials();
   creds.appNames = {
-    ...(creds.appNames ?? {}),
+    ...creds.appNames,
     [appId]: { name, savedAt: Date.now() },
   };
   writeCredentials(creds);

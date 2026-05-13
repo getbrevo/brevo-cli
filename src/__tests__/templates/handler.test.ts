@@ -1,6 +1,6 @@
 import { applyVars } from '../../templates';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 const TEMPLATES_DIR = path.resolve(__dirname, '../../templates/files');
 

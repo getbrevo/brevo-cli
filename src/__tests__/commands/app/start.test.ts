@@ -39,7 +39,7 @@ jest.mock('../../../lib/port', () => ({
 }));
 
 import { spawn } from 'node:child_process';
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 import inquirer from 'inquirer';
 import { isPortAvailable } from '../../../lib/port';
 import { readProjectConfig, writeProjectConfig } from '../../../lib/config';
@@ -48,6 +48,9 @@ import { appService } from '../../../container';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 const mockUpdateApp = appService.updateApp as jest.Mock;
+
+type MockChild = EventEmitter & { kill: jest.Mock };
+const makeMockChild = (): MockChild => Object.assign(new EventEmitter(), { kill: jest.fn() });
 
 describe('app/start', () => {
   let stdoutSpy: jest.SpyInstance;
@@ -118,8 +121,7 @@ describe('app/start', () => {
   it('should spawn the oauth server process', async () => {
     (fs.existsSync as jest.Mock).mockReturnValue(true);
 
-    const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-    mockChild.kill = jest.fn();
+    const mockChild = makeMockChild();
     (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
     const promise = startCommand({ feature: 'oauth', port: 4000 });
@@ -144,8 +146,7 @@ describe('app/start', () => {
   it('should reject when child process exits with non-zero code', async () => {
     (fs.existsSync as jest.Mock).mockReturnValue(true);
 
-    const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-    mockChild.kill = jest.fn();
+    const mockChild = makeMockChild();
     (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
     const promise = startCommand({ feature: 'oauth' });
@@ -163,8 +164,7 @@ describe('app/start', () => {
       auth: { type: 'oauth', scopes: [], redirectUrls: ['http://localhost:3010/auth/callback'] },
     });
 
-    const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-    mockChild.kill = jest.fn();
+    const mockChild = makeMockChild();
     (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
     const promise = startCommand({ feature: 'oauth' });
@@ -186,8 +186,7 @@ describe('app/start', () => {
   it('should default to port 3009', async () => {
     (fs.existsSync as jest.Mock).mockReturnValue(true);
 
-    const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-    mockChild.kill = jest.fn();
+    const mockChild = makeMockChild();
     (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
     const promise = startCommand({ feature: 'oauth' });
@@ -208,8 +207,7 @@ describe('app/start', () => {
     (fs.existsSync as jest.Mock).mockReturnValue(true);
     process.env.REDIRECT_URI = 'http://localhost:9999/ambient';
 
-    const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-    mockChild.kill = jest.fn();
+    const mockChild = makeMockChild();
     (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
     const promise = startCommand({ feature: 'oauth', port: 4000 });
@@ -252,8 +250,7 @@ describe('app/start', () => {
         ttyConfig(['http://localhost:3010/auth/callback']),
       );
 
-      const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-      mockChild.kill = jest.fn();
+      const mockChild = makeMockChild();
       (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
       const promise = startCommand({ feature: 'oauth' });
@@ -271,8 +268,7 @@ describe('app/start', () => {
         ttyConfig(['http://127.0.0.1:4000/auth/callback']),
       );
 
-      const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-      mockChild.kill = jest.fn();
+      const mockChild = makeMockChild();
       (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
       const promise = startCommand({ feature: 'oauth', port: 4000 });
@@ -291,8 +287,7 @@ describe('app/start', () => {
       );
       mockPrompt.mockResolvedValueOnce({ shouldRegister: true });
 
-      const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-      mockChild.kill = jest.fn();
+      const mockChild = makeMockChild();
       (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
       const promise = startCommand({ feature: 'oauth', port: 4000 });
@@ -320,8 +315,7 @@ describe('app/start', () => {
       );
       mockPrompt.mockResolvedValueOnce({ shouldRegister: false });
 
-      const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-      mockChild.kill = jest.fn();
+      const mockChild = makeMockChild();
       (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
       const promise = startCommand({ feature: 'oauth', port: 4000 });
@@ -347,8 +341,7 @@ describe('app/start', () => {
       mockPrompt.mockResolvedValueOnce({ shouldRegister: false });
       process.env.REDIRECT_URI = 'http://localhost:9999/ambient';
 
-      const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-      mockChild.kill = jest.fn();
+      const mockChild = makeMockChild();
       (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
       const promise = startCommand({ feature: 'oauth', port: 4000 });
@@ -379,8 +372,7 @@ describe('app/start', () => {
       // simplest setup is a null config — check is skipped, server starts.
       (readProjectConfig as jest.Mock).mockReturnValueOnce(null);
 
-      const mockChild = new EventEmitter() as EventEmitter & { kill: jest.Mock };
-      mockChild.kill = jest.fn();
+      const mockChild = makeMockChild();
       (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
 
       const promise = startCommand({ feature: 'oauth', port: 4000 });

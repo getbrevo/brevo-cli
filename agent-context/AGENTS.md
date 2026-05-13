@@ -56,4 +56,5 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 - npm: <https://www.npmjs.com/package/@getbrevo/cli>
 - Repo: <https://github.com/getbrevo/brevo-cli>
 - Brevo developer docs: <https://developers.brevo.com>
+- CLI reference: <https://developers.brevo.com/docs/cli-reference>
 <!-- BREVO_CLI_AGENTS_END -->

@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 // Set a temp config dir BEFORE importing config module
 const TEST_CONFIG_DIR = path.join(
@@ -21,6 +21,13 @@ import {
   readProjectConfig,
   hasLocalApp,
 } from '../../lib/config';
+
+function writeRawCredentials(data: object): void {
+  fs.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(TEST_CONFIG_DIR, 'credentials.json'), JSON.stringify(data, null, 2), {
+    mode: 0o600,
+  });
+}
 
 describe('config', () => {
   beforeEach(() => {
@@ -89,8 +96,6 @@ describe('config', () => {
 
     it('migrates legacy top-level apiKey into auth union on read', () => {
       // Write the legacy shape directly
-      const path = require('path');
-      const fs = require('fs');
       fs.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
       fs.writeFileSync(
         path.join(TEST_CONFIG_DIR, 'credentials.json'),
@@ -139,18 +144,16 @@ describe('config', () => {
       ['empty tokenType', { accessToken: 'at', refreshToken: 'rt', tokenType: '' }],
       [
         'NaN expiresAt',
-        { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresAt: NaN },
+        { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresAt: Number.NaN },
       ],
       [
         'Infinity expiresAt',
         { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresAt: Infinity },
       ],
     ])('rejects corrupted OAuth credential: %s', (_label, partial) => {
-      const pathMod = require('path');
-      const fsMod = require('fs');
-      fsMod.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
-      fsMod.writeFileSync(
-        pathMod.join(TEST_CONFIG_DIR, 'credentials.json'),
+      fs.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(
+        path.join(TEST_CONFIG_DIR, 'credentials.json'),
         JSON.stringify({
           auth: { kind: 'oauth', expiresAt: 1, ...(partial as Record<string, unknown>) },
           apps: {},
@@ -226,18 +229,52 @@ describe('config', () => {
       const result = getAppCredentials(uuid);
       expect(result).toEqual(cred);
     });
+
+    it('deleteAppCredentials removes only the targeted app', () => {
+      const { deleteAppCredentials } = require('../../lib/config');
+      saveAppCredentials('1', { clientId: 'c1', clientSecret: 's1' });
+      saveAppCredentials('2', { clientId: 'c2', clientSecret: 's2' });
+
+      deleteAppCredentials('1');
+
+      expect(getAppCredentials('1')).toBeUndefined();
+      expect(getAppCredentials('2')).toEqual({ clientId: 'c2', clientSecret: 's2' });
+    });
+
+    it('deleteAppCredentials is a no-op for unknown appId', () => {
+      const { deleteAppCredentials } = require('../../lib/config');
+      saveAppCredentials('1', { clientId: 'c1', clientSecret: 's1' });
+
+      expect(() => deleteAppCredentials('does-not-exist')).not.toThrow();
+      expect(getAppCredentials('1')).toEqual({ clientId: 'c1', clientSecret: 's1' });
+    });
+
+    it('clearAppsCache wipes apps and appNames but preserves auth/account', () => {
+      const { clearAppsCache, saveAppName, getAppNames } = require('../../lib/config');
+      saveCredentials('xkeysib-keep', {
+        email: 'keep@example.com',
+        organizationId: 'org-keep',
+        userId: 42,
+      });
+      saveAppCredentials('1', { clientId: 'c1', clientSecret: 's1' });
+      saveAppCredentials('2', { clientId: 'c2', clientSecret: 's2' });
+      saveAppName('1', 'My App');
+
+      clearAppsCache();
+
+      // Auth + account untouched
+      expect(getApiKey()).toBe('xkeysib-keep');
+      expect(getEmail()).toBe('keep@example.com');
+      expect(isAuthenticated()).toBe(true);
+
+      // App credentials and names wiped
+      expect(getAppCredentials('1')).toBeUndefined();
+      expect(getAppCredentials('2')).toBeUndefined();
+      expect(getAppNames()).toEqual({});
+    });
   });
 
   describe('credentials migration', () => {
-    function writeRawCredentials(data: object): void {
-      fs.mkdirSync(TEST_CONFIG_DIR, { recursive: true, mode: 0o700 });
-      fs.writeFileSync(
-        path.join(TEST_CONFIG_DIR, 'credentials.json'),
-        JSON.stringify(data, null, 2),
-        { mode: 0o600 },
-      );
-    }
-
     it('should migrate old multi-profile format with activeProfile', () => {
       writeRawCredentials({
         profiles: {

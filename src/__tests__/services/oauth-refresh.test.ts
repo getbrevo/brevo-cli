@@ -97,7 +97,7 @@ describe('refreshAccessToken', () => {
   });
 
   it.each([
-    ['NaN expires_in', NaN],
+    ['NaN expires_in', Number.NaN],
     ['Infinity expires_in', Infinity],
     ['negative expires_in', -1],
     ['zero expires_in', 0],

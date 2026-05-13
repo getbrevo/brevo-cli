@@ -4,7 +4,7 @@ import { CliError } from './errors';
 let strippedUrlSuffix: string | undefined;
 
 function getStrippedUrlSuffix(parsed: URL): string | undefined {
-  const pathname = parsed.pathname !== '/' ? parsed.pathname : '';
+  const pathname = parsed.pathname === '/' ? '' : parsed.pathname;
   const suffix = `${pathname}${parsed.search}${parsed.hash}`;
   return suffix || undefined;
 }
@@ -85,13 +85,11 @@ export const CLI = {
   APP_CREATE: 'brevo app create',
   APP_LIST: 'brevo app list',
   APP_SCAFFOLD: (appId?: string) =>
-    appId != null ? `brevo app scaffold --app-id ${appId}` : 'brevo app scaffold --app-id <id>',
+    appId ? `brevo app scaffold --app-id ${appId}` : 'brevo app scaffold --app-id <id>',
   APP_CREDENTIALS: (appId?: string) =>
-    appId != null
-      ? `brevo app credentials --app-id ${appId}`
-      : 'brevo app credentials --app-id <id>',
+    appId ? `brevo app credentials --app-id ${appId}` : 'brevo app credentials --app-id <id>',
   APP_CREDENTIALS_REVEAL: (appId?: string) =>
-    appId != null
+    appId
       ? `brevo app credentials --reveal-secret --app-id ${appId}`
       : 'brevo app credentials --reveal-secret',
   APP_UPDATE: 'brevo app update',

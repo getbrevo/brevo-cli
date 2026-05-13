@@ -179,62 +179,22 @@ yarn smoke --help                # full flag list
 
 ### Publishing
 
-Releases use [changesets](https://github.com/changesets/changesets) and ship to the public npm registry under `@getbrevo`. **Prefer the CI flow** — pushing changesets to `main` opens a "Version Packages" PR (`.github/workflows/release.yaml`); pushing to a `release-*` branch publishes alpha prereleases (`.github/workflows/pre-release.yaml`). CI provides npm provenance via OIDC. Publish locally only when CI is unavailable.
-
-Prerequisites for any local publish:
-
-- `npm whoami` shows an account with `publish` permission on `@getbrevo`
-- A clean working tree on the branch you intend to release from
-- If your `~/.npmrc` maps `@getbrevo` to a non-public registry (e.g. GitHub Packages), the scope override wins over `publishConfig.registry` in `package.json`. Either pass `--registry=https://registry.npmjs.org/` explicitly, or comment out the `@getbrevo:registry=...` line for the duration of the publish. Confirm the `npm notice Publishing to <url>` line before continuing.
-
-#### Stable release
-
-```bash
-yarn changeset                # describe the change (interactive)
-yarn version:packages         # consume changesets, bump version, update CHANGELOG
-git commit -am "chore(release): version packages"
-yarn publish:packages         # runs prepublishOnly (clean + build + test) then publishes
-git push --follow-tags
-```
-
-#### Prerelease (alpha)
-
-```bash
-yarn changeset pre enter alpha   # enter prerelease mode (creates .changeset/pre.json)
-yarn changeset                   # describe the change
-yarn version:packages            # bumps to e.g. 0.1.0-alpha.0
-git commit -am "chore(release): version packages (alpha)"
-yarn publish:packages            # publishes under the `alpha` dist-tag
-git push --follow-tags
-yarn changeset pre exit          # exit prerelease mode when the alpha cycle ends
-git commit -am "chore: exit prerelease mode"
-```
-
-Verify the result with `npm view @getbrevo/cli versions --json` (stable) or `npm view @getbrevo/cli dist-tags` (prerelease). Install an alpha for smoke-testing with `npm install -g @getbrevo/cli@alpha`.
+Releases use [changesets](https://github.com/changesets/changesets) and publish to npm via CI. Merging a changeset to `main` opens a "Version Packages" PR; merging that PR publishes. Pushes to `release-*` branches publish alpha prereleases.
 
 ## Reporting issues
 
-Found a bug or have a feature request? Please [open an issue](https://github.com/getbrevo/brevo-cli/issues/new/choose) on GitHub.
+Bugs and feature requests: [open an issue](https://github.com/getbrevo/brevo-cli/issues/new/choose) or email [support@brevo.com](mailto:support@brevo.com). Include CLI version (`brevo --version`), Node version, and the command output. Redact any credentials.
 
-When filing a bug, please include:
-
-- CLI version (`brevo --version`)
-- Node.js version (`node --version`) and OS
-- The command you ran and the full output (run with `--debug` for verbose logging if relevant)
-- **Never paste real credentials** — redact API keys, client secrets, and access tokens before sharing
-
-For security vulnerabilities, please **do not open a public issue**. Email the Brevo security team or use GitHub's [private vulnerability reporting](https://github.com/getbrevo/brevo-cli/security/advisories/new) instead.
-
-## Contributing
-
-Contributions are welcome. See [`AGENTS.md`](./AGENTS.md) and [`CLAUDE.md`](./CLAUDE.md) for the project structure, conventions, and what to check before opening a PR.
+For security issues, use [private vulnerability reporting](https://github.com/getbrevo/brevo-cli/security/advisories/new) — do not file a public issue.
 
 ## Resources
 
 - [Brevo Developers](https://developers.brevo.com)
+- [CLI reference](https://developers.brevo.com/docs/cli-reference) — full command and option documentation
 - [Package on npm](https://www.npmjs.com/package/@getbrevo/cli)
 - [Repository](https://github.com/getbrevo/brevo-cli)
 - [Issue tracker](https://github.com/getbrevo/brevo-cli/issues)
+- [Email Support](mailto:support@brevo.com)
 - [Changelog](./CHANGELOG.md)
 
 ## License

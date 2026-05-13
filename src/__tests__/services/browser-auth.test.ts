@@ -157,7 +157,7 @@ describe('runBrowserLoginFlow', () => {
   it.each([
     [
       'NaN expires_in',
-      { access_token: 'at', refresh_token: 'rt', expires_in: NaN, token_type: 'Bearer' },
+      { access_token: 'at', refresh_token: 'rt', expires_in: Number.NaN, token_type: 'Bearer' },
     ],
     [
       'Infinity expires_in',

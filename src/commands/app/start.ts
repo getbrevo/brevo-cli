@@ -95,53 +95,87 @@ async function ensureRedirectRegistered(
   return newRedirectUrl;
 }
 
+function resolveFeatureEntry(feature: string | undefined): string {
+  if (!feature) {
+    const available = Object.entries(FEATURES)
+      .map(([name, f]) => `  ${name}  ${f.description}`)
+      .join('\n');
+    throw new CliError(messages.APP_START_MISSING_FEATURE(available));
+  }
+
+  const featureConfig = FEATURES[feature];
+  if (!featureConfig) {
+    const available = Object.keys(FEATURES).join(', ');
+    throw new CliError(messages.APP_START_UNKNOWN_FEATURE(feature, available));
+  }
+
+  const entryFile = path.resolve(featureConfig.entry);
+  if (!fs.existsSync(entryFile)) {
+    throw new CliError(messages.APP_START_FEATURE_NOT_FOUND(featureConfig.entry));
+  }
+
+  const featureDir = path.dirname(featureConfig.entry);
+  if (!fs.existsSync(path.resolve(featureDir, 'node_modules'))) {
+    throw new CliError(messages.APP_START_NO_DEPS(featureDir));
+  }
+  return entryFile;
+}
+
+function resolvePort(config: ProjectConfig | null, optionsPort?: number): number {
+  if (optionsPort) return optionsPort;
+  const redirectUrl = config?.auth?.redirectUrls?.[0];
+  if (!redirectUrl) return DEFAULT_PORT;
+  try {
+    const parsed = new URL(redirectUrl);
+    return parsed.port ? Number(parsed.port) : DEFAULT_PORT;
+  } catch {
+    return DEFAULT_PORT;
+  }
+}
+
+function runChildProcess(
+  entryFile: string,
+  childEnv: NodeJS.ProcessEnv,
+  feature: string,
+): Promise<void> {
+  const child = spawn(process.execPath, [entryFile], {
+    stdio: 'inherit',
+    env: childEnv,
+  });
+
+  const onSignal = (signal: NodeJS.Signals): void => {
+    child.kill(signal);
+  };
+  process.prependListener('SIGINT', onSignal);
+  process.prependListener('SIGTERM', onSignal);
+
+  return new Promise((resolve, reject) => {
+    child.on('close', (code) => {
+      process.removeListener('SIGINT', onSignal);
+      process.removeListener('SIGTERM', onSignal);
+      if (code && code !== 0) {
+        reject(new CliError(messages.APP_START_EXITED(feature, code)));
+      } else {
+        logInfo(`\n  ${messages.APP_START_STOPPED}\n`);
+        resolve();
+      }
+    });
+    child.on('error', (err) => {
+      process.removeListener('SIGINT', onSignal);
+      process.removeListener('SIGTERM', onSignal);
+      reject(new CliError(messages.APP_START_FAILED(feature, err.message)));
+    });
+  });
+}
+
 export const startCommand = withCommandHandler(
   async (options: { feature?: string; port?: number }): Promise<void> => {
     const { feature } = options;
+    const entryFile = resolveFeatureEntry(feature);
 
-    if (!feature) {
-      const available = Object.entries(FEATURES)
-        .map(([name, f]) => `  ${name}  ${f.description}`)
-        .join('\n');
-      throw new CliError(messages.APP_START_MISSING_FEATURE(available));
-    }
-
-    const featureConfig = FEATURES[feature];
-    if (!featureConfig) {
-      const available = Object.keys(FEATURES).join(', ');
-      throw new CliError(messages.APP_START_UNKNOWN_FEATURE(feature, available));
-    }
-
-    const entryFile = path.resolve(featureConfig.entry);
-    if (!fs.existsSync(entryFile)) {
-      throw new CliError(messages.APP_START_FEATURE_NOT_FOUND(featureConfig.entry));
-    }
-
-    // Check for node_modules inside the feature directory — package.json
-    // is scoped per feature, so dependencies are installed alongside the entry.
-    const featureDir = path.dirname(featureConfig.entry);
-    if (!fs.existsSync(path.resolve(featureDir, 'node_modules'))) {
-      throw new CliError(messages.APP_START_NO_DEPS(featureDir));
-    }
-
-    // Derive port: explicit --port flag > redirect URI from app-config.json > DEFAULT_PORT
     const config = readProjectConfig();
-    let port = DEFAULT_PORT;
-    if (options.port) {
-      port = options.port;
-    } else {
-      const redirectUrl = config?.auth?.redirectUrls?.[0];
-      if (redirectUrl) {
-        try {
-          const parsed = new URL(redirectUrl);
-          if (parsed.port) port = Number(parsed.port);
-        } catch {
-          // invalid redirect URL — fall back to default
-        }
-      }
-    }
+    const port = resolvePort(config, options.port);
 
-    // Check port availability before spawning
     if (!(await isPortAvailable(port))) {
       throw new CliError(
         options.port
@@ -154,52 +188,13 @@ export const startCommand = withCommandHandler(
     // its registered redirect URLs — otherwise the OAuth callback will be
     // rejected by Brevo at runtime. Skipped when there's no linked app
     // (no appId means we'd have nowhere to push the update).
-    let redirectUri: string | undefined;
-    if (config?.appId) {
-      redirectUri = await ensureRedirectRegistered(config, port);
-    }
+    const redirectUri = config?.appId ? await ensureRedirectRegistered(config, port) : undefined;
 
     logInfo(`\n  Starting ${feature}...`);
 
-    // Spawn the feature server using the current Node.js executable.
-    // REDIRECT_URI is propagated whenever we have a registered localhost URL
-    // on the resolved port — otherwise the child reads the (possibly stale)
-    // value from .env.local, which would mismatch when --port overrides the
-    // scaffold-time port.
     const childEnv: NodeJS.ProcessEnv = { ...process.env, PORT: String(port) };
     if (redirectUri) childEnv.REDIRECT_URI = redirectUri;
 
-    const child = spawn(process.execPath, [entryFile], {
-      stdio: 'inherit',
-      env: childEnv,
-    });
-
-    // Forward signals for clean shutdown — use prependListener so child
-    // is killed before the global SIGINT/SIGTERM handlers in bin/index.ts
-    // call process.exit().
-    const onSignal = (signal: NodeJS.Signals) => {
-      child.kill(signal);
-    };
-    process.prependListener('SIGINT', onSignal);
-    process.prependListener('SIGTERM', onSignal);
-
-    await new Promise<void>((resolve, reject) => {
-      child.on('close', (code) => {
-        process.removeListener('SIGINT', onSignal);
-        process.removeListener('SIGTERM', onSignal);
-        if (code && code !== 0) {
-          reject(new CliError(messages.APP_START_EXITED(feature, code)));
-        } else {
-          logInfo(`\n  ${messages.APP_START_STOPPED}\n`);
-          resolve();
-        }
-      });
-
-      child.on('error', (err) => {
-        process.removeListener('SIGINT', onSignal);
-        process.removeListener('SIGTERM', onSignal);
-        reject(new CliError(messages.APP_START_FAILED(feature, err.message)));
-      });
-    });
+    await runChildProcess(entryFile, childEnv, feature!);
   },
 );

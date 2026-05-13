@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import inquirer from 'inquirer';
 import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
@@ -9,7 +9,7 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
-import { deleteAppName, readProjectConfig } from '../../lib/config';
+import { deleteAppCredentials, deleteAppName, readProjectConfig } from '../../lib/config';
 
 function isSafeToDelete(dir: string): boolean {
   const resolved = path.resolve(dir);
@@ -76,6 +76,7 @@ export const deleteCommand = withCommandHandler(
     deleteSpinner.stop();
 
     deleteAppName(appId);
+    deleteAppCredentials(appId);
 
     if (options.json) {
       jsonOutput({ deleted: true, appId });
@@ -87,7 +88,7 @@ export const deleteCommand = withCommandHandler(
     // Offer to delete the local scaffolded project folder if it matches the deleted app
     if (!options.force) {
       const projectConfig = readProjectConfig();
-      if (projectConfig && projectConfig.appId === appId) {
+      if (projectConfig?.appId === appId) {
         const cwd = process.cwd();
         const { deleteFolder } = await inquirer.prompt([
           {
@@ -99,15 +100,15 @@ export const deleteCommand = withCommandHandler(
         ]);
 
         if (deleteFolder) {
-          if (!isSafeToDelete(cwd)) {
-            logWarn(messages.APP_DELETE_FOLDER_FAILED(cwd));
-          } else {
+          if (isSafeToDelete(cwd)) {
             try {
               fs.rmSync(cwd, { recursive: true, force: true });
               logSuccess(messages.APP_DELETE_FOLDER_SUCCESS(cwd));
             } catch {
               logWarn(messages.APP_DELETE_FOLDER_FAILED(cwd));
             }
+          } else {
+            logWarn(messages.APP_DELETE_FOLDER_FAILED(cwd));
           }
         }
       }

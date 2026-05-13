@@ -332,7 +332,7 @@ function collectAppIds(listJson: unknown): Set<string> {
     // `brevo app create --json` returns `appId` (camelCase). Some endpoints use
     // plain `id`. We accept all three so comparisons work across boundaries.
     const id = item.app_id ?? item.appId ?? item.id;
-    if (id !== undefined && id !== null) ids.add(String(id));
+    if (typeof id === 'string' || typeof id === 'number') ids.add(String(id));
   }
   return ids;
 }
@@ -500,7 +500,9 @@ async function stepAppLifecycle(state: State): Promise<string> {
     state
   );
   const created = parseJson<Record<string, unknown>>(create.stdout);
-  const appId = String(created.id ?? created.appId ?? '');
+  const rawAppId = created.id ?? created.appId;
+  const appId =
+    typeof rawAppId === 'string' || typeof rawAppId === 'number' ? String(rawAppId) : '';
   if (!appId) throw new Error(`no app id in create output: ${create.stdout.slice(0, 200)}`);
   state.mainAppId = appId;
 
@@ -568,7 +570,8 @@ function stepPublicAppRejected(state: State): string {
     // to identify and delete it so we don't leak.
     try {
       const obj = parseJson<Record<string, unknown>>(result.stdout);
-      const id = String(obj.appId ?? obj.app_id ?? obj.id ?? '');
+      const rawId = obj.appId ?? obj.app_id ?? obj.id;
+      const id = typeof rawId === 'string' || typeof rawId === 'number' ? String(rawId) : '';
       if (id) {
         logToFile(state, `unexpected public-app creation: ${id} — attempting cleanup`);
         spawnSync('brevo', ['app', 'delete', '--app-id', id, '--force', '--json'], {
@@ -703,9 +706,9 @@ async function stepStartBriefly(state: State): Promise<string> {
   if (!ok) {
     const tail = lastOutput.trim().split('\n').slice(-3).join(' | ');
     const cause =
-      earlyExit !== null
-        ? `child exited ${earlyExit} before serving: ${tail}`
-        : `server did not respond on port ${state.opts.port} within ${timeoutMs}ms`;
+      earlyExit === null
+        ? `server did not respond on port ${state.opts.port} within ${timeoutMs}ms`
+        : `child exited ${earlyExit} before serving: ${tail}`;
     throw new Error(cause);
   }
   return `server booted on port ${state.opts.port}`;
@@ -815,7 +818,7 @@ function findAppByName(listJson: unknown, name: string): string | null {
   for (const item of items as Array<Record<string, unknown>>) {
     if (item.name === name) {
       const id = item.app_id ?? item.appId ?? item.id;
-      if (id !== undefined && id !== null) return String(id);
+      if (typeof id === 'string' || typeof id === 'number') return String(id);
     }
   }
   return null;
@@ -840,8 +843,9 @@ function printOrphanWarning(state: State, suspectIds: string[], expectedName?: s
     const items = Array.isArray(apps) ? apps : ((apps as { apps?: unknown[] }).apps ?? []);
     process.stdout.write(`${COLOR.yellow}Apps currently on the account:${COLOR.reset}\n`);
     for (const a of items as Array<Record<string, unknown>>) {
-      const id = String(a.app_id ?? a.appId ?? a.id ?? '?');
-      const name = String(a.name ?? '?');
+      const rawId = a.app_id ?? a.appId ?? a.id;
+      const id = typeof rawId === 'string' || typeof rawId === 'number' ? String(rawId) : '?';
+      const name = typeof a.name === 'string' ? a.name : '?';
       const flag =
         name.startsWith('brevo-cli-smoke') ? `  ${COLOR.red}← likely smoke leak${COLOR.reset}` : '';
       process.stdout.write(`  - ${id}  ${name}${flag}\n`);
@@ -1114,10 +1118,11 @@ function printColouredSummary(state: State, allOk: boolean, firstFailed: number)
   });
 
   process.stdout.write(`${COLOR.dim}${thin}${COLOR.reset}\n`);
-  const counts =
-    `  ${COLOR.green}${passed} passed${COLOR.reset}` +
-    `${failed > 0 ? `, ${COLOR.red}${failed} failed${COLOR.reset}` : ''}` +
-    `${!allOk ? `  ${COLOR.dim}(first failure: step ${firstFailed})${COLOR.reset}` : ''}`;
+  const failedPart = failed > 0 ? `, ${COLOR.red}${failed} failed${COLOR.reset}` : '';
+  const firstFailedPart = allOk
+    ? ''
+    : `  ${COLOR.dim}(first failure: step ${firstFailed})${COLOR.reset}`;
+  const counts = `  ${COLOR.green}${passed} passed${COLOR.reset}${failedPart}${firstFailedPart}`;
   process.stdout.write(`${counts}\n`);
   process.stdout.write(`  ${COLOR.dim}Log: ${state.logFile}${COLOR.reset}\n`);
   if (state.opts.reportPath) {
