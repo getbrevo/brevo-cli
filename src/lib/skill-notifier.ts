@@ -5,48 +5,60 @@ import { CLI } from './constants';
 import { skillService } from '../services/skill';
 import { logSuccess, logInfo } from './logger';
 
-// ──────────────── Update banner ────────────────
+// ──────────────── Auto-refresh ────────────────
 // Local-only check, no network call — safe to run on every CLI invocation.
-// Honors the same opt-out env vars as the npm-version update notifier so a
-// user who has globally muted "this CLI is asking me about upgrades" only has
-// to set one flag.
+// When an installed skill is older than the bundled version, we overwrite the
+// installed copy in place so the AI tool always sees the latest primer.
+// This is silent except for a single one-line notice on stderr per refresh.
 
-export interface SkillNotifierOptions {
+export interface SkillAutoRefreshOptions {
   argv?: readonly string[];
   env?: NodeJS.ProcessEnv;
-  isTTY?: boolean;
   output?: NodeJS.WriteStream;
 }
 
-export function shouldSkipSkillNotifier(opts: SkillNotifierOptions = {}): boolean {
+export function shouldSkipSkillAutoRefresh(opts: SkillAutoRefreshOptions = {}): boolean {
   const env = opts.env ?? process.env;
   const argv = opts.argv ?? process.argv;
-  const isTTY = opts.isTTY ?? Boolean(process.stdout.isTTY);
 
+  // CI runners shouldn't have surprise mutations to ~/.claude.
   if (env.CI === 'true' || env.CI === '1') return true;
-  if (!isTTY) return true;
-  if (env.NO_UPDATE_NOTIFIER === '1' || env.NO_UPDATE_NOTIFIER === 'true') return true;
-  if (env.BREVO_NO_UPDATE_NOTIFIER === '1' || env.BREVO_NO_UPDATE_NOTIFIER === 'true') return true;
-  if (argv.includes('--no-update-notifier')) return true;
-  // Suppress when the user is already managing skills — the relevant info is
-  // surfaced by the subcommand itself, no banner needed.
+  // --json callers want deterministic, machine-readable output on stdout/stderr.
+  if (argv.includes('--json')) return true;
+  // The user is already managing skills — let their explicit command do the work.
   if (argv.length > 2 && argv[2] === 'skill') return true;
+  // Dedicated opt-out for users who hand-edit their installed SKILL.md and
+  // don't want it clobbered on the next `brevo` run.
+  if (env.BREVO_NO_SKILL_AUTOREFRESH === '1' || env.BREVO_NO_SKILL_AUTOREFRESH === 'true') {
+    return true;
+  }
   return false;
 }
 
-export function notifyOutdatedSkills(opts: SkillNotifierOptions = {}): void {
-  if (shouldSkipSkillNotifier(opts)) return;
-  const outdated = skillService.getOutdatedSkills();
+export function autoRefreshOutdatedSkills(opts: SkillAutoRefreshOptions = {}): void {
+  if (shouldSkipSkillAutoRefresh(opts)) return;
+
+  let outdated;
+  try {
+    outdated = skillService.getOutdatedSkills();
+  } catch {
+    // A broken marker shouldn't block the user's actual command.
+    return;
+  }
   if (outdated.length === 0) return;
 
   const output = opts.output ?? process.stderr;
-  output.write('\n');
   for (const s of outdated) {
-    output.write(
-      `  ${messages.SKILL_NOTIFIER_AVAILABLE(s.name, s.installedVersion, s.latestVersion, CLI.SKILL_UPDATE(s.name))}\n`,
-    );
+    try {
+      skillService.install(s.name, { force: true });
+      output.write(
+        `  ${messages.SKILL_AUTOREFRESHED(s.name, s.installedVersion, s.latestVersion)}\n`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      output.write(`  ${messages.SKILL_AUTOREFRESH_FAILED(s.name, msg)}\n`);
+    }
   }
-  output.write('\n');
 }
 
 // ──────────────── First-run install prompt ────────────────
@@ -54,7 +66,7 @@ export function notifyOutdatedSkills(opts: SkillNotifierOptions = {}): void {
 // so users don't have to discover `brevo skill install` themselves. We keep
 // this conservative: TTY only, never under --json, and a dedicated opt-out
 // env var so users who don't want any prompts can mute it independently of
-// the version-update banner.
+// the auto-refresh opt-out.
 
 export interface OfferSkillInstallOptions {
   json?: boolean;
@@ -110,7 +122,7 @@ export async function offerSkillInstall(opts: OfferSkillInstallOptions = {}): Pr
 
 function shouldSkipSkillInstallPromptFor(name: string, opts: OfferSkillInstallOptions): boolean {
   if (shouldSkipInstallPrompt(opts)) return true;
-  // Already installed → nothing to offer. The update banner handles upgrades.
+  // Already installed → nothing to offer. Auto-refresh handles upgrades.
   if (skillService.isInstalled(name)) return true;
   return false;
 }

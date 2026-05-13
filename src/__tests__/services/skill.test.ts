@@ -34,41 +34,32 @@ describe('services/skill', () => {
     });
   });
 
-  describe('list', () => {
-    it('marks every skill as not installed on a fresh machine', () => {
-      const skills = skillService.list();
-      expect(skills.length).toBe(SKILL_CATALOG.length);
-      for (const s of skills) {
-        expect(s.installed).toBe(false);
-      }
+  describe('getOutdatedSkills', () => {
+    it('returns nothing on a fresh machine', () => {
+      expect(skillService.getOutdatedSkills()).toEqual([]);
     });
 
-    it('reports installed skills with their installed version', () => {
+    it('returns nothing when installed skills are current', () => {
       skillService.install('brevo-cli');
-
-      const skills = skillService.list();
-      const brevoCli = skills.find((s) => s.name === 'brevo-cli');
-      expect(brevoCli?.installed).toBe(true);
-      if (brevoCli?.installed) {
-        expect(brevoCli.installedVersion).toBe(brevoCli.version);
-        expect(brevoCli.upgradable).toBe(false);
-      }
+      expect(skillService.getOutdatedSkills()).toEqual([]);
     });
 
-    it('flags upgradable when marker version differs from catalog', () => {
+    it('flags a skill whose marker version is behind the catalog', () => {
       skillService.install('brevo-cli');
       const markerPath = path.join(tmpHome, 'skills', 'brevo-cli', '.brevo-skill.json');
       const marker = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
       marker.version = '0.0.1';
       fs.writeFileSync(markerPath, JSON.stringify(marker));
 
-      const skills = skillService.list();
-      const brevoCli = skills.find((s) => s.name === 'brevo-cli');
-      expect(brevoCli?.installed).toBe(true);
-      if (brevoCli?.installed) {
-        expect(brevoCli.installedVersion).toBe('0.0.1');
-        expect(brevoCli.upgradable).toBe(true);
-      }
+      const outdated = skillService.getOutdatedSkills();
+      expect(outdated).toHaveLength(1);
+      expect(outdated[0]).toMatchObject({
+        name: 'brevo-cli',
+        installedVersion: '0.0.1',
+      });
+      expect(outdated[0]!.latestVersion).toBe(
+        SKILL_CATALOG.find((s) => s.name === 'brevo-cli')!.version,
+      );
     });
   });
 
@@ -113,34 +104,6 @@ describe('services/skill', () => {
       for (const r of results) {
         expect(r.status).toBe('installed');
       }
-    });
-  });
-
-  describe('update', () => {
-    it('refreshes a single installed skill', () => {
-      skillService.install('brevo-cli');
-      const results = skillService.update('brevo-cli');
-      expect(results).toHaveLength(1);
-      expect(results[0]!.status).toBe('updated');
-    });
-
-    it('throws when asked to update a skill that is not installed', () => {
-      expect(() => skillService.update('brevo-cli')).toThrow(CliError);
-    });
-
-    it('updates only installed skills when no name is provided', () => {
-      // brevo-cli installed; any future catalog entries are not installed and
-      // must be silently skipped (not throw) so `brevo skill update` is safe
-      // to run on partially-installed setups.
-      skillService.install('brevo-cli');
-      const results = skillService.update();
-      expect(results.length).toBeGreaterThan(0);
-      expect(results.every((r) => r.status === 'updated')).toBe(true);
-      expect(results.find((r) => r.name === 'brevo-cli')).toBeDefined();
-    });
-
-    it('returns an empty array when nothing is installed', () => {
-      expect(skillService.update()).toEqual([]);
     });
   });
 

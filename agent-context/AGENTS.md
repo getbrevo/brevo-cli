@@ -19,11 +19,13 @@ This project uses the [Brevo Developer CLI](https://www.npmjs.com/package/@getbr
 | `brevo app init` | Guided setup (login, create, scaffold) |
 | `brevo app list` | List OAuth apps |
 | `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`) |
-| `brevo app update` | Update name / redirect URLs (`--app-id`, `--name`, `--redirect-url`) |
+| `brevo app update` | Update name / redirect URLs (`--app-id`, `--name`, `--redirect-uri`) |
 | `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Generate starter OAuth code (`--app-id`) |
 | `brevo app start oauth` | Run the scaffolded OAuth test server (`--port`) |
+| `brevo skill install brevo-cli` | Install this Claude Code skill (auto-refreshes on every `brevo` run) |
+| `brevo skill uninstall brevo-cli` | Remove the skill from `~/.claude/skills/` |
 
 Run `brevo --help` or `brevo <command> --help` for the full set.
 
@@ -44,6 +46,8 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 | `BREVO_API_URL` | Override API base (HTTPS required, except `localhost`) |
 | `BREVO_OAUTH_PROXY_URL` | Override OAuth proxy used by browser login |
 | `BREVO_CONFIG_HOME` | Override credentials directory (default `~/.brevo/`) |
+| `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs |
+| `BREVO_NO_SKILL_PROMPT` | Set to `1` to suppress the first-run `brevo skill install` prompt at login/init |
 | `DEBUG=1` or `--debug` | Verbose HTTP and error logging |
 
 ## Safety

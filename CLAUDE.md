@@ -95,9 +95,31 @@ src/
 - **Commands** are registered declaratively in `src/commands/definitions.ts` — handler functions live in their own files.
 - **Error handling** uses `CliError` (user-facing) and `ApiError` (HTTP errors) from `src/lib/errors.ts`. Commands are wrapped with `withCommandHandler()`.
 - **JSON output** — every command supports `--json` via `jsonOutput()` from `src/lib/json-output.ts`.
-- **`brevo app update`** supports `--name`, `--redirect-url` (repeatable, appends), and `--app-id` flags. Without flags it pushes the full `app-config.json` (current behavior). With flags it merges: flag values override/append existing values from `app-config.json` or the API. After a successful update, `app-config.json` is written back if it exists and the app ID matches.
+- **`brevo app update`** supports `--name`, `--redirect-uri` (repeatable, appends), and `--app-id` flags. Without flags it pushes the full `app-config.json` (current behavior). With flags it merges: flag values override/append existing values from `app-config.json` or the API. After a successful update, `app-config.json` is written back if it exists and the app ID matches.
 - **Scaffold templates** in `src/templates/files/*.tmpl` use `{{VARIABLE}}` placeholders. Variables are defined in `scaffold.ts` and listed in `templates/index.ts`. Templates must reference both `npm` and `yarn` (not npm-only). Use `brevo app start oauth` (not `brevo app start`).
 - **Credentials** are stored in `~/.brevo/credentials.json`. App credentials (clientId/clientSecret) are cached per app ID under an `apps` key.
+
+## Keep agent docs in sync with CLI behavior
+
+The CLI ships two agent-facing docs at the repo root, both bundled into the published tarball via `package.json` `files:`:
+
+- `agent-context/SKILL.md` — the Claude Code skill. Installed into `~/.claude/skills/brevo-cli/` by `brevo skill install brevo-cli` and **auto-refreshed** on every subsequent `brevo` invocation (opt out: `BREVO_NO_SKILL_AUTOREFRESH=1`). It is also the source `src/skills/index.ts` reads via `SKILLS_BUNDLE_DIR` — there is no second copy.
+- `agent-context/AGENTS.md` — the broader `agents.md`-format reference for any agent-aware tool.
+
+**Whenever you change user-visible CLI behavior, update both files in the same PR.** An out-of-sync skill actively misleads any AI helping a user with this CLI — that's worse than no skill at all.
+
+**What counts as user-visible:**
+
+- New or removed commands or subcommands.
+- New, removed, or renamed flags on existing commands.
+- New or removed `BREVO_*` env vars, or changes to existing-var semantics.
+- Changed defaults (new opt-in/opt-out, changed prompt behavior).
+- Changed exit codes or error messages that scripts may match on.
+- Removed features that the docs currently advertise (e.g. removing `brevo skill update` requires removing it from both docs).
+
+**What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
+
+**Don't forget to bump the SKILL.md version** in `src/skills/index.ts` (`SKILL_CATALOG[brevo-cli].version`) when SKILL.md content materially changes — that's what triggers auto-refresh on installed users.
 
 ## Testing patterns
 

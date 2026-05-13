@@ -178,30 +178,22 @@ export const messages = {
   INIT_DONE: `All set! Run \`${CLI.APP_START('oauth')}\` to test your OAuth flow, or \`${CLI.HELP}\` to see all commands.`,
 
   // Skill
-  SKILL_LIST_EMPTY: 'No skills published yet.',
-  SKILL_LIST_HEADER: 'Brevo-published agent skills:',
-  SKILL_LIST_HINT: (cmd: string) => `Install one with: ${cmd}`,
-  SKILL_STATUS_NOT_INSTALLED: 'not installed',
-  SKILL_STATUS_INSTALLED: (version: string) => `installed (v${version})`,
-  SKILL_STATUS_UPGRADABLE: (current: string, latest: string) =>
-    `installed (v${current}, update available: v${latest})`,
   SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string) =>
     `Installed ${name}@${version} → ${dir}`,
   SKILL_INSTALL_OVERWRITTEN: (name: string, version: string, dir: string) =>
     `Reinstalled ${name}@${version} → ${dir}`,
   SKILL_INSTALL_ALREADY: (name: string, version: string, cmd: string) =>
-    `${name}@${version} is already installed. Re-run with --force to overwrite, or update with ${cmd}.`,
+    `${name}@${version} is already installed. Re-run with --force to overwrite (\`${cmd}\`).`,
   SKILL_INSTALL_ALL_DONE: (count: number) => `Installed ${count} skill${count === 1 ? '' : 's'}.`,
-  SKILL_INSTALL_MISSING_NAME: (cmd: string) =>
-    `Provide a skill name (or pass --all). See available skills with ${cmd}.`,
-  SKILL_UPDATE_NO_INSTALLED: 'No Brevo skills are installed. Nothing to update.',
-  SKILL_UPDATE_SUCCESS: (name: string, version: string) => `Updated ${name} → v${version}`,
-  SKILL_UPDATE_ALL_DONE: (count: number) => `Updated ${count} skill${count === 1 ? '' : 's'}.`,
+  SKILL_INSTALL_MISSING_NAME:
+    'Provide a skill name (or pass --all). Run `brevo skill install --all` to install every bundled skill.',
   SKILL_UNINSTALL_SUCCESS: (name: string, dir: string) => `Uninstalled ${name} from ${dir}`,
   SKILL_NOT_INSTALLED: (name: string, cmd: string) =>
     `Skill "${name}" is not installed. Install it with ${cmd}.`,
-  SKILL_NOTIFIER_AVAILABLE: (name: string, current: string, latest: string, cmd: string) =>
-    `Skill update available: ${name} v${current} → v${latest}. Run \`${cmd}\`.`,
+  SKILL_AUTOREFRESHED: (name: string, oldVer: string, newVer: string) =>
+    `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
+  SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>
+    `⚠ failed to refresh ${name} skill: ${err}`,
   SKILL_PROMPT_INTRO:
     'Brevo ships an agent skill for Claude Code that teaches Claude how to use this CLI.',
   SKILL_PROMPT_CONFIRM: 'Install the brevo-cli skill into ~/.claude/skills/?',

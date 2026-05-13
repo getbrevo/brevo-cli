@@ -24,7 +24,7 @@ function getSkillTargetDir(name: string): string {
 
 // ──────────────── Install marker ────────────────
 // A `.brevo-skill.json` file inside each installed skill records the version
-// and source. It lets `brevo skill update` decide whether a refresh is needed
+// and source. It lets the auto-refresh pass decide whether a refresh is needed
 // and lets `brevo skill uninstall` confirm we only delete directories the CLI
 // created — never something the user dropped in `~/.claude/skills/` manually.
 
@@ -79,7 +79,7 @@ function writeMarker(skillDir: string, entry: SkillEntry): void {
 function copySkillFiles(entry: SkillEntry, targetDir: string): void {
   fs.mkdirSync(targetDir, { recursive: true });
   for (const relative of entry.files) {
-    const src = path.join(SKILLS_BUNDLE_DIR, entry.name, relative);
+    const src = path.join(SKILLS_BUNDLE_DIR, entry.subdir, relative);
     const dest = path.join(targetDir, relative);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(src, dest);
@@ -88,20 +88,7 @@ function copySkillFiles(entry: SkillEntry, targetDir: string): void {
 
 // ──────────────── Public API ────────────────
 
-export interface InstalledSkill extends SkillEntry {
-  installed: true;
-  installedVersion: string;
-  upgradable: boolean;
-  path: string;
-}
-
-export interface AvailableSkill extends SkillEntry {
-  installed: false;
-}
-
-export type SkillView = InstalledSkill | AvailableSkill;
-
-export type InstallStatus = 'installed' | 'already-installed' | 'overwritten' | 'updated';
+export type InstallStatus = 'installed' | 'already-installed' | 'overwritten';
 
 export interface InstallResult {
   name: string;
@@ -124,7 +111,7 @@ export interface OutdatedSkill {
 export const skillService = {
   /**
    * Installed skills whose marker version is behind the bundled catalog.
-   * Pure file read — safe to call on every CLI invocation for the update banner.
+   * Pure file read — safe to call on every CLI invocation for auto-refresh.
    */
   getOutdatedSkills(): OutdatedSkill[] {
     return SKILL_CATALOG.flatMap((entry) => {
@@ -146,23 +133,6 @@ export const skillService = {
     const entry = getSkill(name);
     if (!entry) return false;
     return readMarker(getSkillTargetDir(entry.name)) !== null;
-  },
-
-  list(): SkillView[] {
-    return SKILL_CATALOG.map((entry) => {
-      const targetDir = getSkillTargetDir(entry.name);
-      const marker = readMarker(targetDir);
-      if (marker) {
-        return {
-          ...entry,
-          installed: true,
-          installedVersion: marker.version,
-          upgradable: marker.version !== entry.version,
-          path: targetDir,
-        };
-      }
-      return { ...entry, installed: false };
-    });
   },
 
   install(name: string, options: { force?: boolean } = {}): InstallResult {
@@ -196,36 +166,6 @@ export const skillService = {
 
   installAll(options: { force?: boolean } = {}): InstallResult[] {
     return SKILL_CATALOG.map((entry) => this.install(entry.name, options));
-  },
-
-  update(name?: string): InstallResult[] {
-    const targets = name ? [getSkill(name)] : SKILL_CATALOG.map((e) => ({ ...e }));
-    if (name && !targets[0]) {
-      throw new CliError(unknownSkillMessage(name));
-    }
-
-    const results: InstallResult[] = [];
-    for (const entry of targets as SkillEntry[]) {
-      const targetDir = getSkillTargetDir(entry.name);
-      const marker = readMarker(targetDir);
-      if (!marker) {
-        // `update` only refreshes installed skills; skip uninstalled ones silently
-        // so `brevo skill update` (no args) is safe to run on a fresh machine.
-        if (name) {
-          throw new CliError(notInstalledMessage(name));
-        }
-        continue;
-      }
-      copySkillFiles(entry, targetDir);
-      writeMarker(targetDir, entry);
-      results.push({
-        name: entry.name,
-        version: entry.version,
-        status: 'updated',
-        path: targetDir,
-      });
-    }
-    return results;
   },
 
   uninstall(name: string): UninstallResult {

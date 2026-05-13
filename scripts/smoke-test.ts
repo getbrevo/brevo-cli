@@ -209,12 +209,12 @@ function execOrThrow(
   cmd: string,
   args: string[],
   state: State,
-  opts: ExecOptions = {}
+  opts: ExecOptions = {},
 ): ExecResult {
   const r = exec(cmd, args, state, opts);
   if (r.exitCode !== 0) {
     throw new Error(
-      `${cmd} ${args.join(' ')} exited ${r.exitCode}: ${(r.stderr || r.stdout).trim().split('\n')[0]}`
+      `${cmd} ${args.join(' ')} exited ${r.exitCode}: ${(r.stderr || r.stdout).trim().split('\n')[0]}`,
     );
   }
   return r;
@@ -229,7 +229,7 @@ async function execScriptedStdin(
   cmd: string,
   args: string[],
   state: State,
-  opts: { cwd?: string; answers: string[]; interLineDelayMs?: number }
+  opts: { cwd?: string; answers: string[]; interLineDelayMs?: number },
 ): Promise<{ stdout: string; exitCode: number }> {
   const pretty = `$ ${cmd} ${args.join(' ')}  (scripted stdin)`;
   logToFile(state, pretty);
@@ -270,7 +270,7 @@ function execStreaming(
   cmd: string,
   args: string[],
   state: State,
-  opts: { cwd?: string } = {}
+  opts: { cwd?: string } = {},
 ): Promise<{ stdout: string; exitCode: number }> {
   const pretty = `$ ${cmd} ${args.join(' ')}`;
   logToFile(state, pretty);
@@ -301,7 +301,7 @@ async function findAppInList(
   state: State,
   expectedId: string,
   shouldBePresent: boolean,
-  attempts = 4
+  attempts = 4,
 ): Promise<boolean> {
   const backoff = [500, 1000, 2000, 4000];
   for (let i = 0; i < attempts; i++) {
@@ -324,8 +324,8 @@ function collectAppIds(listJson: unknown): Set<string> {
   const items = Array.isArray(listJson)
     ? listJson
     : ((listJson as { apps?: unknown[]; data?: unknown[] })?.apps ??
-        (listJson as { data?: unknown[] })?.data ??
-        []);
+      (listJson as { data?: unknown[] })?.data ??
+      []);
   const ids = new Set<string>();
   for (const item of items as Array<Record<string, unknown>>) {
     // `brevo app list --json` returns `app_id` (snake_case, per src/types.ts).
@@ -497,7 +497,7 @@ async function stepAppLifecycle(state: State): Promise<string> {
       redirectUri,
       '--json',
     ],
-    state
+    state,
   );
   const created = parseJson<Record<string, unknown>>(create.stdout);
   const rawAppId = created.id ?? created.appId;
@@ -514,13 +514,15 @@ async function stepAppLifecycle(state: State): Promise<string> {
   const creds = execOrThrow(
     'brevo',
     ['app', 'credentials', '--app-id', appId, '--reveal-secret', '--json'],
-    state
+    state,
   );
   const credObj = parseJson<Record<string, unknown>>(creds.stdout);
   if (!credObj.clientId || !credObj.clientSecret) {
     throw new Error('credentials response missing clientId or clientSecret');
   }
 
+  const renamedTo = `${name}-renamed`;
+  const extraRedirectUri = 'https://example.com/cb';
   const updated = execOrThrow(
     'brevo',
     [
@@ -529,17 +531,65 @@ async function stepAppLifecycle(state: State): Promise<string> {
       '--app-id',
       appId,
       '--name',
-      `${name}-renamed`,
+      renamedTo,
       '--redirect-uri',
-      'https://example.com/cb',
+      extraRedirectUri,
       '--yes',
       '--json',
     ],
-    state
+    state,
   );
-  parseJson(updated.stdout);
+  const updatedJson = parseJson<Record<string, unknown>>(updated.stdout);
 
-  return `app ${appId} created + credentials + updated`;
+  const rawUpdatedId = updatedJson.app_id;
+  const updatedId =
+    typeof rawUpdatedId === 'string' || typeof rawUpdatedId === 'number'
+      ? String(rawUpdatedId)
+      : '';
+  if (updatedId !== appId) {
+    throw new Error(`update returned app_id ${JSON.stringify(rawUpdatedId)}, expected ${appId}`);
+  }
+  if (updatedJson.name !== renamedTo) {
+    throw new Error(
+      `update returned name ${JSON.stringify(updatedJson.name)}, expected ${renamedTo}`,
+    );
+  }
+  const updatedUris = updatedJson.redirect_uris;
+  if (!Array.isArray(updatedUris)) {
+    throw new Error(`update redirect_uris is not an array: ${JSON.stringify(updatedUris)}`);
+  }
+  // --redirect-uri appends (see CLAUDE.md + src/commands/app/update.ts:186-194):
+  // the create-time URI must survive, and the new one must be present.
+  if (!updatedUris.includes(redirectUri)) {
+    throw new Error(
+      `update redirect_uris missing original ${redirectUri}: ${JSON.stringify(updatedUris)}`,
+    );
+  }
+  if (!updatedUris.includes(extraRedirectUri)) {
+    throw new Error(
+      `update redirect_uris missing appended ${extraRedirectUri}: ${JSON.stringify(updatedUris)}`,
+    );
+  }
+
+  // Confirm the rename persisted server-side. The list endpoint is eventually
+  // consistent (see findAppInList), so poll with backoff before declaring miss.
+  const renameBackoff = [500, 1000, 2000, 4000];
+  let renameVerified = false;
+  for (let i = 0; i < renameBackoff.length; i++) {
+    const r = execOrThrow('brevo', ['app', 'list', '--json'], state);
+    if (findAppByName(parseJson(r.stdout), renamedTo) === appId) {
+      renameVerified = true;
+      break;
+    }
+    if (i < renameBackoff.length - 1) await sleep(renameBackoff[i] ?? 4000);
+  }
+  if (!renameVerified) {
+    throw new Error(
+      `renamed app ${appId} (${renamedTo}) not present in list after update (after retries)`,
+    );
+  }
+
+  return `app ${appId} created + credentials + updated + verified`;
 }
 
 // Negative test: `brevo app create --distribution public` must be rejected by
@@ -562,7 +612,7 @@ function stepPublicAppRejected(state: State): string {
       `http://localhost:${state.opts.port}/auth/callback`,
       '--json',
     ],
-    state
+    state,
   );
 
   if (result.exitCode === 0) {
@@ -582,7 +632,7 @@ function stepPublicAppRejected(state: State): string {
       // ignore parse failures — error path is what matters
     }
     throw new Error(
-      `brevo app create --distribution public was NOT rejected (exit 0); CLI may have created a public app`
+      `brevo app create --distribution public was NOT rejected (exit 0); CLI may have created a public app`,
     );
   }
 
@@ -591,7 +641,7 @@ function stepPublicAppRejected(state: State): string {
   const errText = (result.stderr + result.stdout).toLowerCase();
   if (!errText.includes('public')) {
     throw new Error(
-      `public-app create was rejected, but error text did not mention "public": ${(result.stderr || result.stdout).slice(0, 200)}`
+      `public-app create was rejected, but error text did not mention "public": ${(result.stderr || result.stdout).slice(0, 200)}`,
     );
   }
 
@@ -609,7 +659,7 @@ function stepScaffold(state: State): string {
     'brevo',
     ['app', 'scaffold', '--app-id', state.mainAppId, '--json'],
     state,
-    { cwd: tmp, input: '\n' }
+    { cwd: tmp, input: '\n' },
   );
 
   // The --json output of scaffold includes the resolved target directory.
@@ -801,7 +851,7 @@ async function stepInitWizard(state: State): Promise<string> {
   if (!appId) {
     printOrphanWarning(state, [], expectedName);
     throw new Error(
-      `could not identify init-created app (expected name "${expectedName}"); refusing to guess. See orphan warning above for manual cleanup.`
+      `could not identify init-created app (expected name "${expectedName}"); refusing to guess. See orphan warning above for manual cleanup.`,
     );
   }
 
@@ -813,8 +863,8 @@ function findAppByName(listJson: unknown, name: string): string | null {
   const items = Array.isArray(listJson)
     ? listJson
     : ((listJson as { apps?: unknown[]; data?: unknown[] })?.apps ??
-        (listJson as { data?: unknown[] })?.data ??
-        []);
+      (listJson as { data?: unknown[] })?.data ??
+      []);
   for (const item of items as Array<Record<string, unknown>>) {
     if (item.name === name) {
       const id = item.app_id ?? item.appId ?? item.id;
@@ -827,15 +877,17 @@ function findAppByName(listJson: unknown, name: string): string | null {
 function printOrphanWarning(state: State, suspectIds: string[], expectedName?: string): void {
   process.stdout.write(`\n${COLOR.yellow}${COLOR.bold}⚠ ORPHAN APP WARNING${COLOR.reset}\n`);
   process.stdout.write(
-    `${COLOR.yellow}The init wizard likely created an app but the script could not identify it.${COLOR.reset}\n`
+    `${COLOR.yellow}The init wizard likely created an app but the script could not identify it.${COLOR.reset}\n`,
   );
   if (expectedName) {
     process.stdout.write(
-      `${COLOR.yellow}Expected app name: ${COLOR.bold}${expectedName}${COLOR.reset}${COLOR.yellow} (not found in list)${COLOR.reset}\n`
+      `${COLOR.yellow}Expected app name: ${COLOR.bold}${expectedName}${COLOR.reset}${COLOR.yellow} (not found in list)${COLOR.reset}\n`,
     );
   }
   if (suspectIds.length > 0) {
-    process.stdout.write(`${COLOR.yellow}Suspect app ids: ${suspectIds.join(', ')}${COLOR.reset}\n`);
+    process.stdout.write(
+      `${COLOR.yellow}Suspect app ids: ${suspectIds.join(', ')}${COLOR.reset}\n`,
+    );
   }
   try {
     const r = execOrThrow('brevo', ['app', 'list', '--json'], state);
@@ -846,13 +898,14 @@ function printOrphanWarning(state: State, suspectIds: string[], expectedName?: s
       const rawId = a.app_id ?? a.appId ?? a.id;
       const id = typeof rawId === 'string' || typeof rawId === 'number' ? String(rawId) : '?';
       const name = typeof a.name === 'string' ? a.name : '?';
-      const flag =
-        name.startsWith('brevo-cli-smoke') ? `  ${COLOR.red}← likely smoke leak${COLOR.reset}` : '';
+      const flag = name.startsWith('brevo-cli-smoke')
+        ? `  ${COLOR.red}← likely smoke leak${COLOR.reset}`
+        : '';
       process.stdout.write(`  - ${id}  ${name}${flag}\n`);
     }
     process.stdout.write(
       `${COLOR.yellow}Delete any that look like smoke artifacts with:${COLOR.reset}\n` +
-        `  ${COLOR.dim}brevo app delete --app-id <id> --force${COLOR.reset}\n`
+        `  ${COLOR.dim}brevo app delete --app-id <id> --force${COLOR.reset}\n`,
     );
   } catch (e) {
     logToFile(state, `orphan listing failed: ${e instanceof Error ? e.message : e}`);
@@ -933,7 +986,10 @@ function bestEffortCleanup(state: State): void {
       });
       logToFile(state, `trap: deleted app ${appId}`);
     } catch (e) {
-      logToFile(state, `trap: failed to delete app ${appId}: ${e instanceof Error ? e.message : e}`);
+      logToFile(
+        state,
+        `trap: failed to delete app ${appId}: ${e instanceof Error ? e.message : e}`,
+      );
     }
   }
   state.mainAppId = null;
@@ -1030,13 +1086,13 @@ async function main(): Promise<void> {
       const free = await pickFreePort(opts.port);
       if (free !== opts.port) {
         process.stdout.write(
-          `${COLOR.dim}port ${opts.port} busy; using ${free} instead${COLOR.reset}\n`
+          `${COLOR.dim}port ${opts.port} busy; using ${free} instead${COLOR.reset}\n`,
         );
       }
       opts.port = free;
     } catch (e) {
       process.stderr.write(
-        `${COLOR.red}could not find a free port near ${opts.port}: ${e instanceof Error ? e.message : e}${COLOR.reset}\n`
+        `${COLOR.red}could not find a free port near ${opts.port}: ${e instanceof Error ? e.message : e}${COLOR.reset}\n`,
       );
       process.exit(1);
     }
@@ -1109,9 +1165,7 @@ function printColouredSummary(state: State, allOk: boolean, firstFailed: number)
   state.stepResults.forEach((r, i) => {
     const n = String(i + 1).padStart(2, ' ');
     const name = r.name.padEnd(28, ' ');
-    const status = r.ok
-      ? `${COLOR.green}✓ PASS${COLOR.reset}`
-      : `${COLOR.red}✗ FAIL${COLOR.reset}`;
+    const status = r.ok ? `${COLOR.green}✓ PASS${COLOR.reset}` : `${COLOR.red}✗ FAIL${COLOR.reset}`;
     const ms = `${COLOR.dim}(${formatMs(r.durationMs)})${COLOR.reset}`;
     const detail = r.ok ? '' : ` ${COLOR.red}— ${r.error?.slice(0, 80) ?? ''}${COLOR.reset}`;
     process.stdout.write(`  ${n}. ${name} ${status}  ${ms}${detail}\n`);

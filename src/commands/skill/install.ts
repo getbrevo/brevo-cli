@@ -14,7 +14,7 @@ export const installCommand = withCommandHandler(
     json?: boolean;
   }): Promise<void> => {
     if (!options.name && !options.all) {
-      throw new CliError(messages.SKILL_INSTALL_MISSING_NAME(CLI.SKILL_LIST));
+      throw new CliError(messages.SKILL_INSTALL_MISSING_NAME);
     }
 
     const force = Boolean(options.force);
@@ -30,7 +30,7 @@ export const installCommand = withCommandHandler(
     for (const r of results) {
       if (r.status === 'already-installed') {
         logInfo(
-          `\n  ${messages.SKILL_INSTALL_ALREADY(r.name, r.version, CLI.SKILL_UPDATE(r.name))}`,
+          `\n  ${messages.SKILL_INSTALL_ALREADY(r.name, r.version, CLI.SKILL_INSTALL_FORCE(r.name))}`,
         );
       } else if (r.status === 'overwritten') {
         logSuccess(messages.SKILL_INSTALL_OVERWRITTEN(r.name, r.version, r.path));

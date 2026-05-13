@@ -13,7 +13,7 @@ This project uses the Brevo Developer CLI to create and manage Brevo OAuth appli
 - "Authenticate" → `brevo login` (or `BREVO_API_KEY=xkeysib-... brevo login` for CI)
 - "Show / pick an app" → `brevo app list --json`
 - "Create an app" → `brevo app create --name "<name>" --distribution private --redirect-uri <url> --json`
-- "Update app metadata" → `brevo app update --app-id <id> --name "<name>"` and/or `--redirect-url <url>` (repeatable)
+- "Update app metadata" → `brevo app update --app-id <id> --name "<name>"` and/or `--redirect-uri <url>` (repeatable)
 - "Get client credentials" → `brevo app credentials --app-id <id> --json` (add `--reveal-secret` to print the secret)
 - "Generate starter OAuth code" → `brevo app scaffold --app-id <id>`
 - "Run the OAuth test server" → `brevo app start oauth --port 3009` (must be inside the scaffolded directory)
@@ -35,6 +35,10 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 ## Exit codes
 
 `0` success · `1` general error · `2` aborted · `3` auth failure · `4` network · `5` not found.
+
+## How this skill stays current
+
+This SKILL.md is installed into `~/.claude/skills/brevo-cli/` by `brevo skill install brevo-cli`. Once installed, **every `brevo` invocation auto-refreshes it** if the bundled CLI ships a newer version — you'll see a `↻ refreshed brevo-cli skill (vX → vY)` notice on stderr when that happens. Hand-editing the installed copy is not durable; the CLI overwrites it on the next run. Opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`. The manual escape hatch is `brevo skill uninstall brevo-cli`.
 
 ## More
 
