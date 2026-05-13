@@ -211,38 +211,17 @@ export const skillCommandGroup: SubcommandGroupDefinition = {
   commands: [
     {
       name: 'install',
-      description: 'Install a Brevo-published skill into ~/.claude/skills/',
-      arguments: [{ name: '[name]', description: 'Skill name (omit with --all)' }],
-      examples: [
-        'brevo skill install brevo-cli',
-        'brevo skill install brevo-cli --force',
-        'brevo skill install --all',
-        'brevo skill install brevo-cli --json',
-      ],
-      options: [
-        { flags: '--all', description: 'Install every skill in the catalog' },
-        { flags: '--force', description: 'Overwrite an existing install' },
-        { flags: '--json', description: 'Output as JSON' },
-      ],
-      handler: (opts, name) =>
-        skillInstallCommand({
-          name: name as string | undefined,
-          all: Boolean(opts.all),
-          force: Boolean(opts.force),
-          json: Boolean(opts.json),
-        }),
+      description: 'Install Brevo-published skills into ~/.claude/skills/',
+      examples: ['brevo skill install', 'brevo skill install --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts) => skillInstallCommand({ json: Boolean(opts.json) }),
     },
     {
       name: 'uninstall',
-      description: 'Remove a previously installed skill',
-      arguments: [{ name: '<name>', description: 'Skill name' }],
-      examples: ['brevo skill uninstall brevo-cli', 'brevo skill uninstall brevo-cli --json'],
+      description: 'Remove Brevo-installed skills from ~/.claude/skills/',
+      examples: ['brevo skill uninstall', 'brevo skill uninstall --json'],
       options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts, name) =>
-        skillUninstallCommand({
-          name: name as string,
-          json: Boolean(opts.json),
-        }),
+      handler: (opts) => skillUninstallCommand({ json: Boolean(opts.json) }),
     },
   ],
 };

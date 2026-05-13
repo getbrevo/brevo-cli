@@ -183,6 +183,15 @@ export const skillService = {
     fs.rmSync(targetDir, { recursive: true, force: true });
     return { name: entry.name, path: targetDir };
   },
+
+  uninstallAll(): UninstallResult[] {
+    return SKILL_CATALOG.flatMap((entry) => {
+      const targetDir = getSkillTargetDir(entry.name);
+      if (!readMarker(targetDir)) return [];
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      return [{ name: entry.name, path: targetDir }];
+    });
+  },
 };
 
 export type SkillService = typeof skillService;

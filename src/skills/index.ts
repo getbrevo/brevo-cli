@@ -38,7 +38,7 @@ export const SKILL_CATALOG: readonly SkillEntry[] = [
     name: 'brevo-cli',
     description:
       'Agent primer for the Brevo Developer CLI — decision tree, hard rules, and command map for the `brevo` binary.',
-    version: '1.1.0',
+    version: '1.3.0',
     subdir: '',
     files: ['SKILL.md'],
   },

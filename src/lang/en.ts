@@ -182,12 +182,10 @@ export const messages = {
     `Installed ${name}@${version} → ${dir}`,
   SKILL_INSTALL_OVERWRITTEN: (name: string, version: string, dir: string) =>
     `Reinstalled ${name}@${version} → ${dir}`,
-  SKILL_INSTALL_ALREADY: (name: string, version: string, cmd: string) =>
-    `${name}@${version} is already installed. Re-run with --force to overwrite (\`${cmd}\`).`,
-  SKILL_INSTALL_ALL_DONE: (count: number) => `Installed ${count} skill${count === 1 ? '' : 's'}.`,
-  SKILL_INSTALL_MISSING_NAME:
-    'Provide a skill name (or pass --all). Run `brevo skill install --all` to install every bundled skill.',
+  SKILL_INSTALL_ALREADY: (name: string, version: string) =>
+    `${name}@${version} is already up to date.`,
   SKILL_UNINSTALL_SUCCESS: (name: string, dir: string) => `Uninstalled ${name} from ${dir}`,
+  SKILL_UNINSTALL_NONE: 'No Brevo skills installed.',
   SKILL_NOT_INSTALLED: (name: string, cmd: string) =>
     `Skill "${name}" is not installed. Install it with ${cmd}.`,
   SKILL_AUTOREFRESHED: (name: string, oldVer: string, newVer: string) =>

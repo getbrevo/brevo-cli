@@ -1,5 +1,4 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 
 import {
@@ -11,6 +10,10 @@ import {
 import { skillService } from '../../services/skill';
 import { SKILL_CATALOG } from '../../skills';
 
+// Avoid os.tmpdir() to keep tests off any shared, world-writable directory
+// (SonarSource S5443); the repo-local `__sandbox__/` dir is gitignored.
+const SANDBOX_ROOT = path.join(__dirname, '__sandbox__');
+
 describe('skill-notifier', () => {
   let tmpHome: string;
   let stderrWrites: string[];
@@ -19,7 +22,8 @@ describe('skill-notifier', () => {
   let stdoutSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-skill-notifier-'));
+    fs.mkdirSync(SANDBOX_ROOT, { recursive: true });
+    tmpHome = fs.mkdtempSync(path.join(SANDBOX_ROOT, 'brevo-skill-notifier-'));
     process.env.BREVO_CLAUDE_HOME = tmpHome;
     stderrWrites = [];
     stdoutWrites = [];

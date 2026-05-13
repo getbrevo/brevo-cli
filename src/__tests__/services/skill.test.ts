@@ -8,13 +8,17 @@ import { CliError } from '../../lib/errors';
 
 // We exercise the real filesystem against a temp directory rather than mocking
 // `fs` — copy/rmSync interactions are subtle and a real run gives stronger
-// confidence that installs land where Claude Code expects.
+// confidence that installs land where Claude Code expects. We deliberately
+// avoid os.tmpdir() to keep tests off any shared, world-writable directory
+// (SonarSource S5443); the repo-local `__sandbox__/` dir is gitignored.
+const SANDBOX_ROOT = path.join(__dirname, '__sandbox__');
 
 describe('services/skill', () => {
   let tmpHome: string;
 
   beforeEach(() => {
-    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-skill-test-'));
+    fs.mkdirSync(SANDBOX_ROOT, { recursive: true });
+    tmpHome = fs.mkdtempSync(path.join(SANDBOX_ROOT, 'brevo-skill-test-'));
     process.env.BREVO_CLAUDE_HOME = tmpHome;
   });
 
@@ -131,6 +135,30 @@ describe('services/skill', () => {
       fs.writeFileSync(path.join(target, 'user-file.md'), 'do not delete');
 
       expect(() => skillService.uninstall('brevo-cli')).toThrow(CliError);
+      expect(fs.existsSync(path.join(target, 'user-file.md'))).toBe(true);
+    });
+  });
+
+  describe('uninstallAll', () => {
+    it('returns an empty list when nothing is installed', () => {
+      expect(skillService.uninstallAll()).toEqual([]);
+    });
+
+    it('removes every installed Brevo skill', () => {
+      skillService.install('brevo-cli');
+      const results = skillService.uninstallAll();
+      expect(results.map((r) => r.name)).toEqual(['brevo-cli']);
+      expect(fs.existsSync(path.join(tmpHome, 'skills', 'brevo-cli'))).toBe(false);
+    });
+
+    it('skips directories without our marker (safety)', () => {
+      // User-authored directory at the install path — no marker. uninstallAll
+      // must report nothing uninstalled and leave the directory untouched.
+      const target = path.join(tmpHome, 'skills', 'brevo-cli');
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, 'user-file.md'), 'do not delete');
+
+      expect(skillService.uninstallAll()).toEqual([]);
       expect(fs.existsSync(path.join(target, 'user-file.md'))).toBe(true);
     });
   });

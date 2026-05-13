@@ -24,8 +24,8 @@ This project uses the [Brevo Developer CLI](https://www.npmjs.com/package/@getbr
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Generate starter OAuth code (`--app-id`) |
 | `brevo app start oauth` | Run the scaffolded OAuth test server (`--port`) |
-| `brevo skill install brevo-cli` | Install this Claude Code skill (auto-refreshes on every `brevo` run) |
-| `brevo skill uninstall brevo-cli` | Remove the skill from `~/.claude/skills/` |
+| `brevo skill install` | Install Brevo-published Claude Code skills (auto-refreshes on every `brevo` run) |
+| `brevo skill uninstall` | Remove Brevo-installed skills from `~/.claude/skills/` |
 
 Run `brevo --help` or `brevo <command> --help` for the full set.
 

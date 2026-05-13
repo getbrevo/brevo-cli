@@ -108,7 +108,7 @@ export async function offerSkillInstall(opts: OfferSkillInstallOptions = {}): Pr
   });
 
   if (!install) {
-    logInfo(`  ${messages.SKILL_PROMPT_DECLINED(CLI.SKILL_INSTALL(BREVO_CLI_SKILL))}\n`);
+    logInfo(`  ${messages.SKILL_PROMPT_DECLINED(CLI.SKILL_INSTALL)}\n`);
     return;
   }
 

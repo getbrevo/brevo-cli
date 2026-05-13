@@ -1,6 +1,6 @@
 jest.mock('../../../services/skill', () => ({
   skillService: {
-    uninstall: jest.fn(),
+    uninstallAll: jest.fn(),
   },
 }));
 
@@ -19,33 +19,42 @@ describe('skill/uninstall', () => {
     stdoutSpy.mockRestore();
   });
 
-  it('uninstalls and surfaces the path', async () => {
-    (skillService.uninstall as jest.Mock).mockReturnValue({
-      name: 'brevo-cli',
-      path: '/tmp/skills/brevo-cli',
-    });
+  it('uninstalls every installed Brevo skill', async () => {
+    (skillService.uninstallAll as jest.Mock).mockReturnValue([
+      { name: 'brevo-cli', path: '/tmp/skills/brevo-cli' },
+    ]);
 
-    await uninstallCommand({ name: 'brevo-cli' });
+    await uninstallCommand({});
 
-    expect(skillService.uninstall).toHaveBeenCalledWith('brevo-cli');
+    expect(skillService.uninstallAll).toHaveBeenCalledWith();
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('Uninstalled brevo-cli');
     expect(output).toContain('/tmp/skills/brevo-cli');
   });
 
-  it('outputs JSON when --json', async () => {
-    (skillService.uninstall as jest.Mock).mockReturnValue({
-      name: 'brevo-cli',
-      path: '/tmp/skills/brevo-cli',
-    });
+  it('reports a friendly no-op when nothing is installed', async () => {
+    (skillService.uninstallAll as jest.Mock).mockReturnValue([]);
 
-    await uninstallCommand({ name: 'brevo-cli', json: true });
+    await uninstallCommand({});
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).toContain('No Brevo skills installed');
+  });
+
+  it('outputs JSON when --json', async () => {
+    (skillService.uninstallAll as jest.Mock).mockReturnValue([
+      { name: 'brevo-cli', path: '/tmp/skills/brevo-cli' },
+    ]);
+
+    await uninstallCommand({ json: true });
 
     const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
-    expect(parsed).toEqual({
-      uninstalled: true,
-      name: 'brevo-cli',
-      path: '/tmp/skills/brevo-cli',
-    });
+    expect(parsed).toEqual([
+      {
+        uninstalled: true,
+        name: 'brevo-cli',
+        path: '/tmp/skills/brevo-cli',
+      },
+    ]);
   });
 });
