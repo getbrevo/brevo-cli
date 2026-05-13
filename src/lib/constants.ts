@@ -96,6 +96,12 @@ export const CLI = {
   APP_DELETE: 'brevo app delete',
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
+  SKILL_LIST: 'brevo skill list',
+  SKILL_INSTALL: (name?: string) =>
+    name ? `brevo skill install ${name}` : 'brevo skill install <name>',
+  SKILL_UPDATE: (name?: string) => (name ? `brevo skill update ${name}` : 'brevo skill update'),
+  SKILL_UNINSTALL: (name?: string) =>
+    name ? `brevo skill uninstall ${name}` : 'brevo skill uninstall <name>',
 } as const;
 
 export const DEFAULT_APP_FOLDER = 'my-app';

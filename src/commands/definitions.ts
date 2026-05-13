@@ -12,6 +12,10 @@ import { updateCommand } from './app/update';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
 import { startCommand } from './app/start';
+import { listCommand as skillListCommand } from './skill/list';
+import { installCommand as skillInstallCommand } from './skill/install';
+import { updateCommand as skillUpdateCommand } from './skill/update';
+import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
 
 export const topLevelCommands: CommandDefinition[] = [
   {
@@ -198,6 +202,67 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         startCommand({
           feature: feature as string | undefined,
           port: opts.port as number | undefined,
+        }),
+    },
+  ],
+};
+
+export const skillCommandGroup: SubcommandGroupDefinition = {
+  name: 'skill',
+  description: 'Install Brevo-authored agent skills (Claude Code)',
+  commands: [
+    {
+      name: 'list',
+      description: 'List available Brevo-published skills',
+      examples: ['brevo skill list', 'brevo skill list --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts) => skillListCommand({ json: Boolean(opts.json) }),
+    },
+    {
+      name: 'install',
+      description: 'Install a Brevo-published skill into ~/.claude/skills/',
+      arguments: [{ name: '[name]', description: 'Skill name (omit with --all)' }],
+      examples: [
+        'brevo skill install brevo-cli',
+        'brevo skill install brevo-cli --force',
+        'brevo skill install --all',
+        'brevo skill install brevo-cli --json',
+      ],
+      options: [
+        { flags: '--all', description: 'Install every skill in the catalog' },
+        { flags: '--force', description: 'Overwrite an existing install' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts, name) =>
+        skillInstallCommand({
+          name: name as string | undefined,
+          all: Boolean(opts.all),
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'update',
+      description: 'Refresh installed skills to the latest bundled version',
+      arguments: [{ name: '[name]', description: 'Skill name (omit to update all installed)' }],
+      examples: ['brevo skill update', 'brevo skill update brevo-cli', 'brevo skill update --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts, name) =>
+        skillUpdateCommand({
+          name: name as string | undefined,
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'uninstall',
+      description: 'Remove a previously installed skill',
+      arguments: [{ name: '<name>', description: 'Skill name' }],
+      examples: ['brevo skill uninstall brevo-cli', 'brevo skill uninstall brevo-cli --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts, name) =>
+        skillUninstallCommand({
+          name: name as string,
+          json: Boolean(opts.json),
         }),
     },
   ],

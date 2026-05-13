@@ -9,17 +9,19 @@ import { loginCommand } from './login';
 import { createCommand } from './app/create';
 import { scaffoldCommand } from './app/scaffold';
 import { appService } from '../container';
+import { offerSkillInstall } from '../lib/skill-notifier';
 
-async function ensureLoggedIn(): Promise<void> {
+async function ensureLoggedIn(): Promise<{ ranLogin: boolean }> {
   if (isAuthenticated()) {
     logSuccess(messages.INIT_ALREADY_LOGGED_IN);
-    return;
+    return { ranLogin: false };
   }
   logInfo(messages.INIT_STEP_LOGIN);
   await loginCommand({ suppressNextSteps: true });
   if (!isAuthenticated()) {
     throw new CliError('Login failed.');
   }
+  return { ranLogin: true };
 }
 
 async function appExistsOnServer(appId: string): Promise<boolean> {
@@ -60,7 +62,14 @@ export const initCommand = withCommandHandler(
     process.stdout.write(`\n  ${messages.INIT_WELCOME}\n`);
     process.stdout.write('  ──────────────────────────────────────\n\n');
 
-    await ensureLoggedIn();
+    const { ranLogin } = await ensureLoggedIn();
+
+    // When login ran, it already offered the skill — don't double-prompt.
+    // When the user was already authenticated, login was skipped, so we surface
+    // the offer here so first-time `init` users still see it.
+    if (!ranLogin) {
+      await offerSkillInstall();
+    }
 
     process.stdout.write('\n');
     const projectConfig = readProjectConfig();

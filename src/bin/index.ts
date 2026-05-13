@@ -16,8 +16,9 @@ import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
 import { client } from '../container';
 import { registerAll } from '../lib/command-registry';
-import { topLevelCommands, appCommandGroup } from '../commands/definitions';
+import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
 import { startUpdateCheck, notifyUpdate, shouldShowBannerBefore } from '../lib/update-notifier';
+import { notifyOutdatedSkills } from '../lib/skill-notifier';
 import { warnIfCliBelowMinVersion } from '../lib/min-version-check';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
@@ -69,6 +70,10 @@ program
         `  app delete      [--app-id <id>] [--force] [--json]`,
         `  app scaffold    [--app-id <id>] [--json]`,
         `  app start       [feature] [--port <port>]`,
+        `  skill list      [--json]`,
+        `  skill install   [name] [--all] [--force] [--json]`,
+        `  skill update    [name] [--json]`,
+        `  skill uninstall <name> [--json]`,
         ``,
         `Run \`brevo <command> --help\` for details on a specific command.`,
         ``,
@@ -102,7 +107,7 @@ installAuthGuard(program);
 
 // ──────────────── Register all commands ────────────────
 
-registerAll(program, topLevelCommands, [appCommandGroup]);
+registerAll(program, topLevelCommands, [appCommandGroup, skillCommandGroup]);
 
 // ──────────────── Re-auth handler ────────────────
 
@@ -166,6 +171,9 @@ earlyNotify
     if (!showBannerEarly) {
       await notifyUpdate(updateCheck, { name: pkg.name, version });
     }
+    // Local skill catalog check — sync, no network. Lets users discover skill
+    // updates without ever running `brevo skill list` explicitly.
+    notifyOutdatedSkills();
     // Force exit — Node's native fetch keeps TCP connections alive which can
     // prevent the process from exiting when running against local servers.
     process.exit(0);

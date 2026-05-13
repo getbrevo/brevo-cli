@@ -26,6 +26,7 @@ import { printBox, createSpinner } from '../lib/ui';
 import { jsonOutput } from '../lib/json-output';
 import { AccountResponse } from '../types';
 import { runBrowserLoginFlow } from '../services/browser-auth';
+import { offerSkillInstall } from '../lib/skill-notifier';
 
 // On re-login, the cached per-app clientId/clientSecret values belong to apps
 // owned by the previously-authenticated organization. A new organization cannot
@@ -217,6 +218,11 @@ export const loginCommand = withCommandHandler(
 
     logSuccess(messages.AUTH_SUCCESS(account.email));
     logInfo(messages.AUTH_SAVED(getCredentialsPath()));
+
+    // Offer the brevo-cli skill once auth has succeeded. Skipped under --json,
+    // non-TTY, CI, or BREVO_NO_SKILL_PROMPT=1. Also short-circuits if already
+    // installed, so re-logins don't re-prompt.
+    await offerSkillInstall({ json: options.json });
 
     if (options.suppressNextSteps) return;
 

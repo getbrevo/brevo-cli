@@ -41,6 +41,10 @@ jest.mock('../../commands/app/create', () => ({
   createCommand: jest.fn(),
 }));
 
+jest.mock('../../lib/skill-notifier', () => ({
+  offerSkillInstall: jest.fn().mockResolvedValue(undefined),
+}));
+
 import inquirer from 'inquirer';
 import { saveCredentials } from '../../lib/config';
 import { accountService, appService } from '../../container';
