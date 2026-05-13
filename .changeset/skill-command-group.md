@@ -13,9 +13,9 @@ Add `brevo skill:cli` command group for installing the brevo-cli Claude Code ski
 
 The skill version tracks the CLI version (read from `package.json` at module-init). Every CLI release effectively bumps the bundled skill version too, so installed copies auto-refresh after a CLI upgrade — even when `SKILL.md` itself didn't change. The refresh emits a single stderr line: `↻ refreshed brevo-cli skill (v1.0.0 → v1.1.0)`. Skipped under `CI=true`, `--json`, any `brevo skill:cli *` invocation, and when `BREVO_NO_SKILL_AUTOREFRESH=1` is set.
 
-**First-run onboarding**
+**Onboarding**
 
-`brevo login` and `brevo app init` offer to install the brevo-cli skill on first run. Skippable via `BREVO_NO_SKILL_PROMPT=1`; auto-skipped under `--json` / non-TTY / CI.
+Install once with `brevo skill:cli install` (or follow the README's manual-copy escape hatch). The CLI does not prompt; auto-refresh keeps the installed copy in sync after that.
 
 **Implementation notes**
 

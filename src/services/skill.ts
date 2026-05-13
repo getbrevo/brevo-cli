@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+import { messages } from '../lang/en';
 import { CliError } from '../lib/errors';
 import { SKILL_CATALOG, SKILLS_BUNDLE_DIR, SkillEntry, getSkill } from '../skills';
 
@@ -192,9 +193,68 @@ export const skillService = {
       return [{ name: entry.name, path: targetDir }];
     });
   },
+
+  /**
+   * Refresh installed skills whose marker version drifts from the bundled
+   * catalog. Pure local file ops — safe to call after every CLI invocation.
+   * Errors during the refresh emit a single error line and never throw,
+   * so a broken refresh can't block the user's actual command.
+   */
+  autoRefreshOutdated(opts: AutoRefreshOptions = {}): void {
+    if (shouldSkipAutoRefresh(opts)) return;
+
+    let outdated: OutdatedSkill[];
+    try {
+      outdated = this.getOutdatedSkills();
+    } catch {
+      return;
+    }
+    if (outdated.length === 0) return;
+
+    const output = opts.output ?? process.stderr;
+    for (const s of outdated) {
+      try {
+        this.install(s.name, { force: true });
+        output.write(
+          `  ${messages.SKILL_AUTOREFRESHED(s.name, s.installedVersion, s.latestVersion)}\n`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        output.write(`  ${messages.SKILL_AUTOREFRESH_FAILED(s.name, msg)}\n`);
+      }
+    }
+  },
 };
 
 export type SkillService = typeof skillService;
+
+// ──────────────── Auto-refresh skip rules ────────────────
+// Exported as a free function for direct unit-testing without instantiating
+// the whole service. Mirrors update-notifier's `shouldSkipCheck` shape.
+
+export interface AutoRefreshOptions {
+  argv?: readonly string[];
+  env?: NodeJS.ProcessEnv;
+  output?: NodeJS.WriteStream;
+}
+
+export function shouldSkipAutoRefresh(opts: AutoRefreshOptions = {}): boolean {
+  const env = opts.env ?? process.env;
+  const argv = opts.argv ?? process.argv;
+
+  // CI runners shouldn't have surprise mutations to ~/.claude.
+  if (env.CI === 'true' || env.CI === '1') return true;
+  // --json callers want deterministic, machine-readable output.
+  if (argv.includes('--json')) return true;
+  // The user is already managing skills — let their explicit command do the work.
+  if (argv.length > 2 && argv[2] === 'skill:cli') return true;
+  // Dedicated opt-out for users who hand-edit their installed SKILL.md and
+  // don't want it clobbered on the next `brevo` run.
+  if (env.BREVO_NO_SKILL_AUTOREFRESH === '1' || env.BREVO_NO_SKILL_AUTOREFRESH === 'true') {
+    return true;
+  }
+  return false;
+}
 
 function unknownSkillMessage(name: string): string {
   const available = SKILL_CATALOG.map((s) => s.name).join(', ');

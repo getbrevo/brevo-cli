@@ -192,11 +192,6 @@ export const messages = {
     `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
   SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>
     `⚠ failed to refresh ${name} skill: ${err}`,
-  SKILL_PROMPT_INTRO:
-    'Brevo ships an agent skill for Claude Code that teaches Claude how to use this CLI.',
-  SKILL_PROMPT_CONFIRM: 'Install the brevo-cli skill into ~/.claude/skills/?',
-  SKILL_PROMPT_DECLINED: (cmd: string) => `Skipped. You can install it later with \`${cmd}\`.`,
-  SKILL_PROMPT_NOOP: (name: string) => `${name} skill already up to date.`,
 
   // General
   ABORTED: 'Aborted.',

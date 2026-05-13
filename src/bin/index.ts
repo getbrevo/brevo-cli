@@ -18,7 +18,7 @@ import { client } from '../container';
 import { registerAll } from '../lib/command-registry';
 import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
 import { startUpdateCheck, notifyUpdate, shouldShowBannerBefore } from '../lib/update-notifier';
-import { autoRefreshOutdatedSkills } from '../lib/skill-notifier';
+import { skillService } from '../services/skill';
 import { warnIfCliBelowMinVersion } from '../lib/min-version-check';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
@@ -176,7 +176,7 @@ earlyNotify
     // Local skill catalog check — sync, no network. Silently refreshes any
     // installed skill that's behind the bundled catalog so the AI tool always
     // sees the latest primer. Opt out with BREVO_NO_SKILL_AUTOREFRESH=1.
-    autoRefreshOutdatedSkills();
+    skillService.autoRefreshOutdated();
     // Force exit — Node's native fetch keeps TCP connections alive which can
     // prevent the process from exiting when running against local servers.
     process.exit(0);

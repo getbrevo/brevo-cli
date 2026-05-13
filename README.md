@@ -121,7 +121,6 @@ Environment overrides:
 | `BREVO_OAUTH_PROXY_URL` | OAuth proxy used by browser login (HTTPS required, except for `localhost`) | `https://oauth-cli.brevo.com` |
 | `BREVO_CONFIG_HOME` | Override for the credentials directory | `~/.brevo/` |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs | off |
-| `BREVO_NO_SKILL_PROMPT` | Set to `1` to suppress the first-run `brevo skill:cli install` prompt | off |
 | `NO_COLOR` / `FORCE_COLOR` | Disable / force ANSI colour output | – |
 | `DEBUG` or `--debug` | Verbose HTTP and error logging | off |
 

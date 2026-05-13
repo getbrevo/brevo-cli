@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { skillService, getClaudeSkillsRoot } from '../../services/skill';
+import { skillService, getClaudeSkillsRoot, shouldSkipAutoRefresh } from '../../services/skill';
 import { SKILL_CATALOG } from '../../skills';
 import { CliError } from '../../lib/errors';
 
@@ -24,8 +24,18 @@ describe('services/skill', () => {
 
   afterEach(() => {
     delete process.env.BREVO_CLAUDE_HOME;
+    delete process.env.BREVO_NO_SKILL_AUTOREFRESH;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   });
+
+  function installStaleBrevoCli(forgedVersion = '0.0.1'): string {
+    skillService.install('brevo-cli');
+    const markerPath = path.join(tmpHome, 'skills', 'brevo-cli', '.brevo-skill.json');
+    const marker = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+    marker.version = forgedVersion;
+    fs.writeFileSync(markerPath, JSON.stringify(marker));
+    return markerPath;
+  }
 
   describe('getClaudeSkillsRoot', () => {
     it('respects BREVO_CLAUDE_HOME override', () => {
@@ -160,6 +170,115 @@ describe('services/skill', () => {
 
       expect(skillService.uninstallAll()).toEqual([]);
       expect(fs.existsSync(path.join(target, 'user-file.md'))).toBe(true);
+    });
+  });
+
+  describe('shouldSkipAutoRefresh', () => {
+    it('skips in CI', () => {
+      expect(shouldSkipAutoRefresh({ env: { CI: 'true' } })).toBe(true);
+    });
+
+    it('skips when --json is in argv', () => {
+      expect(
+        shouldSkipAutoRefresh({
+          argv: ['node', 'brevo', 'app', 'list', '--json'],
+          env: {},
+        }),
+      ).toBe(true);
+    });
+
+    it('skips while running `brevo skill:cli <anything>`', () => {
+      expect(
+        shouldSkipAutoRefresh({
+          argv: ['node', 'brevo', 'skill:cli', 'install'],
+          env: {},
+        }),
+      ).toBe(true);
+    });
+
+    it('skips when BREVO_NO_SKILL_AUTOREFRESH=1', () => {
+      expect(shouldSkipAutoRefresh({ env: { BREVO_NO_SKILL_AUTOREFRESH: '1' } })).toBe(true);
+    });
+
+    it('runs in a non-CI, non-skill, non-json invocation', () => {
+      expect(
+        shouldSkipAutoRefresh({
+          argv: ['node', 'brevo', 'app', 'list'],
+          env: {},
+        }),
+      ).toBe(false);
+    });
+  });
+
+  describe('autoRefreshOutdated', () => {
+    it('does nothing when no skills are installed', () => {
+      const output = { write: jest.fn() } as unknown as NodeJS.WriteStream;
+      skillService.autoRefreshOutdated({ env: {}, argv: ['node', 'brevo', 'app', 'list'], output });
+      expect(output.write as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when installed skills are current', () => {
+      skillService.install('brevo-cli');
+      const output = { write: jest.fn() } as unknown as NodeJS.WriteStream;
+      skillService.autoRefreshOutdated({ env: {}, argv: ['node', 'brevo', 'app', 'list'], output });
+      expect(output.write as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it('rewrites the installed marker and prints a notice when stale', () => {
+      const markerPath = installStaleBrevoCli('0.0.1');
+      const latest = SKILL_CATALOG.find((s) => s.name === 'brevo-cli')!.version;
+
+      const output = { write: jest.fn() } as unknown as NodeJS.WriteStream;
+      skillService.autoRefreshOutdated({
+        env: {},
+        argv: ['node', 'brevo', 'app', 'list'],
+        output,
+      });
+
+      const refreshedMarker = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+      expect(refreshedMarker.version).toBe(latest);
+
+      const writes = (output.write as jest.Mock).mock.calls.map((c) => c[0]).join('');
+      expect(writes).toContain('refreshed brevo-cli');
+      expect(writes).toContain(`v0.0.1`);
+      expect(writes).toContain(`v${latest}`);
+    });
+
+    it('respects BREVO_NO_SKILL_AUTOREFRESH=1 even when stale', () => {
+      const markerPath = installStaleBrevoCli('0.0.1');
+
+      const output = { write: jest.fn() } as unknown as NodeJS.WriteStream;
+      skillService.autoRefreshOutdated({
+        env: { BREVO_NO_SKILL_AUTOREFRESH: '1' },
+        argv: ['node', 'brevo', 'app', 'list'],
+        output,
+      });
+
+      const marker = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+      expect(marker.version).toBe('0.0.1');
+      expect(output.write as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it('does not throw if the install fails — falls through to a single error line', () => {
+      installStaleBrevoCli('0.0.1');
+      const installSpy = jest.spyOn(skillService, 'install').mockImplementation(() => {
+        throw new Error('EACCES: permission denied');
+      });
+
+      const output = { write: jest.fn() } as unknown as NodeJS.WriteStream;
+      expect(() =>
+        skillService.autoRefreshOutdated({
+          env: {},
+          argv: ['node', 'brevo', 'app', 'list'],
+          output,
+        }),
+      ).not.toThrow();
+
+      const writes = (output.write as jest.Mock).mock.calls.map((c) => c[0]).join('');
+      expect(writes).toContain('failed to refresh brevo-cli');
+      expect(writes).toContain('EACCES');
+
+      installSpy.mockRestore();
     });
   });
 });

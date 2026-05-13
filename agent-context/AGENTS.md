@@ -47,7 +47,6 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 | `BREVO_OAUTH_PROXY_URL` | Override OAuth proxy used by browser login |
 | `BREVO_CONFIG_HOME` | Override credentials directory (default `~/.brevo/`) |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs |
-| `BREVO_NO_SKILL_PROMPT` | Set to `1` to suppress the first-run `brevo skill:cli install` prompt at login/init |
 | `DEBUG=1` or `--debug` | Verbose HTTP and error logging |
 
 ## Safety

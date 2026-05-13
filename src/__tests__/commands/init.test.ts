@@ -22,10 +22,6 @@ jest.mock('../../commands/app/scaffold', () => ({
   scaffoldCommand: jest.fn(),
 }));
 
-jest.mock('../../lib/skill-notifier', () => ({
-  offerSkillInstall: jest.fn().mockResolvedValue(undefined),
-}));
-
 jest.mock('../../container', () => ({
   appService: {
     fetchApp: jest.fn(),
