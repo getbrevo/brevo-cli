@@ -7,6 +7,14 @@ description: Use when working in a project that uses the Brevo Developer CLI (th
 
 This project uses the Brevo Developer CLI to create and manage Brevo OAuth applications. Treat the `brevo` binary as the canonical entry point — don't shell out to `curl https://api.brevo.com/...` for things the CLI already covers.
 
+## Before starting a new session
+
+Verify this skill is up to date before doing any work:
+
+1. Read the installed skill version from `~/.claude/skills/brevo-cli/.brevo-skill.json` (`version` field).
+2. Compare against the CLI version: `brevo --version`.
+3. **If they don't match, stop and tell the user to update** — ask them to run any `brevo` command (auto-refreshes the skill) or `brevo skill:cli install` to force-reinstall. Do not proceed with stale guidance.
+
 ## Decision tree
 
 - "Set me up from scratch" → `brevo app init`

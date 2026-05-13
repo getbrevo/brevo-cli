@@ -15,7 +15,17 @@ The skill version tracks the CLI version (read from `package.json` at module-ini
 
 **Onboarding**
 
-Install once with `brevo skill:cli install` (or follow the README's manual-copy escape hatch). The CLI does not prompt; auto-refresh keeps the installed copy in sync after that.
+A one-shot banner prints on stderr the first time an interactive `brevo` command runs without the skill installed:
+
+```
+  ╭──────────────────────────────────────────────────────╮
+  │  Brevo ships a Claude Code skill for AI assistants.  │
+  │  Run `brevo skill:cli install` to enable it.         │
+  │  (You'll only see this notice once.)                 │
+  ╰──────────────────────────────────────────────────────╯
+```
+
+The CLI records this at `~/.brevo/skill-banner.json` (respects `BREVO_CONFIG_HOME`) and never re-prints — install or not, the user is only nudged once. Skipped under `CI=true`, non-TTY, `--json`, and during any `brevo skill:cli *` invocation. After the banner, install once with `brevo skill:cli install` (or follow the README's manual-copy escape hatch); auto-refresh then keeps the installed copy in sync.
 
 **Implementation notes**
 

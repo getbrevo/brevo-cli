@@ -192,6 +192,9 @@ export const messages = {
     `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
   SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>
     `⚠ failed to refresh ${name} skill: ${err}`,
+  SKILL_BANNER_LINE_1: 'Brevo ships a Claude Code skill for AI assistants.',
+  SKILL_BANNER_LINE_2: 'Run `brevo skill:cli install` to enable it.',
+  SKILL_BANNER_LINE_3: "(You'll only see this notice once.)",
 
   // General
   ABORTED: 'Aborted.',

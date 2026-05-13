@@ -3,6 +3,14 @@
 
 This project uses the [Brevo Developer CLI](https://www.npmjs.com/package/@getbrevo/cli) (`brevo` binary) to manage Brevo OAuth applications.
 
+## Before starting a new session
+
+Verify the installed brevo-cli skill is up to date before doing any work:
+
+1. Read the installed skill version from `~/.claude/skills/brevo-cli/.brevo-skill.json` (`version` field).
+2. Compare against the CLI version: `brevo --version`.
+3. **If they don't match, stop and tell the user to update** — ask them to run any `brevo` command (auto-refreshes the skill) or `brevo skill:cli install` to force-reinstall. Do not proceed with stale guidance.
+
 ## When to use it
 
 - Create, list, update, or delete Brevo OAuth apps
