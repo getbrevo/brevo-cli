@@ -476,13 +476,30 @@ async function stepAuth(state: State): Promise<string> {
   return 'logged in';
 }
 
-async function stepAppLifecycle(state: State): Promise<string> {
+// State threaded between the four app-lifecycle steps. mainAppId lives on
+// State (used by later steps too); the rest is step-to-step plumbing.
+interface AppContext {
+  name: string;
+  redirectUri: string;
+  renamedTo: string;
+  extraRedirectUri: string;
+}
+
+let appCtx: AppContext | null = null;
+
+async function stepAppCreate(state: State): Promise<string> {
   // Readable, traceable name. Concurrent CI runs are namespaced by GH run id.
   const stamp = state.opts.ci
     ? `${process.env.GITHUB_RUN_ID || Date.now()}-${process.env.GITHUB_RUN_ATTEMPT || '1'}`
     : String(Date.now());
   const name = `brevo-cli-smoke-test-${stamp}`;
   const redirectUri = `http://localhost:${state.opts.port}/auth/callback`;
+  appCtx = {
+    name,
+    redirectUri,
+    renamedTo: `${name}-renamed`,
+    extraRedirectUri: 'https://example.com/cb',
+  };
 
   const create = execOrThrow(
     'brevo',
@@ -511,18 +528,29 @@ async function stepAppLifecycle(state: State): Promise<string> {
     throw new Error(`app ${appId} not present in list after create (after retries)`);
   }
 
+  return `app ${appId} created + listed`;
+}
+
+function stepAppCredentials(state: State): string {
+  if (!state.mainAppId) throw new Error('no mainAppId from create step');
   const creds = execOrThrow(
     'brevo',
-    ['app', 'credentials', '--app-id', appId, '--reveal-secret', '--json'],
+    ['app', 'credentials', '--app-id', state.mainAppId, '--reveal-secret', '--json'],
     state,
   );
   const credObj = parseJson<Record<string, unknown>>(creds.stdout);
   if (!credObj.clientId || !credObj.clientSecret) {
     throw new Error('credentials response missing clientId or clientSecret');
   }
+  return `clientId + clientSecret returned`;
+}
 
-  const renamedTo = `${name}-renamed`;
-  const extraRedirectUri = 'https://example.com/cb';
+function stepAppUpdate(state: State): string {
+  if (!state.mainAppId) throw new Error('no mainAppId from create step');
+  if (!appCtx) throw new Error('no appCtx from create step');
+  const appId = state.mainAppId;
+  const { redirectUri, renamedTo, extraRedirectUri } = appCtx;
+
   const updated = execOrThrow(
     'brevo',
     [
@@ -571,25 +599,28 @@ async function stepAppLifecycle(state: State): Promise<string> {
     );
   }
 
+  return `renamed + redirect_uri appended (response validated)`;
+}
+
+async function stepVerifyRename(state: State): Promise<string> {
+  if (!state.mainAppId) throw new Error('no mainAppId from create step');
+  if (!appCtx) throw new Error('no appCtx from create step');
+  const appId = state.mainAppId;
+  const { renamedTo } = appCtx;
+
   // Confirm the rename persisted server-side. The list endpoint is eventually
   // consistent (see findAppInList), so poll with backoff before declaring miss.
   const renameBackoff = [500, 1000, 2000, 4000];
-  let renameVerified = false;
   for (let i = 0; i < renameBackoff.length; i++) {
     const r = execOrThrow('brevo', ['app', 'list', '--json'], state);
     if (findAppByName(parseJson(r.stdout), renamedTo) === appId) {
-      renameVerified = true;
-      break;
+      return `rename visible in list as "${renamedTo}"`;
     }
     if (i < renameBackoff.length - 1) await sleep(renameBackoff[i] ?? 4000);
   }
-  if (!renameVerified) {
-    throw new Error(
-      `renamed app ${appId} (${renamedTo}) not present in list after update (after retries)`,
-    );
-  }
-
-  return `app ${appId} created + credentials + updated + verified`;
+  throw new Error(
+    `renamed app ${appId} (${renamedTo}) not present in list after update (after retries)`,
+  );
 }
 
 // Negative test: `brevo app create --distribution public` must be rejected by
@@ -1102,7 +1133,10 @@ async function main(): Promise<void> {
     ['Pre-flight', stepPreflight],
     ['Reinstall local', stepReinstall],
     ['Auth lifecycle', stepAuth],
-    ['App lifecycle', stepAppLifecycle],
+    ['App create', stepAppCreate],
+    ['App credentials', stepAppCredentials],
+    ['App update', stepAppUpdate],
+    ['Verify rename', stepVerifyRename],
     ['Negative: public app rejected', stepPublicAppRejected],
     ['Scaffold', stepScaffold],
     ['Start briefly', stepStartBriefly],
