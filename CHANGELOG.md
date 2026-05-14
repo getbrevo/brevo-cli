@@ -1,5 +1,12 @@
 # @getbrevo/cli
 
+## 1.0.1
+
+### Patch Changes
+
+- d4335f5: Wipe the per-app credential cache on `brevo login` when the new account differs from the previously-stored one. Cached `clientId`/`clientSecret` values belong to the prior account's apps and would mislead the new session. Same-account re-logins keep the cache intact.
+- d4335f5: Internal: hardened scaffold test fixtures by routing the mocked `outputDir` strings through a sandbox path under `__dirname` instead of `os.tmpdir()` / hardcoded `/tmp/...`. Addresses SonarCloud `S5443` (publicly-writable directories) at all 9 callsites. Test-only change — no runtime behavior is affected.
+
 ## 1.0.0
 
 ### Major Changes
