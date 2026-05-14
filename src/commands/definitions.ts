@@ -12,6 +12,8 @@ import { updateCommand } from './app/update';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
 import { startCommand } from './app/start';
+import { installCommand as skillInstallCommand } from './skill/install';
+import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
 
 export const topLevelCommands: CommandDefinition[] = [
   {
@@ -199,6 +201,28 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           feature: feature as string | undefined,
           port: opts.port as number | undefined,
         }),
+    },
+  ],
+};
+
+export const skillCommandGroup: SubcommandGroupDefinition = {
+  name: 'skill:cli',
+  description: 'Install the brevo-cli Claude Code skill (Claude only)',
+  commands: [
+    {
+      name: 'install',
+      description:
+        'Install the brevo-cli skill into ~/.claude/skills/ (Claude only — other AI tools should read agent-context/AGENTS.md instead)',
+      examples: ['brevo skill:cli install', 'brevo skill:cli install --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts) => skillInstallCommand({ json: Boolean(opts.json) }),
+    },
+    {
+      name: 'uninstall',
+      description: 'Remove the brevo-cli skill from ~/.claude/skills/ (Claude only)',
+      examples: ['brevo skill:cli uninstall', 'brevo skill:cli uninstall --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts) => skillUninstallCommand({ json: Boolean(opts.json) }),
     },
   ],
 };

@@ -16,8 +16,9 @@ import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
 import { client } from '../container';
 import { registerAll } from '../lib/command-registry';
-import { topLevelCommands, appCommandGroup } from '../commands/definitions';
+import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
 import { startUpdateCheck, notifyUpdate, shouldShowBannerBefore } from '../lib/update-notifier';
+import { skillService } from '../services/skill';
 import { warnIfCliBelowMinVersion } from '../lib/min-version-check';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
@@ -58,17 +59,23 @@ program
         `  -h, --help       display help for command`,
         ``,
         `Commands:`,
-        `  login       [--browser] [--json]         Authenticate with your Brevo account`,
-        `  logout      [--json]                    Clear stored credentials`,
-        `  whoami      [--json]                    Show current authenticated user`,
-        `  app init                                Quick setup — login, create app, and scaffold`,
-        `  app create      [--name] [--distribution private|public] [--json]`,
-        `  app list        [--json]`,
-        `  app credentials [--app-id <id>] [--reveal-secret] [--json]`,
-        `  app update      [--json]`,
-        `  app delete      [--app-id <id>] [--force] [--json]`,
-        `  app scaffold    [--app-id <id>] [--json]`,
-        `  app start       [feature] [--port <port>]`,
+        `  brevo login       [--browser] [--json]         Authenticate with your Brevo account`,
+        `  brevo logout      [--json]                     Clear stored credentials`,
+        `  brevo whoami      [--json]                     Show current authenticated user`,
+        ``,
+        `App commands:`,
+        `  brevo app init                                 Quick setup — login, create app, and scaffold`,
+        `  brevo app create      [--name] [--distribution private|public] [--json]`,
+        `  brevo app list        [--json]`,
+        `  brevo app credentials [--app-id <id>] [--reveal-secret] [--json]`,
+        `  brevo app update      [--json]`,
+        `  brevo app delete      [--app-id <id>] [--force] [--json]`,
+        `  brevo app scaffold    [--app-id <id>] [--json]`,
+        `  brevo app start       [feature] [--port <port>]`,
+        ``,
+        `Skill commands:`,
+        `  brevo skill:cli install   [--json]             Install the brevo-cli Claude Code skill`,
+        `  brevo skill:cli uninstall [--json]             Remove the brevo-cli skill`,
         ``,
         `Run \`brevo <command> --help\` for details on a specific command.`,
         ``,
@@ -102,7 +109,7 @@ installAuthGuard(program);
 
 // ──────────────── Register all commands ────────────────
 
-registerAll(program, topLevelCommands, [appCommandGroup]);
+registerAll(program, topLevelCommands, [appCommandGroup, skillCommandGroup]);
 
 // ──────────────── Re-auth handler ────────────────
 
@@ -166,6 +173,10 @@ earlyNotify
     if (!showBannerEarly) {
       await notifyUpdate(updateCheck, { name: pkg.name, version });
     }
+    // Local skill catalog check — sync, no network. Silently refreshes any
+    // installed skill that's behind the bundled catalog so the AI tool always
+    // sees the latest primer. Opt out with BREVO_NO_SKILL_AUTOREFRESH=1.
+    skillService.autoRefreshOutdated();
     // Force exit — Node's native fetch keeps TCP connections alive which can
     // prevent the process from exiting when running against local servers.
     process.exit(0);

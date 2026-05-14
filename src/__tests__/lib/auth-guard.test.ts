@@ -68,4 +68,26 @@ describe('auth-guard', () => {
       process.argv = originalArgv;
     }
   });
+
+  it('should allow skill subcommands through without auth', async () => {
+    const program = new Command();
+    installAuthGuard(program);
+
+    (config.isAuthenticated as jest.Mock).mockReturnValue(false);
+
+    const hooks = (program as any)._lifeCycleHooks?.preAction;
+    if (hooks && hooks.length > 0) {
+      const originalArgv = process.argv;
+      process.argv = ['node', 'brevo', 'skill:cli', 'install'];
+
+      // Same leaf name as `app list` but parented under `skill:cli` — must bypass auth.
+      const mockActionCommand = {
+        name: () => 'install',
+        parent: { name: () => 'skill:cli' },
+      } as unknown as Command;
+      await hooks[0](program, mockActionCommand);
+
+      process.argv = originalArgv;
+    }
+  });
 });

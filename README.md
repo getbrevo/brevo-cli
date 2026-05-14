@@ -120,6 +120,7 @@ Environment overrides:
 | `BREVO_API_URL` | API base URL (HTTPS required, except for `localhost`) | `https://api.brevo.com` |
 | `BREVO_OAUTH_PROXY_URL` | OAuth proxy used by browser login (HTTPS required, except for `localhost`) | `https://oauth-cli.brevo.com` |
 | `BREVO_CONFIG_HOME` | Override for the credentials directory | `~/.brevo/` |
+| `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs | off |
 | `NO_COLOR` / `FORCE_COLOR` | Disable / force ANSI colour output | – |
 | `DEBUG` or `--debug` | Verbose HTTP and error logging | off |
 
@@ -132,15 +133,29 @@ If you use Claude Code, Cursor, Aider, Copilot CLI, or another agent that reads 
 - `node_modules/@getbrevo/cli/agent-context/AGENTS.md` — overview, command list, conventions, and safety rules. Compatible with the [agents.md](https://agents.md) format.
 - `node_modules/@getbrevo/cli/agent-context/SKILL.md` — Claude Code skill (with YAML frontmatter and trigger keywords) for auto-activation when a conversation touches the Brevo CLI.
 
-Most agents only read context from your project root, so copy or symlink the files in once:
+### Claude Code skill (recommended)
+
+The CLI installs and maintains the skill for you:
+
+```bash
+brevo skill:cli install
+```
+
+This copies `SKILL.md` into `~/.claude/skills/brevo-cli/`. Every subsequent `brevo` invocation auto-refreshes it when the bundled version is newer than the installed one — you'll see a `↻ refreshed brevo-cli skill (vX → vY)` notice on stderr when that happens. Opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`. Remove with `brevo skill:cli uninstall`.
+
+On the first interactive `brevo` invocation after install, you'll also see a one-time banner on stderr inviting you to install the skill. The notice records itself at `~/.brevo/skill-banner.json` and never repeats. Skipped under CI, non-TTY, `--json`, or any `brevo skill:cli` command.
+
+### Manual install (escape hatch)
+
+If you prefer not to install via the CLI, copy the files in directly:
 
 ```bash
 # AGENTS.md — append into your existing AGENTS.md, or copy if you don't have one
 cat node_modules/@getbrevo/cli/agent-context/AGENTS.md >> AGENTS.md
 
-# Claude Code skill
-mkdir -p .claude/skills/brevo
-cp node_modules/@getbrevo/cli/agent-context/SKILL.md .claude/skills/brevo/SKILL.md
+# Claude Code skill — note the directory name matches what `brevo skill:cli install` uses
+mkdir -p .claude/skills/brevo-cli
+cp node_modules/@getbrevo/cli/agent-context/SKILL.md .claude/skills/brevo-cli/SKILL.md
 ```
 
 The `AGENTS.md` content is wrapped in `<!-- BREVO_CLI_AGENTS_BEGIN -->` / `<!-- BREVO_CLI_AGENTS_END -->` markers — when you upgrade the CLI, delete the existing block (markers included) before re-running the append so the section isn't duplicated.
