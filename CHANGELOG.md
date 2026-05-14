@@ -1,8 +1,8 @@
 # @getbrevo/cli
 
-## 1.1.0
+## 1.0.1
 
-### Minor Changes
+### Patch Changes
 
 - 6aeb15a: Add `brevo skill:cli` command group for installing the brevo-cli Claude Code skill into `~/.claude/skills/`. The `skill:<name>` shape reserves a namespace for future Brevo-authored skills (each gets its own top-level group rather than positional args).
 
@@ -12,7 +12,7 @@
 
   **Auto-refresh**
 
-  The skill version tracks the CLI version (read from `package.json` at module-init). Every CLI release effectively bumps the bundled skill version too, so installed copies auto-refresh after a CLI upgrade — even when `SKILL.md` itself didn't change. The refresh emits a single stderr line: `↻ refreshed brevo-cli skill (v1.0.0 → v1.1.0)`. Skipped under `CI=true`, `--json`, any `brevo skill:cli *` invocation, and when `BREVO_NO_SKILL_AUTOREFRESH=1` is set.
+  The skill version tracks the CLI version (read from `package.json` at module-init). Every CLI release effectively bumps the bundled skill version too, so installed copies auto-refresh after a CLI upgrade — even when `SKILL.md` itself didn't change. The refresh emits a single stderr line: `↻ refreshed brevo-cli skill (v1.0.0 → v1.0.1)`. Skipped under `CI=true`, `--json`, any `brevo skill:cli *` invocation, and when `BREVO_NO_SKILL_AUTOREFRESH=1` is set.
 
   **Onboarding**
 
@@ -34,8 +34,6 @@
     - `brevo skill:cli {install,uninstall} --help` descriptions now flag the commands as Claude-only.
     - `brevo skill:cli install` prints a follow-up hint after a fresh install pointing non-Claude tools at `AGENTS.md`.
   - Add a two-step preflight to both `SKILL.md` and `AGENTS.md`. Before any other work, agents must (1) confirm `brevo --version` returns a string — otherwise stop and ask the user to `npm install -g @getbrevo/cli` — and (2) verify their reference matches the running CLI: Claude compares `~/.claude/skills/brevo-cli/.brevo-skill.json` to `brevo --version`; non-Claude agents read the canonical bundled `AGENTS.md` from `$(npm root -g)/@getbrevo/cli/agent-context/AGENTS.md` (or yarn/local equivalent) so the doc is always in lockstep with the installed CLI.
-
-### Patch Changes
 
 - d4335f5: Wipe the per-app credential cache on `brevo login` when the new account differs from the previously-stored one. Cached `clientId`/`clientSecret` values belong to the prior account's apps and would mislead the new session. Same-account re-logins keep the cache intact.
 - d4335f5: Internal: hardened scaffold test fixtures by routing the mocked `outputDir` strings through a sandbox path under `__dirname` instead of `os.tmpdir()` / hardcoded `/tmp/...`. Addresses SonarCloud `S5443` (publicly-writable directories) at all 9 callsites. Test-only change — no runtime behavior is affected.
