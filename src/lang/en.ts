@@ -177,6 +177,20 @@ export const messages = {
   INIT_APP_ACTION: 'What would you like to do?',
   INIT_DONE: `All set! Run \`${CLI.APP_START('oauth')}\` to test your OAuth flow, or \`${CLI.HELP}\` to see all commands.`,
 
+  // Skill
+  SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string) =>
+    `Installed ${name}@${version} → ${dir}`,
+  SKILL_INSTALL_CLAUDE_ONLY:
+    'This skill is consumed by Claude (Claude Code, Claude Desktop). Other AI tools (Cursor, Copilot CLI, Gemini, etc.) should reference agent-context/AGENTS.md from the @getbrevo/cli npm package instead.',
+  SKILL_INSTALL_ALREADY: (name: string, version: string) =>
+    `${name}@${version} is already up to date.`,
+  SKILL_UNINSTALL_SUCCESS: (name: string, dir: string) => `Uninstalled ${name} from ${dir}`,
+  SKILL_UNINSTALL_NONE: 'No Brevo skills installed.',
+  SKILL_AUTOREFRESHED: (name: string, oldVer: string, newVer: string) =>
+    `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
+  SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>
+    `⚠ failed to refresh ${name} skill: ${err}`,
+
   // General
   ABORTED: 'Aborted.',
 } as const;

@@ -95,9 +95,33 @@ src/
 - **Commands** are registered declaratively in `src/commands/definitions.ts` — handler functions live in their own files.
 - **Error handling** uses `CliError` (user-facing) and `ApiError` (HTTP errors) from `src/lib/errors.ts`. Commands are wrapped with `withCommandHandler()`.
 - **JSON output** — every command supports `--json` via `jsonOutput()` from `src/lib/json-output.ts`.
-- **`brevo app update`** supports `--name`, `--redirect-url` (repeatable, appends), and `--app-id` flags. Without flags it pushes the full `app-config.json` (current behavior). With flags it merges: flag values override/append existing values from `app-config.json` or the API. After a successful update, `app-config.json` is written back if it exists and the app ID matches.
+- **`brevo app update`** supports `--name`, `--redirect-uri` (repeatable, appends), and `--app-id` flags. Without flags it pushes the full `app-config.json` (current behavior). With flags it merges: flag values override/append existing values from `app-config.json` or the API. After a successful update, `app-config.json` is written back if it exists and the app ID matches.
 - **Scaffold templates** in `src/templates/files/*.tmpl` use `{{VARIABLE}}` placeholders. Variables are defined in `scaffold.ts` and listed in `templates/index.ts`. Templates must reference both `npm` and `yarn` (not npm-only). Use `brevo app start oauth` (not `brevo app start`).
 - **Credentials** are stored in `~/.brevo/credentials.json`. App credentials (clientId/clientSecret) are cached per app ID under an `apps` key.
+
+## Keep agent docs in sync with CLI behavior
+
+The CLI ships two agent-facing docs at the repo root, both bundled into the published tarball via `package.json` `files:`:
+
+- `agent-context/SKILL.md` — the Claude Code skill. Installed into `~/.claude/skills/brevo-cli/` by `brevo skill:cli install` and **auto-refreshed** on every subsequent `brevo` invocation (opt out: `BREVO_NO_SKILL_AUTOREFRESH=1`). It is also the source `src/skills/index.ts` reads via `SKILLS_BUNDLE_DIR` — there is no second copy.
+- `agent-context/AGENTS.md` — the broader `agents.md`-format reference for any agent-aware tool.
+
+**Whenever you change user-visible CLI behavior, update both files in the same PR.** An out-of-sync skill actively misleads any AI helping a user with this CLI — that's worse than no skill at all.
+
+**Keep `AGENTS.md` and `SKILL.md` in sync with each other.** Even when no CLI behavior changed, if you edit one of these files, check the other still aligns before opening the PR. They cover the same command surface, hard rules, version-check procedure, and exit codes — `AGENTS.md` is the broader reference (also documents env vars and the Claude-vs-non-Claude install path), `SKILL.md` is the Claude-focused subset. Pure-doc edits aren't "user-visible CLI behavior," so the rule above doesn't catch them — this rule does. If a difference is intentional (e.g. AGENTS.md branches by agent type because SKILL.md is Claude-only by construction), say so in the PR description so a future reader doesn't try to "fix" it.
+
+**What counts as user-visible:**
+
+- New or removed commands or subcommands.
+- New, removed, or renamed flags on existing commands.
+- New or removed `BREVO_*` env vars, or changes to existing-var semantics.
+- Changed defaults (new opt-in/opt-out, changed prompt behavior).
+- Changed exit codes or error messages that scripts may match on.
+- Removed features that the docs currently advertise (e.g. removing `brevo skill:cli update` requires removing it from both docs).
+
+**What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
+
+**Skill version tracks the CLI version automatically.** `SKILL_CATALOG[brevo-cli].version` is computed at module-init from `package.json` (`CLI_VERSION` in `src/skills/index.ts`), so every published CLI release auto-refreshes installed skills — even when `SKILL.md` content didn't change. You only need to land your changeset; the skill version takes care of itself.
 
 ## Testing patterns
 

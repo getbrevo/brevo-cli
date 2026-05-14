@@ -1,19 +1,47 @@
 ---
 name: brevo-cli
-description: Use when working in a project that uses the Brevo Developer CLI (the `brevo` binary from `@getbrevo/cli`) — managing OAuth apps, scaffolding integrations, running the local OAuth test server, or invoking any `brevo …` command. Trigger keywords - brevo, brevo cli, brevo app, app-config.json, OAuth Brevo, BREVO_API_KEY, getbrevo.
+description: Use when working in a project that uses the Brevo Developer CLI (the `brevo` binary from `@getbrevo/cli`) — managing OAuth apps, scaffolding integrations, running the local OAuth test server, or invoking any `brevo …` command. Activates on: brevo, brevo cli, brevo app, app-config.json, OAuth Brevo, BREVO_API_KEY, getbrevo.
 ---
 
 # Brevo CLI
 
 This project uses the Brevo Developer CLI to create and manage Brevo OAuth applications. Treat the `brevo` binary as the canonical entry point — don't shell out to `curl https://api.brevo.com/...` for things the CLI already covers.
 
+> **Reading this from the repo rather than `~/.claude/skills/brevo-cli/`?**
+>
+> - **If you're Claude** (Claude Code, Claude Desktop, or any agent that reads `~/.claude/skills/`): install it as a skill with `brevo skill:cli install` so your tooling loads it natively and keeps it auto-refreshed. The repo copy is bundled with the npm package; the installed copy is what Claude actually consumes.
+> - **If you're any other AI agent** (Cursor, Copilot CLI, Gemini, Codex, etc.): **don't run `brevo skill:cli install`** — the skill format is Claude-specific and would land in a directory your tooling doesn't read. Use `agent-context/AGENTS.md` as your reference instead; it covers the same surface in less depth.
+
+## Before starting a new session
+
+Run two preflight checks before any other work.
+
+### 1. Is `brevo` installed?
+
+Run `brevo --version`. If you get `command not found` (or any "no such binary" error), the CLI isn't installed. **Stop and tell the user to install it:**
+
+```bash
+npm install -g @getbrevo/cli
+# or
+yarn global add @getbrevo/cli
+```
+
+Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is the canonical entry point. Only continue once `brevo --version` returns a version string.
+
+### 2. Is this skill up to date?
+
+* [ ] Read the installed skill version from `~/.claude/skills/brevo-cli/.brevo-skill.json` (`version` field).
+* [ ] Compare against `brevo --version` from step 1.
+* [ ] If they don't match, **stop and tell the user to update** — running any `brevo` command auto-refreshes the skill, or `brevo skill:cli install` force-reinstalls. Do not proceed with stale guidance.
+
 ## Decision tree
 
 - "Set me up from scratch" → `brevo app init`
 - "Authenticate" → `brevo login` (or `BREVO_API_KEY=xkeysib-... brevo login` for CI)
+- "Who am I logged in as?" → `brevo whoami --json`
 - "Show / pick an app" → `brevo app list --json`
 - "Create an app" → `brevo app create --name "<name>" --distribution private --redirect-uri <url> --json`
-- "Update app metadata" → `brevo app update --app-id <id> --name "<name>"` and/or `--redirect-url <url>` (repeatable)
+- "Update app metadata" → `brevo app update --app-id <id> --name "<name>"` and/or `--redirect-uri <url>` (repeatable)
 - "Get client credentials" → `brevo app credentials --app-id <id> --json` (add `--reveal-secret` to print the secret)
 - "Generate starter OAuth code" → `brevo app scaffold --app-id <id>`
 - "Run the OAuth test server" → `brevo app start oauth --port 3009` (must be inside the scaffolded directory)
@@ -35,6 +63,15 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 ## Exit codes
 
 `0` success · `1` general error · `2` aborted · `3` auth failure · `4` network · `5` not found.
+
+## Before sharing or committing output
+
+* [ ] No `xkeysib-…` API keys, client secrets, refresh tokens, or contents of `~/.brevo/credentials.json` / `.env.local` in messages, logs, or diffs.
+* [ ] Real production account / org / app IDs redacted to placeholders before sharing diagnostics.
+
+## How this skill stays current
+
+This SKILL.md is installed into `~/.claude/skills/brevo-cli/` by `brevo skill:cli install`. Once installed, **every `brevo` invocation auto-refreshes it** if the bundled CLI ships a newer version — you'll see a `↻ refreshed brevo-cli skill (vX → vY)` notice on stderr when that happens. Hand-editing the installed copy is not durable; the CLI overwrites it on the next run. Opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`. The manual escape hatch is `brevo skill:cli uninstall`.
 
 ## More
 
