@@ -96,6 +96,8 @@ export const CLI = {
   APP_DELETE: 'brevo app delete',
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
+  APP_SCOPES: 'brevo app scopes',
+  APP_UPDATE_SCOPE: 'brevo app update --scope',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;
@@ -106,6 +108,15 @@ export const DEFAULT_REDIRECT_URI = `http://localhost:${DEFAULT_PORT}/auth/callb
 export const PLACEHOLDER_CLIENT_ID = 'YOUR_CLIENT_ID';
 export const OAUTH_BASE = 'https://oauth.brevo.com';
 export const OAUTH_REALM = 'partner';
+export const OAUTH_WELL_KNOWN_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/.well-known/oauth-authorization-server`;
+
+export const DEFAULT_SCOPES: readonly string[] = [
+  'contacts:read',
+  'contacts:write',
+  'crm:read',
+  'crm:write',
+] as const;
+
 export const MIN_CLI_VERSION = '0.0.0';
 
 export const BREVO_DASHBOARD_API_KEYS_URL = 'https://app.brevo.com/settings/keys/api';
