@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI } from '../../lib/constants';
+import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
 import { logSuccess, logInfo, logError } from '../../lib/logger';
 import { messages } from '../../lang/en';
@@ -178,7 +178,7 @@ export const createCommand = withCommandHandler(
       name: appName!,
       public: distribution === 'public',
       redirect_uris: redirectUrls,
-      scopes: ['all'],
+      scopes: [...DEFAULT_SCOPES],
     };
 
     let result: CreateAppResponse;
@@ -210,7 +210,7 @@ export const createCommand = withCommandHandler(
             name: retry.name,
             public: distribution === 'public',
             redirect_uris: redirectUrls,
-            scopes: ['all'],
+            scopes: [...DEFAULT_SCOPES],
           });
           retrySpinner.stop();
           // Use the retried name for cache, JSON output, display, and scaffold prompt
@@ -252,6 +252,7 @@ export const createCommand = withCommandHandler(
     resultRedirectUris.forEach((uri, i) => {
       logInfo(`  Redirect URL ${i + 1}: ${uri}`);
     });
+    logInfo(`  ${messages.APP_CREATE_SCOPE_NOTICE([...DEFAULT_SCOPES])}`);
     process.stdout.write('\n');
 
     // 4. Smart hand-off → scaffold
