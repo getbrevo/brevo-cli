@@ -11,6 +11,7 @@ import { credentialsCommand } from './app/credentials';
 import { updateCommand } from './app/update';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
+import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
@@ -191,6 +192,13 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       ],
       handler: (opts) =>
         scaffoldCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
+    },
+    {
+      name: 'scopes',
+      description: 'List OAuth scopes supported by the IdP',
+      examples: ['brevo app scopes', 'brevo app scopes --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts) => scopesCommand({ json: Boolean(opts.json) }),
     },
     {
       name: 'start',
