@@ -152,7 +152,7 @@ describe('app/scaffold', () => {
     expect(vars['{{CLIENT_ID}}']).toBe('api-client');
   });
 
-  it('should pass cliVersion and minCliVersion into template vars', async () => {
+  it('should pass cliVersion, minCliVersion and DEFAULT_SCOPES into template vars', async () => {
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
       diffs: [],
       app: {
@@ -172,26 +172,6 @@ describe('app/scaffold', () => {
     const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
     expect(vars['{{CLI_VERSION}}']).toBe('9.9.9');
     expect(vars['{{MIN_CLI_VERSION}}']).toBe('0.0.0');
-  });
-
-  it('falls back to DEFAULT_SCOPES in {{SCOPES_JSON}} when fetched app has no scopes', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: ['http://localhost:3009/auth/callback'],
-      },
-    });
-
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-default-scopes') });
-
-    await scaffoldCommand({ appId: '1' });
-
-    const { loadAllTemplates } = require('../../../templates');
-    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
     expect(vars['{{SCOPES_JSON}}']).toBe(
       JSON.stringify(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']),
     );
