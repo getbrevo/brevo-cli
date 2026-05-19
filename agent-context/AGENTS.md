@@ -64,12 +64,13 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 | `brevo whoami` | Show the authenticated account (`--json`) |
 | `brevo app init` | Guided setup (login, create, scaffold) |
 | `brevo app list` | List OAuth apps (`--json`) |
-| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--json`) |
-| `brevo app update` | Update name / redirect URLs (`--app-id`, `--name`, `--redirect-uri`, `--yes`, `--json`) |
+| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--json`). Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
+| `brevo app update` | Update name / redirect URLs / scopes (`--app-id`, `--name`, `--redirect-uri`, `--scope` repeatable appends, `--yes`, `--json`) |
 | `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`, `--json`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`, `--json`) |
 | `brevo app scaffold` | Generate starter OAuth code (`--app-id`, `--json`) |
 | `brevo app start oauth` | Run the scaffolded OAuth test server (`--port`) |
+| `brevo app scopes` | List OAuth scopes supported by the IdP (`--json`) |
 | `brevo skill:cli install` | Install the brevo-cli Claude Code skill (Claude-only; auto-refreshes on every `brevo` run) |
 | `brevo skill:cli uninstall` | Remove the brevo-cli skill from `~/.claude/skills/` (Claude-only) |
 
@@ -83,6 +84,12 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 - **Non-interactive auth:** `BREVO_API_KEY=xkeysib-... brevo login`. The legacy `--api-key` flag was removed because it leaks into shell history.
 - **Skip prompts:** `--force` for delete/logout; `--yes` for `app update`.
 - **Exit codes:** `0` success · `1` general error · `2` aborted · `3` auth · `4` network · `5` not found.
+
+## Scopes
+
+- New apps created via `brevo app create` default to `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. The CLI prints these on success.
+- `brevo app update --scope <scope>` is repeatable and appends, mirroring `--redirect-uri`. De-duped, order-preserving. Writes back to `app-config.json` when that file describes the target app.
+- `brevo app scopes [--json]` prints the IdP's `scopes_supported` catalog. The CLI does **not** validate `--scope` values client-side — server returns 400 on unknown scopes.
 
 ## Environment variables
 
