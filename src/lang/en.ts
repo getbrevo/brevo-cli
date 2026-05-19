@@ -71,6 +71,8 @@ export const messages = {
     'You have reached the maximum number of OAuth apps allowed for your account. To make room, delete an existing app: brevo app delete',
   APP_CREATE_PUBLIC_UNAVAILABLE:
     'Public distribution is not yet available (coming soon). Use `--distribution private` for now.',
+  APP_CREATE_SCOPE_NOTICE: (scopes: string[]): string =>
+    `Created with default scopes: ${scopes.join(', ')}.\n  Run \`${CLI.APP_UPDATE_SCOPE} <scope>\` to add more.`,
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -103,6 +105,7 @@ export const messages = {
     'Cannot determine which app to update. Provide --app-id or run from a directory with app-config.json.',
   APP_UPDATE_APP_ID_MISMATCH: (flagId: string, configId: string) =>
     `--app-id ${flagId} does not match app-config.json (${configId}). Pass --name or --redirect-uri to update app ${flagId}, or remove --app-id to update app ${configId}.`,
+  APP_UPDATE_SCOPES_APPENDED: (scopes: string[]): string => `Scopes appended: ${scopes.join(', ')}`,
 
   // App delete
   APP_DELETE_CONFIRM: (name: string, id: string) =>
@@ -190,6 +193,12 @@ export const messages = {
     `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
   SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>
     `⚠ failed to refresh ${name} skill: ${err}`,
+
+  // App scopes
+  APP_SCOPES_EMPTY: 'The IdP returned an empty scope list.',
+  OAUTH_METADATA_MISSING_SCOPES: 'IdP well-known response did not include scopes_supported.',
+  OAUTH_METADATA_FETCH_FAILED: (url: string, status: number): string =>
+    `Failed to fetch OAuth metadata from ${url} (HTTP ${status}).`,
 
   // General
   ABORTED: 'Aborted.',

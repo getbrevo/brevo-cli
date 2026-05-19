@@ -60,4 +60,35 @@ describe('messages (lang/en)', () => {
     expect(messages.WHOAMI_AUTHENTICATED('a@b.com', 'Corp')).toContain('Corp');
     expect(messages.WHOAMI_NOT_AUTHENTICATED).toContain('brevo login');
   });
+
+  describe('scope-related messages', () => {
+    it('exports the create-time info notice that names the four defaults and points to the update command', () => {
+      const notice = messages.APP_CREATE_SCOPE_NOTICE([
+        'contacts:read',
+        'contacts:write',
+        'crm:read',
+        'crm:write',
+      ]);
+      expect(notice).toContain('contacts:read');
+      expect(notice).toContain('contacts:write');
+      expect(notice).toContain('crm:read');
+      expect(notice).toContain('crm:write');
+      expect(notice).toContain('brevo app update --scope');
+    });
+
+    it('exports the update-time appended summary', () => {
+      expect(messages.APP_UPDATE_SCOPES_APPENDED(['contacts:read'])).toContain('contacts:read');
+    });
+
+    it('exports the app scopes empty-result message', () => {
+      expect(messages.APP_SCOPES_EMPTY).toBeDefined();
+      expect(messages.APP_SCOPES_EMPTY).toMatch(/scope/i);
+    });
+
+    it('exports IdP well-known error messages', () => {
+      expect(messages.OAUTH_METADATA_MISSING_SCOPES).toMatch(/scopes_supported/);
+      expect(messages.OAUTH_METADATA_FETCH_FAILED('https://x/y', 500)).toContain('https://x/y');
+      expect(messages.OAUTH_METADATA_FETCH_FAILED('https://x/y', 500)).toContain('500');
+    });
+  });
 });
