@@ -139,7 +139,7 @@ export function createAppService(client: ApiClient) {
 
     async updateApp(
       appId: string,
-      body: { name?: string; redirect_uris: string[] },
+      body: { name?: string; redirect_uris: string[]; scopes?: string[] },
     ): Promise<void> {
       await client.put(ENDPOINTS.APP_STORE_APP_UPDATE(appId), body);
     },

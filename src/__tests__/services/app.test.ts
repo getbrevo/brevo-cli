@@ -117,6 +117,32 @@ describe('services/app', () => {
       });
       expect(result).toBeUndefined();
     });
+
+    it('forwards scopes when present', async () => {
+      (mockClient.put as jest.Mock).mockResolvedValue(undefined);
+      await service.updateApp('42', {
+        name: 'X',
+        redirect_uris: ['https://x/cb'],
+        scopes: ['contacts:read', 'crm:write'],
+      });
+      expect(mockClient.put).toHaveBeenCalledWith(
+        expect.stringContaining('/v3/app-store/apps/42'),
+        {
+          name: 'X',
+          redirect_uris: ['https://x/cb'],
+          scopes: ['contacts:read', 'crm:write'],
+        },
+      );
+    });
+
+    it('omits scopes when undefined (back-compat)', async () => {
+      (mockClient.put as jest.Mock).mockResolvedValue(undefined);
+      await service.updateApp('42', { name: 'X', redirect_uris: ['https://x/cb'] });
+      expect(mockClient.put).toHaveBeenCalledWith(
+        expect.stringContaining('/v3/app-store/apps/42'),
+        { name: 'X', redirect_uris: ['https://x/cb'] },
+      );
+    });
   });
 
   describe('resolveAppCredentials', () => {
