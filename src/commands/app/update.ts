@@ -16,6 +16,7 @@ interface UpdateOptions {
   appId?: string;
   name?: string;
   redirectUri?: string[];
+  scope?: string[];
   yes?: boolean;
   json?: boolean;
 }
@@ -24,7 +25,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   const config = readProjectConfig();
   const hasFlags = !!(
     options.name !== undefined ||
-    (options.redirectUri && options.redirectUri.length > 0)
+    (options.redirectUri && options.redirectUri.length > 0) ||
+    (options.scope && options.scope.length > 0)
   );
 
   // Validate --name if provided (even empty strings)
@@ -162,6 +164,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   // Flags provided: merge with existing values
   let existingName: string | undefined;
   let existingRedirectUrls: string[] = [];
+  let existingScopes: string[] = [];
 
   const configRedirectUrls = config?.auth?.redirectUrls;
   const hasUsableConfigRedirectUrls =
@@ -171,16 +174,19 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     // Use config as baseline only when it can safely preserve redirect URLs
     existingName = config.appName;
     existingRedirectUrls = configRedirectUrls;
+    existingScopes = config.auth?.scopes ?? [];
   } else if (config && shouldWriteBack) {
     // Config matches the app, but missing/empty redirect URLs would otherwise clear
     // remote redirect URIs on a name-only update. Fall back to the API for preservation.
     const app = await fetchExistingApp(appId, options.json);
     existingName = config.appName ?? app.name;
     existingRedirectUrls = app.redirect_uris ?? [];
+    existingScopes = config.auth?.scopes ?? app.scopes ?? [];
   } else {
     const app = await fetchExistingApp(appId, options.json);
     existingName = app.name;
     existingRedirectUrls = app.redirect_uris ?? [];
+    existingScopes = app.scopes ?? [];
   }
 
   // Merge: --name wins, --redirect-uri appends (deduplicated)
@@ -192,6 +198,15 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       mergedUrls.push(url);
     }
   }
+
+  const appendedScopes = options.scope ?? [];
+  const mergedScopes = [...existingScopes];
+  for (const s of appendedScopes) {
+    if (!mergedScopes.includes(s)) {
+      mergedScopes.push(s);
+    }
+  }
+  const hasScopeFlag = options.scope !== undefined;
 
   const hasRedirectUriFlag = options.redirectUri !== undefined;
 
@@ -237,6 +252,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   await appService.updateApp(appId, {
     name: finalName,
     redirect_uris: mergedUrls,
+    ...(hasScopeFlag ? { scopes: mergedScopes } : {}),
   });
   spinner.stop();
 
@@ -251,12 +267,18 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     updatedConfig.auth = {
       ...updatedConfig.auth,
       redirectUrls: mergedUrls,
+      ...(hasScopeFlag ? { scopes: mergedScopes } : {}),
     };
     writeProjectConfig(updatedConfig);
   }
 
   if (options.json) {
-    jsonOutput({ app_id: appId, name: finalName, redirect_uris: mergedUrls });
+    jsonOutput({
+      app_id: appId,
+      name: finalName,
+      redirect_uris: mergedUrls,
+      ...(hasScopeFlag ? { scopes: mergedScopes } : {}),
+    });
     return;
   }
 
@@ -265,6 +287,9 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     logInfo(`  Name:          ${finalName}`);
   }
   logInfo(`  Redirect URLs: ${mergedUrls.length > 0 ? mergedUrls.join(', ') : '(none)'}`);
+  if (hasScopeFlag) {
+    logInfo(`  Scopes:        ${mergedScopes.length > 0 ? mergedScopes.join(', ') : '(none)'}`);
+  }
   if (shouldWriteBack && config) {
     logInfo('  app-config.json updated.');
   }

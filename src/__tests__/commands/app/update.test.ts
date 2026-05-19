@@ -630,4 +630,86 @@ describe('app/update', () => {
     expect(appService.fetchApp).not.toHaveBeenCalled();
     expect(appService.updateApp).toHaveBeenCalled();
   });
+
+  describe('--scope flag', () => {
+    it("appends new scopes to the app's existing scopes, de-duped, preserving order", async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'My App',
+        redirect_uris: ['https://x/cb'],
+        scopes: ['contacts:read', 'crm:read'],
+      });
+
+      await updateCommand({
+        appId: '42',
+        scope: ['crm:read', 'crm:write'],
+        yes: true,
+      });
+
+      expect(appService.updateApp).toHaveBeenCalledWith(
+        '42',
+        expect.objectContaining({
+          scopes: ['contacts:read', 'crm:read', 'crm:write'],
+        }),
+      );
+    });
+
+    it('writes merged scopes back to app-config.json when config is the source', async () => {
+      const config = {
+        appId: '42',
+        appName: 'My App',
+        auth: {
+          type: 'private',
+          scopes: ['contacts:read'],
+          redirectUrls: ['https://x/cb'],
+        },
+        distribution: 'private',
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue(config);
+
+      await updateCommand({ scope: ['crm:write'], yes: true });
+
+      const writeArg = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+      expect(writeArg.auth.scopes).toEqual(['contacts:read', 'crm:write']);
+    });
+
+    it('coexists with --name and --redirect-uri in a single call', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'Old',
+        redirect_uris: ['https://x/old'],
+        scopes: ['contacts:read'],
+      });
+
+      await updateCommand({
+        appId: '42',
+        name: 'New',
+        redirectUri: ['https://x/new'],
+        scope: ['crm:read'],
+        yes: true,
+      });
+
+      expect(appService.updateApp).toHaveBeenCalledWith('42', {
+        name: 'New',
+        redirect_uris: ['https://x/old', 'https://x/new'],
+        scopes: ['contacts:read', 'crm:read'],
+      });
+    });
+
+    it('treats --scope as a flag that satisfies hasFlags (no "nothing to update" error)', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'X',
+        redirect_uris: ['https://x/cb'],
+        scopes: [],
+      });
+
+      await expect(
+        updateCommand({ appId: '42', scope: ['crm:read'], yes: true }),
+      ).resolves.toBeUndefined();
+    });
+  });
 });

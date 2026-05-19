@@ -116,7 +116,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'update',
-      description: 'Update an app name or redirect URLs',
+      description: 'Update an app name, redirect URLs, or scopes',
       examples: [
         'brevo app update',
         'brevo app update --name "My New Name"',
@@ -124,6 +124,8 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app update --name "My App" --redirect-uri https://myapp.com/callback',
         'brevo app update --app-id 42 --name "My App"',
         'brevo app update --app-id 42 --redirect-uri https://myapp.com/callback --json',
+        'brevo app update --scope crm:write',
+        'brevo app update --scope contacts:read --scope crm:write',
       ],
       options: [
         {
@@ -137,6 +139,11 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           description: 'Redirect URI to append (repeatable)',
           parser: collectUrls,
         },
+        {
+          flags: '--scope <scope>',
+          description: 'OAuth scope to append (repeatable)',
+          parser: (value: string, prev?: string[]) => (prev ? [...prev, value] : [value]),
+        },
         { flags: '--yes', description: 'Skip confirmation prompt' },
         { flags: '--json', description: 'Output as JSON' },
       ],
@@ -145,6 +152,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           appId: opts.appId,
           name: opts.name,
           redirectUri: opts.redirectUri,
+          scope: opts.scope as string[] | undefined,
           yes: Boolean(opts.yes),
           json: Boolean(opts.json),
         }),
