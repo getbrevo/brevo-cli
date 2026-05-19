@@ -174,6 +174,29 @@ describe('app/scaffold', () => {
     expect(vars['{{MIN_CLI_VERSION}}']).toBe('0.0.0');
   });
 
+  it('falls back to DEFAULT_SCOPES in {{SCOPES_JSON}} when fetched app has no scopes', async () => {
+    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+      diffs: [],
+      app: {
+        app_id: '1',
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
+    });
+
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-default-scopes') });
+
+    await scaffoldCommand({ appId: '1' });
+
+    const { loadAllTemplates } = require('../../../templates');
+    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
+    expect(vars['{{SCOPES_JSON}}']).toBe(
+      JSON.stringify(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']),
+    );
+  });
+
   it('should prefer localhost redirect URI over production URLs', async () => {
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
       diffs: [],
