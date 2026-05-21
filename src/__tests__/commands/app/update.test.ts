@@ -630,4 +630,103 @@ describe('app/update', () => {
     expect(appService.fetchApp).not.toHaveBeenCalled();
     expect(appService.updateApp).toHaveBeenCalled();
   });
+
+  // ── logo_uri ──
+
+  it('should treat --logo-uri alone as a flag-driven update', async () => {
+    (fs.existsSync as jest.Mock).mockReturnValue(false);
+    (readProjectConfig as jest.Mock).mockReturnValue(null);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({
+      app_id: '42',
+      name: 'Remote Name',
+      client_id: 'cli',
+      redirect_uris: ['https://example.com/cb'],
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    });
+
+    await updateCommand({
+      appId: '42',
+      logoUri: 'https://example.com/logo.png',
+      yes: true,
+    });
+
+    expect(appService.updateApp).toHaveBeenCalledWith(
+      '42',
+      expect.objectContaining({ logo_uri: 'https://example.com/logo.png' }),
+    );
+  });
+
+  it('should preserve existing logo_uri from remote when --logo-uri is not passed', async () => {
+    (fs.existsSync as jest.Mock).mockReturnValue(false);
+    (readProjectConfig as jest.Mock).mockReturnValue(null);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({
+      app_id: '42',
+      name: 'Remote',
+      client_id: 'cli',
+      redirect_uris: ['https://example.com/cb'],
+      logo_uri: 'https://existing.example.com/logo.png',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    });
+
+    await updateCommand({ appId: '42', name: 'Renamed', yes: true });
+
+    expect(appService.updateApp).toHaveBeenCalledWith(
+      '42',
+      expect.objectContaining({ logo_uri: 'https://existing.example.com/logo.png' }),
+    );
+  });
+
+  it('should push logoUri from app-config.json on flagless update', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue({
+      ...VALID_CONFIG,
+      logoUri: 'https://example.com/from-config.png',
+    });
+    (appService.fetchApp as jest.Mock).mockResolvedValue({
+      app_id: '42',
+      name: 'My Test App',
+      client_id: 'cli',
+      redirect_uris: VALID_CONFIG.auth.redirectUrls,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    });
+
+    await updateCommand({ yes: true });
+
+    expect(appService.updateApp).toHaveBeenCalledWith(
+      '42',
+      expect.objectContaining({ logo_uri: 'https://example.com/from-config.png' }),
+    );
+  });
+
+  it('should write logoUri back into app-config.json when --logo-uri matches the local app', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue({ ...VALID_CONFIG });
+
+    await updateCommand({
+      logoUri: 'https://example.com/new.png',
+      yes: true,
+    });
+
+    expect(writeProjectConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ logoUri: 'https://example.com/new.png' }),
+    );
+  });
+
+  it('should omit logo_uri from the PUT body when no flag and no config logoUri', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue({ ...VALID_CONFIG });
+    (appService.fetchApp as jest.Mock).mockResolvedValue({
+      app_id: '42',
+      name: 'My Test App',
+      client_id: 'cli',
+      redirect_uris: VALID_CONFIG.auth.redirectUrls,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    });
+
+    await updateCommand({ yes: true });
+
+    const body = (appService.updateApp as jest.Mock).mock.calls[0][1];
+    expect(body).not.toHaveProperty('logo_uri');
+  });
 });

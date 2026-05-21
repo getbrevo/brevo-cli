@@ -16,6 +16,7 @@ interface UpdateOptions {
   appId?: string;
   name?: string;
   redirectUri?: string[];
+  logoUri?: string;
   yes?: boolean;
   json?: boolean;
 }
@@ -24,7 +25,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   const config = readProjectConfig();
   const hasFlags = !!(
     options.name !== undefined ||
-    (options.redirectUri && options.redirectUri.length > 0)
+    (options.redirectUri && options.redirectUri.length > 0) ||
+    options.logoUri !== undefined
   );
 
   // Validate --name if provided (even empty strings)
@@ -118,6 +120,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
         nextName: config!.appName,
         currentUrls: remote.redirect_uris ?? [],
         nextUrls: redirectUrls,
+        currentLogoUri: remote.logo_uri,
+        nextLogoUri: config!.logoUri,
       });
     }
 
@@ -140,13 +144,19 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     await appService.updateApp(appId, {
       name: config!.appName,
       redirect_uris: redirectUrls,
+      ...(config!.logoUri ? { logo_uri: config!.logoUri } : {}),
     });
     spinner.stop();
 
     if (config!.appName) saveAppName(appId, config!.appName);
 
     if (options.json) {
-      jsonOutput({ app_id: appId, name: config!.appName, redirect_uris: redirectUrls });
+      jsonOutput({
+        app_id: appId,
+        name: config!.appName,
+        redirect_uris: redirectUrls,
+        ...(config!.logoUri ? { logo_uri: config!.logoUri } : {}),
+      });
       return;
     }
 
@@ -155,6 +165,9 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       logInfo(`  Name:          ${config!.appName}`);
     }
     logInfo(`  Redirect URLs: ${redirectUrls.join(', ')}`);
+    if (config!.logoUri) {
+      logInfo(`  Logo URL:      ${config!.logoUri}`);
+    }
     process.stdout.write('\n');
     return;
   }
@@ -162,6 +175,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   // Flags provided: merge with existing values
   let existingName: string | undefined;
   let existingRedirectUrls: string[] = [];
+  let existingLogoUri: string | undefined;
 
   const configRedirectUrls = config?.auth?.redirectUrls;
   const hasUsableConfigRedirectUrls =
@@ -171,19 +185,22 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     // Use config as baseline only when it can safely preserve redirect URLs
     existingName = config.appName;
     existingRedirectUrls = configRedirectUrls;
+    existingLogoUri = config.logoUri;
   } else if (config && shouldWriteBack) {
     // Config matches the app, but missing/empty redirect URLs would otherwise clear
     // remote redirect URIs on a name-only update. Fall back to the API for preservation.
     const app = await fetchExistingApp(appId, options.json);
     existingName = config.appName ?? app.name;
     existingRedirectUrls = app.redirect_uris ?? [];
+    existingLogoUri = config.logoUri ?? app.logo_uri;
   } else {
     const app = await fetchExistingApp(appId, options.json);
     existingName = app.name;
     existingRedirectUrls = app.redirect_uris ?? [];
+    existingLogoUri = app.logo_uri;
   }
 
-  // Merge: --name wins, --redirect-uri appends (deduplicated)
+  // Merge: --name wins, --redirect-uri appends (deduplicated), --logo-uri wins
   const finalName = options.name ?? existingName;
   const appendedUrls = options.redirectUri ?? [];
   const mergedUrls = [...existingRedirectUrls];
@@ -192,6 +209,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       mergedUrls.push(url);
     }
   }
+  const finalLogoUri = options.logoUri ?? existingLogoUri;
 
   const hasRedirectUriFlag = options.redirectUri !== undefined;
 
@@ -210,6 +228,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       nextName: finalName,
       currentUrls: existingRedirectUrls,
       nextUrls: mergedUrls,
+      currentLogoUri: existingLogoUri,
+      nextLogoUri: finalLogoUri,
     });
   }
 
@@ -237,6 +257,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   await appService.updateApp(appId, {
     name: finalName,
     redirect_uris: mergedUrls,
+    ...(finalLogoUri ? { logo_uri: finalLogoUri } : {}),
   });
   spinner.stop();
 
@@ -248,6 +269,9 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     if (options.name) {
       updatedConfig.appName = options.name;
     }
+    if (options.logoUri) {
+      updatedConfig.logoUri = options.logoUri;
+    }
     updatedConfig.auth = {
       ...updatedConfig.auth,
       redirectUrls: mergedUrls,
@@ -256,7 +280,12 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   }
 
   if (options.json) {
-    jsonOutput({ app_id: appId, name: finalName, redirect_uris: mergedUrls });
+    jsonOutput({
+      app_id: appId,
+      name: finalName,
+      redirect_uris: mergedUrls,
+      ...(finalLogoUri ? { logo_uri: finalLogoUri } : {}),
+    });
     return;
   }
 
@@ -265,6 +294,9 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     logInfo(`  Name:          ${finalName}`);
   }
   logInfo(`  Redirect URLs: ${mergedUrls.length > 0 ? mergedUrls.join(', ') : '(none)'}`);
+  if (finalLogoUri) {
+    logInfo(`  Logo URL:      ${finalLogoUri}`);
+  }
   if (shouldWriteBack && config) {
     logInfo('  app-config.json updated.');
   }
@@ -291,8 +323,11 @@ function renderUpdateSummary(params: {
   nextName: string | undefined;
   currentUrls: string[];
   nextUrls: string[];
+  currentLogoUri?: string;
+  nextLogoUri?: string;
 }): void {
-  const { appId, currentName, nextName, currentUrls, nextUrls } = params;
+  const { appId, currentName, nextName, currentUrls, nextUrls, currentLogoUri, nextLogoUri } =
+    params;
   const currentSet = new Set(currentUrls);
   const nextSet = new Set(nextUrls);
   const addedSet = new Set(nextUrls.filter((u) => !currentSet.has(u)));
@@ -316,6 +351,16 @@ function renderUpdateSummary(params: {
     const prefix = i === 0 ? '  Redirect URLs: ' : '                 ';
     logInfo(`${prefix}${line}`);
   });
+  if (currentLogoUri || nextLogoUri) {
+    const label = '  Logo URL:      ';
+    if (currentLogoUri && nextLogoUri && currentLogoUri !== nextLogoUri) {
+      logInfo(`${label}${currentLogoUri} → ${nextLogoUri}`);
+    } else if (nextLogoUri) {
+      logInfo(`${label}${nextLogoUri}`);
+    } else if (currentLogoUri) {
+      logInfo(`${label}${currentLogoUri} (unchanged)`);
+    }
+  }
   logInfo('');
 }
 
