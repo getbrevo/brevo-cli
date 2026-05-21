@@ -407,4 +407,72 @@ describe('app/create', () => {
     // No prompts at all in JSON mode with all flags provided
     expect(mockPrompt).not.toHaveBeenCalled();
   });
+
+  it('should forward --logo-uri to the create payload', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 9,
+      name: 'Logo App',
+      client_id: 'cli-logo',
+      client_secret: 'secret',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      logo_uri: 'https://example.com/logo.png',
+    });
+
+    await createCommand({
+      name: 'Logo App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      logoUri: 'https://example.com/logo.png',
+      json: true,
+    });
+
+    expect(appService.createApp).toHaveBeenCalledWith(
+      expect.objectContaining({ logo_uri: 'https://example.com/logo.png' }),
+    );
+  });
+
+  it('should omit logo_uri from the create payload when --logo-uri is not provided', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 10,
+      name: 'No Logo App',
+      client_id: 'cli-no-logo',
+      client_secret: 'secret',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+
+    await createCommand({
+      name: 'No Logo App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      json: true,
+    });
+
+    const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+    expect(payload).not.toHaveProperty('logo_uri');
+  });
+
+  it('should include logoUri in JSON output when --logo-uri is set', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 11,
+      name: 'Logo JSON App',
+      client_id: 'cli-logo-json',
+      client_secret: 'secret',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      logo_uri: 'https://example.com/logo.png',
+    });
+
+    await createCommand({
+      name: 'Logo JSON App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      logoUri: 'https://example.com/logo.png',
+      json: true,
+    });
+
+    const jsonCall = stdoutSpy.mock.calls.find(
+      ([chunk]) => typeof chunk === 'string' && chunk.includes('"logoUri"'),
+    );
+    expect(jsonCall).toBeDefined();
+    expect(jsonCall![0]).toContain('"logoUri":"https://example.com/logo.png"');
+  });
 });

@@ -18,6 +18,7 @@ export const createCommand = withCommandHandler(
     name?: string;
     distribution?: string;
     redirectUri?: string[];
+    logoUri?: string;
     json?: boolean;
   }): Promise<void> => {
     // 0. Check for existing app-config.json in current directory
@@ -179,6 +180,7 @@ export const createCommand = withCommandHandler(
       public: distribution === 'public',
       redirect_uris: redirectUrls,
       scopes: ['all'],
+      ...(options.logoUri ? { logo_uri: options.logoUri } : {}),
     };
 
     let result: CreateAppResponse;
@@ -211,6 +213,7 @@ export const createCommand = withCommandHandler(
             public: distribution === 'public',
             redirect_uris: redirectUrls,
             scopes: ['all'],
+            ...(options.logoUri ? { logo_uri: options.logoUri } : {}),
           });
           retrySpinner.stop();
           // Use the retried name for cache, JSON output, display, and scaffold prompt
@@ -240,6 +243,7 @@ export const createCommand = withCommandHandler(
         clientId: result.client_id,
         clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
         redirectUri: resultRedirectUris,
+        ...(options.logoUri ? { logoUri: options.logoUri } : {}),
       });
       return;
     }
@@ -252,6 +256,9 @@ export const createCommand = withCommandHandler(
     resultRedirectUris.forEach((uri, i) => {
       logInfo(`  Redirect URL ${i + 1}: ${uri}`);
     });
+    if (options.logoUri) {
+      logInfo(`  Logo URL:      ${options.logoUri}`);
+    }
     process.stdout.write('\n');
 
     // 4. Smart hand-off → scaffold
