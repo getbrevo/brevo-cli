@@ -711,5 +711,43 @@ describe('app/update', () => {
         updateCommand({ appId: '42', scope: ['crm:read'], yes: true }),
       ).resolves.toBeUndefined();
     });
+
+    it('renders the merged scope list in the pre-confirm summary, marking newly-added entries', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'My App',
+        redirect_uris: ['https://x/cb'],
+        scopes: ['contacts:read'],
+      });
+
+      await updateCommand({
+        appId: '42',
+        scope: ['contacts:read', 'crm:write'],
+        yes: true,
+      });
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      const beforeSuccess = output.split('App updated.')[0];
+      expect(beforeSuccess).toContain('Scopes:        contacts:read');
+      expect(beforeSuccess).toContain('crm:write (new)');
+      expect(beforeSuccess).not.toContain('contacts:read (new)');
+    });
+
+    it('does not render a Scopes line in the pre-confirm summary when --scope was not passed', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'My App',
+        redirect_uris: ['https://x/cb'],
+        scopes: ['contacts:read'],
+      });
+
+      await updateCommand({ appId: '42', name: 'Renamed', yes: true });
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      const beforeSuccess = output.split('App updated.')[0];
+      expect(beforeSuccess).not.toContain('Scopes:');
+    });
   });
 });

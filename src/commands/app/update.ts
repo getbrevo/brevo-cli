@@ -225,6 +225,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       nextName: finalName,
       currentUrls: existingRedirectUrls,
       nextUrls: mergedUrls,
+      currentScopes: hasScopeFlag ? existingScopes : undefined,
+      nextScopes: hasScopeFlag ? mergedScopes : undefined,
     });
   }
 
@@ -316,8 +318,10 @@ function renderUpdateSummary(params: {
   nextName: string | undefined;
   currentUrls: string[];
   nextUrls: string[];
+  currentScopes?: string[];
+  nextScopes?: string[];
 }): void {
-  const { appId, currentName, nextName, currentUrls, nextUrls } = params;
+  const { appId, currentName, nextName, currentUrls, nextUrls, currentScopes, nextScopes } = params;
   const currentSet = new Set(currentUrls);
   const nextSet = new Set(nextUrls);
   const addedSet = new Set(nextUrls.filter((u) => !currentSet.has(u)));
@@ -341,6 +345,19 @@ function renderUpdateSummary(params: {
     const prefix = i === 0 ? '  Redirect URLs: ' : '                 ';
     logInfo(`${prefix}${line}`);
   });
+
+  if (nextScopes !== undefined) {
+    const currentScopesSet = new Set(currentScopes ?? []);
+    const scopeLines =
+      nextScopes.length > 0
+        ? nextScopes.map((s) => (currentScopesSet.has(s) ? s : `${s} (new)`))
+        : ['(none)'];
+    scopeLines.forEach((line, i) => {
+      const prefix = i === 0 ? '  Scopes:        ' : '                 ';
+      logInfo(`${prefix}${line}`);
+    });
+  }
+
   logInfo('');
 }
 

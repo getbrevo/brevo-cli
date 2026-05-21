@@ -108,7 +108,7 @@ export const DEFAULT_REDIRECT_URI = `http://localhost:${DEFAULT_PORT}/auth/callb
 export const PLACEHOLDER_CLIENT_ID = 'YOUR_CLIENT_ID';
 export const OAUTH_BASE = 'https://oauth.brevo.com';
 export const OAUTH_REALM = 'partner';
-export const OAUTH_WELL_KNOWN_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/.well-known/oauth-authorization-server`;
+export const OAUTH_SCOPES_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/scopes`;
 
 export const DEFAULT_SCOPES: readonly string[] = [
   'contacts:read',

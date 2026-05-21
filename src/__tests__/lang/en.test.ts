@@ -85,10 +85,33 @@ describe('messages (lang/en)', () => {
       expect(messages.APP_SCOPES_EMPTY).toMatch(/scope/i);
     });
 
-    it('exports IdP well-known error messages', () => {
-      expect(messages.OAUTH_METADATA_MISSING_SCOPES).toMatch(/scopes_supported/);
+    it('exports the app scopes usage hint pointing to brevo app update --scope', () => {
+      expect(messages.APP_SCOPES_USAGE_HINT).toContain('brevo app update --scope');
+    });
+
+    it('exports IdP scopes error messages', () => {
+      expect(messages.OAUTH_METADATA_MISSING_SCOPES).toMatch(/scopes/i);
       expect(messages.OAUTH_METADATA_FETCH_FAILED('https://x/y', 500)).toContain('https://x/y');
       expect(messages.OAUTH_METADATA_FETCH_FAILED('https://x/y', 500)).toContain('500');
+    });
+
+    it('exports the app scopes web-view strings', () => {
+      expect(messages.APP_SCOPES_WEB_LISTENING('http://127.0.0.1:1234/')).toContain(
+        'http://127.0.0.1:1234/',
+      );
+      expect(messages.APP_SCOPES_WEB_TITLE).toBeDefined();
+      expect(messages.APP_SCOPES_WEB_INTRO(3, 'https://x/y')).toContain('3 scopes');
+      expect(messages.APP_SCOPES_WEB_INTRO(1, 'https://x/y')).toContain('1 scope');
+      expect(messages.APP_SCOPES_WEB_INTRO(1, 'https://x/y')).not.toContain('1 scopes');
+      expect(messages.APP_SCOPES_WEB_INTRO(3, 'https://x/y')).toContain('https://x/y');
+      expect(messages.APP_SCOPES_WEB_SEARCH_PLACEHOLDER).toBeDefined();
+      expect(messages.APP_SCOPES_WEB_EMPTY).toMatch(/empty/i);
+      expect(messages.APP_SCOPES_WEB_FOOTER).toMatch(/Ctrl/i);
+      expect(messages.APP_SCOPES_WEB_REFRESH).toBeDefined();
+      expect(messages.APP_SCOPES_WEB_REFRESHING).toBeDefined();
+      expect(messages.APP_SCOPES_WEB_REFRESH_FAILED).toMatch(/fail/i);
+      expect(messages.APP_SCOPES_WEB_ENDPOINTS_LABEL).toMatch(/endpoint/i);
+      expect(messages.APP_SCOPES_WEB_NO_ENDPOINTS).toMatch(/endpoint/i);
     });
   });
 });

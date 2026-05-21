@@ -65,7 +65,8 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 
 - New apps created via `brevo app create` default to `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. The CLI prints the default set on success and points to `brevo app update --scope` for changes.
 - `brevo app update --scope <scope>` is **repeatable and appends** — passing `--scope X --scope Y` adds both to the app's existing scope set, de-duped, order-preserving. To see what's currently set, run `brevo app credentials --app-id <id> --json`. To remove a scope, edit `app-config.json` and run `brevo app update` without `--scope`.
-- `brevo app scopes [--json]` lists the OAuth scopes the IdP currently supports. The CLI does **not** validate `--scope` values locally — the server is the source of truth. Use `app scopes` to confirm spelling before passing an unfamiliar scope.
+- `brevo app scopes [--json] [--web]` lists the OAuth scopes the IdP currently supports. Text output groups names by category (e.g. `account`, `data_crm`, `messaging`); `--json` returns a flat `{ scopes: string[] }` of names. OIDC-reserved scopes (`openid`, `profile`, `email`, `offline_access`) and magic wildcards are excluded. The CLI does **not** validate `--scope` values locally — the server is the source of truth. Use `app scopes` to confirm spelling before passing an unfamiliar scope.
+- Passing `--web` to `brevo app scopes` **also opens a browser** to a styled local page (loopback `http://127.0.0.1:<port>/`) and stays running until Ctrl+C. Without `--web` the command exits after printing the list — TTY detection no longer triggers the browser. `--json` always suppresses the browser, so agent invocations using `--json` behave the same regardless of `--web`.
 
 ## Exit codes
 

@@ -5,7 +5,7 @@ import {
   DEFAULT_APP_FOLDER,
   DEFAULT_REDIRECT_URI,
   DEFAULT_SCOPES,
-  OAUTH_WELL_KNOWN_URL,
+  OAUTH_SCOPES_URL,
 } from '../../lib/constants';
 
 describe('API_BASE', () => {
@@ -188,11 +188,9 @@ describe('DEFAULT_SCOPES', () => {
   });
 });
 
-describe('OAUTH_WELL_KNOWN_URL', () => {
+describe('OAUTH_SCOPES_URL', () => {
   it('is built from OAUTH_BASE and OAUTH_REALM', () => {
-    expect(OAUTH_WELL_KNOWN_URL).toBe(
-      'https://oauth.brevo.com/realms/partner/.well-known/oauth-authorization-server',
-    );
+    expect(OAUTH_SCOPES_URL).toBe('https://oauth.brevo.com/realms/partner/scopes');
   });
 });
 

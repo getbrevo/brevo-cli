@@ -196,9 +196,12 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     {
       name: 'scopes',
       description: 'List OAuth scopes supported by the IdP',
-      examples: ['brevo app scopes', 'brevo app scopes --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => scopesCommand({ json: Boolean(opts.json) }),
+      examples: ['brevo app scopes', 'brevo app scopes --web', 'brevo app scopes --json'],
+      options: [
+        { flags: '--json', description: 'Output as JSON' },
+        { flags: '--web', description: 'Open the scope catalog in a local browser page' },
+      ],
+      handler: (opts) => scopesCommand({ json: Boolean(opts.json), web: Boolean(opts.web) }),
     },
     {
       name: 'start',

@@ -1,14 +1,27 @@
-import { OAUTH_WELL_KNOWN_URL } from '../lib/constants';
+import { OAUTH_SCOPES_URL } from '../lib/constants';
 import { ApiError, CliError, ErrorCode } from '../lib/errors';
 import { messages } from '../lang/en';
 
-export async function fetchSupportedScopes(): Promise<string[]> {
+export interface ScopeEntry {
+  name: string;
+  category: string;
+  apiEndpoints: string[];
+}
+
+interface RawScope {
+  name?: unknown;
+  category?: unknown;
+  api_endpoints?: unknown;
+  is_oidc_reserved?: unknown;
+}
+
+export async function fetchSupportedScopes(): Promise<ScopeEntry[]> {
   let response: Response;
   try {
-    response = await fetch(OAUTH_WELL_KNOWN_URL, { method: 'GET' });
+    response = await fetch(OAUTH_SCOPES_URL, { method: 'GET' });
   } catch {
     throw new ApiError(
-      messages.OAUTH_METADATA_FETCH_FAILED(OAUTH_WELL_KNOWN_URL, 0),
+      messages.OAUTH_METADATA_FETCH_FAILED(OAUTH_SCOPES_URL, 0),
       0,
       ErrorCode.NETWORK_ERROR,
     );
@@ -16,7 +29,7 @@ export async function fetchSupportedScopes(): Promise<string[]> {
 
   if (!response.ok) {
     throw new ApiError(
-      messages.OAUTH_METADATA_FETCH_FAILED(OAUTH_WELL_KNOWN_URL, response.status),
+      messages.OAUTH_METADATA_FETCH_FAILED(OAUTH_SCOPES_URL, response.status),
       response.status,
     );
   }
@@ -28,16 +41,33 @@ export async function fetchSupportedScopes(): Promise<string[]> {
     throw new CliError(messages.OAUTH_METADATA_MISSING_SCOPES);
   }
 
-  if (
-    !body ||
-    typeof body !== 'object' ||
-    !Array.isArray((body as Record<string, unknown>).scopes_supported) ||
-    !((body as Record<string, unknown>).scopes_supported as unknown[]).every(
-      (s) => typeof s === 'string',
-    )
-  ) {
+  if (!body || typeof body !== 'object' || !Array.isArray((body as { scopes?: unknown }).scopes)) {
     throw new CliError(messages.OAUTH_METADATA_MISSING_SCOPES);
   }
 
-  return (body as { scopes_supported: string[] }).scopes_supported;
+  const rawScopes = (body as { scopes: unknown[] }).scopes as RawScope[];
+
+  return rawScopes
+    .filter(
+      (
+        s,
+      ): s is {
+        name: string;
+        category: string;
+        api_endpoints?: unknown;
+        is_oidc_reserved?: unknown;
+      } =>
+        !!s &&
+        typeof s === 'object' &&
+        typeof s.name === 'string' &&
+        typeof s.category === 'string' &&
+        s.is_oidc_reserved !== true,
+    )
+    .map((s) => ({
+      name: s.name,
+      category: s.category,
+      apiEndpoints: Array.isArray(s.api_endpoints)
+        ? s.api_endpoints.filter((e): e is string => typeof e === 'string')
+        : [],
+    }));
 }

@@ -196,9 +196,22 @@ export const messages = {
 
   // App scopes
   APP_SCOPES_EMPTY: 'The IdP returned an empty scope list.',
-  OAUTH_METADATA_MISSING_SCOPES: 'IdP well-known response did not include scopes_supported.',
+  APP_SCOPES_USAGE_HINT: `Add a scope to an app with \`${CLI.APP_UPDATE_SCOPE} <scope> --app-id <id>\`.`,
+  APP_SCOPES_WEB_LISTENING: (url: string): string => `Open in browser: ${url} (Ctrl+C to stop)`,
+  APP_SCOPES_WEB_TITLE: 'Brevo OAuth scopes',
+  APP_SCOPES_WEB_INTRO: (count: number, sourceUrl: string): string =>
+    `${count} scope${count === 1 ? '' : 's'} from ${sourceUrl}`,
+  APP_SCOPES_WEB_SEARCH_PLACEHOLDER: 'Filter scopes…',
+  APP_SCOPES_WEB_EMPTY: 'The IdP returned an empty scope list.',
+  APP_SCOPES_WEB_FOOTER: 'Served locally by the Brevo CLI. Press Ctrl+C in the terminal to stop.',
+  APP_SCOPES_WEB_REFRESH: 'Refresh',
+  APP_SCOPES_WEB_REFRESHING: 'Refreshing…',
+  APP_SCOPES_WEB_REFRESH_FAILED: 'Refresh failed. Try again.',
+  APP_SCOPES_WEB_ENDPOINTS_LABEL: 'API endpoints',
+  APP_SCOPES_WEB_NO_ENDPOINTS: 'No API endpoints listed for this scope.',
+  OAUTH_METADATA_MISSING_SCOPES: 'IdP scopes response did not include a scopes array.',
   OAUTH_METADATA_FETCH_FAILED: (url: string, status: number): string =>
-    `Failed to fetch OAuth metadata from ${url} (HTTP ${status}).`,
+    `Failed to fetch OAuth scopes from ${url} (HTTP ${status}).`,
 
   // General
   ABORTED: 'Aborted.',
