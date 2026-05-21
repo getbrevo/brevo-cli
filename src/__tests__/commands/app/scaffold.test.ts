@@ -297,4 +297,47 @@ describe('app/scaffold', () => {
     expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
     expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
+
+  it('should pass logo_uri into template vars when present', async () => {
+    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+      diffs: [],
+      app: {
+        app_id: '1',
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret',
+        redirect_uris: [],
+        logo_uri: 'https://example.com/logo.png',
+      },
+    });
+
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-logo') });
+
+    await scaffoldCommand({ appId: '1' });
+
+    const { loadAllTemplates } = require('../../../templates');
+    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
+    expect(vars['{{LOGO_URI}}']).toBe('https://example.com/logo.png');
+  });
+
+  it('should pass an empty string for {{LOGO_URI}} when the app has no logo_uri', async () => {
+    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+      diffs: [],
+      app: {
+        app_id: '1',
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret',
+        redirect_uris: [],
+      },
+    });
+
+    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-no-logo') });
+
+    await scaffoldCommand({ appId: '1' });
+
+    const { loadAllTemplates } = require('../../../templates');
+    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
+    expect(vars['{{LOGO_URI}}']).toBe('');
+  });
 });
