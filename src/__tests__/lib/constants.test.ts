@@ -196,7 +196,7 @@ describe('OAUTH_SCOPES_URL', () => {
 
 describe('CLI scope helpers', () => {
   it('exposes APP_SCOPES and APP_UPDATE_SCOPE strings', () => {
-    expect(CLI.APP_SCOPES).toBe('brevo app scopes');
+    expect(CLI.APP_SCOPES).toBe('brevo app available-scopes');
     expect(CLI.APP_UPDATE_SCOPE).toBe('brevo app update --scope');
   });
 });

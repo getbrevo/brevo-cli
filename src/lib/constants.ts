@@ -96,7 +96,7 @@ export const CLI = {
   APP_DELETE: 'brevo app delete',
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
-  APP_SCOPES: 'brevo app scopes',
+  APP_SCOPES: 'brevo app available-scopes',
   APP_UPDATE_SCOPE: 'brevo app update --scope',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',

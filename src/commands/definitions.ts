@@ -194,9 +194,13 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         scaffoldCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
     },
     {
-      name: 'scopes',
+      name: 'available-scopes',
       description: 'List OAuth scopes supported by the IdP',
-      examples: ['brevo app scopes', 'brevo app scopes --web', 'brevo app scopes --json'],
+      examples: [
+        'brevo app available-scopes',
+        'brevo app available-scopes --web',
+        'brevo app available-scopes --json',
+      ],
       options: [
         { flags: '--json', description: 'Output as JSON' },
         { flags: '--web', description: 'Open the scope catalog in a local browser page' },
