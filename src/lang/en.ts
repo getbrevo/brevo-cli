@@ -100,7 +100,7 @@ export const messages = {
   APP_UPDATE_CANCELLED: 'Update cancelled.',
   APP_UPDATE_SUCCESS: 'App updated.',
   APP_UPDATE_NOTHING_TO_UPDATE:
-    'Nothing to update. Provide --app-id with --name or --redirect-uri, or run from a scaffolded project directory.',
+    'Nothing to update. Provide --app-id with --name, --redirect-uri, --scope, or --logo-uri, or run from a scaffolded project directory.',
   APP_UPDATE_NO_APP_RESOLVED:
     'Cannot determine which app to update. Provide --app-id or run from a directory with app-config.json.',
   APP_UPDATE_APP_ID_MISMATCH: (flagId: string, configId: string) =>
