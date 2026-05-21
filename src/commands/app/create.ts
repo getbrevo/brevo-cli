@@ -174,13 +174,42 @@ export const createCommand = withCommandHandler(
       }
     }
 
-    // 4. Create the app
+    // 4. Logo URL (optional) — prompt interactively when no --logo-uri flag.
+    //    Skipped under --json since the field is optional and --json implies scripting.
+    let logoUri = options.logoUri;
+    if (!logoUri && process.stdin.isTTY && !options.json) {
+      const validateLogoUrl = (input: string): true | string => {
+        const trimmed = input.trim();
+        if (!trimmed) return true;
+        try {
+          const parsed = new URL(trimmed);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return messages.APP_CREATE_LOGO_INVALID;
+          }
+          return true;
+        } catch {
+          return messages.APP_CREATE_LOGO_INVALID;
+        }
+      };
+      const { logoUrl } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'logoUrl',
+          message: messages.APP_CREATE_LOGO_PROMPT,
+          validate: validateLogoUrl,
+        },
+      ]);
+      const trimmed = String(logoUrl ?? '').trim();
+      if (trimmed) logoUri = trimmed;
+    }
+
+    // 5. Create the app
     const payload = {
       name: appName!,
       public: distribution === 'public',
       redirect_uris: redirectUrls,
       scopes: ['all'],
-      ...(options.logoUri ? { logo_uri: options.logoUri } : {}),
+      ...(logoUri ? { logo_uri: logoUri } : {}),
     };
 
     let result: CreateAppResponse;
@@ -213,7 +242,7 @@ export const createCommand = withCommandHandler(
             public: distribution === 'public',
             redirect_uris: redirectUrls,
             scopes: ['all'],
-            ...(options.logoUri ? { logo_uri: options.logoUri } : {}),
+            ...(logoUri ? { logo_uri: logoUri } : {}),
           });
           retrySpinner.stop();
           // Use the retried name for cache, JSON output, display, and scaffold prompt
@@ -243,7 +272,7 @@ export const createCommand = withCommandHandler(
         clientId: result.client_id,
         clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
         redirectUri: resultRedirectUris,
-        ...(options.logoUri ? { logoUri: options.logoUri } : {}),
+        ...(logoUri ? { logoUri } : {}),
       });
       return;
     }
@@ -256,8 +285,8 @@ export const createCommand = withCommandHandler(
     resultRedirectUris.forEach((uri, i) => {
       logInfo(`  Redirect URL ${i + 1}: ${uri}`);
     });
-    if (options.logoUri) {
-      logInfo(`  Logo URL:      ${options.logoUri}`);
+    if (logoUri) {
+      logInfo(`  Logo URL:      ${logoUri}`);
     }
     process.stdout.write('\n');
 
