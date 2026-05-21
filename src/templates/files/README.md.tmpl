@@ -26,7 +26,7 @@ Brevo OAuth integration for testing and implementing app authorization flows, sc
 
 ```
 .
-├── app-config.json           App config — ID, scopes, redirect URLs
+├── app-config.json           App config — ID, scopes, redirect URLs, logo URL
 ├── .gitignore                Ignores .env.local and build artifacts
 ├── AGENTS.md                 AI agent guidance
 ├── CLAUDE.md                 Claude Code guidance
@@ -61,6 +61,7 @@ Push changes to Brevo directly from the CLI:
 brevo app update --name "New Name"
 brevo app update --redirect-url https://myapp.com/callback
 brevo app update --name "New Name" --redirect-url https://myapp.com/callback
+brevo app update --logo-uri https://example.com/logo.png
 ```
 
 `--redirect-url` is repeatable and **appends** to existing URLs.
