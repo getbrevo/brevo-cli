@@ -104,6 +104,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
 
     validateRedirectUrls(redirectUrls);
 
+    const nextScopes = config!.auth?.scopes ?? [];
+
     if (!options.json) {
       // Fail fast before the network fetch when we'd have nowhere to show the diff.
       if (!options.yes && !process.stdin.isTTY) {
@@ -120,6 +122,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
         nextName: config!.appName,
         currentUrls: remote.redirect_uris ?? [],
         nextUrls: redirectUrls,
+        currentScopes: remote.scopes ?? [],
+        nextScopes,
       });
     }
 
@@ -142,13 +146,19 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     await appService.updateApp(appId, {
       name: config!.appName,
       redirect_uris: redirectUrls,
+      scopes: nextScopes,
     });
     spinner.stop();
 
     if (config!.appName) saveAppName(appId, config!.appName);
 
     if (options.json) {
-      jsonOutput({ app_id: appId, name: config!.appName, redirect_uris: redirectUrls });
+      jsonOutput({
+        app_id: appId,
+        name: config!.appName,
+        redirect_uris: redirectUrls,
+        scopes: nextScopes,
+      });
       return;
     }
 
@@ -157,6 +167,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       logInfo(`  Name:          ${config!.appName}`);
     }
     logInfo(`  Redirect URLs: ${redirectUrls.join(', ')}`);
+    logInfo(`  Scopes:        ${nextScopes.length > 0 ? nextScopes.join(', ') : '(none)'}`);
     process.stdout.write('\n');
     return;
   }
@@ -206,7 +217,6 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       mergedScopes.push(s);
     }
   }
-  const hasScopeFlag = options.scope !== undefined;
 
   const hasRedirectUriFlag = options.redirectUri !== undefined;
 
@@ -225,8 +235,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       nextName: finalName,
       currentUrls: existingRedirectUrls,
       nextUrls: mergedUrls,
-      currentScopes: hasScopeFlag ? existingScopes : undefined,
-      nextScopes: hasScopeFlag ? mergedScopes : undefined,
+      currentScopes: existingScopes,
+      nextScopes: mergedScopes,
     });
   }
 
@@ -254,7 +264,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   await appService.updateApp(appId, {
     name: finalName,
     redirect_uris: mergedUrls,
-    ...(hasScopeFlag ? { scopes: mergedScopes } : {}),
+    scopes: mergedScopes,
   });
   spinner.stop();
 
@@ -269,7 +279,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     updatedConfig.auth = {
       ...updatedConfig.auth,
       redirectUrls: mergedUrls,
-      ...(hasScopeFlag ? { scopes: mergedScopes } : {}),
+      scopes: mergedScopes,
     };
     writeProjectConfig(updatedConfig);
   }
@@ -279,7 +289,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       app_id: appId,
       name: finalName,
       redirect_uris: mergedUrls,
-      ...(hasScopeFlag ? { scopes: mergedScopes } : {}),
+      scopes: mergedScopes,
     });
     return;
   }
@@ -289,9 +299,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     logInfo(`  Name:          ${finalName}`);
   }
   logInfo(`  Redirect URLs: ${mergedUrls.length > 0 ? mergedUrls.join(', ') : '(none)'}`);
-  if (hasScopeFlag) {
-    logInfo(`  Scopes:        ${mergedScopes.length > 0 ? mergedScopes.join(', ') : '(none)'}`);
-  }
+  logInfo(`  Scopes:        ${mergedScopes.length > 0 ? mergedScopes.join(', ') : '(none)'}`);
   if (shouldWriteBack && config) {
     logInfo('  app-config.json updated.');
   }
@@ -348,10 +356,16 @@ function renderUpdateSummary(params: {
 
   if (nextScopes !== undefined) {
     const currentScopesSet = new Set(currentScopes ?? []);
+    const nextScopesSet = new Set(nextScopes);
+    const addedScopes = new Set(nextScopes.filter((s) => !currentScopesSet.has(s)));
+    const removedScopes = (currentScopes ?? []).filter((s) => !nextScopesSet.has(s));
     const scopeLines =
-      nextScopes.length > 0
-        ? nextScopes.map((s) => (currentScopesSet.has(s) ? s : `${s} (new)`))
-        : ['(none)'];
+      nextScopes.length === 0 && removedScopes.length === 0
+        ? ['(none)']
+        : [
+            ...nextScopes.map((s) => (addedScopes.has(s) ? `${s} (new)` : s)),
+            ...removedScopes.map((s) => `${s} (removed)`),
+          ];
     scopeLines.forEach((line, i) => {
       const prefix = i === 0 ? '  Scopes:        ' : '                 ';
       logInfo(`${prefix}${line}`);

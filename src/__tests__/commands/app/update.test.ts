@@ -97,6 +97,7 @@ describe('app/update', () => {
     expect(appService.updateApp).toHaveBeenCalledWith('42', {
       name: 'My Test App',
       redirect_uris: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
+      scopes: ['global'],
     });
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('updated');
@@ -114,6 +115,7 @@ describe('app/update', () => {
       app_id: '42',
       name: 'My Test App',
       redirect_uris: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
+      scopes: ['global'],
     });
   });
 
@@ -153,6 +155,7 @@ describe('app/update', () => {
     expect(appService.updateApp).toHaveBeenCalledWith('42', {
       name: 'New Name',
       redirect_uris: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
+      scopes: ['global'],
     });
     expect(writeProjectConfig).toHaveBeenCalledWith(
       expect.objectContaining({ appName: 'New Name' }),
@@ -182,6 +185,7 @@ describe('app/update', () => {
         'https://myapp.com/callback',
         'https://new.com/callback',
       ],
+      scopes: ['global'],
     });
     expect(writeProjectConfig).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -209,6 +213,7 @@ describe('app/update', () => {
     expect(appService.updateApp).toHaveBeenCalledWith('42', {
       name: 'My Test App',
       redirect_uris: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
+      scopes: ['global'],
     });
   });
 
@@ -233,6 +238,7 @@ describe('app/update', () => {
     expect(appService.updateApp).toHaveBeenCalledWith('99', {
       name: 'Renamed',
       redirect_uris: ['https://old.com/callback'],
+      scopes: [],
     });
     expect(writeProjectConfig).not.toHaveBeenCalled();
   });
@@ -359,6 +365,7 @@ describe('app/update', () => {
     expect(appService.updateApp).toHaveBeenCalledWith(uuid, {
       name: 'Renamed',
       redirect_uris: ['http://localhost:3000/callback'],
+      scopes: [],
     });
   });
 
@@ -398,6 +405,7 @@ describe('app/update', () => {
       app_id: '42',
       name: 'New Name',
       redirect_uris: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
+      scopes: ['global'],
     });
   });
 
@@ -583,11 +591,13 @@ describe('app/update', () => {
       app_id: '42',
       name: 'My Test App',
       redirect_uris: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
+      scopes: ['global'],
     });
     (appService.updateApp as jest.Mock).mockResolvedValue({
       app_id: '42',
       name: 'My Test App',
       redirect_uris: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
+      scopes: ['global'],
     });
 
     await updateCommand({ yes: true });
@@ -734,7 +744,7 @@ describe('app/update', () => {
       expect(beforeSuccess).not.toContain('contacts:read (new)');
     });
 
-    it('does not render a Scopes line in the pre-confirm summary when --scope was not passed', async () => {
+    it('renders the existing Scopes line in the pre-confirm summary even when --scope is not passed', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(null);
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         app_id: '42',
@@ -747,7 +757,87 @@ describe('app/update', () => {
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       const beforeSuccess = output.split('App updated.')[0];
-      expect(beforeSuccess).not.toContain('Scopes:');
+      expect(beforeSuccess).toContain('Scopes:        contacts:read');
+      // No `(new)` or `(removed)` markers when scopes are unchanged.
+      expect(beforeSuccess).not.toContain('contacts:read (new)');
+      expect(beforeSuccess).not.toContain('contacts:read (removed)');
+    });
+
+    it('sends scopes from app-config.json even when only --name is passed', async () => {
+      const config = {
+        appId: '42',
+        appName: 'Old',
+        auth: {
+          type: 'private',
+          scopes: ['contacts:read', 'crm:read'],
+          redirectUrls: ['https://x/cb'],
+        },
+        distribution: 'private',
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue(config);
+
+      await updateCommand({ name: 'New', yes: true });
+
+      expect(appService.updateApp).toHaveBeenCalledWith(
+        '42',
+        expect.objectContaining({ scopes: ['contacts:read', 'crm:read'] }),
+      );
+    });
+
+    it('sends scopes on the no-flag full-config push from app-config.json', async () => {
+      const config = {
+        appId: '42',
+        appName: 'My App',
+        auth: {
+          type: 'private',
+          scopes: ['contacts:read', 'crm:write'],
+          redirectUrls: ['https://x/cb'],
+        },
+        distribution: 'private',
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue(config);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'My App',
+        redirect_uris: ['https://x/cb'],
+        scopes: ['contacts:read'],
+      });
+
+      await updateCommand({ yes: true });
+
+      expect(appService.updateApp).toHaveBeenCalledWith('42', {
+        name: 'My App',
+        redirect_uris: ['https://x/cb'],
+        scopes: ['contacts:read', 'crm:write'],
+      });
+    });
+
+    it('marks (removed) scopes in the summary when local config drops a scope the server still has', async () => {
+      const config = {
+        appId: '42',
+        appName: 'My App',
+        auth: {
+          type: 'private',
+          scopes: ['contacts:read'],
+          redirectUrls: ['https://x/cb'],
+        },
+        distribution: 'private',
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue(config);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'My App',
+        redirect_uris: ['https://x/cb'],
+        scopes: ['contacts:read', 'crm:read'],
+      });
+      (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ confirmed: true });
+
+      await updateCommand({});
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      const beforeSuccess = output.split('App updated.')[0];
+      expect(beforeSuccess).toContain('Scopes:        contacts:read');
+      expect(beforeSuccess).toContain('crm:read (removed)');
     });
   });
 });
