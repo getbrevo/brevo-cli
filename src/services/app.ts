@@ -129,6 +129,7 @@ export function createAppService(client: ApiClient) {
       public: boolean;
       redirect_uris?: string[];
       scopes?: string[];
+      logo_uri?: string;
     }): Promise<CreateAppResponse> {
       const raw = await client.post<CreateAppResponse>(ENDPOINTS.OAUTH_APPS, {
         ...payload,
@@ -139,7 +140,7 @@ export function createAppService(client: ApiClient) {
 
     async updateApp(
       appId: string,
-      body: { name?: string; redirect_uris: string[] },
+      body: { name?: string; redirect_uris: string[]; scopes?: string[]; logo_uri?: string },
     ): Promise<void> {
       await client.put(ENDPOINTS.APP_STORE_APP_UPDATE(appId), body);
     },

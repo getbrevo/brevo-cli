@@ -15,6 +15,7 @@ export interface OAuthApp {
   public?: boolean;
   redirect_uris: string[];
   scopes?: string[];
+  logo_uri?: string;
   created_at: string;
   updated_at: string;
 }
@@ -26,6 +27,7 @@ export interface CreateAppResponse {
   client_secret: string;
   public?: boolean;
   redirect_uris: string[];
+  logo_uri?: string;
   created_at: string;
   updated_at: string;
 }
