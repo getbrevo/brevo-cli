@@ -15,6 +15,12 @@ export interface ScopesWebOptions {
   refetch?: () => Promise<ScopeEntry[]>;
 }
 
+function closeServer(server: http.Server): Promise<void> {
+  return new Promise<void>((resolveClose) => {
+    server.close(() => resolveClose());
+  });
+}
+
 export function startScopesWebServer(
   initialEntries: ScopeEntry[],
   options: ScopesWebOptions = {},
@@ -71,10 +77,7 @@ export function startScopesWebServer(
       logDebug('scopes-web listening', { host: '127.0.0.1', port });
       resolve({
         url,
-        close: () =>
-          new Promise<void>((resolveClose) => {
-            server.close(() => resolveClose());
-          }),
+        close: () => closeServer(server),
       });
     });
   });
