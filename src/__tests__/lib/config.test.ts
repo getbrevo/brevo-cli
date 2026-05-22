@@ -2,11 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-// Set a temp config dir BEFORE importing config module
-const TEST_CONFIG_DIR = path.join(
-  os.tmpdir(),
-  `brevo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-);
+// Set a temp config dir BEFORE importing config module. mkdtempSync uses
+// crypto-quality randomness from libuv (avoids Math.random's Sonar hotspot).
+const TEST_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-test-'));
 process.env.BREVO_CONFIG_HOME = TEST_CONFIG_DIR;
 
 import {
@@ -374,11 +372,7 @@ describe('config', () => {
       let projectDir: string;
 
       beforeEach(() => {
-        projectDir = path.join(
-          os.tmpdir(),
-          `brevo-project-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        );
-        fs.mkdirSync(projectDir, { recursive: true });
+        projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-project-'));
         process.chdir(projectDir);
       });
 
