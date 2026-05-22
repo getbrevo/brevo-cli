@@ -298,46 +298,28 @@ describe('app/scaffold', () => {
     expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
 
-  it('should pass logo_uri into template vars when present', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
+  it.each<[string, string | undefined, string]>([
+    ['present', 'https://example.com/logo.png', 'https://example.com/logo.png'],
+    ['absent', undefined, ''],
+  ])(
+    'should pass {{LOGO_URI}} into template vars when logo_uri is %s',
+    async (_label, logoUri, expected) => {
+      const app = {
         app_id: '1',
         name: 'Test App',
         client_id: 'cli-123',
         client_secret: 'secret',
-        redirect_uris: [],
-        logo_uri: 'https://example.com/logo.png',
-      },
-    });
+        redirect_uris: [] as string[],
+        ...(logoUri !== undefined ? { logo_uri: logoUri } : {}),
+      };
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({ diffs: [], app });
+      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-logo') });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-logo') });
+      await scaffoldCommand({ appId: '1' });
 
-    await scaffoldCommand({ appId: '1' });
-
-    const { loadAllTemplates } = require('../../../templates');
-    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-    expect(vars['{{LOGO_URI}}']).toBe('https://example.com/logo.png');
-  });
-
-  it('should pass an empty string for {{LOGO_URI}} when the app has no logo_uri', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [],
-      },
-    });
-
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-no-logo') });
-
-    await scaffoldCommand({ appId: '1' });
-
-    const { loadAllTemplates } = require('../../../templates');
-    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-    expect(vars['{{LOGO_URI}}']).toBe('');
-  });
+      const { loadAllTemplates } = require('../../../templates');
+      const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{LOGO_URI}}']).toBe(expected);
+    },
+  );
 });
