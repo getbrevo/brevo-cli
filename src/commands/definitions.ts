@@ -1,5 +1,5 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import { parseAppId, parsePositiveInt, collectUrls } from '../lib/validators';
+import { parseAppId, parsePositiveInt, collectUrls, collectScopes } from '../lib/validators';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -142,8 +142,9 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         },
         {
           flags: '--scope <scope>',
-          description: 'OAuth scope to append (repeatable)',
-          parser: (value: string, prev?: string[]) => (prev ? [...prev, value] : [value]),
+          description:
+            'OAuth scope to append (repeatable; comma- or whitespace-separated values are split)',
+          parser: collectScopes,
         },
         { flags: '--yes', description: 'Skip confirmation prompt' },
         { flags: '--json', description: 'Output as JSON' },

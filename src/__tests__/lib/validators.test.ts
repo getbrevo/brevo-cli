@@ -1,4 +1,11 @@
-import { validateUrl, collectUrls, parseAppId } from '../../lib/validators';
+import {
+  validateUrl,
+  collectUrls,
+  parseAppId,
+  splitScopes,
+  validateScopes,
+  collectScopes,
+} from '../../lib/validators';
 import { CliError } from '../../lib/errors';
 
 describe('validateUrl', () => {
@@ -70,6 +77,117 @@ describe('collectUrls', () => {
       'http://localhost:3009/auth/callback',
       'http://localhost:3011/auth/callback',
     ]);
+  });
+});
+
+describe('splitScopes', () => {
+  it('returns [] for null/undefined input', () => {
+    expect(splitScopes(null)).toEqual([]);
+    expect(splitScopes(undefined)).toEqual([]);
+  });
+
+  it('returns [] for empty string', () => {
+    expect(splitScopes('')).toEqual([]);
+  });
+
+  it('splits a single comma-joined string into individual tokens', () => {
+    expect(splitScopes('crm:read, campaigns:read')).toEqual(['crm:read', 'campaigns:read']);
+  });
+
+  it('splits on whitespace as well as commas', () => {
+    expect(splitScopes('crm:read crm:write')).toEqual(['crm:read', 'crm:write']);
+  });
+
+  it('handles mixed delimiters and runs of whitespace', () => {
+    expect(splitScopes('crm:read,  crm:write\tcampaigns:read')).toEqual([
+      'crm:read',
+      'crm:write',
+      'campaigns:read',
+    ]);
+  });
+
+  it('heals a malformed array entry containing an embedded comma', () => {
+    // Simulates app-config.json with: "scopes": ["crm:read","crm:write, campaigns:read"]
+    expect(splitScopes(['crm:read', 'crm:write, campaigns:read'])).toEqual([
+      'crm:read',
+      'crm:write',
+      'campaigns:read',
+    ]);
+  });
+
+  it('deduplicates while preserving first-seen order', () => {
+    expect(splitScopes(['crm:read', 'crm:write', 'crm:read'])).toEqual(['crm:read', 'crm:write']);
+  });
+
+  it('drops empty tokens from leading/trailing/consecutive delimiters', () => {
+    expect(splitScopes(',  ,crm:read,,')).toEqual(['crm:read']);
+  });
+
+  it('ignores non-string entries in an array', () => {
+    expect(splitScopes(['crm:read', null as unknown as string, 'crm:write'])).toEqual([
+      'crm:read',
+      'crm:write',
+    ]);
+  });
+});
+
+describe('validateScopes', () => {
+  it('accepts well-formed scope tokens', () => {
+    expect(() =>
+      validateScopes(['crm:read', 'contacts:write', 'campaigns:read', 'a.b-c_d', 'global']),
+    ).not.toThrow();
+  });
+
+  it('accepts an empty array', () => {
+    expect(() => validateScopes([])).not.toThrow();
+  });
+
+  it('rejects a scope containing a comma', () => {
+    expect(() => validateScopes(['crm:write, campaigns:read'])).toThrow(CliError);
+  });
+
+  it('rejects a scope containing a space', () => {
+    expect(() => validateScopes(['crm read'])).toThrow(CliError);
+  });
+
+  it('rejects a scope containing a semicolon', () => {
+    expect(() => validateScopes(['crm;read'])).toThrow(CliError);
+  });
+
+  it('rejects an empty string', () => {
+    expect(() => validateScopes([''])).toThrow(CliError);
+  });
+
+  it('rejects a scope starting with a non-alphanumeric character', () => {
+    expect(() => validateScopes([':read'])).toThrow(CliError);
+  });
+
+  it('error message quotes the offending value', () => {
+    expect(() => validateScopes(['bad;scope'])).toThrow(/"bad;scope"/);
+  });
+});
+
+describe('collectScopes', () => {
+  it('accumulates a single token per flag invocation', () => {
+    const first = collectScopes('crm:read', []);
+    const second = collectScopes('crm:write', first);
+    expect(second).toEqual(['crm:read', 'crm:write']);
+  });
+
+  it('splits a comma-joined flag value into multiple tokens', () => {
+    expect(collectScopes('crm:read, crm:write', [])).toEqual(['crm:read', 'crm:write']);
+  });
+
+  it('deduplicates against previous values', () => {
+    expect(collectScopes('crm:read', ['crm:read', 'crm:write'])).toEqual(['crm:read', 'crm:write']);
+  });
+
+  it('throws when the value is empty after splitting', () => {
+    expect(() => collectScopes('   ', [])).toThrow(CliError);
+  });
+
+  it('throws when a token contains an invalid character', () => {
+    expect(() => collectScopes('crm;read', [])).toThrow(CliError);
   });
 });
 

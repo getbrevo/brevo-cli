@@ -368,6 +368,66 @@ describe('config', () => {
     it('should return null when no app-config.json exists', () => {
       expect(readProjectConfig()).toBeNull();
     });
+
+    describe('scope normalization', () => {
+      const originalCwd = process.cwd();
+      let projectDir: string;
+
+      beforeEach(() => {
+        projectDir = path.join(
+          os.tmpdir(),
+          `brevo-project-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        );
+        fs.mkdirSync(projectDir, { recursive: true });
+        process.chdir(projectDir);
+      });
+
+      afterEach(() => {
+        process.chdir(originalCwd);
+        if (fs.existsSync(projectDir)) {
+          fs.rmSync(projectDir, { recursive: true, force: true });
+        }
+      });
+
+      function writeConfig(config: object): void {
+        fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+      }
+
+      it('splits a comma-embedded scope entry into individual tokens', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'private', scopes: ['crm:read', 'crm:write, campaigns:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write', 'campaigns:read']);
+      });
+
+      it('leaves well-formed scope arrays untouched', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'private', scopes: ['crm:read', 'crm:write'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write']);
+      });
+
+      it('deduplicates scopes', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'private', scopes: ['crm:read', 'crm:read', 'crm:write'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write']);
+      });
+
+      it('does not throw on malformed scope chars (charset is enforced later, at update time)', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'private', scopes: ['crm;read'] },
+        });
+        expect(() => readProjectConfig()).not.toThrow();
+      });
+    });
   });
 
   describe('hasLocalApp', () => {

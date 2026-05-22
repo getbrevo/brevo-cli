@@ -69,12 +69,9 @@ export const messages = {
     'You have reached the maximum number of OAuth apps allowed for your account. To make room, delete an existing app: brevo app delete',
   APP_CREATE_PUBLIC_UNAVAILABLE:
     'Public distribution is not yet available (coming soon). Use `--distribution private` for now.',
-  APP_CREATE_SCOPE_BOX_TITLE: 'Default scopes',
-  APP_CREATE_SCOPE_BOX_LINES: (scopes: string[]): string[] => [
-    scopes.join(', '),
-    '',
-    `Add more with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
-  ],
+  APP_CREATE_BOX_TITLE: 'App created',
+  APP_CREATE_BOX_SCOPES_LABEL: 'Default scopes:',
+  APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,

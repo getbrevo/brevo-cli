@@ -244,18 +244,17 @@ export const createCommand = withCommandHandler(
       return;
     }
 
-    logSuccess(messages.APP_CREATE_SUCCESS);
-    logInfo(`  App name:      ${appName}`);
-    logInfo(`  App ID:        ${result.app_id}`);
-    logInfo(`  Client ID:     ${result.client_id}`);
-    logInfo(`  Client secret: ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`);
-    resultRedirectUris.forEach((uri, i) => {
-      logInfo(`  Redirect URL ${i + 1}: ${uri}`);
-    });
-    printBox(
-      messages.APP_CREATE_SCOPE_BOX_TITLE,
-      messages.APP_CREATE_SCOPE_BOX_LINES([...DEFAULT_SCOPES]),
-    );
+    const boxLines = [
+      `App name:       ${appName}`,
+      `App ID:         ${result.app_id}`,
+      `Client ID:      ${result.client_id}`,
+      `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
+      ...resultRedirectUris.map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
+      `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_SCOPES].join(', ')}`,
+      '',
+      messages.APP_CREATE_BOX_SCOPE_HINT,
+    ];
+    printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 
     // 4. Smart hand-off → scaffold
     const { shouldScaffold } = await inquirer.prompt([

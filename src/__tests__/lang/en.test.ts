@@ -69,20 +69,10 @@ describe('messages (lang/en)', () => {
   });
 
   describe('scope-related messages', () => {
-    it('exports the create-time scope box (title + lines) naming the four defaults and pointing at the update command', () => {
-      expect(messages.APP_CREATE_SCOPE_BOX_TITLE).toMatch(/scope/i);
-      const lines = messages.APP_CREATE_SCOPE_BOX_LINES([
-        'contacts:read',
-        'contacts:write',
-        'crm:read',
-        'crm:write',
-      ]);
-      const joined = lines.join('\n');
-      expect(joined).toContain('contacts:read');
-      expect(joined).toContain('contacts:write');
-      expect(joined).toContain('crm:read');
-      expect(joined).toContain('crm:write');
-      expect(joined).toContain('brevo app update --scope');
+    it('exports the create-time box strings (title, scopes label, update hint)', () => {
+      expect(messages.APP_CREATE_BOX_TITLE).toMatch(/created/i);
+      expect(messages.APP_CREATE_BOX_SCOPES_LABEL).toMatch(/scope/i);
+      expect(messages.APP_CREATE_BOX_SCOPE_HINT).toContain('brevo app update --scope');
     });
 
     it('exports the update-time appended summary', () => {

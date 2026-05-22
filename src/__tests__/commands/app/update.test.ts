@@ -812,6 +812,25 @@ describe('app/update', () => {
       });
     });
 
+    it('rejects scopes containing forbidden characters before calling the API', async () => {
+      // Simulates a config that survived readProjectConfig's split (no commas/whitespace
+      // to split on) but still has an invalid character in a token.
+      const config = {
+        appId: '42',
+        appName: 'My App',
+        auth: {
+          type: 'private',
+          scopes: ['contacts:read', 'crm;read'],
+          redirectUrls: ['https://x/cb'],
+        },
+        distribution: 'private',
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue(config);
+
+      await expect(updateCommand({ yes: true })).rejects.toThrow(/Invalid scope/);
+      expect(appService.updateApp).not.toHaveBeenCalled();
+    });
+
     it('marks (removed) scopes in the summary when local config drops a scope the server still has', async () => {
       const config = {
         appId: '42',

@@ -9,7 +9,7 @@ import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { readProjectConfig, saveAppName, writeProjectConfig } from '../../lib/config';
 import { OAuthApp } from '../../types';
-import { validateAppName } from '../../lib/validators';
+import { validateAppName, validateScopes } from '../../lib/validators';
 import inquirer from 'inquirer';
 
 interface UpdateOptions {
@@ -105,6 +105,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     validateRedirectUrls(redirectUrls);
 
     const nextScopes = config!.auth?.scopes ?? [];
+    validateScopes(nextScopes);
 
     if (!options.json) {
       // Fail fast before the network fetch when we'd have nowhere to show the diff.
@@ -227,6 +228,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   if (mergedUrls.length > 0) {
     validateRedirectUrls(mergedUrls);
   }
+
+  validateScopes(mergedScopes);
 
   if (!options.json) {
     renderUpdateSummary({
