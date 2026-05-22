@@ -117,8 +117,6 @@ export const DEFAULT_SCOPES: readonly string[] = [
   'crm:write',
 ] as const;
 
-export const MIN_CLI_VERSION = '0.0.0';
-
 export const BREVO_DASHBOARD_API_KEYS_URL = 'https://app.brevo.com/settings/keys/api';
 export const BREVO_API_KEY_DOCS_URL = 'https://developers.brevo.com/docs/api-key-authentication';
 export const BREVO_STATUS_URL = 'https://status.brevo.com';

@@ -6,8 +6,6 @@ export const messages = {
     `Update available: ${current} → ${latest}`,
   UPDATE_RUN: (name: string): string => `Run: npm install -g ${name}`,
   UPDATE_RUN_YARN: (name: string): string => `Or:  yarn global add ${name}`,
-  CLI_BELOW_MIN_VERSION: (current: string, required: string): string =>
-    `This project requires Brevo CLI ≥ ${required}, but you are running ${current}. Some commands may not work correctly. Please upgrade.`,
 
   // Auth
   AUTH_WELCOME: 'Welcome to Brevo CLI',

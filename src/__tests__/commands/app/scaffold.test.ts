@@ -152,7 +152,7 @@ describe('app/scaffold', () => {
     expect(vars['{{CLIENT_ID}}']).toBe('api-client');
   });
 
-  it('should pass cliVersion, minCliVersion and DEFAULT_SCOPES into template vars', async () => {
+  it('should pass cliVersion and DEFAULT_SCOPES into template vars', async () => {
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
       diffs: [],
       app: {
@@ -171,7 +171,6 @@ describe('app/scaffold', () => {
     const { loadAllTemplates } = require('../../../templates');
     const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
     expect(vars['{{CLI_VERSION}}']).toBe('9.9.9');
-    expect(vars['{{MIN_CLI_VERSION}}']).toBe('0.0.0');
     expect(vars['{{SCOPES_JSON}}']).toBe(
       JSON.stringify(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']),
     );

@@ -19,7 +19,6 @@ import { registerAll } from '../lib/command-registry';
 import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
 import { startUpdateCheck, notifyUpdate, shouldShowBannerBefore } from '../lib/update-notifier';
 import { skillService } from '../services/skill';
-import { warnIfCliBelowMinVersion } from '../lib/min-version-check';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
 const version: string = pkg.version;
@@ -35,9 +34,6 @@ const showBannerEarly = shouldShowBannerBefore(process.argv);
 if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
   logWarn(messages.TLS_VERIFICATION_DISABLED);
 }
-
-// Warn if running CLI is older than the project's declared minCliVersion.
-warnIfCliBelowMinVersion({ currentVersion: version, argv: process.argv });
 
 const program = new Command();
 

@@ -402,7 +402,6 @@ export interface ProjectConfig {
   appId: string;
   appName: string;
   cliVersion?: string;
-  minCliVersion?: string;
   createdAt?: string;
   updatedAt?: string;
   auth: {
