@@ -164,7 +164,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           appId: opts.appId,
           name: opts.name,
           redirectUri: opts.redirectUri,
-          logoUri: opts.logoUri as string | undefined,
+          logoUri: opts.logoUri,
           yes: Boolean(opts.yes),
           json: Boolean(opts.json),
         }),

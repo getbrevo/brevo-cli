@@ -310,7 +310,7 @@ describe('app/scaffold', () => {
         client_id: 'cli-123',
         client_secret: 'secret',
         redirect_uris: [] as string[],
-        ...(logoUri !== undefined ? { logo_uri: logoUri } : {}),
+        ...(logoUri === undefined ? {} : { logo_uri: logoUri }),
       };
       (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({ diffs: [], app });
       mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-logo') });
