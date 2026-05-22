@@ -17,41 +17,71 @@ function safeJson(value: unknown): string {
   return JSON.stringify(value).replaceAll('<', '\\u003c');
 }
 
+// Styling borrows from Brevo's design system (NAOS/SIB tokens) — iris-purple
+// accent and charcoal-grey neutrals. Fonts use a system stack (no CDN fetch
+// or web-font download) so the page renders the same with or without network.
 const STYLES = `
 :root {
   color-scheme: light dark;
   --bg: #ffffff;
-  --fg: #1a1a1a;
-  --muted: #6b7280;
-  --border: #e5e7eb;
-  --accent: #1463ff;
-  --card: #f9fafb;
-  --chip: #eef2ff;
-  --chip-fg: #1e3a8a;
+  --hero-bg: #f5f5f5;
+  --fg: #1b1b1b;
+  --muted: #696969;
+  --border: #e3e3e3;
+  --accent: #6358de;
+  --card: #ffffff;
+  --card-shadow: 0 1px 2px rgba(28, 28, 28, .08);
+  --chip-bg: #efeefc;
+  --chip-fg: #3c3585;
+  --section-header-bg: #fafafa;
+  --error: #cf1a3b;
+  --radius-card: 16px;
+  --radius-input: 16px;
+  --radius-chip: 20px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f172a;
+    --bg: #0f1224;
+    --hero-bg: #181b30;
     --fg: #f1f5f9;
     --muted: #94a3b8;
-    --border: #1e293b;
-    --accent: #60a5fa;
-    --card: #111c33;
-    --chip: #1e293b;
+    --border: #2a2f4d;
+    --accent: #b3aeef;
+    --card: #1a1e35;
+    --card-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    --chip-bg: #2a2949;
     --chip-fg: #c7d2fe;
+    --section-header-bg: #161930;
+    --error: #ff8d9a;
   }
 }
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  padding: 2.5rem 1.5rem 4rem;
-  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  padding: 0;
+  font: 15px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   background: var(--bg);
   color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-main { max-width: 880px; margin: 0 auto; }
-h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
-.intro { color: var(--muted); margin: 0 0 1.5rem; word-break: break-all; }
+.hero {
+  background: var(--hero-bg);
+  padding: 2.5rem 1.5rem 2rem;
+}
+.hero-inner { max-width: 880px; margin: 0 auto; }
+h1 {
+  font-size: 2rem;
+  line-height: 2.5rem;
+  font-weight: 600;
+  margin: 0 0 .5rem;
+}
+.intro { color: var(--muted); margin: 0; word-break: break-word; }
+main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 4rem;
+}
 .toolbar {
   display: flex;
   gap: .75rem;
@@ -60,57 +90,60 @@ h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
 }
 input[type="search"] {
   flex: 1;
-  padding: .65rem .9rem;
+  padding: .55rem .9rem;
+  font: inherit;
   font-size: 1rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-input);
   background: var(--card);
   color: var(--fg);
 }
 input[type="search"]:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 button.refresh {
-  padding: .65rem 1rem;
-  font-size: .95rem;
+  padding: .5rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  font-size: .9rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-input);
   background: var(--card);
   color: var(--fg);
   cursor: pointer;
+  box-shadow: var(--card-shadow);
 }
-button.refresh:hover { border-color: var(--accent); }
+button.refresh:hover { background: var(--chip-bg); border-color: var(--chip-bg); }
 button.refresh:disabled { opacity: .55; cursor: progress; }
 .refresh-error {
   margin: -.75rem 0 1rem;
-  color: #b91c1c;
+  color: var(--error);
   font-size: .85rem;
-}
-@media (prefers-color-scheme: dark) {
-  .refresh-error { color: #fca5a5; }
 }
 section {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   margin-bottom: 1rem;
   background: var(--card);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
 }
 section[hidden] { display: none; }
 section > h2 {
-  font-size: .85rem;
+  font-size: .75rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: .04em;
+  letter-spacing: .06em;
   color: var(--muted);
   margin: 0;
-  padding: .75rem 1rem;
+  padding: .85rem 1rem;
+  background: var(--section-header-bg);
   border-bottom: 1px solid var(--border);
 }
 ul { list-style: none; margin: 0; padding: .5rem 0; }
-li {
-  padding: .3rem 1rem;
-}
+li { padding: .4rem 1rem; }
 li[hidden] { display: none; }
 details > summary {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
@@ -120,19 +153,19 @@ details > summary {
 }
 details[open] > summary { margin-bottom: .35rem; }
 .endpoints {
-  margin: 0 0 .25rem 1.1rem;
+  margin: .25rem 0 .25rem 1.1rem;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: .25rem .35rem;
+  gap: .35rem;
 }
 .endpoints .ep {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
-  font-size: .8rem;
-  background: var(--chip);
+  font-size: .78rem;
+  background: var(--chip-bg);
   color: var(--chip-fg);
-  padding: .1rem .45rem;
-  border-radius: 4px;
+  padding: .15rem .55rem;
+  border-radius: var(--radius-chip);
 }
 .endpoints .none {
   font-size: .8rem;
@@ -287,9 +320,13 @@ export function renderScopesHtml(entries: ScopeEntry[]): string {
 <style>${STYLES}</style>
 </head>
 <body>
+<header class="hero">
+  <div class="hero-inner">
+    <h1>${title}</h1>
+    <p class="intro">${introWithSpan}</p>
+  </div>
+</header>
 <main>
-  <h1>${title}</h1>
-  <p class="intro">${introWithSpan}</p>
   <div class="toolbar">
     <input type="search" placeholder="${searchPlaceholder}" autofocus>
     <button id="refresh-btn" class="refresh" type="button">${refreshLabel}</button>
