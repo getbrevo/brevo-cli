@@ -1,5 +1,6 @@
 import { ApiClient } from '../../api/client';
 import { createAppService } from '../../services/app';
+import { CLI_VERSION } from '../../lib/cli-version';
 import { getAppCredentials, saveAppCredentials } from '../../lib/config';
 
 jest.mock('../../lib/config', () => ({
@@ -90,6 +91,7 @@ describe('services/app', () => {
         name: 'Test App',
         public: false,
         source: 'cli',
+        cli_version: CLI_VERSION,
       });
       expect(result).toEqual({ ...response, app_id: '1' });
     });
@@ -114,6 +116,7 @@ describe('services/app', () => {
       expect(mockClient.put).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}`, {
         name: 'Updated App',
         redirect_uris: ['http://localhost:3000'],
+        cli_version: CLI_VERSION,
       });
       expect(result).toBeUndefined();
     });
@@ -131,6 +134,7 @@ describe('services/app', () => {
           name: 'X',
           redirect_uris: ['https://x/cb'],
           scopes: ['contacts:read', 'crm:write'],
+          cli_version: CLI_VERSION,
         },
       );
     });
@@ -140,7 +144,7 @@ describe('services/app', () => {
       await service.updateApp('42', { name: 'X', redirect_uris: ['https://x/cb'] });
       expect(mockClient.put).toHaveBeenCalledWith(
         expect.stringContaining('/v3/app-store/apps/42'),
-        { name: 'X', redirect_uris: ['https://x/cb'] },
+        { name: 'X', redirect_uris: ['https://x/cb'], cli_version: CLI_VERSION },
       );
     });
   });
