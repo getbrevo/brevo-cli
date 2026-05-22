@@ -252,8 +252,10 @@ export const createCommand = withCommandHandler(
     resultRedirectUris.forEach((uri, i) => {
       logInfo(`  Redirect URL ${i + 1}: ${uri}`);
     });
-    logInfo(`  ${messages.APP_CREATE_SCOPE_NOTICE([...DEFAULT_SCOPES])}`);
-    process.stdout.write('\n');
+    printBox(
+      messages.APP_CREATE_SCOPE_BOX_TITLE,
+      messages.APP_CREATE_SCOPE_BOX_LINES([...DEFAULT_SCOPES]),
+    );
 
     // 4. Smart hand-off → scaffold
     const { shouldScaffold } = await inquirer.prompt([

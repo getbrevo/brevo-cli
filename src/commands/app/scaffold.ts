@@ -214,5 +214,6 @@ export const scaffoldCommand = withCommandHandler(
       messages.APP_SCAFFOLD_NEXT_STEPS_TITLE,
       messages.APP_SCAFFOLD_NEXT_STEPS_LINES(relativeDir),
     );
+    logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
   },
 );

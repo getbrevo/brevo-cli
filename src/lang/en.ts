@@ -69,8 +69,12 @@ export const messages = {
     'You have reached the maximum number of OAuth apps allowed for your account. To make room, delete an existing app: brevo app delete',
   APP_CREATE_PUBLIC_UNAVAILABLE:
     'Public distribution is not yet available (coming soon). Use `--distribution private` for now.',
-  APP_CREATE_SCOPE_NOTICE: (scopes: string[]): string =>
-    `Created with default scopes: ${scopes.join(', ')}.\n  Run \`${CLI.APP_UPDATE_SCOPE} <scope>\` to add more.`,
+  APP_CREATE_SCOPE_BOX_TITLE: 'Default scopes',
+  APP_CREATE_SCOPE_BOX_LINES: (scopes: string[]): string[] => [
+    scopes.join(', '),
+    '',
+    `Add more with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
+  ],
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -126,6 +130,7 @@ export const messages = {
     `   (or: npm --prefix src/oauth install)`,
     `3. ${CLI.APP_START('oauth')}`,
   ],
+  APP_SCAFFOLD_SCOPES_TIP: `Tip: list available scopes with \`${CLI.APP_SCOPES}\`. Update scopes via \`${CLI.APP_UPDATE_SCOPE} <name>\` (repeatable), or by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPDATE}\`.`,
 
   // App start
   APP_START_FEATURE_NOT_FOUND: (entryFile: string) =>

@@ -50,6 +50,13 @@ describe('messages (lang/en)', () => {
     expect(lines[3]).toContain('oauth');
   });
 
+  it('should have a scaffold scopes tip that points at both update paths', () => {
+    const tip = messages.APP_SCAFFOLD_SCOPES_TIP;
+    expect(tip).toContain('brevo app available-scopes');
+    expect(tip).toContain('brevo app update --scope');
+    expect(tip).toContain('app-config.json');
+  });
+
   it('should have working app update messages', () => {
     expect(messages.APP_UPDATE_INVALID_REDIRECT_URL('ftp://bad')).toContain('ftp://bad');
     expect(messages.APP_UPDATE_INVALID_REDIRECT_PROTOCOL('ftp://bad')).toContain('ftp://bad');
@@ -62,18 +69,20 @@ describe('messages (lang/en)', () => {
   });
 
   describe('scope-related messages', () => {
-    it('exports the create-time info notice that names the four defaults and points to the update command', () => {
-      const notice = messages.APP_CREATE_SCOPE_NOTICE([
+    it('exports the create-time scope box (title + lines) naming the four defaults and pointing at the update command', () => {
+      expect(messages.APP_CREATE_SCOPE_BOX_TITLE).toMatch(/scope/i);
+      const lines = messages.APP_CREATE_SCOPE_BOX_LINES([
         'contacts:read',
         'contacts:write',
         'crm:read',
         'crm:write',
       ]);
-      expect(notice).toContain('contacts:read');
-      expect(notice).toContain('contacts:write');
-      expect(notice).toContain('crm:read');
-      expect(notice).toContain('crm:write');
-      expect(notice).toContain('brevo app update --scope');
+      const joined = lines.join('\n');
+      expect(joined).toContain('contacts:read');
+      expect(joined).toContain('contacts:write');
+      expect(joined).toContain('crm:read');
+      expect(joined).toContain('crm:write');
+      expect(joined).toContain('brevo app update --scope');
     });
 
     it('exports the update-time appended summary', () => {

@@ -107,6 +107,8 @@ describe('app/scaffold', () => {
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('scaffolded');
     expect(output).toContain('brevo app start oauth');
+    expect(output).toContain('brevo app available-scopes');
+    expect(output).toContain('app-config.json');
   });
 
   it('should output JSON when --json flag is used', async () => {

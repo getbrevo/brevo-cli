@@ -446,7 +446,7 @@ describe('app/create', () => {
     await createCommand({ name: 'Test App', distribution: 'private' });
 
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
-    expect(stdoutCalls).toContain('Created with default scopes');
+    expect(stdoutCalls).toContain('Default scopes');
     expect(stdoutCalls).toContain('contacts:read');
     expect(stdoutCalls).toContain('brevo app update --scope');
   });
@@ -468,6 +468,6 @@ describe('app/create', () => {
     });
 
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
-    expect(stdoutCalls).not.toContain('Created with default scopes');
+    expect(stdoutCalls).not.toContain('Default scopes');
   });
 });
