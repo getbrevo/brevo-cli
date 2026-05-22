@@ -3,7 +3,7 @@ import { OAUTH_SCOPES_URL } from '../../lib/constants';
 import { ApiError, CliError } from '../../lib/errors';
 
 const mockFetch = jest.fn();
-globalThis.fetch = mockFetch as unknown as typeof fetch;
+globalThis.fetch = mockFetch;
 
 describe('fetchSupportedScopes', () => {
   beforeEach(() => mockFetch.mockReset());

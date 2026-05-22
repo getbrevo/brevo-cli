@@ -63,8 +63,8 @@ describe('app/scopes', () => {
       .split('\n')
       .reverse()
       .find((l) => l.trim().startsWith('{'));
-    expect(lastJsonLine).toBeDefined();
-    expect(JSON.parse(lastJsonLine!)).toEqual({
+    if (lastJsonLine === undefined) throw new Error('expected JSON output line');
+    expect(JSON.parse(lastJsonLine)).toEqual({
       scopes: ['contacts:read', 'crm:write'],
     });
     expect(out).not.toContain('brevo app update --scope');

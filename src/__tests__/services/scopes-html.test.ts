@@ -1,9 +1,9 @@
 import { renderScopesHtml } from '../../services/scopes-html';
 
+const DATA_BLOCK_RE = /<script type="application\/json" id="scopes-data">([\s\S]*?)<\/script>/;
+
 function extractDataPayload(html: string): unknown {
-  const match = html.match(
-    /<script type="application\/json" id="scopes-data">([\s\S]*?)<\/script>/,
-  );
+  const match = DATA_BLOCK_RE.exec(html);
   expect(match).not.toBeNull();
   return JSON.parse(String(match![1]));
 }
@@ -48,12 +48,10 @@ describe('renderScopesHtml', () => {
       { name: '</script><b>x</b>', category: 'a', apiEndpoints: ['</script>'] },
     ]);
 
-    const match = html.match(
-      /<script type="application\/json" id="scopes-data">([\s\S]*?)<\/script>/,
-    );
+    const match = DATA_BLOCK_RE.exec(html);
     expect(match).not.toBeNull();
     expect(String(match![1])).not.toContain('</script>');
-    expect(String(match![1])).toContain('\\u003c/script>');
+    expect(String(match![1])).toContain(String.raw`\u003c/script>`);
   });
 
   it('exposes self-contained assets (1 style block, no external links)', () => {

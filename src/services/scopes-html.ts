@@ -14,7 +14,7 @@ function escapeHtml(value: string): string {
 function safeJson(value: unknown): string {
   // Safe for embedding inside <script type="application/json">: only
   // </script> can end the block, so we just neutralise '<'.
-  return JSON.stringify(value).replaceAll('<', '\\u003c');
+  return JSON.stringify(value).replaceAll('<', String.raw`\u003c`);
 }
 
 // Styling borrows from Brevo's design system (NAOS/SIB tokens) — iris-purple

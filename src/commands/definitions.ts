@@ -153,7 +153,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           appId: opts.appId,
           name: opts.name,
           redirectUri: opts.redirectUri,
-          scope: opts.scope as string[] | undefined,
+          scope: opts.scope,
           yes: Boolean(opts.yes),
           json: Boolean(opts.json),
         }),
