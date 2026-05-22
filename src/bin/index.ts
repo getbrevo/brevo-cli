@@ -73,6 +73,10 @@ program
         `  brevo skill:cli install   [--json]             Install the brevo-cli Claude Code skill`,
         `  brevo skill:cli uninstall [--json]             Remove the brevo-cli skill`,
         ``,
+        `Scope commands:`,
+        `  brevo app available-scopes [--web] [--json]    List OAuth scopes supported by the IdP`,
+        `                                                 (--web opens the catalog in a local browser page)`,
+        ``,
         `Run \`brevo <command> --help\` for details on a specific command.`,
         ``,
         `Examples:`,
@@ -82,6 +86,7 @@ program
         `  $ brevo app list --json                         # list apps as JSON`,
         `  $ brevo app scaffold --app-id APPID             # generate starter code`,
         `  $ brevo app start oauth --port 3000             # start OAuth test server`,
+        `  $ brevo app available-scopes --web              # browse OAuth scope catalog`,
         ``,
       ].join('\n');
     },
