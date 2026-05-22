@@ -206,7 +206,7 @@ export const messages = {
   APP_SCOPES_WEB_FOOTER: 'Served locally by the Brevo CLI. Press Ctrl+C in the terminal to stop.',
   APP_SCOPES_WEB_REFRESH: 'Refresh',
   APP_SCOPES_WEB_REFRESHING: 'Refreshing…',
-  APP_SCOPES_WEB_REFRESH_FAILED: 'Refresh failed. Try again.',
+  APP_SCOPES_WEB_REFRESH_FAILED: `Refresh failed. Please restart \`${CLI.APP_SCOPES} --web\` to retry.`,
   APP_SCOPES_WEB_ENDPOINTS_LABEL: 'API endpoints',
   APP_SCOPES_WEB_NO_ENDPOINTS: 'No API endpoints listed for this scope.',
   OAUTH_METADATA_MISSING_SCOPES: 'IdP scopes response did not include a scopes array.',
