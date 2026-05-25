@@ -63,8 +63,10 @@ export const messages = {
   APP_CREATE_REDIRECT_ANOTHER: 'Add another redirect URL?',
   APP_CREATE_REDIRECT_EMPTY: 'Redirect URL cannot be empty',
   APP_CREATE_REDIRECT_INVALID: 'Invalid format. Must start with http:// or https://',
-  APP_CREATE_LOGO_PROMPT: 'App logo URL (optional, leave blank to skip):',
-  APP_CREATE_LOGO_INVALID: 'Invalid format. Must be a valid http:// or https:// URL.',
+  APP_CREATE_LOGO_PROMPT:
+    'App logo URL (e.g. https://example.com/logo.png, optional — leave blank to skip):',
+  APP_CREATE_LOGO_INVALID:
+    'Invalid format. Must be a valid https:// URL (e.g. https://example.com/logo.png).',
   APP_CREATE_PORT_IN_USE: (port: number, available: number) =>
     `Port ${port} is in use. Defaulting to port ${available}.`,
   APP_CREATE_PORT_SCAN_FAILED: (port: number) =>

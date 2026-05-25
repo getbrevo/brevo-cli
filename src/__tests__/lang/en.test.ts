@@ -55,6 +55,11 @@ describe('messages (lang/en)', () => {
     expect(messages.APP_UPDATE_INVALID_REDIRECT_PROTOCOL('ftp://bad')).toContain('ftp://bad');
   });
 
+  it('should advertise https for the logo URL', () => {
+    expect(messages.APP_CREATE_LOGO_PROMPT).toContain('https://');
+    expect(messages.APP_CREATE_LOGO_INVALID).toContain('https://');
+  });
+
   it('should have proper WHOAMI messages', () => {
     expect(messages.WHOAMI_AUTHENTICATED('a@b.com', 'Corp')).toContain('a@b.com');
     expect(messages.WHOAMI_AUTHENTICATED('a@b.com', 'Corp')).toContain('Corp');
