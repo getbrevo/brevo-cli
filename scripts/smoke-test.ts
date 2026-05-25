@@ -483,9 +483,46 @@ interface AppContext {
   redirectUri: string;
   renamedTo: string;
   extraRedirectUri: string;
+  logoUri: string;
+  updatedLogoUri: string;
+  extraScope: string | null;
 }
 
 let appCtx: AppContext | null = null;
+
+// Mirror DEFAULT_SCOPES from src/lib/constants.ts. The smoke test is black-box
+// and intentionally doesn't import internal constants — if the CLI changes the
+// default starter set, that's a user-visible behaviour change and this list
+// should be updated deliberately in the same PR.
+const SMOKE_DEFAULT_SCOPES = ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'];
+
+// Picked by stepAvailableScopes from the IdP's scope catalog and consumed by
+// stepAppUpdate to exercise the `--scope` append path. null means the IdP
+// returned no scope outside DEFAULT_SCOPES (or the call hadn't run yet), in
+// which case the append assertion is skipped.
+let availableScopeToAppend: string | null = null;
+
+// Verify `brevo app available-scopes --json` returns a well-formed catalog and
+// stash a non-default scope (if any) for stepAppUpdate's append assertion. The
+// command hits the public IdP well-known endpoint and is auth-independent.
+function stepAvailableScopes(state: State): string {
+  const r = execOrThrow('brevo', ['app', 'available-scopes', '--json'], state);
+  const parsed = parseJson<Record<string, unknown>>(r.stdout);
+  const rawScopes = parsed.scopes;
+  if (!Array.isArray(rawScopes)) {
+    throw new Error(
+      `available-scopes --json did not return { scopes: [...] }: ${JSON.stringify(parsed).slice(0, 200)}`,
+    );
+  }
+  const scopes = rawScopes.filter((s): s is string => typeof s === 'string');
+  // Pick the first scope outside DEFAULT_SCOPES so stepAppUpdate exercises the
+  // genuine append path. If the IdP exposes only the defaults, the append test
+  // is skipped — the existing "scopes preserved" assertion still has value.
+  availableScopeToAppend = scopes.find((s) => !SMOKE_DEFAULT_SCOPES.includes(s)) ?? null;
+  return availableScopeToAppend
+    ? `${scopes.length} scopes returned; will append "${availableScopeToAppend}" on update`
+    : `${scopes.length} scopes returned; no non-default scope available — append assertion will be skipped`;
+}
 
 async function stepAppCreate(state: State): Promise<string> {
   // Readable, traceable name. Concurrent CI runs are namespaced by GH run id.
@@ -494,11 +531,15 @@ async function stepAppCreate(state: State): Promise<string> {
     : String(Date.now());
   const name = `brevo-cli-smoke-test-${stamp}`;
   const redirectUri = `http://localhost:${state.opts.port}/auth/callback`;
+  const logoUri = 'https://example.com/smoke-logo.png';
   appCtx = {
     name,
     redirectUri,
     renamedTo: `${name}-renamed`,
     extraRedirectUri: 'https://example.com/cb',
+    logoUri,
+    updatedLogoUri: 'https://example.com/smoke-logo-updated.png',
+    extraScope: availableScopeToAppend,
   };
 
   const create = execOrThrow(
@@ -512,6 +553,8 @@ async function stepAppCreate(state: State): Promise<string> {
       'private',
       '--redirect-uri',
       redirectUri,
+      '--logo-uri',
+      logoUri,
       '--json',
     ],
     state,
@@ -523,12 +566,21 @@ async function stepAppCreate(state: State): Promise<string> {
   if (!appId) throw new Error(`no app id in create output: ${create.stdout.slice(0, 200)}`);
   state.mainAppId = appId;
 
+  // `brevo app create --json` emits `logoUri` (camelCase) when the flag is
+  // supplied. Accept `logo_uri` too as a forward-compat hedge.
+  const responseLogoUri = created.logoUri ?? created.logo_uri;
+  if (responseLogoUri !== logoUri) {
+    throw new Error(
+      `create --json response logoUri=${JSON.stringify(responseLogoUri)}, expected ${logoUri}`,
+    );
+  }
+
   // List endpoint lags create — retry with backoff before declaring missing.
   if (!(await findAppInList(state, appId, true))) {
     throw new Error(`app ${appId} not present in list after create (after retries)`);
   }
 
-  return `app ${appId} created + listed`;
+  return `app ${appId} created with --logo-uri + listed`;
 }
 
 function stepAppCredentials(state: State): string {
@@ -549,24 +601,26 @@ function stepAppUpdate(state: State): string {
   if (!state.mainAppId) throw new Error('no mainAppId from create step');
   if (!appCtx) throw new Error('no appCtx from create step');
   const appId = state.mainAppId;
-  const { redirectUri, renamedTo, extraRedirectUri } = appCtx;
+  const { redirectUri, renamedTo, extraRedirectUri, updatedLogoUri, extraScope } = appCtx;
 
-  const updated = execOrThrow(
-    'brevo',
-    [
-      'app',
-      'update',
-      '--app-id',
-      appId,
-      '--name',
-      renamedTo,
-      '--redirect-uri',
-      extraRedirectUri,
-      '--yes',
-      '--json',
-    ],
-    state,
-  );
+  const args = [
+    'app',
+    'update',
+    '--app-id',
+    appId,
+    '--name',
+    renamedTo,
+    '--redirect-uri',
+    extraRedirectUri,
+    '--logo-uri',
+    updatedLogoUri,
+  ];
+  if (extraScope) {
+    args.push('--scope', extraScope);
+  }
+  args.push('--yes', '--json');
+
+  const updated = execOrThrow('brevo', args, state);
   const updatedJson = parseJson<Record<string, unknown>>(updated.stdout);
 
   const rawUpdatedId = updatedJson.app_id;
@@ -599,7 +653,38 @@ function stepAppUpdate(state: State): string {
     );
   }
 
-  return `renamed + redirect_uri appended (response validated)`;
+  // --logo-uri replaces: the new value must show up in the response (BEX-194).
+  if (updatedJson.logo_uri !== updatedLogoUri) {
+    throw new Error(
+      `update logo_uri=${JSON.stringify(updatedJson.logo_uri)}, expected ${updatedLogoUri}`,
+    );
+  }
+
+  // --scope appends, de-duped, order-preserving (BEX-197). The PUT body now
+  // always carries scopes, so the response must echo the merged set: every
+  // DEFAULT_SCOPES entry (preserved from create) plus the appended one (when
+  // we had a non-default scope to test with).
+  const updatedScopes = updatedJson.scopes;
+  if (!Array.isArray(updatedScopes)) {
+    throw new Error(`update scopes is not an array: ${JSON.stringify(updatedScopes)}`);
+  }
+  for (const s of SMOKE_DEFAULT_SCOPES) {
+    if (!updatedScopes.includes(s)) {
+      throw new Error(
+        `update scopes missing preserved default ${s}: ${JSON.stringify(updatedScopes)}`,
+      );
+    }
+  }
+  if (extraScope && !updatedScopes.includes(extraScope)) {
+    throw new Error(
+      `update scopes missing appended ${extraScope}: ${JSON.stringify(updatedScopes)}`,
+    );
+  }
+
+  const scopeDetail = extraScope
+    ? `scopes preserved + "${extraScope}" appended`
+    : 'scopes preserved (no append — IdP only exposes defaults)';
+  return `renamed + redirect_uri appended + logo_uri set + ${scopeDetail}`;
 }
 
 async function stepVerifyRename(state: State): Promise<string> {
@@ -708,6 +793,7 @@ function stepScaffold(state: State): string {
     const found = candidates.filter((f) => existsSync(join(d, f)));
     if (found.length > 0) {
       state.mainScaffoldDir = d;
+      verifyScaffoldConfig(state, d);
       return `scaffolded into ${d} (${found.join(', ')})`;
     }
   }
@@ -721,6 +807,7 @@ function stepScaffold(state: State): string {
       const found = candidates.filter((f) => existsSync(join(sub, f)));
       if (found.length > 0) {
         state.mainScaffoldDir = sub;
+        verifyScaffoldConfig(state, sub);
         return `scaffolded into ${sub} (${found.join(', ')})`;
       }
     }
@@ -728,6 +815,49 @@ function stepScaffold(state: State): string {
     // ignore
   }
   throw new Error(`no expected scaffold files in ${tmp} or its subdirectories`);
+}
+
+// End-to-end check that the server actually persisted logo_uri and scopes:
+// scaffold fetches the live app and templates them into app-config.json. By
+// the time this runs, stepAppUpdate has already replaced the logo and (when
+// possible) appended a non-default scope, so the file should reflect both.
+function verifyScaffoldConfig(state: State, dir: string): void {
+  const cfgPath = join(dir, 'app-config.json');
+  if (!existsSync(cfgPath) || !appCtx) return;
+
+  let cfg: Record<string, unknown>;
+  try {
+    cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  } catch (e) {
+    throw new Error(`scaffold app-config.json parse failed: ${e instanceof Error ? e.message : e}`);
+  }
+
+  if (cfg.logoUri !== appCtx.updatedLogoUri) {
+    throw new Error(
+      `scaffold app-config.json logoUri=${JSON.stringify(cfg.logoUri)}, expected ${appCtx.updatedLogoUri}`,
+    );
+  }
+
+  const auth = cfg.auth as { scopes?: unknown } | undefined;
+  const scopes = auth?.scopes;
+  if (!Array.isArray(scopes)) {
+    throw new Error(
+      `scaffold app-config.json auth.scopes is not an array: ${JSON.stringify(scopes)}`,
+    );
+  }
+  for (const s of SMOKE_DEFAULT_SCOPES) {
+    if (!scopes.includes(s)) {
+      throw new Error(
+        `scaffold app-config.json auth.scopes missing default ${s}: ${JSON.stringify(scopes)}`,
+      );
+    }
+  }
+  if (appCtx.extraScope && !scopes.includes(appCtx.extraScope)) {
+    throw new Error(
+      `scaffold app-config.json auth.scopes missing appended ${appCtx.extraScope}: ${JSON.stringify(scopes)}`,
+    );
+  }
+  logToFile(state, `scaffold app-config.json verified (logoUri + scopes)`);
 }
 
 async function stepStartBriefly(state: State): Promise<string> {
@@ -1133,6 +1263,7 @@ async function main(): Promise<void> {
     ['Pre-flight', stepPreflight],
     ['Reinstall local', stepReinstall],
     ['Auth lifecycle', stepAuth],
+    ['Available scopes', stepAvailableScopes],
     ['App create', stepAppCreate],
     ['App credentials', stepAppCredentials],
     ['App update', stepAppUpdate],
