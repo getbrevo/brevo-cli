@@ -16,6 +16,7 @@ interface UpdateOptions {
   appId?: string;
   name?: string;
   redirectUri?: string[];
+  logoUri?: string;
   scope?: string[];
   yes?: boolean;
   json?: boolean;
@@ -26,6 +27,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   const hasFlags = !!(
     options.name !== undefined ||
     (options.redirectUri && options.redirectUri.length > 0) ||
+    options.logoUri !== undefined ||
     (options.scope && options.scope.length > 0)
   );
 
@@ -123,6 +125,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
         nextName: config!.appName,
         currentUrls: remote.redirect_uris ?? [],
         nextUrls: redirectUrls,
+        currentLogoUri: remote.logo_uri,
+        nextLogoUri: config!.logoUri,
         currentScopes: remote.scopes ?? [],
         nextScopes,
       });
@@ -148,6 +152,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       name: config!.appName,
       redirect_uris: redirectUrls,
       scopes: nextScopes,
+      ...(config!.logoUri ? { logo_uri: config!.logoUri } : {}),
     });
     spinner.stop();
 
@@ -159,6 +164,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
         name: config!.appName,
         redirect_uris: redirectUrls,
         scopes: nextScopes,
+        ...(config!.logoUri ? { logo_uri: config!.logoUri } : {}),
       });
       return;
     }
@@ -169,6 +175,9 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     }
     logInfo(`  Redirect URLs: ${redirectUrls.join(', ')}`);
     logInfo(`  Scopes:        ${nextScopes.length > 0 ? nextScopes.join(', ') : '(none)'}`);
+    if (config!.logoUri) {
+      logInfo(`  Logo URL:      ${config!.logoUri}`);
+    }
     process.stdout.write('\n');
     return;
   }
@@ -176,6 +185,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   // Flags provided: merge with existing values
   let existingName: string | undefined;
   let existingRedirectUrls: string[] = [];
+  let existingLogoUri: string | undefined;
   let existingScopes: string[] = [];
 
   const configRedirectUrls = config?.auth?.redirectUrls;
@@ -186,6 +196,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     // Use config as baseline only when it can safely preserve redirect URLs
     existingName = config.appName;
     existingRedirectUrls = configRedirectUrls;
+    existingLogoUri = config.logoUri;
     existingScopes = config.auth?.scopes ?? [];
   } else if (config && shouldWriteBack) {
     // Config matches the app, but missing/empty redirect URLs would otherwise clear
@@ -193,15 +204,17 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     const app = await fetchExistingApp(appId, options.json);
     existingName = config.appName ?? app.name;
     existingRedirectUrls = app.redirect_uris ?? [];
+    existingLogoUri = config.logoUri ?? app.logo_uri;
     existingScopes = config.auth?.scopes ?? app.scopes ?? [];
   } else {
     const app = await fetchExistingApp(appId, options.json);
     existingName = app.name;
     existingRedirectUrls = app.redirect_uris ?? [];
+    existingLogoUri = app.logo_uri;
     existingScopes = app.scopes ?? [];
   }
 
-  // Merge: --name wins, --redirect-uri appends (deduplicated)
+  // Merge: --name wins, --redirect-uri appends (deduplicated), --logo-uri wins
   const finalName = options.name ?? existingName;
   const appendedUrls = options.redirectUri ?? [];
   const mergedUrls = [...existingRedirectUrls];
@@ -210,6 +223,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       mergedUrls.push(url);
     }
   }
+  const finalLogoUri = options.logoUri ?? existingLogoUri;
 
   const appendedScopes = options.scope ?? [];
   const mergedScopes = [...existingScopes];
@@ -238,6 +252,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       nextName: finalName,
       currentUrls: existingRedirectUrls,
       nextUrls: mergedUrls,
+      currentLogoUri: existingLogoUri,
+      nextLogoUri: finalLogoUri,
       currentScopes: existingScopes,
       nextScopes: mergedScopes,
     });
@@ -268,6 +284,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     name: finalName,
     redirect_uris: mergedUrls,
     scopes: mergedScopes,
+    ...(finalLogoUri ? { logo_uri: finalLogoUri } : {}),
   });
   spinner.stop();
 
@@ -278,6 +295,9 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     const updatedConfig = { ...config };
     if (options.name) {
       updatedConfig.appName = options.name;
+    }
+    if (options.logoUri) {
+      updatedConfig.logoUri = options.logoUri;
     }
     updatedConfig.auth = {
       ...updatedConfig.auth,
@@ -293,6 +313,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       name: finalName,
       redirect_uris: mergedUrls,
       scopes: mergedScopes,
+      ...(finalLogoUri ? { logo_uri: finalLogoUri } : {}),
     });
     return;
   }
@@ -303,6 +324,9 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   }
   logInfo(`  Redirect URLs: ${mergedUrls.length > 0 ? mergedUrls.join(', ') : '(none)'}`);
   logInfo(`  Scopes:        ${mergedScopes.length > 0 ? mergedScopes.join(', ') : '(none)'}`);
+  if (finalLogoUri) {
+    logInfo(`  Logo URL:      ${finalLogoUri}`);
+  }
   if (shouldWriteBack && config) {
     logInfo('  app-config.json updated.');
   }
@@ -329,10 +353,22 @@ function renderUpdateSummary(params: {
   nextName: string | undefined;
   currentUrls: string[];
   nextUrls: string[];
+  currentLogoUri?: string;
+  nextLogoUri?: string;
   currentScopes?: string[];
   nextScopes?: string[];
 }): void {
-  const { appId, currentName, nextName, currentUrls, nextUrls, currentScopes, nextScopes } = params;
+  const {
+    appId,
+    currentName,
+    nextName,
+    currentUrls,
+    nextUrls,
+    currentLogoUri,
+    nextLogoUri,
+    currentScopes,
+    nextScopes,
+  } = params;
   const currentSet = new Set(currentUrls);
   const nextSet = new Set(nextUrls);
   const addedSet = new Set(nextUrls.filter((u) => !currentSet.has(u)));
@@ -356,7 +392,6 @@ function renderUpdateSummary(params: {
     const prefix = i === 0 ? '  Redirect URLs: ' : '                 ';
     logInfo(`${prefix}${line}`);
   });
-
   if (nextScopes !== undefined) {
     const currentScopesSet = new Set(currentScopes ?? []);
     const nextScopesSet = new Set(nextScopes);
@@ -373,6 +408,17 @@ function renderUpdateSummary(params: {
       const prefix = i === 0 ? '  Scopes:        ' : '                 ';
       logInfo(`${prefix}${line}`);
     });
+  }
+
+  if (currentLogoUri || nextLogoUri) {
+    const label = '  Logo URL:      ';
+    if (currentLogoUri && nextLogoUri && currentLogoUri !== nextLogoUri) {
+      logInfo(`${label}${currentLogoUri} → ${nextLogoUri}`);
+    } else if (nextLogoUri) {
+      logInfo(`${label}${nextLogoUri}`);
+    } else if (currentLogoUri) {
+      logInfo(`${label}${currentLogoUri} (unchanged)`);
+    }
   }
 
   logInfo('');

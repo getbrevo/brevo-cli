@@ -57,6 +57,7 @@ export const listCommand = withCommandHandler(
       } else {
         process.stdout.write(`    Redirect URLs: (none)\n`);
       }
+      process.stdout.write(`    Logo URL:      ${app.logo_uri || '(none)'}\n`);
       const scopes = app.scopes ?? [];
       process.stdout.write(
         `    Scopes:        ${scopes.length > 0 ? scopes.join(', ') : '(none)'}\n`,

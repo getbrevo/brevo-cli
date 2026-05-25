@@ -61,6 +61,10 @@ export const messages = {
   APP_CREATE_REDIRECT_ANOTHER: 'Add another redirect URL?',
   APP_CREATE_REDIRECT_EMPTY: 'Redirect URL cannot be empty',
   APP_CREATE_REDIRECT_INVALID: 'Invalid format. Must start with http:// or https://',
+  APP_CREATE_LOGO_PROMPT:
+    'App logo URL (e.g. https://example.com/logo.png, optional — leave blank to skip):',
+  APP_CREATE_LOGO_INVALID:
+    'Invalid format. Must be a valid https:// URL (e.g. https://example.com/logo.png).',
   APP_CREATE_PORT_IN_USE: (port: number, available: number) =>
     `Port ${port} is in use. Defaulting to port ${available}.`,
   APP_CREATE_PORT_SCAN_FAILED: (port: number) =>
@@ -99,7 +103,7 @@ export const messages = {
   APP_UPDATE_CANCELLED: 'Update cancelled.',
   APP_UPDATE_SUCCESS: 'App updated.',
   APP_UPDATE_NOTHING_TO_UPDATE:
-    'Nothing to update. Provide --app-id with --name or --redirect-uri, or run from a scaffolded project directory.',
+    'Nothing to update. Provide --app-id with --name, --redirect-uri, --scope, or --logo-uri, or run from a scaffolded project directory.',
   APP_UPDATE_NO_APP_RESOLVED:
     'Cannot determine which app to update. Provide --app-id or run from a directory with app-config.json.',
   APP_UPDATE_APP_ID_MISMATCH: (flagId: string, configId: string) =>

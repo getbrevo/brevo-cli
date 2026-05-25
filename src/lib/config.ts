@@ -402,6 +402,7 @@ export function deleteAppName(appId: string): void {
 export interface ProjectConfig {
   appId: string;
   appName: string;
+  logoUri?: string;
   cliVersion?: string;
   createdAt?: string;
   updatedAt?: string;

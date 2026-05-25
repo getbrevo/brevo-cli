@@ -106,7 +106,7 @@ src/
 - **Commands** are registered declaratively in `src/commands/definitions.ts` — handler functions live in their own files.
 - **Error handling** uses `CliError` (user-facing) and `ApiError` (HTTP errors) from `src/lib/errors.ts`. Commands are wrapped with `withCommandHandler()`.
 - **JSON output** — every command supports `--json` via `jsonOutput()` from `src/lib/json-output.ts`.
-- **`brevo app update`** supports `--name`, `--redirect-uri` (repeatable, appends), and `--app-id` flags. Without flags it pushes the full `app-config.json` (current behavior). With flags it merges: flag values override/append existing values from `app-config.json` or the API. After a successful update, `app-config.json` is written back if it exists and the app ID matches.
+- **`brevo app update`** supports `--name`, `--redirect-uri` (repeatable, appends), `--logo-uri`, and `--app-id` flags. Without flags it pushes the full `app-config.json` (current behavior; includes `logoUri` when non-empty). With flags it merges: flag values override/append existing values from `app-config.json` or the API. After a successful update, `app-config.json` is written back if it exists and the app ID matches (and `--logo-uri` writes the new value into the file).
 - **Scaffold templates** in `src/templates/files/*.tmpl` use `{{VARIABLE}}` placeholders. Variables are defined in `scaffold.ts` and listed in `templates/index.ts`. Templates must reference both `npm` and `yarn` (not npm-only). Use `brevo app start oauth` (not `brevo app start`).
 - **Credentials** are stored in `~/.brevo/credentials.json`. App credentials (clientId/clientSecret) are cached per app ID under an `apps` key.
 

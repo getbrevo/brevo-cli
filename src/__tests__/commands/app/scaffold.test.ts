@@ -301,4 +301,29 @@ describe('app/scaffold', () => {
     expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
     expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
+
+  it.each<[string, string | undefined, string]>([
+    ['present', 'https://example.com/logo.png', 'https://example.com/logo.png'],
+    ['absent', undefined, ''],
+  ])(
+    'should pass {{LOGO_URI}} into template vars when logo_uri is %s',
+    async (_label, logoUri, expected) => {
+      const app = {
+        app_id: '1',
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret',
+        redirect_uris: [] as string[],
+        ...(logoUri === undefined ? {} : { logo_uri: logoUri }),
+      };
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({ diffs: [], app });
+      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-logo') });
+
+      await scaffoldCommand({ appId: '1' });
+
+      const { loadAllTemplates } = require('../../../templates');
+      const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{LOGO_URI}}']).toBe(expected);
+    },
+  );
 });

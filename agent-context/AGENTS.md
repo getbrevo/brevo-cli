@@ -64,8 +64,8 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 | `brevo whoami` | Show the authenticated account (`--json`) |
 | `brevo app init` | Guided setup (login, create, scaffold) |
 | `brevo app list` | List OAuth apps (`--json`) |
-| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--json`). Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
-| `brevo app update` | Update name / redirect URLs / scopes (`--app-id`, `--name`, `--redirect-uri`, `--scope` repeatable appends, `--yes`, `--json`) |
+| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--logo-uri`, `--json`). Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
+| `brevo app update` | Update name / redirect URLs / scopes / logo (`--app-id`, `--name`, `--redirect-uri`, `--scope` repeatable appends, `--logo-uri`, `--yes`, `--json`) |
 | `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`, `--json`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`, `--json`) |
 | `brevo app scaffold` | Generate starter OAuth code (`--app-id`, `--json`) |
@@ -79,7 +79,7 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 ## Conventions
 
 - **Every command supports `--json`** — prefer this when parsing output programmatically.
-- **`app-config.json`** in the working directory pins the linked app — `brevo app update` and `brevo app start` read from it.
+- **`app-config.json`** in the working directory pins the linked app — `brevo app update` and `brevo app start` read from it. The optional top-level `logoUri` string is pushed as `logo_uri` by a flagless `brevo app update`; leave it empty to keep the API value untouched.
 - **Credentials** live at `~/.brevo/credentials.json`. Never commit this file or any `.env.local`.
 - **Non-interactive auth:** `BREVO_API_KEY=xkeysib-... brevo login`. The legacy `--api-key` flag was removed because it leaks into shell history.
 - **Skip prompts:** `--force` for delete/logout; `--yes` for `app update`.
