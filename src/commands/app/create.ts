@@ -1,7 +1,7 @@
 import inquirer from 'inquirer';
-import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI } from '../../lib/constants';
+import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
-import { logSuccess, logInfo, logError } from '../../lib/logger';
+import { logInfo, logError } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { ApiError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
@@ -208,7 +208,7 @@ export const createCommand = withCommandHandler(
       name: appName!,
       public: distribution === 'public',
       redirect_uris: redirectUrls,
-      scopes: ['all'],
+      scopes: [...DEFAULT_SCOPES],
       ...(logoUri ? { logo_uri: logoUri } : {}),
     };
 
@@ -241,7 +241,7 @@ export const createCommand = withCommandHandler(
             name: retry.name,
             public: distribution === 'public',
             redirect_uris: redirectUrls,
-            scopes: ['all'],
+            scopes: [...DEFAULT_SCOPES],
             ...(logoUri ? { logo_uri: logoUri } : {}),
           });
           retrySpinner.stop();
@@ -277,18 +277,18 @@ export const createCommand = withCommandHandler(
       return;
     }
 
-    logSuccess(messages.APP_CREATE_SUCCESS);
-    logInfo(`  App name:      ${appName}`);
-    logInfo(`  App ID:        ${result.app_id}`);
-    logInfo(`  Client ID:     ${result.client_id}`);
-    logInfo(`  Client secret: ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`);
-    resultRedirectUris.forEach((uri, i) => {
-      logInfo(`  Redirect URL ${i + 1}: ${uri}`);
-    });
-    if (logoUri) {
-      logInfo(`  Logo URL:      ${logoUri}`);
-    }
-    process.stdout.write('\n');
+    const boxLines = [
+      `App name:       ${appName}`,
+      `App ID:         ${result.app_id}`,
+      `Client ID:      ${result.client_id}`,
+      `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
+      ...resultRedirectUris.map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
+      ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
+      `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_SCOPES].join(', ')}`,
+      '',
+      messages.APP_CREATE_BOX_SCOPE_HINT,
+    ];
+    printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 
     // 4. Smart hand-off → scaffold
     const { shouldScaffold } = await inquirer.prompt([

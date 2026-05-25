@@ -107,6 +107,8 @@ describe('app/scaffold', () => {
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('scaffolded');
     expect(output).toContain('brevo app start oauth');
+    expect(output).toContain('brevo app available-scopes');
+    expect(output).toContain('app-config.json');
   });
 
   it('should output JSON when --json flag is used', async () => {
@@ -152,7 +154,7 @@ describe('app/scaffold', () => {
     expect(vars['{{CLIENT_ID}}']).toBe('api-client');
   });
 
-  it('should pass cliVersion and minCliVersion into template vars', async () => {
+  it('should pass cliVersion and DEFAULT_SCOPES into template vars', async () => {
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
       diffs: [],
       app: {
@@ -171,7 +173,9 @@ describe('app/scaffold', () => {
     const { loadAllTemplates } = require('../../../templates');
     const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
     expect(vars['{{CLI_VERSION}}']).toBe('9.9.9');
-    expect(vars['{{MIN_CLI_VERSION}}']).toBe('0.0.0');
+    expect(vars['{{SCOPES_JSON}}']).toBe(
+      JSON.stringify(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']),
+    );
   });
 
   it('should prefer localhost redirect URI over production URLs', async () => {

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { splitScopes } from './validators';
 
 // ──────────────── Directory ────────────────
 
@@ -403,7 +404,6 @@ export interface ProjectConfig {
   appName: string;
   logoUri?: string;
   cliVersion?: string;
-  minCliVersion?: string;
   createdAt?: string;
   updatedAt?: string;
   auth: {
@@ -447,7 +447,20 @@ export function readProjectConfig(): ProjectConfig | null {
       appId = String(rawAppId);
     }
     if (!appId) return null;
-    return { ...raw, appId };
+    // Normalize auth.scopes silently — split on commas/whitespace so an entry
+    // like "crm:read, campaigns:read" written by a user editing the JSON by
+    // hand becomes two scopes. Strict charset validation is enforced later,
+    // in the update command, so unrelated commands that just happen to read
+    // config aren't broken by a malformed scope.
+    const rawAuth = (raw as Record<string, unknown>).auth;
+    let authOverride: object | undefined;
+    if (rawAuth && typeof rawAuth === 'object') {
+      const scopes = (rawAuth as Record<string, unknown>).scopes;
+      if (Array.isArray(scopes)) {
+        authOverride = { ...rawAuth, scopes: splitScopes(scopes as string[]) };
+      }
+    }
+    return { ...raw, appId, ...(authOverride ? { auth: authOverride } : {}) };
   } catch {
     return null;
   }

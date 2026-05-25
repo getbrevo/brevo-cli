@@ -9,7 +9,7 @@ import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { readProjectConfig, saveAppName, writeProjectConfig } from '../../lib/config';
 import { OAuthApp } from '../../types';
-import { validateAppName } from '../../lib/validators';
+import { validateAppName, validateScopes } from '../../lib/validators';
 import inquirer from 'inquirer';
 
 interface UpdateOptions {
@@ -17,6 +17,7 @@ interface UpdateOptions {
   name?: string;
   redirectUri?: string[];
   logoUri?: string;
+  scope?: string[];
   yes?: boolean;
   json?: boolean;
 }
@@ -26,7 +27,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   const hasFlags = !!(
     options.name !== undefined ||
     (options.redirectUri && options.redirectUri.length > 0) ||
-    options.logoUri !== undefined
+    options.logoUri !== undefined ||
+    (options.scope && options.scope.length > 0)
   );
 
   // Validate --name if provided (even empty strings)
@@ -104,6 +106,9 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
 
     validateRedirectUrls(redirectUrls);
 
+    const nextScopes = config!.auth?.scopes ?? [];
+    validateScopes(nextScopes);
+
     if (!options.json) {
       // Fail fast before the network fetch when we'd have nowhere to show the diff.
       if (!options.yes && !process.stdin.isTTY) {
@@ -122,6 +127,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
         nextUrls: redirectUrls,
         currentLogoUri: remote.logo_uri,
         nextLogoUri: config!.logoUri,
+        currentScopes: remote.scopes ?? [],
+        nextScopes,
       });
     }
 
@@ -144,6 +151,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     await appService.updateApp(appId, {
       name: config!.appName,
       redirect_uris: redirectUrls,
+      scopes: nextScopes,
       ...(config!.logoUri ? { logo_uri: config!.logoUri } : {}),
     });
     spinner.stop();
@@ -155,6 +163,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
         app_id: appId,
         name: config!.appName,
         redirect_uris: redirectUrls,
+        scopes: nextScopes,
         ...(config!.logoUri ? { logo_uri: config!.logoUri } : {}),
       });
       return;
@@ -165,6 +174,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       logInfo(`  Name:          ${config!.appName}`);
     }
     logInfo(`  Redirect URLs: ${redirectUrls.join(', ')}`);
+    logInfo(`  Scopes:        ${nextScopes.length > 0 ? nextScopes.join(', ') : '(none)'}`);
     if (config!.logoUri) {
       logInfo(`  Logo URL:      ${config!.logoUri}`);
     }
@@ -176,6 +186,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   let existingName: string | undefined;
   let existingRedirectUrls: string[] = [];
   let existingLogoUri: string | undefined;
+  let existingScopes: string[] = [];
 
   const configRedirectUrls = config?.auth?.redirectUrls;
   const hasUsableConfigRedirectUrls =
@@ -186,6 +197,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     existingName = config.appName;
     existingRedirectUrls = configRedirectUrls;
     existingLogoUri = config.logoUri;
+    existingScopes = config.auth?.scopes ?? [];
   } else if (config && shouldWriteBack) {
     // Config matches the app, but missing/empty redirect URLs would otherwise clear
     // remote redirect URIs on a name-only update. Fall back to the API for preservation.
@@ -193,11 +205,13 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     existingName = config.appName ?? app.name;
     existingRedirectUrls = app.redirect_uris ?? [];
     existingLogoUri = config.logoUri ?? app.logo_uri;
+    existingScopes = config.auth?.scopes ?? app.scopes ?? [];
   } else {
     const app = await fetchExistingApp(appId, options.json);
     existingName = app.name;
     existingRedirectUrls = app.redirect_uris ?? [];
     existingLogoUri = app.logo_uri;
+    existingScopes = app.scopes ?? [];
   }
 
   // Merge: --name wins, --redirect-uri appends (deduplicated), --logo-uri wins
@@ -211,6 +225,14 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   }
   const finalLogoUri = options.logoUri ?? existingLogoUri;
 
+  const appendedScopes = options.scope ?? [];
+  const mergedScopes = [...existingScopes];
+  for (const s of appendedScopes) {
+    if (!mergedScopes.includes(s)) {
+      mergedScopes.push(s);
+    }
+  }
+
   const hasRedirectUriFlag = options.redirectUri !== undefined;
 
   if (hasRedirectUriFlag && mergedUrls.length === 0) {
@@ -221,6 +243,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     validateRedirectUrls(mergedUrls);
   }
 
+  validateScopes(mergedScopes);
+
   if (!options.json) {
     renderUpdateSummary({
       appId,
@@ -230,6 +254,8 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       nextUrls: mergedUrls,
       currentLogoUri: existingLogoUri,
       nextLogoUri: finalLogoUri,
+      currentScopes: existingScopes,
+      nextScopes: mergedScopes,
     });
   }
 
@@ -257,6 +283,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   await appService.updateApp(appId, {
     name: finalName,
     redirect_uris: mergedUrls,
+    scopes: mergedScopes,
     ...(finalLogoUri ? { logo_uri: finalLogoUri } : {}),
   });
   spinner.stop();
@@ -275,6 +302,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     updatedConfig.auth = {
       ...updatedConfig.auth,
       redirectUrls: mergedUrls,
+      scopes: mergedScopes,
     };
     writeProjectConfig(updatedConfig);
   }
@@ -284,6 +312,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       app_id: appId,
       name: finalName,
       redirect_uris: mergedUrls,
+      scopes: mergedScopes,
       ...(finalLogoUri ? { logo_uri: finalLogoUri } : {}),
     });
     return;
@@ -294,6 +323,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
     logInfo(`  Name:          ${finalName}`);
   }
   logInfo(`  Redirect URLs: ${mergedUrls.length > 0 ? mergedUrls.join(', ') : '(none)'}`);
+  logInfo(`  Scopes:        ${mergedScopes.length > 0 ? mergedScopes.join(', ') : '(none)'}`);
   if (finalLogoUri) {
     logInfo(`  Logo URL:      ${finalLogoUri}`);
   }
@@ -325,9 +355,20 @@ function renderUpdateSummary(params: {
   nextUrls: string[];
   currentLogoUri?: string;
   nextLogoUri?: string;
+  currentScopes?: string[];
+  nextScopes?: string[];
 }): void {
-  const { appId, currentName, nextName, currentUrls, nextUrls, currentLogoUri, nextLogoUri } =
-    params;
+  const {
+    appId,
+    currentName,
+    nextName,
+    currentUrls,
+    nextUrls,
+    currentLogoUri,
+    nextLogoUri,
+    currentScopes,
+    nextScopes,
+  } = params;
   const currentSet = new Set(currentUrls);
   const nextSet = new Set(nextUrls);
   const addedSet = new Set(nextUrls.filter((u) => !currentSet.has(u)));
@@ -351,6 +392,24 @@ function renderUpdateSummary(params: {
     const prefix = i === 0 ? '  Redirect URLs: ' : '                 ';
     logInfo(`${prefix}${line}`);
   });
+  if (nextScopes !== undefined) {
+    const currentScopesSet = new Set(currentScopes ?? []);
+    const nextScopesSet = new Set(nextScopes);
+    const addedScopes = new Set(nextScopes.filter((s) => !currentScopesSet.has(s)));
+    const removedScopes = (currentScopes ?? []).filter((s) => !nextScopesSet.has(s));
+    const scopeLines =
+      nextScopes.length === 0 && removedScopes.length === 0
+        ? ['(none)']
+        : [
+            ...nextScopes.map((s) => (addedScopes.has(s) ? `${s} (new)` : s)),
+            ...removedScopes.map((s) => `${s} (removed)`),
+          ];
+    scopeLines.forEach((line, i) => {
+      const prefix = i === 0 ? '  Scopes:        ' : '                 ';
+      logInfo(`${prefix}${line}`);
+    });
+  }
+
   if (currentLogoUri || nextLogoUri) {
     const label = '  Logo URL:      ';
     if (currentLogoUri && nextLogoUri && currentLogoUri !== nextLogoUri) {
@@ -361,6 +420,7 @@ function renderUpdateSummary(params: {
       logInfo(`${label}${currentLogoUri} (unchanged)`);
     }
   }
+
   logInfo('');
 }
 

@@ -4,6 +4,8 @@ import {
   CLI,
   DEFAULT_APP_FOLDER,
   DEFAULT_REDIRECT_URI,
+  DEFAULT_SCOPES,
+  OAUTH_SCOPES_URL,
 } from '../../lib/constants';
 
 describe('API_BASE', () => {
@@ -173,6 +175,29 @@ describe('constants', () => {
 
   it('should export DEFAULT_REDIRECT_URI', () => {
     expect(DEFAULT_REDIRECT_URI).toBe('http://localhost:3009/auth/callback');
+  });
+});
+
+describe('DEFAULT_SCOPES', () => {
+  it('is the locked four-scope set in the documented order', () => {
+    expect(DEFAULT_SCOPES).toEqual(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']);
+  });
+
+  it('is a readonly tuple-style array (no accidental push at runtime)', () => {
+    expect(DEFAULT_SCOPES).toHaveLength(4);
+  });
+});
+
+describe('OAUTH_SCOPES_URL', () => {
+  it('is built from OAUTH_BASE and OAUTH_REALM', () => {
+    expect(OAUTH_SCOPES_URL).toBe('https://oauth.brevo.com/realms/partner/scopes');
+  });
+});
+
+describe('CLI scope helpers', () => {
+  it('exposes APP_SCOPES and APP_UPDATE_SCOPE strings', () => {
+    expect(CLI.APP_SCOPES).toBe('brevo app available-scopes');
+    expect(CLI.APP_UPDATE_SCOPE).toBe('brevo app update --scope');
   });
 });
 

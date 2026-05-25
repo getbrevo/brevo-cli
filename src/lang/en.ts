@@ -6,8 +6,6 @@ export const messages = {
     `Update available: ${current} → ${latest}`,
   UPDATE_RUN: (name: string): string => `Run: npm install -g ${name}`,
   UPDATE_RUN_YARN: (name: string): string => `Or:  yarn global add ${name}`,
-  CLI_BELOW_MIN_VERSION: (current: string, required: string): string =>
-    `This project requires Brevo CLI ≥ ${required}, but you are running ${current}. Some commands may not work correctly. Please upgrade.`,
 
   // Auth
   AUTH_WELCOME: 'Welcome to Brevo CLI',
@@ -75,6 +73,9 @@ export const messages = {
     'You have reached the maximum number of OAuth apps allowed for your account. To make room, delete an existing app: brevo app delete',
   APP_CREATE_PUBLIC_UNAVAILABLE:
     'Public distribution is not yet available (coming soon). Use `--distribution private` for now.',
+  APP_CREATE_BOX_TITLE: 'App created',
+  APP_CREATE_BOX_SCOPES_LABEL: 'Default scopes:',
+  APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -107,6 +108,7 @@ export const messages = {
     'Cannot determine which app to update. Provide --app-id or run from a directory with app-config.json.',
   APP_UPDATE_APP_ID_MISMATCH: (flagId: string, configId: string) =>
     `--app-id ${flagId} does not match app-config.json (${configId}). Pass --name or --redirect-uri to update app ${flagId}, or remove --app-id to update app ${configId}.`,
+  APP_UPDATE_SCOPES_APPENDED: (scopes: string[]): string => `Scopes appended: ${scopes.join(', ')}`,
 
   // App delete
   APP_DELETE_CONFIRM: (name: string, id: string) =>
@@ -129,6 +131,7 @@ export const messages = {
     `   (or: npm --prefix src/oauth install)`,
     `3. ${CLI.APP_START('oauth')}`,
   ],
+  APP_SCAFFOLD_SCOPES_TIP: `Tip: list available scopes with \`${CLI.APP_SCOPES}\`. Update scopes via \`${CLI.APP_UPDATE_SCOPE} <name>\` (repeatable), or by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPDATE}\`.`,
 
   // App start
   APP_START_FEATURE_NOT_FOUND: (entryFile: string) =>
@@ -194,6 +197,25 @@ export const messages = {
     `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
   SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>
     `⚠ failed to refresh ${name} skill: ${err}`,
+
+  // App scopes
+  APP_SCOPES_EMPTY: 'The IdP returned an empty scope list.',
+  APP_SCOPES_USAGE_HINT: `Add a scope to an app with \`${CLI.APP_UPDATE_SCOPE} <scope> --app-id <id>\`.`,
+  APP_SCOPES_WEB_LISTENING: (url: string): string => `Open in browser: ${url} (Ctrl+C to stop)`,
+  APP_SCOPES_WEB_TITLE: 'Brevo OAuth scopes',
+  APP_SCOPES_WEB_INTRO: (count: number, sourceUrl: string): string =>
+    `${count} scope${count === 1 ? '' : 's'} from ${sourceUrl}`,
+  APP_SCOPES_WEB_SEARCH_PLACEHOLDER: 'Filter scopes…',
+  APP_SCOPES_WEB_EMPTY: 'The IdP returned an empty scope list.',
+  APP_SCOPES_WEB_FOOTER: 'Served locally by the Brevo CLI. Press Ctrl+C in the terminal to stop.',
+  APP_SCOPES_WEB_REFRESH: 'Refresh',
+  APP_SCOPES_WEB_REFRESHING: 'Refreshing…',
+  APP_SCOPES_WEB_REFRESH_FAILED: `Refresh failed. Please restart \`${CLI.APP_SCOPES} --web\` to retry.`,
+  APP_SCOPES_WEB_ENDPOINTS_LABEL: 'API endpoints',
+  APP_SCOPES_WEB_NO_ENDPOINTS: 'No API endpoints listed for this scope.',
+  OAUTH_METADATA_MISSING_SCOPES: 'IdP scopes response did not include a scopes array.',
+  OAUTH_METADATA_FETCH_FAILED: (url: string, status: number): string =>
+    `Failed to fetch OAuth scopes from ${url} (HTTP ${status}).`,
 
   // General
   ABORTED: 'Aborted.',

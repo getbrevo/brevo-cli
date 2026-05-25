@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
 import { ApiClient } from '../api/client';
+import { CLI_VERSION } from '../lib/cli-version';
 import { ENDPOINTS } from '../lib/constants';
 import { ApiError, CliError } from '../lib/errors';
 import { EXIT_CODES } from '../lib/exit-codes';
@@ -134,6 +135,7 @@ export function createAppService(client: ApiClient) {
       const raw = await client.post<CreateAppResponse>(ENDPOINTS.OAUTH_APPS, {
         ...payload,
         source: 'cli',
+        cli_version: CLI_VERSION,
       });
       return normalizeAppId(raw);
     },
@@ -142,7 +144,10 @@ export function createAppService(client: ApiClient) {
       appId: string,
       body: { name?: string; redirect_uris: string[]; scopes?: string[]; logo_uri?: string },
     ): Promise<void> {
-      await client.put(ENDPOINTS.APP_STORE_APP_UPDATE(appId), body);
+      await client.put(ENDPOINTS.APP_STORE_APP_UPDATE(appId), {
+        ...body,
+        cli_version: CLI_VERSION,
+      });
     },
 
     async deleteApp(appId: string): Promise<void> {

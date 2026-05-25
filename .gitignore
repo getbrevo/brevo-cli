@@ -8,3 +8,5 @@ coverage/
 .claude/
 package-lock.json
 src/__tests__/**/__sandbox__/
+.env.local
+*.tsbuildinfo

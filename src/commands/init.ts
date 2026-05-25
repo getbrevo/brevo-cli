@@ -8,12 +8,24 @@ import { withCommandHandler } from '../lib/command-handler';
 import { loginCommand } from './login';
 import { createCommand } from './app/create';
 import { scaffoldCommand } from './app/scaffold';
-import { appService } from '../container';
+import { appService, accountService } from '../container';
 
 async function ensureLoggedIn(): Promise<void> {
   if (isAuthenticated()) {
-    logSuccess(messages.INIT_ALREADY_LOGGED_IN);
-    return;
+    // Local creds exist — verify they still work against the backend before
+    // the user invests time in the init prompts. Without this, init proceeds
+    // happily and the first real API call (app create) hits a 401 mid-flow.
+    const spinner = createSpinner('Verifying credentials...');
+    try {
+      await accountService.getAccount();
+      spinner.stop();
+      logSuccess(messages.INIT_ALREADY_LOGGED_IN);
+      return;
+    } catch {
+      spinner.stop();
+      logWarn(messages.AUTH_EXPIRED);
+      // Fall through to the login flow below.
+    }
   }
   logInfo(messages.INIT_STEP_LOGIN);
   await loginCommand({ suppressNextSteps: true });

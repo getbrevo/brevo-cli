@@ -2,11 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-// Set a temp config dir BEFORE importing config module
-const TEST_CONFIG_DIR = path.join(
-  os.tmpdir(),
-  `brevo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-);
+// Set a temp config dir BEFORE importing config module. mkdtempSync uses
+// crypto-quality randomness from libuv (avoids Math.random's Sonar hotspot).
+const TEST_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-test-'));
 process.env.BREVO_CONFIG_HOME = TEST_CONFIG_DIR;
 
 import {
@@ -367,6 +365,62 @@ describe('config', () => {
   describe('readProjectConfig', () => {
     it('should return null when no app-config.json exists', () => {
       expect(readProjectConfig()).toBeNull();
+    });
+
+    describe('scope normalization', () => {
+      const originalCwd = process.cwd();
+      let projectDir: string;
+
+      beforeEach(() => {
+        projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-project-'));
+        process.chdir(projectDir);
+      });
+
+      afterEach(() => {
+        process.chdir(originalCwd);
+        if (fs.existsSync(projectDir)) {
+          fs.rmSync(projectDir, { recursive: true, force: true });
+        }
+      });
+
+      function writeConfig(config: object): void {
+        fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+      }
+
+      it('splits a comma-embedded scope entry into individual tokens', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'private', scopes: ['crm:read', 'crm:write, campaigns:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write', 'campaigns:read']);
+      });
+
+      it('leaves well-formed scope arrays untouched', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'private', scopes: ['crm:read', 'crm:write'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write']);
+      });
+
+      it('deduplicates scopes', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'private', scopes: ['crm:read', 'crm:read', 'crm:write'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write']);
+      });
+
+      it('does not throw on malformed scope chars (charset is enforced later, at update time)', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'private', scopes: ['crm;read'] },
+        });
+        expect(() => readProjectConfig()).not.toThrow();
+      });
     });
   });
 

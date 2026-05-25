@@ -19,7 +19,6 @@ import { registerAll } from '../lib/command-registry';
 import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
 import { startUpdateCheck, notifyUpdate, shouldShowBannerBefore } from '../lib/update-notifier';
 import { skillService } from '../services/skill';
-import { warnIfCliBelowMinVersion } from '../lib/min-version-check';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
 const version: string = pkg.version;
@@ -35,9 +34,6 @@ const showBannerEarly = shouldShowBannerBefore(process.argv);
 if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
   logWarn(messages.TLS_VERIFICATION_DISABLED);
 }
-
-// Warn if running CLI is older than the project's declared minCliVersion.
-warnIfCliBelowMinVersion({ currentVersion: version, argv: process.argv });
 
 const program = new Command();
 
@@ -77,6 +73,10 @@ program
         `  brevo skill:cli install   [--json]             Install the brevo-cli Claude Code skill`,
         `  brevo skill:cli uninstall [--json]             Remove the brevo-cli skill`,
         ``,
+        `Scope commands:`,
+        `  brevo app available-scopes [--web] [--json]    List OAuth scopes supported by the IdP`,
+        `                                                 (--web opens the catalog in a local browser page)`,
+        ``,
         `Run \`brevo <command> --help\` for details on a specific command.`,
         ``,
         `Examples:`,
@@ -86,6 +86,7 @@ program
         `  $ brevo app list --json                         # list apps as JSON`,
         `  $ brevo app scaffold --app-id APPID             # generate starter code`,
         `  $ brevo app start oauth --port 3000             # start OAuth test server`,
+        `  $ brevo app available-scopes --web              # browse OAuth scope catalog`,
         ``,
       ].join('\n');
     },

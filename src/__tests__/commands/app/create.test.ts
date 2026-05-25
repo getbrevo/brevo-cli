@@ -86,7 +86,7 @@ describe('app/create', () => {
       name: 'Test App',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
     expect(saveAppCredentials).toHaveBeenCalledWith(1, {
       clientId: 'cli-123',
@@ -222,7 +222,7 @@ describe('app/create', () => {
       name: 'New Name',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
     // Cache must use the retried name, not the original (rejected) one
     expect(saveAppName).toHaveBeenCalledWith(3, 'New Name');
@@ -276,7 +276,7 @@ describe('app/create', () => {
       name: 'Prompted App',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
   });
 
@@ -333,7 +333,7 @@ describe('app/create', () => {
       name: 'Café Résumé',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
   });
 
@@ -360,7 +360,7 @@ describe('app/create', () => {
       name: 'Multi URL App',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback', 'https://myapp.com/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
   });
 
@@ -387,7 +387,7 @@ describe('app/create', () => {
       name: 'Flag App',
       public: false,
       redirect_uris: ['https://myapp.com/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
     // Only logo prompt + scaffold — no redirect URL prompts
     expect(mockPrompt).toHaveBeenCalledTimes(2);
@@ -413,7 +413,7 @@ describe('app/create', () => {
       name: 'Multi Flag App',
       public: false,
       redirect_uris: ['http://localhost:3000/cb', 'https://prod.example.com/cb'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
     // No prompts at all in JSON mode with all flags provided
     expect(mockPrompt).not.toHaveBeenCalled();
@@ -508,5 +508,70 @@ describe('app/create', () => {
     );
     expect(jsonCall).toBeDefined();
     expect(jsonCall![0]).toContain('"logoUri":"https://example.com/logo.png"');
+  });
+
+  it('sends DEFAULT_SCOPES on create (not the legacy "all")', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 1,
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret-456',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ anotherRaw: 'n' })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ shouldScaffold: false });
+
+    await createCommand({ name: 'Test App', distribution: 'private' });
+
+    expect(appService.createApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      }),
+    );
+  });
+
+  it('prints the scope info line in text mode', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 1,
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret-456',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ anotherRaw: 'n' })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ shouldScaffold: false });
+
+    await createCommand({ name: 'Test App', distribution: 'private' });
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stdoutCalls).toContain('Default scopes');
+    expect(stdoutCalls).toContain('contacts:read');
+    expect(stdoutCalls).toContain('brevo app update --scope');
+  });
+
+  it('suppresses the scope info line under --json', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 1,
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret-456',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+
+    await createCommand({
+      name: 'Test App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      json: true,
+    });
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stdoutCalls).not.toContain('Default scopes');
   });
 });
