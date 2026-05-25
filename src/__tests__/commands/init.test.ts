@@ -43,7 +43,7 @@ import { isAuthenticated, readProjectConfig } from '../../lib/config';
 import { loginCommand } from '../../commands/login';
 import { createCommand } from '../../commands/app/create';
 import { scaffoldCommand } from '../../commands/app/scaffold';
-import { appService } from '../../container';
+import { appService, accountService } from '../../container';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
@@ -61,12 +61,34 @@ describe('initCommand', () => {
 
   it('should skip login if already authenticated and create app', async () => {
     (isAuthenticated as jest.Mock).mockReturnValue(true);
+    (accountService.getAccount as jest.Mock).mockResolvedValue({
+      email: 'user@example.com',
+      organization_id: 'org-1',
+      user_id: 1,
+    });
     (readProjectConfig as jest.Mock).mockReturnValue(null);
     (createCommand as jest.Mock).mockResolvedValue(undefined);
 
     await initCommand({});
 
+    expect(accountService.getAccount).toHaveBeenCalled();
     expect(loginCommand).not.toHaveBeenCalled();
+    expect(createCommand).toHaveBeenCalled();
+  });
+
+  it('should fall through to login when local creds fail backend verification', async () => {
+    (isAuthenticated as jest.Mock)
+      .mockReturnValueOnce(true) // local creds exist
+      .mockReturnValueOnce(true); // after login — authenticated
+    (accountService.getAccount as jest.Mock).mockRejectedValue(new Error('401'));
+    (readProjectConfig as jest.Mock).mockReturnValue(null);
+    (loginCommand as jest.Mock).mockResolvedValue(undefined);
+    (createCommand as jest.Mock).mockResolvedValue(undefined);
+
+    await initCommand({});
+
+    expect(accountService.getAccount).toHaveBeenCalled();
+    expect(loginCommand).toHaveBeenCalledWith({ suppressNextSteps: true });
     expect(createCommand).toHaveBeenCalled();
   });
 

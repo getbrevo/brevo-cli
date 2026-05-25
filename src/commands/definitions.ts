@@ -1,5 +1,5 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import { parseAppId, parsePositiveInt, collectUrls } from '../lib/validators';
+import { parseAppId, parsePositiveInt, collectUrls, collectScopes } from '../lib/validators';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -11,6 +11,7 @@ import { credentialsCommand } from './app/credentials';
 import { updateCommand } from './app/update';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
+import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
@@ -116,7 +117,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'update',
-      description: 'Update an app name or redirect URLs',
+      description: 'Update an app name, redirect URLs, or scopes',
       examples: [
         'brevo app update',
         'brevo app update --name "My New Name"',
@@ -124,6 +125,8 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app update --name "My App" --redirect-uri https://myapp.com/callback',
         'brevo app update --app-id 42 --name "My App"',
         'brevo app update --app-id 42 --redirect-uri https://myapp.com/callback --json',
+        'brevo app update --scope crm:write',
+        'brevo app update --scope contacts:read --scope crm:write',
       ],
       options: [
         {
@@ -137,6 +140,12 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           description: 'Redirect URI to append (repeatable)',
           parser: collectUrls,
         },
+        {
+          flags: '--scope <scope>',
+          description:
+            'OAuth scope to append (repeatable; comma- or whitespace-separated values are split)',
+          parser: collectScopes,
+        },
         { flags: '--yes', description: 'Skip confirmation prompt' },
         { flags: '--json', description: 'Output as JSON' },
       ],
@@ -145,6 +154,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           appId: opts.appId,
           name: opts.name,
           redirectUri: opts.redirectUri,
+          scope: opts.scope,
           yes: Boolean(opts.yes),
           json: Boolean(opts.json),
         }),
@@ -183,6 +193,20 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       ],
       handler: (opts) =>
         scaffoldCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
+    },
+    {
+      name: 'available-scopes',
+      description: 'List OAuth scopes supported by the IdP',
+      examples: [
+        'brevo app available-scopes',
+        'brevo app available-scopes --web',
+        'brevo app available-scopes --json',
+      ],
+      options: [
+        { flags: '--json', description: 'Output as JSON' },
+        { flags: '--web', description: 'Open the scope catalog in a local browser page' },
+      ],
+      handler: (opts) => scopesCommand({ json: Boolean(opts.json), web: Boolean(opts.web) }),
     },
     {
       name: 'start',

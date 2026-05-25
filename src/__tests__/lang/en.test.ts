@@ -50,6 +50,13 @@ describe('messages (lang/en)', () => {
     expect(lines[3]).toContain('oauth');
   });
 
+  it('should have a scaffold scopes tip that points at both update paths', () => {
+    const tip = messages.APP_SCAFFOLD_SCOPES_TIP;
+    expect(tip).toContain('brevo app available-scopes');
+    expect(tip).toContain('brevo app update --scope');
+    expect(tip).toContain('app-config.json');
+  });
+
   it('should have working app update messages', () => {
     expect(messages.APP_UPDATE_INVALID_REDIRECT_URL('ftp://bad')).toContain('ftp://bad');
     expect(messages.APP_UPDATE_INVALID_REDIRECT_PROTOCOL('ftp://bad')).toContain('ftp://bad');
@@ -59,5 +66,51 @@ describe('messages (lang/en)', () => {
     expect(messages.WHOAMI_AUTHENTICATED('a@b.com', 'Corp')).toContain('a@b.com');
     expect(messages.WHOAMI_AUTHENTICATED('a@b.com', 'Corp')).toContain('Corp');
     expect(messages.WHOAMI_NOT_AUTHENTICATED).toContain('brevo login');
+  });
+
+  describe('scope-related messages', () => {
+    it('exports the create-time box strings (title, scopes label, update hint)', () => {
+      expect(messages.APP_CREATE_BOX_TITLE).toMatch(/created/i);
+      expect(messages.APP_CREATE_BOX_SCOPES_LABEL).toMatch(/scope/i);
+      expect(messages.APP_CREATE_BOX_SCOPE_HINT).toContain('brevo app update --scope');
+    });
+
+    it('exports the update-time appended summary', () => {
+      expect(messages.APP_UPDATE_SCOPES_APPENDED(['contacts:read'])).toContain('contacts:read');
+    });
+
+    it('exports the app scopes empty-result message', () => {
+      expect(messages.APP_SCOPES_EMPTY).toBeDefined();
+      expect(messages.APP_SCOPES_EMPTY).toMatch(/scope/i);
+    });
+
+    it('exports the app scopes usage hint pointing to brevo app update --scope', () => {
+      expect(messages.APP_SCOPES_USAGE_HINT).toContain('brevo app update --scope');
+    });
+
+    it('exports IdP scopes error messages', () => {
+      expect(messages.OAUTH_METADATA_MISSING_SCOPES).toMatch(/scopes/i);
+      expect(messages.OAUTH_METADATA_FETCH_FAILED('https://x/y', 500)).toContain('https://x/y');
+      expect(messages.OAUTH_METADATA_FETCH_FAILED('https://x/y', 500)).toContain('500');
+    });
+
+    it('exports the app scopes web-view strings', () => {
+      expect(messages.APP_SCOPES_WEB_LISTENING('http://127.0.0.1:1234/')).toContain(
+        'http://127.0.0.1:1234/',
+      );
+      expect(messages.APP_SCOPES_WEB_TITLE).toBeDefined();
+      expect(messages.APP_SCOPES_WEB_INTRO(3, 'https://x/y')).toContain('3 scopes');
+      expect(messages.APP_SCOPES_WEB_INTRO(1, 'https://x/y')).toContain('1 scope');
+      expect(messages.APP_SCOPES_WEB_INTRO(1, 'https://x/y')).not.toContain('1 scopes');
+      expect(messages.APP_SCOPES_WEB_INTRO(3, 'https://x/y')).toContain('https://x/y');
+      expect(messages.APP_SCOPES_WEB_SEARCH_PLACEHOLDER).toBeDefined();
+      expect(messages.APP_SCOPES_WEB_EMPTY).toMatch(/empty/i);
+      expect(messages.APP_SCOPES_WEB_FOOTER).toMatch(/Ctrl/i);
+      expect(messages.APP_SCOPES_WEB_REFRESH).toBeDefined();
+      expect(messages.APP_SCOPES_WEB_REFRESHING).toBeDefined();
+      expect(messages.APP_SCOPES_WEB_REFRESH_FAILED).toMatch(/fail/i);
+      expect(messages.APP_SCOPES_WEB_ENDPOINTS_LABEL).toMatch(/endpoint/i);
+      expect(messages.APP_SCOPES_WEB_NO_ENDPOINTS).toMatch(/endpoint/i);
+    });
   });
 });

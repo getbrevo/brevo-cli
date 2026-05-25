@@ -67,6 +67,17 @@ yarn format:check       # prettier --check
 
 Pre-commit hook (husky + lint-staged) runs prettier and eslint on staged `.ts` files, then runs the full test suite.
 
+## Sonar hotspots — always fix, don't dismiss
+
+SonarCloud runs on every PR (`getbrevo_brevo-cli`). **Treat every security hotspot it raises as an issue to fix in the same PR, not to mark as "Safe" / "Acknowledged".** This includes hotspots in test files — Sonar doesn't distinguish, and neither do we. Common patterns and the standard fix:
+
+- **`Math.random()` for IDs, temp paths, tokens, or anything name-like** → swap to `node:crypto`. For temp directories use `fs.mkdtempSync(path.join(os.tmpdir(), 'prefix-'))`; for a random string use `crypto.randomBytes(n).toString('hex')` or `crypto.randomUUID()`. Never silence with `// NOSONAR`.
+- **Hard-coded credentials / regex that looks like a secret** → use placeholders that don't match the credential format (`xkeysib-test-…`, fake UUIDs). See the public-repo rules above.
+- **Insecure protocol (`http://`)** → fine for `127.0.0.1` / `localhost` loopback (OAuth callback, scope-catalog `--web` page); for anything else, use `https://`.
+- **`child_process.exec` with interpolated input** → switch to `execFile` / `spawn` with arg arrays, never shell-concat user input.
+
+If a hotspot genuinely doesn't apply, fix the code anyway when the fix is cheap (one-line swap to `crypto.*`). Only argue "Safe" in the Sonar UI when the fix would meaningfully hurt readability or correctness — and document the reason in the PR description, not just in Sonar.
+
 ## Project structure
 
 ```

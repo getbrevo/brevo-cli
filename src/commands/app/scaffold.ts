@@ -6,7 +6,7 @@ import {
   PLACEHOLDER_CLIENT_ID,
   OAUTH_BASE,
   OAUTH_REALM,
-  MIN_CLI_VERSION,
+  DEFAULT_SCOPES,
 } from '../../lib/constants';
 import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { createSpinner, printBox } from '../../lib/ui';
@@ -176,7 +176,7 @@ export const scaffoldCommand = withCommandHandler(
 
     const rawAppName = ctx.appDetails?.name || path.basename(targetDir);
     const appName = rawAppName.replaceAll(/["\\\n\r\t]/g, '').trim() || 'my-app';
-    const scopes = ctx.appDetails?.scopes ?? ['all'];
+    const scopes = ctx.appDetails?.scopes ?? [...DEFAULT_SCOPES];
 
     const pkg = JSON.parse(
       fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'),
@@ -195,7 +195,6 @@ export const scaffoldCommand = withCommandHandler(
       '{{OAUTH_BASE}}': OAUTH_BASE,
       '{{OAUTH_REALM}}': OAUTH_REALM,
       '{{CLI_VERSION}}': cliVersion,
-      '{{MIN_CLI_VERSION}}': MIN_CLI_VERSION,
     };
 
     fs.mkdirSync(path.join(targetDir, 'src', 'oauth'), { recursive: true });
@@ -215,5 +214,6 @@ export const scaffoldCommand = withCommandHandler(
       messages.APP_SCAFFOLD_NEXT_STEPS_TITLE,
       messages.APP_SCAFFOLD_NEXT_STEPS_LINES(relativeDir),
     );
+    logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
   },
 );

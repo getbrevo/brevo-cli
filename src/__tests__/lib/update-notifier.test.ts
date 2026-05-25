@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -17,7 +18,7 @@ import {
 const TMP_ROOT = path.join(os.tmpdir(), `brevo-update-test-${Date.now()}`);
 
 function makeCachePath(): string {
-  return path.join(TMP_ROOT, `cache-${Math.random().toString(36).slice(2)}.json`);
+  return path.join(TMP_ROOT, `cache-${crypto.randomBytes(8).toString('hex')}.json`);
 }
 
 afterAll(() => {
@@ -375,8 +376,8 @@ describe('startUpdateCheck', () => {
   });
 
   it('honours BREVO_CONFIG_HOME from opts.env when no cachePath override is given', () => {
-    const tmpHome = path.join(TMP_ROOT, `home-${Math.random().toString(36).slice(2)}`);
-    fs.mkdirSync(tmpHome, { recursive: true });
+    fs.mkdirSync(TMP_ROOT, { recursive: true });
+    const tmpHome = fs.mkdtempSync(path.join(TMP_ROOT, 'home-'));
     const expectedCache = path.join(tmpHome, 'update-check.json');
     const now = 1_700_000_000_000;
     writeCache(expectedCache, { latest: '9.9.9', lastChecked: now - 1000 });

@@ -1,5 +1,7 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+import { CLI_VERSION } from '../lib/cli-version';
+export { CLI_VERSION };
 
 /**
  * Catalog of Brevo-authored agent skills installable via `brevo skill:cli install`.
@@ -36,27 +38,6 @@ export interface SkillEntry {
   /** Files to copy, relative to `SKILLS_BUNDLE_DIR/<subdir>/`. */
   files: string[];
 }
-
-/**
- * CLI version pulled from the bundled `package.json` at module-init.
- *
- * Resolved relative to this file so the same lookup works under ts-jest
- * (`src/skills/` → repo root) and the published tarball
- * (`node_modules/@getbrevo/cli/dist/skills/` → package root). Falls back to
- * `'0.0.0'` if the file is missing or malformed — the auto-refresh pass
- * then never fires, which is the safe default.
- */
-function readCliVersion(): string {
-  try {
-    const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { version?: unknown };
-    return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
-}
-
-export const CLI_VERSION = readCliVersion();
 
 export const SKILL_CATALOG: readonly SkillEntry[] = [
   {
