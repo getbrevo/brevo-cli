@@ -29,7 +29,7 @@ This puts the `brevo` binary on your PATH. Verify:
 brevo --version
 ```
 
-To upgrade later: `brew upgrade brevo` (Homebrew) or `npm install -g @getbrevo/cli@latest` (npm).
+To upgrade later: `brew update && brew upgrade brevo` (Homebrew) or `npm install -g @getbrevo/cli@latest` (npm).
 
 > Building from source? See [Development](#development) below.
 

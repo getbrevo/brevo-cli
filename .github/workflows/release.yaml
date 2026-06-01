@@ -240,23 +240,11 @@ jobs:
             --ref main \
             -f version="${tag}"
 
-      # ----------------------------------------------------------------------
-      # Homebrew tap auto-bump.
-      #
-      # After a successful npm publish, recompute the tarball URL + sha256 and
-      # open a formula-bump PR on getbrevo/homebrew-tap. The tap's tests.yml
-      # runs `brew audit`/`brew test` on that PR; a human merges.
-      #
-      # Auth: a fine-grained PAT (secret HOMEBREW_TAP_TOKEN), scoped to ONLY
-      # getbrevo/homebrew-tap with contents+pull-requests write. A GitHub App
-      # would give a short-lived token, but org App access isn't available, so
-      # this is the documented fallback. Security properties:
-      #   - The token reaches ONLY the tap repo, with only two permissions.
-      #   - It has NO npm/publish access — it cannot touch the registry, even
-      #     though this step shares the `release` job with the npm publish.
-      #   - It does NOT weaken the npm OIDC / no-NPM_TOKEN posture; different
-      #     trust boundary. The PAT has an expiry; rotate on expiry.
-      # ----------------------------------------------------------------------
+      # Homebrew tap auto-bump: after a publish, recompute the tarball url +
+      # sha256 and open a formula-bump PR on getbrevo/homebrew-tap (tap CI gates
+      # it; a human merges). Auth is a fine-grained PAT (HOMEBREW_TAP_TOKEN)
+      # scoped to ONLY that repo (contents + PRs) — no npm access, so the
+      # OIDC/no-NPM_TOKEN publish posture is unaffected.
       - name: Bump Homebrew formula
         if: steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true'
         env:
@@ -274,8 +262,8 @@ jobs:
 
           tarball_url="https://registry.npmjs.org/@getbrevo/cli/-/cli-${version}.tgz"
 
-          # Recompute sha256 from the actual published tarball — never hand-entered.
-          # Retry briefly: the tarball can lag a few seconds behind the publish.
+          # sha256 from the published tarball (never hand-entered); retry as it
+          # can lag a few seconds behind the publish.
           sha256=""
           for attempt in 1 2 3 4 5; do
             sha256=$(curl -fsSL "$tarball_url" | shasum -a 256 | awk '{print $1}') && break || true
