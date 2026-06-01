@@ -1,7 +1,7 @@
 import inquirer from 'inquirer';
-import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI } from '../../lib/constants';
+import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
-import { logSuccess, logInfo, logError } from '../../lib/logger';
+import { logInfo, logError } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { ApiError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
@@ -18,6 +18,7 @@ export const createCommand = withCommandHandler(
     name?: string;
     distribution?: string;
     redirectUri?: string[];
+    logoUri?: string;
     json?: boolean;
   }): Promise<void> => {
     // 0. Check for existing app-config.json in current directory
@@ -173,12 +174,42 @@ export const createCommand = withCommandHandler(
       }
     }
 
-    // 4. Create the app
+    // 4. Logo URL (optional) — prompt interactively when no --logo-uri flag.
+    //    Skipped under --json since the field is optional and --json implies scripting.
+    let logoUri = options.logoUri;
+    if (!logoUri && process.stdin.isTTY && !options.json) {
+      const validateLogoUrl = (input: string): true | string => {
+        const trimmed = input.trim();
+        if (!trimmed) return true;
+        try {
+          const parsed = new URL(trimmed);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return messages.APP_CREATE_LOGO_INVALID;
+          }
+          return true;
+        } catch {
+          return messages.APP_CREATE_LOGO_INVALID;
+        }
+      };
+      const { logoUrl } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'logoUrl',
+          message: messages.APP_CREATE_LOGO_PROMPT,
+          validate: validateLogoUrl,
+        },
+      ]);
+      const trimmed = String(logoUrl ?? '').trim();
+      if (trimmed) logoUri = trimmed;
+    }
+
+    // 5. Create the app
     const payload = {
       name: appName!,
       public: distribution === 'public',
       redirect_uris: redirectUrls,
-      scopes: ['all'],
+      scopes: [...DEFAULT_SCOPES],
+      ...(logoUri ? { logo_uri: logoUri } : {}),
     };
 
     let result: CreateAppResponse;
@@ -210,7 +241,8 @@ export const createCommand = withCommandHandler(
             name: retry.name,
             public: distribution === 'public',
             redirect_uris: redirectUrls,
-            scopes: ['all'],
+            scopes: [...DEFAULT_SCOPES],
+            ...(logoUri ? { logo_uri: logoUri } : {}),
           });
           retrySpinner.stop();
           // Use the retried name for cache, JSON output, display, and scaffold prompt
@@ -240,19 +272,23 @@ export const createCommand = withCommandHandler(
         clientId: result.client_id,
         clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
         redirectUri: resultRedirectUris,
+        ...(logoUri ? { logoUri } : {}),
       });
       return;
     }
 
-    logSuccess(messages.APP_CREATE_SUCCESS);
-    logInfo(`  App name:      ${appName}`);
-    logInfo(`  App ID:        ${result.app_id}`);
-    logInfo(`  Client ID:     ${result.client_id}`);
-    logInfo(`  Client secret: ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`);
-    resultRedirectUris.forEach((uri, i) => {
-      logInfo(`  Redirect URL ${i + 1}: ${uri}`);
-    });
-    process.stdout.write('\n');
+    const boxLines = [
+      `App name:       ${appName}`,
+      `App ID:         ${result.app_id}`,
+      `Client ID:      ${result.client_id}`,
+      `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
+      ...resultRedirectUris.map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
+      ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
+      `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_SCOPES].join(', ')}`,
+      '',
+      messages.APP_CREATE_BOX_SCOPE_HINT,
+    ];
+    printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 
     // 4. Smart hand-off → scaffold
     const { shouldScaffold } = await inquirer.prompt([

@@ -67,6 +67,69 @@ export function collectUrls(value: string, previous: string[] = []): string[] {
   return [...previous, value];
 }
 
+// OAuth scope tokens are split on commas and whitespace at every boundary
+// (app-config.json reads and --scope flag values) so a user can write either
+// "crm:read crm:write" or "crm:read, crm:write" or one --scope per token and
+// the CLI behaves the same. RFC 6749 §3.3 already mandates space-separation in
+// authorization requests, so the split is consistent with the protocol; the
+// comma is a convenience for users editing JSON arrays.
+const SCOPE_TOKEN_REGEX = /^[A-Za-z0-9][A-Za-z0-9:_.-]*$/;
+const SCOPE_SPLIT_REGEX = /[\s,]+/;
+
+/**
+ * Split a scope string or array of strings into individual scope tokens.
+ * Handles embedded commas/whitespace, trims, drops empties, dedupes.
+ * Does NOT validate token format — use `validateScopes` for that.
+ */
+export function splitScopes(input: string | string[] | undefined | null): string[] {
+  if (input == null) return [];
+  const values = Array.isArray(input) ? input : [input];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of values) {
+    if (typeof v !== 'string') continue;
+    for (const token of v.split(SCOPE_SPLIT_REGEX)) {
+      if (!token) continue;
+      if (seen.has(token)) continue;
+      seen.add(token);
+      out.push(token);
+    }
+  }
+  return out;
+}
+
+/**
+ * Validate that each scope is a well-formed token.
+ * Throws CliError with a user-facing message if any scope is invalid.
+ */
+export function validateScopes(scopes: string[]): void {
+  for (const scope of scopes) {
+    if (!SCOPE_TOKEN_REGEX.test(scope)) {
+      throw new CliError(
+        `Invalid scope: "${scope}" — scopes can only contain letters, numbers, ':', '_', '.', '-'.`,
+      );
+    }
+  }
+}
+
+/**
+ * Commander.js collect function for repeatable --scope flags.
+ * Splits each value on commas/whitespace, validates the resulting tokens,
+ * and accumulates into an array (deduplicated against previous values).
+ */
+export function collectScopes(value: string, previous: string[] = []): string[] {
+  const tokens = splitScopes(value);
+  if (tokens.length === 0) {
+    throw new CliError('Invalid scope: value cannot be empty.');
+  }
+  validateScopes(tokens);
+  const out = [...previous];
+  for (const t of tokens) {
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
 /**
  * Validate that a value is a positive integer.
  * Throws CliError if the value is not a valid positive integer.

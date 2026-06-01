@@ -64,12 +64,13 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 | `brevo whoami` | Show the authenticated account (`--json`) |
 | `brevo app init` | Guided setup (login, create, scaffold) |
 | `brevo app list` | List OAuth apps (`--json`) |
-| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--json`) |
-| `brevo app update` | Update name / redirect URLs (`--app-id`, `--name`, `--redirect-uri`, `--yes`, `--json`) |
+| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--logo-uri`, `--json`). Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
+| `brevo app update` | Update name / redirect URLs / scopes / logo (`--app-id`, `--name`, `--redirect-uri`, `--scope` repeatable appends, `--logo-uri`, `--yes`, `--json`) |
 | `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`, `--json`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`, `--json`) |
 | `brevo app scaffold` | Generate starter OAuth code (`--app-id`, `--json`) |
 | `brevo app start oauth` | Run the scaffolded OAuth test server (`--port`) |
+| `brevo app available-scopes` | List OAuth scopes supported by the IdP (`--json`, `--web`) |
 | `brevo skill:cli install` | Install the brevo-cli Claude Code skill (Claude-only; auto-refreshes on every `brevo` run) |
 | `brevo skill:cli uninstall` | Remove the brevo-cli skill from `~/.claude/skills/` (Claude-only) |
 
@@ -78,11 +79,18 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 ## Conventions
 
 - **Every command supports `--json`** — prefer this when parsing output programmatically.
-- **`app-config.json`** in the working directory pins the linked app — `brevo app update` and `brevo app start` read from it.
+- **`app-config.json`** in the working directory pins the linked app — `brevo app update` and `brevo app start` read from it. The optional top-level `logoUri` string is pushed as `logo_uri` by a flagless `brevo app update`; leave it empty to keep the API value untouched.
 - **Credentials** live at `~/.brevo/credentials.json`. Never commit this file or any `.env.local`.
 - **Non-interactive auth:** `BREVO_API_KEY=xkeysib-... brevo login`. The legacy `--api-key` flag was removed because it leaks into shell history.
 - **Skip prompts:** `--force` for delete/logout; `--yes` for `app update`.
 - **Exit codes:** `0` success · `1` general error · `2` aborted · `3` auth · `4` network · `5` not found.
+
+## Scopes
+
+- New apps created via `brevo app create` default to `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. The CLI prints these on success.
+- `brevo app update --scope <scope>` is repeatable and appends, mirroring `--redirect-uri`. De-duped, order-preserving. Writes back to `app-config.json` when that file describes the target app. A single flag value may contain multiple comma- or whitespace-separated tokens (`--scope "crm:read, crm:write"` is equivalent to `--scope crm:read --scope crm:write`). Same normalization is applied to `auth.scopes` when read from `app-config.json`.
+- `brevo app available-scopes [--json] [--web]` lists the OAuth scopes the IdP currently supports. Text output groups names by category (e.g. `account`, `data_crm`, `messaging`); `--json` returns a flat `{ scopes: string[] }` of names. OIDC-reserved scopes (`openid`, `profile`, `email`, `offline_access`) and magic wildcards are excluded. The CLI validates scope **format** locally (must match `[A-Za-z0-9][A-Za-z0-9:_.-]*`) but does **not** validate that a scope is recognized by the IdP — server returns 400 on unknown scopes.
+- Passing `--web` to `brevo app available-scopes` additionally starts a short-lived loopback HTTP server on `127.0.0.1:<ephemeral>` rendering the same catalog as a styled HTML page and opens the user's browser. It stays in the foreground until Ctrl+C. Without `--web` the command exits after printing the list — TTY detection no longer triggers the browser. `--json` always suppresses the browser (`--json` returns before `--web` is evaluated).
 
 ## Environment variables
 

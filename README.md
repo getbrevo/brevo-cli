@@ -82,10 +82,10 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an OAuth app (`--name`, `--distribution private\|public`, repeatable `--redirect-uri`) |
+| `brevo app create` | Create an OAuth app (`--name`, `--distribution private\|public`, repeatable `--redirect-uri`, `--logo-uri`) |
 | `brevo app list` | List OAuth apps in your account |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
-| `brevo app update` | Update app name or redirect URLs (`--app-id`, `--name`, repeatable `--redirect-uri`, `--yes`) |
+| `brevo app update` | Update app name, redirect URLs, or logo (`--app-id`, `--name`, repeatable `--redirect-uri`, `--logo-uri`, `--yes`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Generate starter code for an app (`--app-id`) |
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |

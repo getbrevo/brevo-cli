@@ -77,6 +77,7 @@ describe('app/create', () => {
     mockPrompt
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
+      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
       .mockResolvedValueOnce({ shouldScaffold: false }); // scaffold
 
     await createCommand({ name: 'Test App', distribution: 'private' });
@@ -85,7 +86,7 @@ describe('app/create', () => {
       name: 'Test App',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
     expect(saveAppCredentials).toHaveBeenCalledWith(1, {
       clientId: 'cli-123',
@@ -127,6 +128,7 @@ describe('app/create', () => {
     mockPrompt
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ shouldScaffold: false });
 
     await createCommand({ name: 'Hint App', distribution: 'private' });
@@ -165,7 +167,9 @@ describe('app/create', () => {
       redirect_uris: ['https://example.com/cb'],
     });
 
-    mockPrompt.mockResolvedValueOnce({ shouldScaffold: false });
+    mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ shouldScaffold: false });
 
     await createCommand({
       name: 'Flag App',
@@ -185,7 +189,8 @@ describe('app/create', () => {
 
     mockPrompt
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false });
+      .mockResolvedValueOnce({ another: false })
+      .mockResolvedValueOnce({ logoUrl: '' });
 
     await expect(createCommand({ name: 'Test', distribution: 'private' })).rejects.toThrow(
       'maximum number of OAuth apps',
@@ -206,6 +211,7 @@ describe('app/create', () => {
     mockPrompt
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
+      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
       .mockResolvedValueOnce({ name: 'New Name' }) // retry name prompt
       .mockResolvedValueOnce({ shouldScaffold: false }); // scaffold prompt
 
@@ -216,7 +222,7 @@ describe('app/create', () => {
       name: 'New Name',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
     // Cache must use the retried name, not the original (rejected) one
     expect(saveAppName).toHaveBeenCalledWith(3, 'New Name');
@@ -253,6 +259,7 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ distribution: 'private' }) // distribution prompt
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
+      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
       .mockResolvedValueOnce({ shouldScaffold: false }); // scaffold prompt
 
     (appService.createApp as jest.Mock).mockResolvedValue({
@@ -269,7 +276,7 @@ describe('app/create', () => {
       name: 'Prompted App',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
   });
 
@@ -317,6 +324,7 @@ describe('app/create', () => {
     mockPrompt
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ shouldScaffold: false });
 
     await createCommand({ name: 'Café Résumé', distribution: 'private' });
@@ -325,7 +333,7 @@ describe('app/create', () => {
       name: 'Café Résumé',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
   });
 
@@ -343,6 +351,7 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ anotherRaw: 'y' }) // add another
       .mockResolvedValueOnce({ nextUrl: 'https://myapp.com/callback' }) // second URL
       .mockResolvedValueOnce({ anotherRaw: 'n' }) // no more
+      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
       .mockResolvedValueOnce({ shouldScaffold: false });
 
     await createCommand({ name: 'Multi URL App', distribution: 'private' });
@@ -351,7 +360,7 @@ describe('app/create', () => {
       name: 'Multi URL App',
       public: false,
       redirect_uris: ['http://localhost:3009/auth/callback', 'https://myapp.com/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
   });
 
@@ -364,7 +373,9 @@ describe('app/create', () => {
       redirect_uris: ['https://myapp.com/callback'],
     });
 
-    mockPrompt.mockResolvedValueOnce({ shouldScaffold: false });
+    mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ shouldScaffold: false });
 
     await createCommand({
       name: 'Flag App',
@@ -376,10 +387,10 @@ describe('app/create', () => {
       name: 'Flag App',
       public: false,
       redirect_uris: ['https://myapp.com/callback'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
-    // Only 1 prompt call (scaffold) — no redirect URL prompts
-    expect(mockPrompt).toHaveBeenCalledTimes(1);
+    // Only logo prompt + scaffold — no redirect URL prompts
+    expect(mockPrompt).toHaveBeenCalledTimes(2);
   });
 
   it('should pass multiple --redirect-uri flags to the API', async () => {
@@ -402,9 +413,165 @@ describe('app/create', () => {
       name: 'Multi Flag App',
       public: false,
       redirect_uris: ['http://localhost:3000/cb', 'https://prod.example.com/cb'],
-      scopes: ['all'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
     // No prompts at all in JSON mode with all flags provided
     expect(mockPrompt).not.toHaveBeenCalled();
+  });
+
+  it('should forward --logo-uri to the create payload', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 9,
+      name: 'Logo App',
+      client_id: 'cli-logo',
+      client_secret: 'secret',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      logo_uri: 'https://example.com/logo.png',
+    });
+
+    await createCommand({
+      name: 'Logo App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      logoUri: 'https://example.com/logo.png',
+      json: true,
+    });
+
+    expect(appService.createApp).toHaveBeenCalledWith(
+      expect.objectContaining({ logo_uri: 'https://example.com/logo.png' }),
+    );
+  });
+
+  it('should omit logo_uri from the create payload when --logo-uri is not provided', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 10,
+      name: 'No Logo App',
+      client_id: 'cli-no-logo',
+      client_secret: 'secret',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+
+    await createCommand({
+      name: 'No Logo App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      json: true,
+    });
+
+    const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+    expect(payload).not.toHaveProperty('logo_uri');
+  });
+
+  it('should prompt for a logo URL interactively and forward it to the payload', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 12,
+      name: 'Prompted Logo App',
+      client_id: 'cli-prompt-logo',
+      client_secret: 'secret',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      logo_uri: 'https://example.com/prompted.png',
+    });
+
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ another: false })
+      .mockResolvedValueOnce({ logoUrl: 'https://example.com/prompted.png' })
+      .mockResolvedValueOnce({ shouldScaffold: false });
+
+    await createCommand({ name: 'Prompted Logo App', distribution: 'private' });
+
+    expect(appService.createApp).toHaveBeenCalledWith(
+      expect.objectContaining({ logo_uri: 'https://example.com/prompted.png' }),
+    );
+  });
+
+  it('should include logoUri in JSON output when --logo-uri is set', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 11,
+      name: 'Logo JSON App',
+      client_id: 'cli-logo-json',
+      client_secret: 'secret',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      logo_uri: 'https://example.com/logo.png',
+    });
+
+    await createCommand({
+      name: 'Logo JSON App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      logoUri: 'https://example.com/logo.png',
+      json: true,
+    });
+
+    const jsonCall = stdoutSpy.mock.calls.find(
+      ([chunk]) => typeof chunk === 'string' && chunk.includes('"logoUri"'),
+    );
+    expect(jsonCall).toBeDefined();
+    expect(jsonCall![0]).toContain('"logoUri":"https://example.com/logo.png"');
+  });
+
+  it('sends DEFAULT_SCOPES on create (not the legacy "all")', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 1,
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret-456',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ anotherRaw: 'n' })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ shouldScaffold: false });
+
+    await createCommand({ name: 'Test App', distribution: 'private' });
+
+    expect(appService.createApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      }),
+    );
+  });
+
+  it('prints the scope info line in text mode', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 1,
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret-456',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ anotherRaw: 'n' })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ shouldScaffold: false });
+
+    await createCommand({ name: 'Test App', distribution: 'private' });
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stdoutCalls).toContain('Default scopes');
+    expect(stdoutCalls).toContain('contacts:read');
+    expect(stdoutCalls).toContain('brevo app update --scope');
+  });
+
+  it('suppresses the scope info line under --json', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 1,
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret-456',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+
+    await createCommand({
+      name: 'Test App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      json: true,
+    });
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stdoutCalls).not.toContain('Default scopes');
   });
 });
