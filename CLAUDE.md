@@ -172,6 +172,9 @@ yarn publish:packages     # publish to npm
 **Secrets required:**
 - `GITHUB_TOKEN` — auto-provided by GitHub Actions
 - `SLACK_*_WEBHOOK_URL` — only for release announcements (configured in the `npm-publish` environment)
+- `HOMEBREW_TAP_TOKEN` — fine-grained PAT scoped to **only** `getbrevo/homebrew-tap` (contents + pull-requests write), in the `npm-publish` environment. Used solely by the Homebrew auto-bump step; has no npm access. Has an expiry — rotate before it lapses or the auto-bump silently stops.
+
+**Homebrew distribution.** The CLI is also installable via `brew install getbrevo/tap/brevo`. The formula lives in the separate public repo [`getbrevo/homebrew-tap`](https://github.com/getbrevo/homebrew-tap) (`Formula/brevo.rb`), which builds from the published npm tarball. After every npm publish, the `Bump Homebrew formula` step in `release.yaml` recomputes the tarball `url` + `sha256` and opens a bump PR on the tap; the tap's own CI (`brew audit`/`brew test`) gates it and a human merges. This is a distribution channel only — no CLI command/flag/env-var surface — so it does **not** require `SKILL.md`/`AGENTS.md` edits, only the README install section.
 
 **Workflow / publishing changes — treat as security review, not style review.** Any edit to `.github/workflows/release.yaml` or `.github/workflows/pre-release.yaml`:
 
@@ -181,5 +184,6 @@ yarn publish:packages     # publish to npm
 - Keep `id-token: write` and `NPM_CONFIG_PROVENANCE=true` on the publishing step
 - Do not reintroduce `NPM_TOKEN` — auth is OIDC. If publishing breaks, fix the trusted-publisher config on npmjs.com, do not paper over it with a static token.
 - Keep the npm CLI pinned to a version that supports Trusted Publishing (>= 11.5.1). Do not use `npm@latest`.
+- Keep `HOMEBREW_TAP_TOKEN` scoped to **only** `getbrevo/homebrew-tap` with the minimum permissions (contents + pull-requests). Do not widen its repo scope or grant it npm access, and do not move the Homebrew bump step out from behind the `published == 'true'` gate.
 
 If a contributor proposes removing any of these, push back — don't silently drop them to make a diff cleaner.
