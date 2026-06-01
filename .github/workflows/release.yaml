@@ -276,9 +276,10 @@ jobs:
           fi
           echo "Bumping brevo formula to ${version} (sha256 ${sha256})"
 
-          # Clone the tap with the PAT (token NOT persisted to disk config).
+          # Clone the tap via gh (shallow): the PAT never lands in argv or
+          # remote.origin.url; gh authenticates from $GH_TOKEN.
           workdir=$(mktemp -d)
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/getbrevo/homebrew-tap.git" "$workdir"
+          gh repo clone getbrevo/homebrew-tap "$workdir" -- --depth 1 --single-branch
           cd "$workdir"
 
           branch="bump-brevo-${version}"
@@ -298,7 +299,15 @@ jobs:
           git -c user.name="brevo-release-bot" \
               -c user.email="brevo-release-bot@users.noreply.github.com" \
               commit -am "chore: bump brevo to ${version}"
-          git push origin "$branch"
+          git push --force-with-lease origin "$branch"
+
+          # Don't fail the job if a bump PR is already open (e.g. a re-run).
+          existing=$(gh pr list --repo getbrevo/homebrew-tap --head "$branch" \
+            --state open --json number --jq 'length')
+          if [ "$existing" != "0" ]; then
+            echo "PR already open for ${branch}; nothing to do."
+            exit 0
+          fi
 
           gh pr create \
             --repo getbrevo/homebrew-tap \
