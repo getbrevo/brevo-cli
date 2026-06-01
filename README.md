@@ -9,7 +9,13 @@ Command-line tool to create, manage, and test [Brevo](https://www.brevo.com/) OA
 
 ## Installation
 
-Install globally from the public npm registry:
+### Homebrew (macOS/Linux)
+
+```bash
+brew install getbrevo/tap/brevo
+```
+
+### npm
 
 ```bash
 npm install -g @getbrevo/cli
@@ -23,7 +29,7 @@ This puts the `brevo` binary on your PATH. Verify:
 brevo --version
 ```
 
-To upgrade later: `npm install -g @getbrevo/cli@latest`.
+To upgrade later: `brew upgrade brevo` (Homebrew) or `npm install -g @getbrevo/cli@latest` (npm).
 
 > Building from source? See [Development](#development) below.
 

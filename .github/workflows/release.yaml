@@ -239,3 +239,87 @@ jobs:
           gh workflow run smoke-post-merge.yml \
             --ref main \
             -f version="${tag}"
+
+      # ----------------------------------------------------------------------
+      # Homebrew tap auto-bump.
+      #
+      # After a successful npm publish, recompute the tarball URL + sha256 and
+      # open a formula-bump PR on getbrevo/homebrew-tap. The tap's tests.yml
+      # runs `brew audit`/`brew test` on that PR; a human merges.
+      #
+      # Auth: a fine-grained PAT (secret HOMEBREW_TAP_TOKEN), scoped to ONLY
+      # getbrevo/homebrew-tap with contents+pull-requests write. A GitHub App
+      # would give a short-lived token, but org App access isn't available, so
+      # this is the documented fallback. Security properties:
+      #   - The token reaches ONLY the tap repo, with only two permissions.
+      #   - It has NO npm/publish access — it cannot touch the registry, even
+      #     though this step shares the `release` job with the npm publish.
+      #   - It does NOT weaken the npm OIDC / no-NPM_TOKEN posture; different
+      #     trust boundary. The PAT has an expiry; rotate on expiry.
+      # ----------------------------------------------------------------------
+      - name: Bump Homebrew formula
+        if: steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          set -euo pipefail
+
+          # publishedPackages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
+          version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[] | select(.name=="@getbrevo/cli") | .version' | head -n1)
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "No @getbrevo/cli version in publishedPackages; nothing to bump."
+            exit 0
+          fi
+
+          tarball_url="https://registry.npmjs.org/@getbrevo/cli/-/cli-${version}.tgz"
+
+          # Recompute sha256 from the actual published tarball — never hand-entered.
+          # Retry briefly: the tarball can lag a few seconds behind the publish.
+          sha256=""
+          for attempt in 1 2 3 4 5; do
+            sha256=$(curl -fsSL "$tarball_url" | shasum -a 256 | awk '{print $1}') && break || true
+            echo "tarball not ready yet (attempt $attempt), retrying in 10s…"
+            sleep 10
+          done
+          if [ -z "$sha256" ]; then
+            echo "Failed to fetch tarball $tarball_url after retries." >&2
+            exit 1
+          fi
+          echo "Bumping brevo formula to ${version} (sha256 ${sha256})"
+
+          # Clone the tap with the PAT (token NOT persisted to disk config).
+          workdir=$(mktemp -d)
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/getbrevo/homebrew-tap.git" "$workdir"
+          cd "$workdir"
+
+          branch="bump-brevo-${version}"
+          git checkout -b "$branch"
+
+          # Rewrite ONLY the url and sha256 lines in the formula.
+          formula="Formula/brevo.rb"
+          sed -i.bak -E "s|^(  url ).*|\1\"${tarball_url}\"|" "$formula"
+          sed -i.bak -E "s|^(  sha256 ).*|\1\"${sha256}\"|" "$formula"
+          rm -f "${formula}.bak"
+
+          if git diff --quiet; then
+            echo "Formula already at ${version}; no PR needed."
+            exit 0
+          fi
+
+          git -c user.name="brevo-release-bot" \
+              -c user.email="brevo-release-bot@users.noreply.github.com" \
+              commit -am "chore: bump brevo to ${version}"
+          git push origin "$branch"
+
+          gh pr create \
+            --repo getbrevo/homebrew-tap \
+            --base main \
+            --head "$branch" \
+            --title "chore: bump brevo to ${version}" \
+            --body "Automated formula bump for \`@getbrevo/cli@${version}\`.
+
+          - url: ${tarball_url}
+          - sha256: \`${sha256}\`
+
+          Tap CI (\`brew audit\`/\`brew test\`) gates this PR. Merge after green."
