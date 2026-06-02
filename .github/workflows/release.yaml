@@ -239,3 +239,84 @@ jobs:
           gh workflow run smoke-post-merge.yml \
             --ref main \
             -f version="${tag}"
+
+      # Homebrew tap auto-bump: after a publish, recompute the tarball url +
+      # sha256 and open a formula-bump PR on getbrevo/homebrew-tap (tap CI gates
+      # it; a human merges). Auth is a fine-grained PAT (HOMEBREW_TAP_TOKEN)
+      # scoped to ONLY that repo (contents + PRs) — no npm access, so the
+      # OIDC/no-NPM_TOKEN publish posture is unaffected.
+      - name: Bump Homebrew formula
+        if: steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          set -euo pipefail
+
+          # publishedPackages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
+          version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[] | select(.name=="@getbrevo/cli") | .version' | head -n1)
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "No @getbrevo/cli version in publishedPackages; nothing to bump."
+            exit 0
+          fi
+
+          tarball_url="https://registry.npmjs.org/@getbrevo/cli/-/cli-${version}.tgz"
+
+          # sha256 from the published tarball (never hand-entered); retry as it
+          # can lag a few seconds behind the publish.
+          sha256=""
+          for attempt in 1 2 3 4 5; do
+            sha256=$(curl -fsSL "$tarball_url" | shasum -a 256 | awk '{print $1}') && break || true
+            echo "tarball not ready yet (attempt $attempt), retrying in 10s…"
+            sleep 10
+          done
+          if [ -z "$sha256" ]; then
+            echo "Failed to fetch tarball $tarball_url after retries." >&2
+            exit 1
+          fi
+          echo "Bumping brevo formula to ${version} (sha256 ${sha256})"
+
+          # Clone the tap via gh (shallow): the PAT never lands in argv or
+          # remote.origin.url; gh authenticates from $GH_TOKEN.
+          workdir=$(mktemp -d)
+          gh repo clone getbrevo/homebrew-tap "$workdir" -- --depth 1 --single-branch
+          cd "$workdir"
+
+          branch="bump-brevo-${version}"
+          git checkout -b "$branch"
+
+          # Rewrite ONLY the url and sha256 lines in the formula.
+          formula="Formula/brevo.rb"
+          sed -i.bak -E "s|^(  url ).*|\1\"${tarball_url}\"|" "$formula"
+          sed -i.bak -E "s|^(  sha256 ).*|\1\"${sha256}\"|" "$formula"
+          rm -f "${formula}.bak"
+
+          if git diff --quiet; then
+            echo "Formula already at ${version}; no PR needed."
+            exit 0
+          fi
+
+          git -c user.name="brevo-release-bot" \
+              -c user.email="brevo-release-bot@users.noreply.github.com" \
+              commit -am "chore: bump brevo to ${version}"
+          git push --force-with-lease origin "$branch"
+
+          # Don't fail the job if a bump PR is already open (e.g. a re-run).
+          existing=$(gh pr list --repo getbrevo/homebrew-tap --head "$branch" \
+            --state open --json number --jq 'length')
+          if [ "$existing" != "0" ]; then
+            echo "PR already open for ${branch}; nothing to do."
+            exit 0
+          fi
+
+          gh pr create \
+            --repo getbrevo/homebrew-tap \
+            --base main \
+            --head "$branch" \
+            --title "chore: bump brevo to ${version}" \
+            --body "Automated formula bump for \`@getbrevo/cli@${version}\`.
+
+          - url: ${tarball_url}
+          - sha256: \`${sha256}\`
+
+          Tap CI (\`brew audit\`/\`brew test\`) gates this PR. Merge after green."
