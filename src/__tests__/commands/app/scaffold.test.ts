@@ -303,67 +303,66 @@ describe('app/scaffold', () => {
   });
 
   describe("legacy 'all' scope substitution", () => {
-    const legacyApp = {
-      app_id: '1',
-      name: 'Legacy App',
-      client_id: 'cli-123',
-      client_secret: 'secret',
-      redirect_uris: [] as string[],
-      scopes: ['all'],
-    };
+    const DEFAULTS = ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'];
 
-    it("writes DEFAULT_SCOPES instead of 'all' and prints the substitution notice", async () => {
+    /** Scaffold an app with the given remote scopes; return written scopes + CLI output. */
+    const scaffoldWithScopes = async (
+      remoteScopes: string[],
+      dir: string,
+      json = false,
+    ): Promise<{ writtenScopes: string; output: string }> => {
       (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
         diffs: [],
-        app: legacyApp,
+        app: {
+          app_id: '1',
+          name: 'Legacy App',
+          client_id: 'cli-123',
+          client_secret: 'secret',
+          redirect_uris: [] as string[],
+          scopes: remoteScopes,
+        },
       });
-      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-legacy') });
+      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath(dir) });
 
-      await scaffoldCommand({ appId: '1' });
+      await scaffoldCommand({ appId: '1', json });
 
       const { loadAllTemplates } = require('../../../templates');
       const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-      expect(vars['{{SCOPES_JSON}}']).toBe(
-        JSON.stringify(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']),
-      );
+      return {
+        writtenScopes: vars['{{SCOPES_JSON}}'],
+        output: stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''),
+      };
+    };
 
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    it("writes DEFAULT_SCOPES when 'all' is the only scope and prints the substitution notice", async () => {
+      const { writtenScopes, output } = await scaffoldWithScopes(['all'], 'test-legacy');
+      expect(writtenScopes).toBe(JSON.stringify(DEFAULTS));
       expect(output).toMatch(/legacy 'all'/);
     });
 
+    it("keeps granular scopes and only drops 'all' when scopes are mixed", async () => {
+      const { writtenScopes, output } = await scaffoldWithScopes(
+        ['all', 'crm:deals', 'companies:read'],
+        'test-legacy-mixed',
+      );
+      expect(writtenScopes).toBe(JSON.stringify(['crm:deals', 'companies:read']));
+      expect(output).toMatch(/legacy 'all'/);
+      expect(output).toContain('crm:deals');
+    });
+
     it('suppresses the substitution notice under --json', async () => {
-      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-        diffs: [],
-        app: legacyApp,
-      });
-      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-legacy-json') });
-
-      await scaffoldCommand({ appId: '1', json: true });
-
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      const { writtenScopes, output } = await scaffoldWithScopes(['all'], 'test-legacy-json', true);
       expect(output).not.toMatch(/legacy 'all'/);
       // Still substitutes in the written config
-      const { loadAllTemplates } = require('../../../templates');
-      const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-      expect(vars['{{SCOPES_JSON}}']).toBe(
-        JSON.stringify(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']),
-      );
+      expect(writtenScopes).toBe(JSON.stringify(DEFAULTS));
     });
 
     it('propagates granular remote scopes untouched, with no notice', async () => {
-      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-        diffs: [],
-        app: { ...legacyApp, scopes: ['contacts:read', 'crm:write'] },
-      });
-      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-granular') });
-
-      await scaffoldCommand({ appId: '1' });
-
-      const { loadAllTemplates } = require('../../../templates');
-      const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-      expect(vars['{{SCOPES_JSON}}']).toBe(JSON.stringify(['contacts:read', 'crm:write']));
-
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      const { writtenScopes, output } = await scaffoldWithScopes(
+        ['contacts:read', 'crm:write'],
+        'test-granular',
+      );
+      expect(writtenScopes).toBe(JSON.stringify(['contacts:read', 'crm:write']));
       expect(output).not.toMatch(/legacy 'all'/);
     });
   });

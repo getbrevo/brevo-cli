@@ -111,11 +111,11 @@ export const messages = {
   APP_UPDATE_SCOPES_APPENDED: (scopes: string[]): string => `Scopes appended: ${scopes.join(', ')}`,
 
   // Legacy 'all' scope deprecation (BEX-214)
-  LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Edit auth.scopes in app-config.json to replace 'all' with the specific scopes your integration uses.\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then re-run \`${CLI.APP_UPDATE_SCOPE} <scope>\` (repeatable) to migrate.`,
+  LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (if you keep an app-config.json, edit auth.scopes there too).\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then re-run \`${CLI.APP_UPDATE_SCOPE} <scope>\` (repeatable) to migrate.`,
   LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate with \`${CLI.APP_UPDATE_SCOPE} <scope>\` (repeatable), then re-run \`${CLI.APP_START('oauth')}\`.`,
   LEGACY_ALL_SCOPE_LIST_TAG: ` (legacy 'all' — deprecated)`,
-  LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED: (defaultScopes: string): string =>
-    `This app still has the legacy 'all' OAuth scope (deprecated). Wrote the default scopes (${defaultScopes}) to app-config.json instead. Migrate the app with \`${CLI.APP_UPDATE_SCOPE} <scope>\`.`,
+  LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED: (writtenScopes: string): string =>
+    `This app still has the legacy 'all' OAuth scope (deprecated). Wrote ${writtenScopes} to app-config.json instead of 'all'. Migrate the app with \`${CLI.APP_UPDATE_SCOPE} <scope>\`.`,
   LEGACY_ALL_SCOPE_UPDATE_MIGRATING: `Migrating from legacy 'all' scope — 'all' will be removed.`,
 
   // App delete
