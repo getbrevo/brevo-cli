@@ -99,6 +99,23 @@ describe('messages (lang/en)', () => {
       expect(messages.OAUTH_METADATA_FETCH_FAILED('https://x/y', 500)).toContain('500');
     });
 
+    it("exports the legacy 'all' scope deprecation strings", () => {
+      expect(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK).toContain("'all'");
+      expect(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK).toContain('app-config.json');
+      expect(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK).toContain('brevo app available-scopes');
+      expect(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK).toContain('brevo app update --scope');
+      expect(messages.LEGACY_ALL_SCOPE_START_BLOCK).toContain("'all'");
+      expect(messages.LEGACY_ALL_SCOPE_START_BLOCK).toContain('brevo app update --scope');
+      expect(messages.LEGACY_ALL_SCOPE_START_BLOCK).toContain('brevo app start oauth');
+      expect(messages.LEGACY_ALL_SCOPE_LIST_TAG).toMatch(/legacy/i);
+      expect(messages.LEGACY_ALL_SCOPE_LIST_TAG).toMatch(/deprecated/i);
+      expect(messages.LEGACY_ALL_SCOPE_UPDATE_MIGRATING).toMatch(/legacy 'all'/i);
+      expect(messages.LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED('contacts:read')).toContain(
+        'contacts:read',
+      );
+      expect(messages.LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED('contacts:read')).toMatch(/legacy/i);
+    });
+
     it('exports the app scopes web-view strings', () => {
       expect(messages.APP_SCOPES_WEB_LISTENING('http://127.0.0.1:1234/')).toContain(
         'http://127.0.0.1:1234/',

@@ -110,6 +110,11 @@ export const OAUTH_BASE = 'https://oauth.brevo.com';
 export const OAUTH_REALM = 'partner';
 export const OAUTH_SCOPES_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/scopes`;
 
+// Legacy catch-all OAuth scope being deprecated (BEX-214). Single source of
+// truth for the spelling — every detection path goes through
+// `containsLegacyAllScope` in lib/validators.
+export const LEGACY_ALL_SCOPE = 'all';
+
 export const DEFAULT_SCOPES: readonly string[] = [
   'contacts:read',
   'contacts:write',

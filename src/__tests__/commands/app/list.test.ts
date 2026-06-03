@@ -148,6 +148,54 @@ describe('app/list', () => {
       expect(deleteAppName).toHaveBeenCalledWith('42');
     });
 
+    describe("legacy 'all' scope flagging", () => {
+      const legacyApp = {
+        app_id: 1,
+        name: 'Legacy App',
+        client_id: 'cli-legacy',
+        client_secret: 'secret',
+        redirect_uris: [],
+        scopes: ['all'],
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      };
+      const granularApp = {
+        app_id: 2,
+        name: 'Granular App',
+        client_id: 'cli-granular',
+        client_secret: 'secret',
+        redirect_uris: [],
+        scopes: ['contacts:read'],
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      };
+
+      it("appends the deprecation tag on the scopes line when scopes contain 'all'", async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([legacyApp, granularApp]);
+
+        await listCommand({ json: false });
+
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        const legacyLine = output.split('\n').find((l: string) => l.includes("legacy 'all'"));
+        expect(legacyLine).toBeDefined();
+        expect(legacyLine).toContain('all');
+        expect(legacyLine).toMatch(/deprecated/i);
+        // Granular app's scopes line is untagged
+        const granularLine = output.split('\n').find((l: string) => l.includes('contacts:read'));
+        expect(granularLine).not.toMatch(/deprecated/i);
+      });
+
+      it('sets legacy_all_scope: true only on affected apps in --json output', async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([legacyApp, granularApp]);
+
+        await listCommand({ json: true });
+
+        const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
+        expect(parsed[0].legacy_all_scope).toBe(true);
+        expect(parsed[1]).not.toHaveProperty('legacy_all_scope');
+      });
+    });
+
     it('should show all redirect urls', async () => {
       (appService.fetchAppsList as jest.Mock).mockResolvedValue([
         {

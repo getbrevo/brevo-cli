@@ -5,6 +5,7 @@ import {
   splitScopes,
   validateScopes,
   collectScopes,
+  containsLegacyAllScope,
 } from '../../lib/validators';
 import { CliError } from '../../lib/errors';
 
@@ -212,5 +213,18 @@ describe('parseAppId', () => {
 
   it('throws CliError on whitespace-only string', () => {
     expect(() => parseAppId('   ')).toThrow(CliError);
+  });
+});
+
+describe('containsLegacyAllScope', () => {
+  it.each<[string, string[] | undefined, boolean]>([
+    ["['all'] alone", ['all'], true],
+    ["'all' mixed with granular scopes", ['contacts:read', 'all'], true],
+    ['granular scopes only', ['contacts:read', 'crm:write'], false],
+    ['empty array', [], false],
+    ['undefined', undefined, false],
+    ["near-misses ('ALL', 'all:read') do not match", ['ALL', 'all:read', 'contacts:all'], false],
+  ])('returns %s → %s', (_label, scopes, expected) => {
+    expect(containsLegacyAllScope(scopes)).toBe(expected);
   });
 });

@@ -6,6 +6,7 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { createSpinner } from '../../lib/ui';
 import { getAppNames, deleteAppName } from '../../lib/config';
+import { containsLegacyAllScope } from '../../lib/validators';
 
 export const listCommand = withCommandHandler(
   async (options: { json?: boolean }): Promise<void> => {
@@ -34,7 +35,12 @@ export const listCommand = withCommandHandler(
     });
 
     if (options.json) {
-      const safeApps = apps.map(({ client_secret: _secret, ...rest }) => rest);
+      // `legacy_all_scope: true` is the machine-readable deprecation signal
+      // for scripts/agents — only present on affected apps (BEX-214).
+      const safeApps = apps.map(({ client_secret: _secret, ...rest }) => ({
+        ...rest,
+        ...(containsLegacyAllScope(rest.scopes) ? { legacy_all_scope: true } : {}),
+      }));
       jsonOutput(safeApps);
       return;
     }
@@ -59,8 +65,9 @@ export const listCommand = withCommandHandler(
       }
       process.stdout.write(`    Logo URL:      ${app.logo_uri || '(none)'}\n`);
       const scopes = app.scopes ?? [];
+      const legacyTag = containsLegacyAllScope(scopes) ? messages.LEGACY_ALL_SCOPE_LIST_TAG : '';
       process.stdout.write(
-        `    Scopes:        ${scopes.length > 0 ? scopes.join(', ') : '(none)'}\n`,
+        `    Scopes:        ${scopes.length > 0 ? scopes.join(', ') : '(none)'}${legacyTag}\n`,
       );
       process.stdout.write('\n');
     }

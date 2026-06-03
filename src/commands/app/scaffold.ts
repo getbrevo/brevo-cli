@@ -16,6 +16,7 @@ import { CliError } from '../../lib/errors';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { loadAllTemplates } from '../../templates';
+import { containsLegacyAllScope } from '../../lib/validators';
 
 interface TreeNode {
   [key: string]: TreeNode;
@@ -176,7 +177,13 @@ export const scaffoldCommand = withCommandHandler(
 
     const rawAppName = ctx.appDetails?.name || path.basename(targetDir);
     const appName = rawAppName.replaceAll(/["\\\n\r\t]/g, '').trim() || 'my-app';
-    const scopes = ctx.appDetails?.scopes ?? [...DEFAULT_SCOPES];
+    // Never propagate the deprecated legacy 'all' scope into a fresh
+    // app-config.json — substitute DEFAULT_SCOPES and tell the user (BEX-214).
+    const remoteScopes = ctx.appDetails?.scopes;
+    const legacyAllSubstituted = containsLegacyAllScope(remoteScopes);
+    const scopes = legacyAllSubstituted
+      ? [...DEFAULT_SCOPES]
+      : (remoteScopes ?? [...DEFAULT_SCOPES]);
 
     const pkg = JSON.parse(
       fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'),
@@ -208,6 +215,9 @@ export const scaffoldCommand = withCommandHandler(
     }
 
     logSuccess(messages.APP_SCAFFOLD_SUCCESS(written));
+    if (legacyAllSubstituted) {
+      logWarn(messages.LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED(DEFAULT_SCOPES.join(', ')));
+    }
     logInfo(formatFileTree(files.map((f) => f.name)));
 
     const relativeDir = path.relative(process.cwd(), targetDir) || '.';

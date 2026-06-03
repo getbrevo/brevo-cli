@@ -9,7 +9,8 @@ import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { readProjectConfig, saveAppName, writeProjectConfig } from '../../lib/config';
 import { OAuthApp } from '../../types';
-import { validateAppName, validateScopes } from '../../lib/validators';
+import { validateAppName, validateScopes, containsLegacyAllScope } from '../../lib/validators';
+import { LEGACY_ALL_SCOPE } from '../../lib/constants';
 import inquirer from 'inquirer';
 
 interface UpdateOptions {
@@ -108,6 +109,12 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
 
     const nextScopes = config!.auth?.scopes ?? [];
     validateScopes(nextScopes);
+
+    // The legacy 'all' scope is deprecated — block the push and point at the
+    // migration path (--scope). No silent rewrite, no escape hatch (BEX-214).
+    if (containsLegacyAllScope(nextScopes)) {
+      throw new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK);
+    }
 
     if (!options.json) {
       // Fail fast before the network fetch when we'd have nowhere to show the diff.
@@ -225,12 +232,24 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   }
   const finalLogoUri = options.logoUri ?? existingLogoUri;
 
+  // Passing --scope signals migration intent: drop the deprecated legacy 'all'
+  // scope from the merge baseline so the outgoing payload is clean (BEX-214).
   const appendedScopes = options.scope ?? [];
-  const mergedScopes = [...existingScopes];
+  const hasScopeFlag = appendedScopes.length > 0;
+  const migratingLegacyScopes = hasScopeFlag && containsLegacyAllScope(existingScopes);
+  const mergedScopes = migratingLegacyScopes
+    ? existingScopes.filter((s) => s !== LEGACY_ALL_SCOPE)
+    : [...existingScopes];
   for (const s of appendedScopes) {
     if (!mergedScopes.includes(s)) {
       mergedScopes.push(s);
     }
+  }
+
+  // Block any outgoing payload that still carries 'all' — either no --scope
+  // was passed (no migration intent), or 'all' was explicitly re-added.
+  if (containsLegacyAllScope(mergedScopes)) {
+    throw new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK);
   }
 
   const hasRedirectUriFlag = options.redirectUri !== undefined;
@@ -256,6 +275,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       nextLogoUri: finalLogoUri,
       currentScopes: existingScopes,
       nextScopes: mergedScopes,
+      migratingLegacyScopes,
     });
   }
 
@@ -357,6 +377,7 @@ function renderUpdateSummary(params: {
   nextLogoUri?: string;
   currentScopes?: string[];
   nextScopes?: string[];
+  migratingLegacyScopes?: boolean;
 }): void {
   const {
     appId,
@@ -368,6 +389,7 @@ function renderUpdateSummary(params: {
     nextLogoUri,
     currentScopes,
     nextScopes,
+    migratingLegacyScopes,
   } = params;
   const currentSet = new Set(currentUrls);
   const nextSet = new Set(nextUrls);
@@ -392,6 +414,9 @@ function renderUpdateSummary(params: {
     const prefix = i === 0 ? '  Redirect URLs: ' : '                 ';
     logInfo(`${prefix}${line}`);
   });
+  if (migratingLegacyScopes) {
+    logInfo(`  ${messages.LEGACY_ALL_SCOPE_UPDATE_MIGRATING}`);
+  }
   if (nextScopes !== undefined) {
     const currentScopesSet = new Set(currentScopes ?? []);
     const nextScopesSet = new Set(nextScopes);
