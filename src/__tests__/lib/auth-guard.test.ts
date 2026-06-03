@@ -69,6 +69,27 @@ describe('auth-guard', () => {
     }
   });
 
+  it('should allow app available-scopes through without auth (public IdP catalog)', async () => {
+    const program = new Command();
+    installAuthGuard(program);
+
+    (config.isAuthenticated as jest.Mock).mockReturnValue(false);
+
+    const hooks = (program as any)._lifeCycleHooks?.preAction;
+    if (hooks && hooks.length > 0) {
+      const originalArgv = process.argv;
+      process.argv = ['node', 'brevo', 'app', 'available-scopes'];
+
+      const mockActionCommand = {
+        name: () => 'available-scopes',
+        parent: { name: () => 'app' },
+      } as unknown as Command;
+      await hooks[0](program, mockActionCommand);
+
+      process.argv = originalArgv;
+    }
+  });
+
   it('should allow skill subcommands through without auth', async () => {
     const program = new Command();
     installAuthGuard(program);

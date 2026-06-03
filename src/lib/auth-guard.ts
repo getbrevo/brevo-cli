@@ -3,7 +3,16 @@ import { isAuthenticated } from './config';
 import { CLI } from './constants';
 import { CliError } from './errors';
 
-const UNAUTHENTICATED_COMMANDS = new Set(['login', 'help', 'init', 'whoami', 'logout']);
+// `available-scopes` only fetches the public IdP scope catalog (no Brevo API
+// key involved), so it works before `brevo login`.
+const UNAUTHENTICATED_COMMANDS = new Set([
+  'login',
+  'help',
+  'init',
+  'whoami',
+  'logout',
+  'available-scopes',
+]);
 // Subcommand groups whose entire subtree is local-only and never needs auth.
 // Skill management touches files under ~/.claude/ — there is nothing to call
 // against the Brevo API.
