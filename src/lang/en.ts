@@ -1,4 +1,4 @@
-import { CLI } from '../lib/constants';
+import { CLI, BREVO_CLI_REFERENCE_URL } from '../lib/constants';
 
 export const messages = {
   // Update notifier
@@ -209,6 +209,7 @@ export const messages = {
   // App scopes
   APP_SCOPES_EMPTY: 'The IdP returned an empty scope list.',
   APP_SCOPES_USAGE_HINT: `Add a scope to an app with \`${CLI.APP_UPDATE_SCOPE} <scope> --app-id <id>\`.`,
+  APP_SCOPES_DOCS_HINT: `Full CLI reference: ${BREVO_CLI_REFERENCE_URL}`,
   APP_SCOPES_WEB_LISTENING: (url: string): string => `Open in browser: ${url} (Ctrl+C to stop)`,
   APP_SCOPES_WEB_TITLE: 'Brevo OAuth scopes',
   APP_SCOPES_WEB_INTRO: (count: number, sourceUrl: string): string =>

@@ -126,3 +126,4 @@ export const BREVO_DASHBOARD_API_KEYS_URL = 'https://app.brevo.com/settings/keys
 export const BREVO_API_KEY_DOCS_URL = 'https://developers.brevo.com/docs/api-key-authentication';
 export const BREVO_STATUS_URL = 'https://status.brevo.com';
 export const BREVO_DOCS_URL = 'https://developers.brevo.com';
+export const BREVO_CLI_REFERENCE_URL = 'https://developers.brevo.com/docs/cli-reference';

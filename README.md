@@ -2,6 +2,8 @@
 
 Command-line tool to create, manage, and test [Brevo](https://www.brevo.com/) OAuth integrations from your terminal.
 
+> 📖 Full command and option documentation: **[Brevo CLI reference](https://developers.brevo.com/docs/cli-reference)**
+
 ## Requirements
 
 - **Node.js** 20.15.0 or newer (required to run the CLI)
