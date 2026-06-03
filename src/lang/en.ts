@@ -222,6 +222,16 @@ export const messages = {
   APP_SCOPES_WEB_REFRESH_FAILED: `Refresh failed. Please restart \`${CLI.APP_SCOPES} --web\` to retry.`,
   APP_SCOPES_WEB_ENDPOINTS_LABEL: 'API endpoints',
   APP_SCOPES_WEB_NO_ENDPOINTS: 'No API endpoints listed for this scope.',
+  APP_SCOPES_WEB_COPY: 'Copy',
+  APP_SCOPES_WEB_COPIED: 'Copied!',
+  // {category} / {scope} are replaced client-side in the web page script.
+  APP_SCOPES_WEB_COPY_CATEGORY_ARIA: 'Copy {category} scopes',
+  APP_SCOPES_WEB_SELECT_SCOPE_ARIA: 'Select {scope}',
+  APP_SCOPES_WEB_COPY_SELECTED: 'Copy selected',
+  APP_SCOPES_WEB_SELECTED_PLACEHOLDER: `Tick scopes to build a comma-separated list for \`${CLI.APP_UPDATE_SCOPE}\` or app-config.json`,
+  APP_SCOPES_WEB_LEGACY_BADGE: 'deprecated',
+  APP_SCOPES_WEB_LEGACY_TITLE: `Legacy 'all' scope — replace with the granular scopes your integration uses.`,
+  APP_SCOPES_WEB_DOCS_LINK: 'Full CLI reference',
   OAUTH_METADATA_MISSING_SCOPES: 'IdP scopes response did not include a scopes array.',
   OAUTH_METADATA_FETCH_FAILED: (url: string, status: number): string =>
     `Failed to fetch OAuth scopes from ${url} (HTTP ${status}).`,

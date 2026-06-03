@@ -133,6 +133,15 @@ describe('messages (lang/en)', () => {
       expect(messages.APP_SCOPES_WEB_REFRESH_FAILED).toMatch(/fail/i);
       expect(messages.APP_SCOPES_WEB_ENDPOINTS_LABEL).toMatch(/endpoint/i);
       expect(messages.APP_SCOPES_WEB_NO_ENDPOINTS).toMatch(/endpoint/i);
+      expect(messages.APP_SCOPES_WEB_COPY).toBeDefined();
+      expect(messages.APP_SCOPES_WEB_COPIED).toMatch(/copied/i);
+      expect(messages.APP_SCOPES_WEB_COPY_CATEGORY_ARIA).toContain('{category}');
+      expect(messages.APP_SCOPES_WEB_SELECT_SCOPE_ARIA).toContain('{scope}');
+      expect(messages.APP_SCOPES_WEB_COPY_SELECTED).toMatch(/copy/i);
+      expect(messages.APP_SCOPES_WEB_SELECTED_PLACEHOLDER).toContain('brevo app update --scope');
+      expect(messages.APP_SCOPES_WEB_LEGACY_BADGE).toMatch(/deprecated/i);
+      expect(messages.APP_SCOPES_WEB_LEGACY_TITLE).toMatch(/legacy 'all'/i);
+      expect(messages.APP_SCOPES_WEB_DOCS_LINK).toMatch(/cli reference/i);
     });
   });
 });

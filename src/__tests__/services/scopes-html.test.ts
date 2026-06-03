@@ -65,6 +65,42 @@ describe('renderScopesHtml', () => {
     expect(extractDataPayload(html)).toEqual([]);
   });
 
+  it('wires per-category copy CTAs and the scope selection bar', () => {
+    const html = renderScopesHtml([
+      { name: 'contacts:read', category: 'data_crm', apiEndpoints: [] },
+    ]);
+
+    // Render-time script builds a copy button per category box…
+    expect(html).toContain('copy-category');
+    expect(html).toContain('scope-check');
+    // …and the static shell carries the selection text box + copy CTA.
+    expect(html).toContain('id="selected-scopes"');
+    expect(html).toContain('id="copy-selected"');
+    expect(html).toContain('navigator.clipboard');
+    // Copied values are double-quoted ("a","b") so they paste straight into
+    // app-config.json's auth.scopes array.
+    expect(html).toContain(`'"' + n + '"'`);
+  });
+
+  it("marks the legacy 'all' scope for deprecation badging and excludes it from copy", () => {
+    const html = renderScopesHtml([{ name: 'all', category: 'account', apiEndpoints: [] }]);
+
+    const labelsMatch = /<script type="application\/json" id="labels">([\s\S]*?)<\/script>/.exec(
+      html,
+    );
+    expect(labelsMatch).not.toBeNull();
+    const labels = JSON.parse(String(labelsMatch![1]));
+    expect(labels.legacyScope).toBe('all');
+    expect(labels.legacyBadge).toMatch(/deprecated/i);
+    // Category copy skips the legacy scope; the badge replaces its checkbox.
+    expect(html).toContain('e.name !== labels.legacyScope');
+  });
+
+  it('links the public CLI reference from the footer', () => {
+    const html = renderScopesHtml([]);
+    expect(html).toContain('https://developers.brevo.com/docs/cli-reference');
+  });
+
   it('includes the source URL and scope count in the intro', () => {
     const html = renderScopesHtml([
       { name: 'a', category: 'x', apiEndpoints: [] },
