@@ -9,7 +9,7 @@ This project uses the Brevo Developer CLI to create and manage Brevo OAuth appli
 
 > **Reading this from the repo rather than `~/.claude/skills/brevo-cli/`?**
 >
-> - **If you're Claude** (Claude Code, Claude Desktop, or any agent that reads `~/.claude/skills/`): install it as a skill with `brevo skill:cli install` so your tooling loads it natively and keeps it auto-refreshed. The repo copy is bundled with the npm package; the installed copy is what Claude actually consumes.
+> - **If you're Claude Code** (CLI or desktop app — any agent that reads `~/.claude/skills/`): install it as a skill with `brevo skill:cli install` so your tooling loads it natively and keeps it auto-refreshed. The repo copy is bundled with the npm package; the installed copy is what Claude actually consumes. Note: the Claude Desktop **chat** app does not read `~/.claude/skills/`, so the installed skill won't load there — only Claude Code surfaces pick it up.
 > - **If you're any other AI agent** (Cursor, Copilot CLI, Gemini, Codex, etc.): **don't run `brevo skill:cli install`** — the skill format is Claude-specific and would land in a directory your tooling doesn't read. Use `agent-context/AGENTS.md` as your reference instead; it covers the same surface in less depth.
 
 ## Before starting a new session
@@ -40,7 +40,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 - "Authenticate" → `brevo login` (or `BREVO_API_KEY=xkeysib-... brevo login` for CI)
 - "Who am I logged in as?" → `brevo whoami --json`
 - "Show / pick an app" → `brevo app list --json`
-- "Create an app" → `brevo app create --name "<name>" --distribution private --redirect-uri <url> --json` (add `--logo-uri <https://…>` to set the app logo at creation time; new apps default to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`)
+- "Create an app" → `brevo app create --name "<name>" --distribution private --redirect-uri <url> --json` (add `--logo-uri <https://…>` to set the app logo at creation time; new apps default to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`). Only `private` distribution is available today — the CLI rejects `--distribution public` with a "coming soon" error, so never suggest it.
 - "Update app metadata" → `brevo app update --app-id <id> --name "<name>"` and/or `--redirect-uri <url>` (repeatable) and/or `--scope <scope>` (repeatable, appends) and/or `--logo-uri <https://…>`
 - "Get client credentials" → `brevo app credentials --app-id <id> --json` (add `--reveal-secret` to print the secret)
 - "Generate starter OAuth code" → `brevo app scaffold --app-id <id>`

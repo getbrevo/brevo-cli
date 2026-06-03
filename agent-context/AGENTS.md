@@ -7,13 +7,13 @@ This project uses the [Brevo Developer CLI](https://www.npmjs.com/package/@getbr
 
 Pick the path that matches your tooling:
 
-- **You are Claude** (Claude Code, Claude Desktop, or any agent that reads `~/.claude/skills/`) — install the brevo-cli skill before doing other work, if it isn't already at `~/.claude/skills/brevo-cli/`:
+- **You are Claude Code** (CLI or desktop app — any agent that reads `~/.claude/skills/`) — install the brevo-cli skill before doing other work, if it isn't already at `~/.claude/skills/brevo-cli/`:
 
   ```bash
   brevo skill:cli install
   ```
 
-  The skill loads the canonical decision tree, hard rules, and exit codes in the format Claude consumes directly. Once installed it auto-refreshes on every `brevo` invocation so it stays in sync with the running CLI version (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`).
+  The skill loads the canonical decision tree, hard rules, and exit codes in the format Claude consumes directly. Once installed it auto-refreshes on every `brevo` invocation so it stays in sync with the running CLI version (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`). Note: the install targets `~/.claude/skills/`, which only Claude Code surfaces read — the Claude Desktop **chat** app does not load skills from this directory.
 
 - **You are any other AI agent** (Cursor, Copilot CLI, Gemini CLI, Codex, etc.) — **do not run `brevo skill:cli install`**. The skill format is Claude-specific and the install would land in a directory your tooling doesn't read. Use this `AGENTS.md` as your reference instead — it covers the same surface in less depth.
 
@@ -64,7 +64,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 | `brevo whoami` | Show the authenticated account (`--json`) |
 | `brevo app init` | Guided setup (login, create, scaffold) |
 | `brevo app list` | List OAuth apps (`--json`) |
-| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--logo-uri`, `--json`). Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
+| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--logo-uri`, `--json`). Only `--distribution private` is available today — `public` is rejected with a "coming soon" error. Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
 | `brevo app update` | Update name / redirect URLs / scopes / logo (`--app-id`, `--name`, `--redirect-uri`, `--scope` repeatable appends, `--logo-uri`, `--yes`, `--json`) |
 | `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`, `--json`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`, `--json`) |

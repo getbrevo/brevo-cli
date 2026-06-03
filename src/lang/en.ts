@@ -196,7 +196,7 @@ export const messages = {
   SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string) =>
     `Installed ${name}@${version} → ${dir}`,
   SKILL_INSTALL_CLAUDE_ONLY:
-    'This skill is consumed by Claude (Claude Code, Claude Desktop). Other AI tools (Cursor, Copilot CLI, Gemini, etc.) should reference agent-context/AGENTS.md from the @getbrevo/cli npm package instead.',
+    'This skill is consumed by Claude Code. Other AI tools (Claude Desktop chat, Cursor, Copilot CLI, Gemini, etc.) should reference agent-context/AGENTS.md from the @getbrevo/cli npm package instead.',
   SKILL_INSTALL_ALREADY: (name: string, version: string) =>
     `${name}@${version} is already up to date.`,
   SKILL_UNINSTALL_SUCCESS: (name: string, dir: string) => `Uninstalled ${name} from ${dir}`,
