@@ -78,7 +78,7 @@ The legacy catch-all `'all'` OAuth scope is deprecated. The CLI **blocks** `brev
 2. **Prompt the user to pick granular scopes** — use `brevo app available-scopes --json` for the catalog, or fall back to the four defaults (`contacts:read`, `contacts:write`, `crm:read`, `crm:write`).
 3. **Migrate** with `brevo app update --scope <scope> --scope <scope> ...` — passing `--scope` drops `'all'` from the outgoing scope set and applies the new granular scopes (the summary shows a "Migrating from legacy 'all' scope" line and `all (removed)`).
 
-`brevo app scaffold` against an app whose remote scopes contain `'all'` never propagates it: the new `app-config.json` gets the four default scopes instead, with a one-line substitution notice (suppressed under `--json`). Note the substitution is local-only — the remote app still needs the `--scope` migration above.
+`brevo app scaffold` against an app whose remote scopes contain `'all'` never propagates it: the new `app-config.json` keeps the app's remaining granular scopes (or the four default scopes when `'all'` was the only scope), with a one-line substitution notice (suppressed under `--json`). Note the substitution is local-only — the remote app still needs the `--scope` migration above.
 
 ## Exit codes
 
