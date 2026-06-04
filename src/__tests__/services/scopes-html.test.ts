@@ -101,6 +101,13 @@ describe('renderScopesHtml', () => {
     expect(html).toContain('https://developers.brevo.com/docs/cli-reference');
   });
 
+  it('renders a hero CTA linking the scope catalog docs', () => {
+    const html = renderScopesHtml([]);
+    expect(html).toContain(
+      '<a class="docs-cta" href="https://developers.brevo.com/docs/oauth-scopes#scope-catalog"',
+    );
+  });
+
   it('includes the source URL and scope count in the intro', () => {
     const html = renderScopesHtml([
       { name: 'a', category: 'x', apiEndpoints: [] },

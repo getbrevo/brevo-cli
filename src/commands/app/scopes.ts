@@ -51,6 +51,7 @@ function printScopesByCategory(entries: ScopeEntry[]): void {
 
   logInfo('');
   logInfo(messages.APP_SCOPES_USAGE_HINT);
+  logInfo(messages.APP_SCOPES_CATALOG_DOCS_HINT);
   logInfo(messages.APP_SCOPES_DOCS_HINT);
 }
 

@@ -1,4 +1,9 @@
-import { OAUTH_SCOPES_URL, BREVO_CLI_REFERENCE_URL, LEGACY_ALL_SCOPE } from '../lib/constants';
+import {
+  OAUTH_SCOPES_URL,
+  BREVO_CLI_REFERENCE_URL,
+  BREVO_OAUTH_SCOPES_DOCS_URL,
+  LEGACY_ALL_SCOPE,
+} from '../lib/constants';
 import { messages } from '../lang/en';
 import type { ScopeEntry } from './oauth-metadata';
 
@@ -77,6 +82,22 @@ h1 {
   margin: 0 0 .5rem;
 }
 .intro { color: var(--muted); margin: 0; word-break: break-word; }
+a.docs-cta {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: .5rem 1.1rem;
+  font-weight: 600;
+  font-size: .9rem;
+  color: #ffffff;
+  background: var(--accent);
+  border-radius: var(--radius-input);
+  text-decoration: none;
+  box-shadow: var(--card-shadow);
+}
+a.docs-cta:hover { opacity: .9; }
+@media (prefers-color-scheme: dark) {
+  a.docs-cta { color: #0f1224; }
+}
 main {
   max-width: 880px;
   margin: 0 auto;
@@ -438,6 +459,7 @@ export function renderScopesHtml(entries: ScopeEntry[]): string {
   const refreshError = escapeHtml(messages.APP_SCOPES_WEB_REFRESH_FAILED);
   const footer = escapeHtml(messages.APP_SCOPES_WEB_FOOTER);
   const docsLink = escapeHtml(messages.APP_SCOPES_WEB_DOCS_LINK);
+  const catalogDocsCta = escapeHtml(messages.APP_SCOPES_WEB_CATALOG_DOCS_CTA);
   const selectedPlaceholder = escapeHtml(messages.APP_SCOPES_WEB_SELECTED_PLACEHOLDER);
   const copySelected = escapeHtml(messages.APP_SCOPES_WEB_COPY_SELECTED);
 
@@ -468,6 +490,7 @@ export function renderScopesHtml(entries: ScopeEntry[]): string {
   <div class="hero-inner">
     <h1>${title}</h1>
     <p class="intro">${introWithSpan}</p>
+    <a class="docs-cta" href="${BREVO_OAUTH_SCOPES_DOCS_URL}" target="_blank" rel="noopener noreferrer">${catalogDocsCta} ↗</a>
   </div>
 </header>
 <main>
