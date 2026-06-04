@@ -127,4 +127,5 @@ export const BREVO_API_KEY_DOCS_URL = 'https://developers.brevo.com/docs/api-key
 export const BREVO_STATUS_URL = 'https://status.brevo.com';
 export const BREVO_DOCS_URL = 'https://developers.brevo.com';
 export const BREVO_CLI_REFERENCE_URL = 'https://developers.brevo.com/docs/cli-reference';
-export const BREVO_OAUTH_SCOPES_DOCS_URL = 'https://developers.brevo.com/docs/oauth-scopes#scope-catalog';
+export const BREVO_OAUTH_SCOPES_DOCS_URL =
+  'https://developers.brevo.com/docs/oauth-scopes#scope-catalog';
