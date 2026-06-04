@@ -22,23 +22,24 @@ function safeJson(value: unknown): string {
   return JSON.stringify(value).replaceAll('<', String.raw`\u003c`);
 }
 
-// Styling borrows from Brevo's design system (NAOS/SIB tokens) — iris-purple
-// accent and charcoal-grey neutrals. Fonts use a system stack (no CDN fetch
-// or web-font download) so the page renders the same with or without network.
+// Styling matches the Brevo developers docs (developers.brevo.com) — Brevo
+// green accent, pale-green hero, and charcoal-grey neutrals. Fonts use a
+// system stack (no CDN fetch or web-font download) so the page renders the
+// same with or without network.
 const STYLES = `
 :root {
   color-scheme: light dark;
   --bg: #ffffff;
-  --hero-bg: #f5f5f5;
+  --hero-bg: #e6f6ec;
   --fg: #1b1b1b;
   --muted: #696969;
   --border: #e3e3e3;
-  --accent: #6358de;
+  --accent: #0b996e;
   --card: #ffffff;
   --card-shadow: 0 1px 2px rgba(28, 28, 28, .08);
-  --chip-bg: #efeefc;
-  --chip-fg: #3c3585;
-  --section-header-bg: #fafafa;
+  --chip-bg: #e1f3e8;
+  --chip-fg: #00734a;
+  --section-header-bg: #f6fbf8;
   --error: #cf1a3b;
   --radius-card: 16px;
   --radius-input: 16px;
@@ -46,17 +47,17 @@ const STYLES = `
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1224;
-    --hero-bg: #181b30;
-    --fg: #f1f5f9;
-    --muted: #94a3b8;
-    --border: #2a2f4d;
-    --accent: #b3aeef;
-    --card: #1a1e35;
+    --bg: #0e1613;
+    --hero-bg: #142119;
+    --fg: #f1f5f2;
+    --muted: #94a89c;
+    --border: #25382d;
+    --accent: #3ddc97;
+    --card: #16241c;
     --card-shadow: 0 1px 2px rgba(0, 0, 0, .4);
-    --chip-bg: #2a2949;
-    --chip-fg: #c7d2fe;
-    --section-header-bg: #161930;
+    --chip-bg: #1d3327;
+    --chip-fg: #a7e3c5;
+    --section-header-bg: #121f18;
     --error: #ff8d9a;
   }
 }
@@ -74,7 +75,16 @@ body {
   background: var(--hero-bg);
   padding: 2.5rem 1.5rem 2rem;
 }
-.hero-inner { max-width: 880px; margin: 0 auto; }
+.hero-inner {
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+.hero-copy { flex: 1 1 24rem; min-width: 0; }
 h1 {
   font-size: 2rem;
   line-height: 2.5rem;
@@ -84,7 +94,8 @@ h1 {
 .intro { color: var(--muted); margin: 0; word-break: break-word; }
 a.docs-cta {
   display: inline-block;
-  margin-top: 1rem;
+  flex: none;
+  white-space: nowrap;
   padding: .5rem 1.1rem;
   font-weight: 600;
   font-size: .9rem;
@@ -96,7 +107,7 @@ a.docs-cta {
 }
 a.docs-cta:hover { opacity: .9; }
 @media (prefers-color-scheme: dark) {
-  a.docs-cta { color: #0f1224; }
+  a.docs-cta { color: #0e1613; }
 }
 main {
   max-width: 880px;
@@ -488,8 +499,10 @@ export function renderScopesHtml(entries: ScopeEntry[]): string {
 <body>
 <header class="hero">
   <div class="hero-inner">
-    <h1>${title}</h1>
-    <p class="intro">${introWithSpan}</p>
+    <div class="hero-copy">
+      <h1>${title}</h1>
+      <p class="intro">${introWithSpan}</p>
+    </div>
     <a class="docs-cta" href="${BREVO_OAUTH_SCOPES_DOCS_URL}" target="_blank" rel="noopener noreferrer">${catalogDocsCta} ↗</a>
   </div>
 </header>
