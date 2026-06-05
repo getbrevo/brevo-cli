@@ -69,6 +69,15 @@ function resolveOauthProxyUrl(): string {
 
 export const OAUTH_PROXY_URL = resolveOauthProxyUrl();
 
+// Headers identifying the CLI on every API request. The backend reads these to
+// emit product-tracking events (e.g. "CLI installed") on the `cli` Kafka topic.
+export const TELEMETRY_HEADERS = {
+  USER_AGENT: 'User-Agent',
+  CLI_VERSION: 'X-Brevo-CLI-Version',
+  CLI_OS: 'X-Brevo-CLI-OS',
+  CLI_AUTH_METHOD: 'X-Brevo-CLI-Auth-Method',
+} as const;
+
 export const ENDPOINTS = {
   ACCOUNT: '/v3/account',
   OAUTH_APPS: '/v3/oauth/apps',

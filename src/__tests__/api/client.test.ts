@@ -1,6 +1,8 @@
 import { ApiClient, parseRetryAfter, sanitizeErrorMessage } from '../../api/client';
 import { ErrorCode } from '../../lib/errors';
 import { messages } from '../../lang/en';
+import { CLI_VERSION } from '../../lib/cli-version';
+import { TELEMETRY_HEADERS } from '../../lib/constants';
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -392,6 +394,77 @@ describe('api client', () => {
       await expect(client.get('/v3/account')).rejects.not.toThrow(
         new RegExp(String.fromCharCode(0x1b)),
       );
+    });
+  });
+
+  describe('CLI identification headers', () => {
+    const okResponse = {
+      ok: true,
+      status: 200,
+      headers: new Map(),
+      text: () => Promise.resolve('{}'),
+    };
+
+    function sentHeaders(): Record<string, string> {
+      return (mockFetch.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    }
+
+    it('sends User-Agent, version, and os headers on every request', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.get('/v3/account');
+
+      const headers = sentHeaders();
+      expect(headers[TELEMETRY_HEADERS.USER_AGENT]).toMatch(/^brevo-cli\/.+ \(.+\)$/);
+      expect(headers[TELEMETRY_HEADERS.CLI_VERSION]).toBe(CLI_VERSION);
+      expect(headers[TELEMETRY_HEADERS.CLI_OS]).toMatch(/^(macos|windows|linux|other)$/);
+    });
+
+    it('derives auth method api_key from a stored api-key header', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.get('/v3/account');
+
+      expect(sentHeaders()[TELEMETRY_HEADERS.CLI_AUTH_METHOD]).toBe('api_key');
+    });
+
+    it('derives auth method oauth from an Authorization header', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+      const bearerClient = createTestClient({ Authorization: 'Bearer oauth-token' });
+
+      await bearerClient.get('/v3/account');
+
+      expect(sentHeaders()[TELEMETRY_HEADERS.CLI_AUTH_METHOD]).toBe('oauth');
+    });
+
+    it('derives auth method api_key for getWithKey login validation', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.getWithKey('/v3/account', 'custom-api-key');
+
+      expect(sentHeaders()[TELEMETRY_HEADERS.CLI_AUTH_METHOD]).toBe('api_key');
+    });
+
+    it('derives auth method oauth for getWithBearer login validation', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.getWithBearer('/v3/account', 'access-token');
+
+      expect(sentHeaders()[TELEMETRY_HEADERS.CLI_AUTH_METHOD]).toBe('oauth');
+    });
+
+    it('omits the auth-method header on unauthenticated requests', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+      const anonClient = new ApiClient({
+        baseUrl: 'https://api.brevo.com',
+        getAuthHeader: () => undefined,
+      });
+
+      await anonClient.get('/v3/account');
+
+      const headers = sentHeaders();
+      expect(headers).not.toHaveProperty(TELEMETRY_HEADERS.CLI_AUTH_METHOD);
+      expect(headers[TELEMETRY_HEADERS.CLI_VERSION]).toBe(CLI_VERSION);
     });
   });
 
