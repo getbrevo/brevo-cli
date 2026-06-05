@@ -14,6 +14,8 @@
   formula in `getbrevo/homebrew-tap` is auto-bumped on every npm release. No CLI
   behavior, command, flag, or env var changed.
 
+- a4533d9: The CLI now identifies itself to the Brevo API on every request via a single `User-Agent` header: `brevo-cli/<version> (<os>)`, extended with `; auth=api_key` or `; auth=oauth` when the request carries credentials. No personal data is sent — only the CLI version, operating system family, and authentication method already in use.
+
 ## 1.1.0
 
 ### Minor Changes
