@@ -78,6 +78,13 @@ export const TELEMETRY_HEADERS = {
   CLI_AUTH_METHOD: 'X-Brevo-CLI-Auth-Method',
 } as const;
 
+// Values for the X-Brevo-CLI-Auth-Method header — part of the same backend
+// contract as TELEMETRY_HEADERS, so they live here rather than inline.
+export const CLI_AUTH_METHODS = {
+  API_KEY: 'api_key',
+  OAUTH: 'oauth',
+} as const;
+
 export const ENDPOINTS = {
   ACCOUNT: '/v3/account',
   OAUTH_APPS: '/v3/oauth/apps',

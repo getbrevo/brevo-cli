@@ -1,5 +1,5 @@
 import { CLI_VERSION } from './cli-version';
-import { TELEMETRY_HEADERS } from './constants';
+import { TELEMETRY_HEADERS, CLI_AUTH_METHODS } from './constants';
 
 /**
  * CLI identification metadata sent as headers on every API request so the
@@ -28,14 +28,18 @@ export function sanitizeHeaderValue(value: string, fallback: string): string {
   return sanitized || fallback;
 }
 
+// CLI_VERSION is fixed at module init, so sanitize it once rather than on
+// every request. Falls back to the same default as cli-version.ts.
+const SAFE_CLI_VERSION = sanitizeHeaderValue(CLI_VERSION, '0.0.0');
+
 export function getCliUserAgent(): string {
-  return `brevo-cli/${sanitizeHeaderValue(CLI_VERSION, '0.0.0')} (${getCliOs()})`;
+  return `brevo-cli/${SAFE_CLI_VERSION} (${getCliOs()})`;
 }
 
 export function buildCliHeaders(): Record<string, string> {
   return {
     [TELEMETRY_HEADERS.USER_AGENT]: getCliUserAgent(),
-    [TELEMETRY_HEADERS.CLI_VERSION]: sanitizeHeaderValue(CLI_VERSION, '0.0.0'),
+    [TELEMETRY_HEADERS.CLI_VERSION]: SAFE_CLI_VERSION,
     [TELEMETRY_HEADERS.CLI_OS]: getCliOs(),
   };
 }
@@ -47,10 +51,10 @@ export function buildAuthMethodHeader(
   authHeader: Record<string, string> | undefined,
 ): Record<string, string> {
   if (authHeader && 'api-key' in authHeader) {
-    return { [TELEMETRY_HEADERS.CLI_AUTH_METHOD]: 'api_key' };
+    return { [TELEMETRY_HEADERS.CLI_AUTH_METHOD]: CLI_AUTH_METHODS.API_KEY };
   }
   if (authHeader && 'Authorization' in authHeader) {
-    return { [TELEMETRY_HEADERS.CLI_AUTH_METHOD]: 'oauth' };
+    return { [TELEMETRY_HEADERS.CLI_AUTH_METHOD]: CLI_AUTH_METHODS.OAUTH };
   }
   return {};
 }
