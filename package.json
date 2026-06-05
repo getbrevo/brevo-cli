@@ -30,7 +30,6 @@
     "lint:fix": "eslint 'src/**/*.ts' --fix",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
-    "mock": "npx @stoplight/prism-cli mock mock/openapi.yaml --port 3112",
     "smoke": "tsx scripts/smoke-test.ts",
     "clean": "rm -rf dist",
     "prepare": "husky",

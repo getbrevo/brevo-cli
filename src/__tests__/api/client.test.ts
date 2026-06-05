@@ -1,10 +1,13 @@
 import { ApiClient, parseRetryAfter, sanitizeErrorMessage } from '../../api/client';
 import { ErrorCode } from '../../lib/errors';
 import { messages } from '../../lang/en';
+import { CLI_VERSION } from '../../lib/cli-version';
+import { USER_AGENT_HEADER } from '../../lib/constants';
+import { getCliOs } from '../../lib/telemetry';
 
 // Mock fetch globally
 const mockFetch = jest.fn();
-globalThis.fetch = mockFetch as unknown as typeof fetch;
+globalThis.fetch = mockFetch;
 
 // Mock hidden-input to prevent interactive prompts
 jest.mock('../../lib/hidden-input', () => ({
@@ -17,6 +20,10 @@ function createTestClient(authHeader?: Record<string, string>) {
     baseUrl: 'https://api.brevo.com',
     getAuthHeader: () => headers,
   });
+}
+
+function sentHeaders(): Record<string, string> {
+  return (mockFetch.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
 }
 
 describe('api client', () => {
@@ -71,9 +78,7 @@ describe('api client', () => {
           headers: expect.objectContaining({ Authorization: 'Bearer oauth-token' }),
         }),
       );
-      expect(
-        (mockFetch.mock.calls[0][1] as RequestInit).headers as Record<string, string>,
-      ).not.toHaveProperty('api-key');
+      expect(mockFetch.mock.calls[0][1].headers).not.toHaveProperty('api-key');
     });
 
     it('should throw ApiError on network failure', async () => {
@@ -390,8 +395,73 @@ describe('api client', () => {
 
       await expect(client.get('/v3/account')).rejects.toThrow('boom');
       await expect(client.get('/v3/account')).rejects.not.toThrow(
-        new RegExp(String.fromCharCode(0x1b)),
+        new RegExp(String.fromCodePoint(0x1b)),
       );
+    });
+  });
+
+  describe('CLI identification headers', () => {
+    const okResponse = {
+      ok: true,
+      status: 200,
+      headers: new Map(),
+      text: () => Promise.resolve('{}'),
+    };
+
+    it('sends a User-Agent with version, os, and auth method on every request', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.get('/v3/account');
+
+      expect(sentHeaders()[USER_AGENT_HEADER]).toBe(
+        `brevo-cli/${CLI_VERSION} (${getCliOs()}; auth=api_key)`,
+      );
+    });
+
+    it('sends no X-Brevo-CLI-* headers', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.get('/v3/account');
+
+      const extras = Object.keys(sentHeaders()).filter((h) => h.startsWith('X-Brevo-CLI-'));
+      expect(extras).toEqual([]);
+    });
+
+    it('reports auth=oauth from an Authorization header', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+      const bearerClient = createTestClient({ Authorization: 'Bearer oauth-token' });
+
+      await bearerClient.get('/v3/account');
+
+      expect(sentHeaders()[USER_AGENT_HEADER]).toContain('auth=oauth');
+    });
+
+    it('reports auth=api_key for getWithKey login validation', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.getWithKey('/v3/account', 'custom-api-key');
+
+      expect(sentHeaders()[USER_AGENT_HEADER]).toContain('auth=api_key');
+    });
+
+    it('reports auth=oauth for getWithBearer login validation', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.getWithBearer('/v3/account', 'access-token');
+
+      expect(sentHeaders()[USER_AGENT_HEADER]).toContain('auth=oauth');
+    });
+
+    it('omits the auth marker on unauthenticated requests', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+      const anonClient = new ApiClient({
+        baseUrl: 'https://api.brevo.com',
+        getAuthHeader: () => undefined,
+      });
+
+      await anonClient.get('/v3/account');
+
+      expect(sentHeaders()[USER_AGENT_HEADER]).toBe(`brevo-cli/${CLI_VERSION} (${getCliOs()})`);
     });
   });
 

@@ -1,5 +1,6 @@
 import { ApiError, ErrorCode } from '../lib/errors';
 import { logHttp, logHttpResponse, logDebug } from '../lib/logger';
+import { buildCliHeaders } from '../lib/telemetry';
 import { messages } from '../lang/en';
 
 interface RequestOptions {
@@ -61,6 +62,45 @@ export function sanitizeErrorMessage(msg: string): string {
       // eslint-disable-next-line no-control-regex
       .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
   );
+}
+
+// Detect HTML bodies returned by auth gateways (Cloudflare Access, SSO proxies).
+// Matches case-insensitively and runs regardless of response status, since
+// gateways frequently return HTML on 401/403 as well as 2xx.
+function looksLikeHtml(s: string): boolean {
+  const lower = s.toLowerCase();
+  return lower.includes('<!doctype html') || lower.includes('<html');
+}
+
+function parseResponseData(text: string, status: number): Record<string, unknown> {
+  let data: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = text ? JSON.parse(text) : {};
+    if (parsed !== null && typeof parsed === 'object') {
+      data = parsed as Record<string, unknown>;
+    }
+  } catch {
+    if (looksLikeHtml(text)) {
+      throw new ApiError(messages.ERR_AUTH_GATEWAY, status, ErrorCode.AUTH_GATEWAY);
+    }
+    data = { message: text };
+  }
+
+  if (typeof data.message === 'string' && looksLikeHtml(data.message)) {
+    throw new ApiError(messages.ERR_AUTH_GATEWAY, status, ErrorCode.AUTH_GATEWAY);
+  }
+  return data;
+}
+
+function throwResponseError(data: Record<string, unknown>, status: number): never {
+  const apiCode = typeof data.code === 'string' ? data.code : undefined;
+  const rawFallback =
+    typeof data.message === 'string' && data.message
+      ? data.message
+      : `Request failed with status ${status}`;
+  const fallback = sanitizeErrorMessage(rawFallback);
+  const message = resolveErrorMessage(apiCode, fallback);
+  throw new ApiError(message, status, mapErrorCode(status, apiCode), apiCode);
 }
 
 function mapErrorCode(status: number, apiCode?: string): ErrorCode | undefined {
@@ -128,23 +168,26 @@ export class ApiClient {
     });
   }
 
-  private async request<T>(opts: RequestOptions, isRetry = false, retryCount = 0): Promise<T> {
-    const url = `${this.deps.baseUrl}${opts.path}`;
+  private buildHeaders(opts: RequestOptions): Record<string, string> {
     const explicitAuth: Record<string, string> | undefined = opts.authHeader;
     const authHeader = explicitAuth ?? (opts.skipAuth ? undefined : this.deps.getAuthHeader());
 
-    const headers: Record<string, string> = {
+    return {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...buildCliHeaders(authHeader),
       ...opts.headers,
       ...authHeader,
     };
+  }
 
-    logHttp(opts.method, opts.path);
-
-    let response: Response;
+  private async performFetch(
+    url: string,
+    opts: RequestOptions,
+    headers: Record<string, string>,
+  ): Promise<Response> {
     try {
-      response = await fetch(url, {
+      return await fetch(url, {
         method: opts.method,
         headers,
         body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -155,7 +198,14 @@ export class ApiClient {
       (apiErr as Error).cause = err;
       throw apiErr;
     }
+  }
 
+  private async request<T>(opts: RequestOptions, isRetry = false, retryCount = 0): Promise<T> {
+    const url = `${this.deps.baseUrl}${opts.path}`;
+    const headers = this.buildHeaders(opts);
+
+    logHttp(opts.method, opts.path);
+    const response = await this.performFetch(url, opts, headers);
     logHttpResponse(response.status, opts.path);
 
     if (response.status === 401 && !isRetry && !opts.skipAuth) {
@@ -182,43 +232,12 @@ export class ApiClient {
     }
 
     const text = await response.text();
-
-    // Detect HTML bodies returned by auth gateways (Cloudflare Access, SSO proxies).
-    // Matches case-insensitively and runs regardless of response status, since
-    // gateways frequently return HTML on 401/403 as well as 2xx.
-    const looksLikeHtml = (s: string): boolean => {
-      const lower = s.toLowerCase();
-      return lower.includes('<!doctype html') || lower.includes('<html');
-    };
-
-    let data: Record<string, unknown> = {};
-    try {
-      const parsed: unknown = text ? JSON.parse(text) : {};
-      if (parsed !== null && typeof parsed === 'object') {
-        data = parsed as Record<string, unknown>;
-      }
-    } catch {
-      if (looksLikeHtml(text)) {
-        throw new ApiError(messages.ERR_AUTH_GATEWAY, response.status, ErrorCode.AUTH_GATEWAY);
-      }
-      data = { message: text };
-    }
-
-    if (typeof data.message === 'string' && looksLikeHtml(data.message)) {
-      throw new ApiError(messages.ERR_AUTH_GATEWAY, response.status, ErrorCode.AUTH_GATEWAY);
-    }
+    const data = parseResponseData(text, response.status);
 
     logDebug(`response ${opts.path}`, data);
 
     if (!response.ok) {
-      const apiCode = typeof data.code === 'string' ? data.code : undefined;
-      const rawFallback =
-        typeof data.message === 'string' && data.message
-          ? data.message
-          : `Request failed with status ${response.status}`;
-      const fallback = sanitizeErrorMessage(rawFallback);
-      const message = resolveErrorMessage(apiCode, fallback);
-      throw new ApiError(message, response.status, mapErrorCode(response.status, apiCode), apiCode);
+      throwResponseError(data, response.status);
     }
 
     return data as T;
