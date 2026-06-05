@@ -162,6 +162,8 @@ yarn publish:packages     # publish to npm
 
 **When to add a changeset:** any PR that changes user-visible behavior (new feature, bug fix, breaking change). Run `yarn changeset` and commit the generated file with your PR.
 
+**One changeset file per branch/PR — append, don't multiply.** Before creating a new changeset, check `.changeset/` for an existing pending one (any `.md` other than `README.md`). If one exists, append your change description as new lines in its summary body instead of creating a second file, and raise the bump level in its frontmatter if your change warrants it (`patch` → `minor` → `major`). Only create a new file when none exists.
+
 **CI/CD:**
 - `.github/workflows/push.yaml` — runs lint, test, build on every push/PR to `main`
 - `.github/workflows/release.yaml` — when changesets merge to `main`, opens a "Version Packages" PR; merging that PR publishes to npm

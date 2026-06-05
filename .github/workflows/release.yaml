@@ -299,6 +299,17 @@ jobs:
           git -c user.name="brevo-release-bot" \
               -c user.email="brevo-release-bot@users.noreply.github.com" \
               commit -am "chore: bump brevo to ${version}"
+
+          # changesets/action wrote ~/.netrc with the repo-scoped GITHUB_TOKEN;
+          # git would send it pre-emptively and push as github-actions[bot],
+          # which has no access to the tap (403). Remove it and wire gh in as
+          # git's credential helper so the push authenticates with $GH_TOKEN
+          # (the tap PAT) — still never landing the token in argv, the remote
+          # URL, or on-disk config. Safe: this is the job's last step and every
+          # other step authenticates via env tokens, not netrc.
+          rm -f "$HOME/.netrc"
+          gh auth setup-git --hostname github.com
+
           git push --force-with-lease origin "$branch"
 
           # Don't fail the job if a bump PR is already open (e.g. a re-run).
