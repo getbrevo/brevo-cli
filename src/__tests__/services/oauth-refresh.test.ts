@@ -1,7 +1,7 @@
 import { refreshAccessToken } from '../../services/oauth-refresh';
 
 const mockFetch = jest.fn();
-globalThis.fetch = mockFetch as unknown as typeof fetch;
+globalThis.fetch = mockFetch;
 
 describe('refreshAccessToken', () => {
   beforeEach(() => mockFetch.mockReset());

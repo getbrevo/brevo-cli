@@ -4,7 +4,7 @@ import { messages } from '../../lang/en';
 
 // Mock fetch globally
 const mockFetch = jest.fn();
-globalThis.fetch = mockFetch as unknown as typeof fetch;
+globalThis.fetch = mockFetch;
 
 // Mock hidden-input to prevent interactive prompts
 jest.mock('../../lib/hidden-input', () => ({
@@ -71,9 +71,7 @@ describe('api client', () => {
           headers: expect.objectContaining({ Authorization: 'Bearer oauth-token' }),
         }),
       );
-      expect(
-        (mockFetch.mock.calls[0][1] as RequestInit).headers as Record<string, string>,
-      ).not.toHaveProperty('api-key');
+      expect(mockFetch.mock.calls[0][1].headers).not.toHaveProperty('api-key');
     });
 
     it('should throw ApiError on network failure', async () => {
@@ -390,7 +388,7 @@ describe('api client', () => {
 
       await expect(client.get('/v3/account')).rejects.toThrow('boom');
       await expect(client.get('/v3/account')).rejects.not.toThrow(
-        new RegExp(String.fromCharCode(0x1b)),
+        new RegExp(String.fromCodePoint(0x1b)),
       );
     });
   });

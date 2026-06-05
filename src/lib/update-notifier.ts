@@ -84,28 +84,32 @@ function parseVersion(v: string): ParsedVersion | undefined {
   };
 }
 
-// Per semver §11.4: split on '.', compare identifiers; numeric identifiers
-// are compared numerically and always rank below non-numeric ones; a longer
-// prerelease set outranks a shorter one when the leading identifiers match.
+// Numeric identifiers are compared numerically and always rank below
+// non-numeric ones (semver §11.4).
+function comparePrereleaseIdentifiers(ai: string, bi: string): number {
+  if (ai === bi) return 0;
+  const aNum = /^\d+$/.test(ai);
+  const bNum = /^\d+$/.test(bi);
+  if (aNum && bNum) {
+    const diff = Number.parseInt(ai, 10) - Number.parseInt(bi, 10);
+    if (diff === 0) return 0;
+    return diff > 0 ? 1 : -1;
+  }
+  if (aNum) return -1;
+  if (bNum) return 1;
+  return ai > bi ? 1 : -1;
+}
+
+// Per semver §11.4: split on '.', compare identifiers; a longer prerelease
+// set outranks a shorter one when the leading identifiers match.
 function comparePrerelease(a: string, b: string): number {
   if (a === b) return 0;
   const aParts = a.split('.');
   const bParts = b.split('.');
   const len = Math.min(aParts.length, bParts.length);
   for (let i = 0; i < len; i++) {
-    const ai = aParts[i] ?? '';
-    const bi = bParts[i] ?? '';
-    if (ai === bi) continue;
-    const aNum = /^\d+$/.test(ai);
-    const bNum = /^\d+$/.test(bi);
-    if (aNum && bNum) {
-      const diff = Number.parseInt(ai, 10) - Number.parseInt(bi, 10);
-      if (diff !== 0) return diff > 0 ? 1 : -1;
-      continue;
-    }
-    if (aNum) return -1;
-    if (bNum) return 1;
-    return ai > bi ? 1 : -1;
+    const cmp = comparePrereleaseIdentifiers(aParts[i] ?? '', bParts[i] ?? '');
+    if (cmp !== 0) return cmp;
   }
   if (aParts.length === bParts.length) return 0;
   return aParts.length > bParts.length ? 1 : -1;

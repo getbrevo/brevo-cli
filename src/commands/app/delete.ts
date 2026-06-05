@@ -24,51 +24,99 @@ function isSafeToDelete(dir: string): boolean {
   return true;
 }
 
+// We need the full apps list to get appLabel for the confirmation prompt
+async function promptAppSelection(): Promise<{ appId: string; appLabel: string }> {
+  const listSpinner = createSpinner('Fetching apps...');
+  let apps;
+  try {
+    apps = await appService.fetchAppsList();
+  } finally {
+    listSpinner.stop();
+  }
+  if (apps.length === 0) {
+    logInfo(`\n  ${messages.APP_LIST_EMPTY}\n`);
+    throw new CliError(messages.APP_LIST_EMPTY);
+  }
+
+  const { selectedApp } = await inquirer.prompt([
+    {
+      type: 'rawlist',
+      name: 'selectedApp',
+      message: 'Select an app to delete:',
+      choices: apps.map((a) => ({
+        name: `${a.name || 'App ' + a.app_id}  (App ID: ${a.app_id}, Client ID: ${a.client_id})`,
+        value: a.app_id,
+      })),
+    },
+  ]);
+  const appId = selectedApp as string;
+  const matched = apps.find((a) => a.app_id === appId);
+  return { appId, appLabel: matched?.name || matched?.client_id || appId };
+}
+
+async function confirmDeletion(appLabel: string, appId: string): Promise<boolean> {
+  const { confirmed } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'confirmed',
+      message: messages.APP_DELETE_CONFIRM(appLabel, appId),
+      default: false,
+    },
+  ]);
+
+  if (!confirmed) {
+    logInfo(`\n  ${messages.APP_DELETE_CANCELLED}\n`);
+    return false;
+  }
+  return true;
+}
+
+function removeProjectFolder(cwd: string): void {
+  if (!isSafeToDelete(cwd)) {
+    logWarn(messages.APP_DELETE_FOLDER_FAILED(cwd));
+    return;
+  }
+  try {
+    fs.rmSync(cwd, { recursive: true, force: true });
+    logSuccess(messages.APP_DELETE_FOLDER_SUCCESS(cwd));
+  } catch {
+    logWarn(messages.APP_DELETE_FOLDER_FAILED(cwd));
+  }
+}
+
+// Offer to delete the local scaffolded project folder if it matches the deleted app
+async function offerLocalFolderCleanup(appId: string): Promise<void> {
+  const projectConfig = readProjectConfig();
+  if (projectConfig?.appId !== appId) return;
+
+  const cwd = process.cwd();
+  const { deleteFolder } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'deleteFolder',
+      message: messages.APP_DELETE_FOLDER_CONFIRM(cwd),
+      default: false,
+    },
+  ]);
+
+  if (deleteFolder) {
+    removeProjectFolder(cwd);
+  }
+}
+
 export const deleteCommand = withCommandHandler(
   async (options: { appId?: string; force?: boolean; json?: boolean }): Promise<void> => {
     let appId = options.appId;
     let appLabel = '';
 
     if (!appId) {
-      // We need the full apps list to get appLabel for the confirmation prompt
-      const listSpinner = createSpinner('Fetching apps...');
-      const apps = await appService.fetchAppsList();
-      listSpinner.stop();
-      if (apps.length === 0) {
-        logInfo(`\n  ${messages.APP_LIST_EMPTY}\n`);
-        throw new CliError(messages.APP_LIST_EMPTY);
-      }
-
-      const { selectedApp } = await inquirer.prompt([
-        {
-          type: 'rawlist',
-          name: 'selectedApp',
-          message: 'Select an app to delete:',
-          choices: apps.map((a) => ({
-            name: `${a.name || 'App ' + a.app_id}  (App ID: ${a.app_id}, Client ID: ${a.client_id})`,
-            value: a.app_id,
-          })),
-        },
-      ]);
-      appId = selectedApp as string;
-      const matched = apps.find((a) => a.app_id === appId);
-      appLabel = matched?.name || matched?.client_id || appId;
+      const selection = await promptAppSelection();
+      appId = selection.appId;
+      appLabel = selection.appLabel;
     }
 
-    if (!options.force) {
-      const { confirmed } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'confirmed',
-          message: messages.APP_DELETE_CONFIRM(appLabel || appId, appId),
-          default: false,
-        },
-      ]);
-
-      if (!confirmed) {
-        logInfo(`\n  ${messages.APP_DELETE_CANCELLED}\n`);
-        return;
-      }
+    if (!options.force && !(await confirmDeletion(appLabel || appId, appId))) {
+      return;
     }
 
     const deleteSpinner = createSpinner('Deleting app...', { silent: options.json });
@@ -85,33 +133,8 @@ export const deleteCommand = withCommandHandler(
 
     logSuccess(messages.APP_DELETE_SUCCESS(appId));
 
-    // Offer to delete the local scaffolded project folder if it matches the deleted app
     if (!options.force) {
-      const projectConfig = readProjectConfig();
-      if (projectConfig?.appId === appId) {
-        const cwd = process.cwd();
-        const { deleteFolder } = await inquirer.prompt([
-          {
-            type: 'confirm',
-            name: 'deleteFolder',
-            message: messages.APP_DELETE_FOLDER_CONFIRM(cwd),
-            default: false,
-          },
-        ]);
-
-        if (deleteFolder) {
-          if (isSafeToDelete(cwd)) {
-            try {
-              fs.rmSync(cwd, { recursive: true, force: true });
-              logSuccess(messages.APP_DELETE_FOLDER_SUCCESS(cwd));
-            } catch {
-              logWarn(messages.APP_DELETE_FOLDER_FAILED(cwd));
-            }
-          } else {
-            logWarn(messages.APP_DELETE_FOLDER_FAILED(cwd));
-          }
-        }
-      }
+      await offerLocalFolderCleanup(appId);
     }
   },
 );
