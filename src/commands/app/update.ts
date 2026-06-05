@@ -322,10 +322,7 @@ async function updateWithFlags(
   const finalName = options.name ?? existing.name;
   const mergedUrls = appendUnique(existing.redirectUrls, options.redirectUri ?? []);
   const finalLogoUri = options.logoUri ?? existing.logoUri;
-  const { mergedScopes, migratingLegacyScopes } = mergeScopes(
-    existing.scopes,
-    options.scope ?? [],
-  );
+  const { mergedScopes, migratingLegacyScopes } = mergeScopes(existing.scopes, options.scope ?? []);
 
   const hasRedirectUriFlag = options.redirectUri !== undefined;
 

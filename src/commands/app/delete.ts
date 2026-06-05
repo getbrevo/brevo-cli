@@ -27,8 +27,12 @@ function isSafeToDelete(dir: string): boolean {
 // We need the full apps list to get appLabel for the confirmation prompt
 async function promptAppSelection(): Promise<{ appId: string; appLabel: string }> {
   const listSpinner = createSpinner('Fetching apps...');
-  const apps = await appService.fetchAppsList();
-  listSpinner.stop();
+  let apps;
+  try {
+    apps = await appService.fetchAppsList();
+  } finally {
+    listSpinner.stop();
+  }
   if (apps.length === 0) {
     logInfo(`\n  ${messages.APP_LIST_EMPTY}\n`);
     throw new CliError(messages.APP_LIST_EMPTY);

@@ -979,14 +979,15 @@ function stepLogout(state: State): string {
 }
 
 function killStartChild(state: State): void {
-  if (state.startChild && !state.startChild.killed) {
-    try {
-      state.startChild.kill('SIGKILL');
-    } catch {
-      // ignore
-    }
-    state.startChild = null;
+  if (!state.startChild) return;
+  try {
+    // `.killed` only means a signal was already sent, not that the process
+    // exited — always send SIGKILL (a no-op on a dead pid) and drop the ref.
+    state.startChild.kill('SIGKILL');
+  } catch {
+    // ignore
   }
+  state.startChild = null;
 }
 
 function removeTmpDirs(state: State, logFailures: boolean): void {
