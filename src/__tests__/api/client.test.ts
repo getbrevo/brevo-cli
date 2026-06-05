@@ -21,6 +21,10 @@ function createTestClient(authHeader?: Record<string, string>) {
   });
 }
 
+function sentHeaders(): Record<string, string> {
+  return (mockFetch.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+}
+
 describe('api client', () => {
   let client: ApiClient;
   let stderrSpy: jest.SpyInstance;
@@ -404,10 +408,6 @@ describe('api client', () => {
       headers: new Map(),
       text: () => Promise.resolve('{}'),
     };
-
-    function sentHeaders(): Record<string, string> {
-      return (mockFetch.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
-    }
 
     it('sends User-Agent, version, and os headers on every request', async () => {
       mockFetch.mockResolvedValue(okResponse);
