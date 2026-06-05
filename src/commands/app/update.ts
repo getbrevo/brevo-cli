@@ -367,6 +367,52 @@ async function fetchExistingApp(appId: string, silent: boolean | undefined): Pro
   return app;
 }
 
+// Diff `current` vs `next`: next values keep their order (tagged `(new)` when
+// absent from current), values dropped from current trail with `(removed)`.
+function diffLines(current: string[], next: string[]): string[] {
+  const currentSet = new Set(current);
+  const nextSet = new Set(next);
+  return [
+    ...next.map((v) => (currentSet.has(v) ? v : `${v} (new)`)),
+    ...current.filter((v) => !nextSet.has(v)).map((v) => `${v} (removed)`),
+  ];
+}
+
+// Print a labelled block; continuation lines are indented to align under the
+// first value.
+function logAligned(label: string, lines: string[]): void {
+  lines.forEach((line, i) => {
+    logInfo(`${i === 0 ? label : '                 '}${line}`);
+  });
+}
+
+function renderNameLine(currentName: string | undefined, nextName: string | undefined): void {
+  if (!nextName) {
+    return;
+  }
+  const renamed = currentName && currentName !== nextName;
+  logInfo(`  Name:          ${renamed ? `${currentName} → ` : ''}${nextName}`);
+}
+
+function renderScopeLines(currentScopes: string[] | undefined, nextScopes?: string[]): void {
+  if (nextScopes === undefined) {
+    return;
+  }
+  const lines = diffLines(currentScopes ?? [], nextScopes);
+  logAligned('  Scopes:        ', lines.length > 0 ? lines : ['(none)']);
+}
+
+function renderLogoLine(currentLogoUri?: string, nextLogoUri?: string): void {
+  const label = '  Logo URL:      ';
+  if (currentLogoUri && nextLogoUri && currentLogoUri !== nextLogoUri) {
+    logInfo(`${label}${currentLogoUri} → ${nextLogoUri}`);
+  } else if (nextLogoUri) {
+    logInfo(`${label}${nextLogoUri}`);
+  } else if (currentLogoUri) {
+    logInfo(`${label}${currentLogoUri} (unchanged)`);
+  }
+}
+
 function renderUpdateSummary(params: {
   appId: string;
   currentName: string | undefined;
@@ -379,73 +425,16 @@ function renderUpdateSummary(params: {
   nextScopes?: string[];
   migratingLegacyScopes?: boolean;
 }): void {
-  const {
-    appId,
-    currentName,
-    nextName,
-    currentUrls,
-    nextUrls,
-    currentLogoUri,
-    nextLogoUri,
-    currentScopes,
-    nextScopes,
-    migratingLegacyScopes,
-  } = params;
-  const currentSet = new Set(currentUrls);
-  const nextSet = new Set(nextUrls);
-  const addedSet = new Set(nextUrls.filter((u) => !currentSet.has(u)));
-  const removed = currentUrls.filter((u) => !nextSet.has(u));
-
   logInfo('');
   logInfo(`  ${messages.APP_UPDATE_SUMMARY}`);
-  logInfo(`  App ID:        ${appId}`);
-  if (nextName) {
-    if (currentName && currentName !== nextName) {
-      logInfo(`  Name:          ${currentName} → ${nextName}`);
-    } else {
-      logInfo(`  Name:          ${nextName}`);
-    }
-  }
-  const lines = [
-    ...nextUrls.map((u) => (addedSet.has(u) ? `${u} (new)` : u)),
-    ...removed.map((u) => `${u} (removed)`),
-  ];
-  lines.forEach((line, i) => {
-    const prefix = i === 0 ? '  Redirect URLs: ' : '                 ';
-    logInfo(`${prefix}${line}`);
-  });
-  if (migratingLegacyScopes) {
+  logInfo(`  App ID:        ${params.appId}`);
+  renderNameLine(params.currentName, params.nextName);
+  logAligned('  Redirect URLs: ', diffLines(params.currentUrls, params.nextUrls));
+  if (params.migratingLegacyScopes) {
     logInfo(`  ${messages.LEGACY_ALL_SCOPE_UPDATE_MIGRATING}`);
   }
-  if (nextScopes !== undefined) {
-    const currentScopesSet = new Set(currentScopes ?? []);
-    const nextScopesSet = new Set(nextScopes);
-    const addedScopes = new Set(nextScopes.filter((s) => !currentScopesSet.has(s)));
-    const removedScopes = (currentScopes ?? []).filter((s) => !nextScopesSet.has(s));
-    const scopeLines =
-      nextScopes.length === 0 && removedScopes.length === 0
-        ? ['(none)']
-        : [
-            ...nextScopes.map((s) => (addedScopes.has(s) ? `${s} (new)` : s)),
-            ...removedScopes.map((s) => `${s} (removed)`),
-          ];
-    scopeLines.forEach((line, i) => {
-      const prefix = i === 0 ? '  Scopes:        ' : '                 ';
-      logInfo(`${prefix}${line}`);
-    });
-  }
-
-  if (currentLogoUri || nextLogoUri) {
-    const label = '  Logo URL:      ';
-    if (currentLogoUri && nextLogoUri && currentLogoUri !== nextLogoUri) {
-      logInfo(`${label}${currentLogoUri} → ${nextLogoUri}`);
-    } else if (nextLogoUri) {
-      logInfo(`${label}${nextLogoUri}`);
-    } else if (currentLogoUri) {
-      logInfo(`${label}${currentLogoUri} (unchanged)`);
-    }
-  }
-
+  renderScopeLines(params.currentScopes, params.nextScopes);
+  renderLogoLine(params.currentLogoUri, params.nextLogoUri);
   logInfo('');
 }
 
