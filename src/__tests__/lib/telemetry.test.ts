@@ -1,11 +1,12 @@
 import {
   getCliOs,
   getCliUserAgent,
+  getAuthMethod,
   buildCliHeaders,
   sanitizeHeaderValue,
 } from '../../lib/telemetry';
 import { CLI_VERSION } from '../../lib/cli-version';
-import { TELEMETRY_HEADERS } from '../../lib/constants';
+import { USER_AGENT_HEADER } from '../../lib/constants';
 
 function withPlatform(platform: string, fn: () => void): void {
   const original = Object.getOwnPropertyDescriptor(process, 'platform')!;
@@ -37,10 +38,41 @@ describe('telemetry', () => {
     });
   });
 
+  describe('getAuthMethod', () => {
+    it('returns api_key for an api-key header', () => {
+      expect(getAuthMethod({ 'api-key': 'xkeysib-test-key' })).toBe('api_key');
+    });
+
+    it('returns oauth for an Authorization header', () => {
+      expect(getAuthMethod({ Authorization: 'Bearer token' })).toBe('oauth');
+    });
+
+    it('returns undefined without an auth header', () => {
+      expect(getAuthMethod(undefined)).toBeUndefined();
+      expect(getAuthMethod({})).toBeUndefined();
+    });
+  });
+
   describe('getCliUserAgent', () => {
-    it('formats as brevo-cli/<version> (<os>)', () => {
+    it('formats as brevo-cli/<version> (<os>) without credentials', () => {
       withPlatform('darwin', () => {
         expect(getCliUserAgent()).toBe(`brevo-cli/${CLI_VERSION} (macos)`);
+      });
+    });
+
+    it('appends auth=api_key when an api-key header is about to be sent', () => {
+      withPlatform('darwin', () => {
+        expect(getCliUserAgent({ 'api-key': 'xkeysib-test-key' })).toBe(
+          `brevo-cli/${CLI_VERSION} (macos; auth=api_key)`,
+        );
+      });
+    });
+
+    it('appends auth=oauth when an Authorization header is about to be sent', () => {
+      withPlatform('linux', () => {
+        expect(getCliUserAgent({ Authorization: 'Bearer token' })).toBe(
+          `brevo-cli/${CLI_VERSION} (linux; auth=oauth)`,
+        );
       });
     });
   });
@@ -65,18 +97,20 @@ describe('telemetry', () => {
   });
 
   describe('buildCliHeaders', () => {
-    it('returns User-Agent, version, and os headers', () => {
+    it('returns only the User-Agent header', () => {
       withPlatform('darwin', () => {
         expect(buildCliHeaders()).toEqual({
-          [TELEMETRY_HEADERS.USER_AGENT]: `brevo-cli/${CLI_VERSION} (macos)`,
-          [TELEMETRY_HEADERS.CLI_VERSION]: CLI_VERSION,
-          [TELEMETRY_HEADERS.CLI_OS]: 'macos',
+          [USER_AGENT_HEADER]: `brevo-cli/${CLI_VERSION} (macos)`,
         });
       });
     });
 
-    it('does not include an auth-method header (derived by the client)', () => {
-      expect(Object.keys(buildCliHeaders())).not.toContain(TELEMETRY_HEADERS.CLI_AUTH_METHOD);
+    it('folds the auth method into the User-Agent', () => {
+      withPlatform('darwin', () => {
+        expect(buildCliHeaders({ 'api-key': 'xkeysib-test-key' })).toEqual({
+          [USER_AGENT_HEADER]: `brevo-cli/${CLI_VERSION} (macos; auth=api_key)`,
+        });
+      });
     });
   });
 });

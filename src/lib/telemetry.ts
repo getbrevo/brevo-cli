@@ -1,10 +1,13 @@
 import { CLI_VERSION } from './cli-version';
-import { TELEMETRY_HEADERS, CLI_AUTH_METHODS } from './constants';
+import { USER_AGENT_HEADER, CLI_AUTH_METHODS } from './constants';
 
 /**
- * CLI identification metadata sent as headers on every API request so the
- * backend can emit product-tracking events (taxonomy card "CLI installed",
- * Kafka topic `cli`) without a dedicated telemetry endpoint.
+ * CLI identification sent as a single `User-Agent` header on every API
+ * request so the backend can emit product-tracking events (taxonomy card
+ * "CLI installed", Kafka topic `cli`) without a dedicated telemetry endpoint.
+ *
+ * Format: `brevo-cli/<version> (<os>)`, extended with `; auth=<method>` when
+ * the request carries credentials — e.g. `brevo-cli/1.2.0 (macos; auth=oauth)`.
  *
  * Values are sanitized to printable ASCII: undici throws a TypeError on
  * header values containing control characters, which would fail every
@@ -32,29 +35,25 @@ export function sanitizeHeaderValue(value: string, fallback: string): string {
 // every request. Falls back to the same default as cli-version.ts.
 const SAFE_CLI_VERSION = sanitizeHeaderValue(CLI_VERSION, '0.0.0');
 
-export function getCliUserAgent(): string {
-  return `brevo-cli/${SAFE_CLI_VERSION} (${getCliOs()})`;
-}
-
-export function buildCliHeaders(): Record<string, string> {
-  return {
-    [TELEMETRY_HEADERS.USER_AGENT]: getCliUserAgent(),
-    [TELEMETRY_HEADERS.CLI_VERSION]: SAFE_CLI_VERSION,
-    [TELEMETRY_HEADERS.CLI_OS]: getCliOs(),
-  };
-}
+type CliAuthMethod = (typeof CLI_AUTH_METHODS)[keyof typeof CLI_AUTH_METHODS];
 
 // Derived from the auth header about to be sent rather than from stored
 // credentials, so login-time validation calls (explicit key/bearer) report
 // the right method without coupling telemetry to credential storage.
-export function buildAuthMethodHeader(
+export function getAuthMethod(
   authHeader: Record<string, string> | undefined,
-): Record<string, string> {
-  if (authHeader && 'api-key' in authHeader) {
-    return { [TELEMETRY_HEADERS.CLI_AUTH_METHOD]: CLI_AUTH_METHODS.API_KEY };
-  }
-  if (authHeader && 'Authorization' in authHeader) {
-    return { [TELEMETRY_HEADERS.CLI_AUTH_METHOD]: CLI_AUTH_METHODS.OAUTH };
-  }
-  return {};
+): CliAuthMethod | undefined {
+  if (authHeader && 'api-key' in authHeader) return CLI_AUTH_METHODS.API_KEY;
+  if (authHeader && 'Authorization' in authHeader) return CLI_AUTH_METHODS.OAUTH;
+  return undefined;
+}
+
+export function getCliUserAgent(authHeader?: Record<string, string>): string {
+  const method = getAuthMethod(authHeader);
+  const comment = method ? `${getCliOs()}; auth=${method}` : getCliOs();
+  return `brevo-cli/${SAFE_CLI_VERSION} (${comment})`;
+}
+
+export function buildCliHeaders(authHeader?: Record<string, string>): Record<string, string> {
+  return { [USER_AGENT_HEADER]: getCliUserAgent(authHeader) };
 }
