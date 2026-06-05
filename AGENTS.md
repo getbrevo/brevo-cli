@@ -97,3 +97,23 @@ src/
 3. Strings in `src/lang/en.ts`
 4. Constants in `src/lib/constants.ts` if referenced elsewhere
 5. Tests in `src/__tests__/commands/`
+
+## Changesets — one file per branch, append don't multiply
+
+Any change to user-visible behavior needs a [changeset](https://github.com/changesets/changesets) (`.changeset/*.md`).
+
+**Keep exactly ONE pending changeset file per branch/PR.** Before creating a new one, check `.changeset/` for an existing pending changeset (any `.md` other than `README.md`):
+
+- **If one exists:** append your change details as new lines in its summary body — do NOT create a second file. If your change warrants a higher bump than the file currently declares, raise the bump level in its frontmatter (`patch` → `minor` → `major`).
+- **If none exists:** create one (via `yarn changeset`, or write the file directly) and commit it with your changes.
+
+Changeset file shape, for reference:
+
+```md
+---
+"@getbrevo/cli": patch
+---
+
+First change description.
+Second change description appended later on the same branch.
+```
