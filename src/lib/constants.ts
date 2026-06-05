@@ -110,6 +110,11 @@ export const OAUTH_BASE = 'https://oauth.brevo.com';
 export const OAUTH_REALM = 'partner';
 export const OAUTH_SCOPES_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/scopes`;
 
+// Legacy catch-all OAuth scope being deprecated (BEX-214). Single source of
+// truth for the spelling — every detection path goes through
+// `containsLegacyAllScope` in lib/validators.
+export const LEGACY_ALL_SCOPE = 'all';
+
 export const DEFAULT_SCOPES: readonly string[] = [
   'contacts:read',
   'contacts:write',
@@ -121,3 +126,6 @@ export const BREVO_DASHBOARD_API_KEYS_URL = 'https://app.brevo.com/settings/keys
 export const BREVO_API_KEY_DOCS_URL = 'https://developers.brevo.com/docs/api-key-authentication';
 export const BREVO_STATUS_URL = 'https://status.brevo.com';
 export const BREVO_DOCS_URL = 'https://developers.brevo.com';
+export const BREVO_CLI_REFERENCE_URL = 'https://developers.brevo.com/docs/cli-reference';
+export const BREVO_OAUTH_SCOPES_DOCS_URL =
+  'https://developers.brevo.com/docs/oauth-scopes#scope-catalog';

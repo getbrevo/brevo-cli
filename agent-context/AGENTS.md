@@ -7,13 +7,13 @@ This project uses the [Brevo Developer CLI](https://www.npmjs.com/package/@getbr
 
 Pick the path that matches your tooling:
 
-- **You are Claude** (Claude Code, Claude Desktop, or any agent that reads `~/.claude/skills/`) — install the brevo-cli skill before doing other work, if it isn't already at `~/.claude/skills/brevo-cli/`:
+- **You are Claude Code** (CLI or desktop app — any agent that reads `~/.claude/skills/`) — install the brevo-cli skill before doing other work, if it isn't already at `~/.claude/skills/brevo-cli/`:
 
   ```bash
   brevo skill:cli install
   ```
 
-  The skill loads the canonical decision tree, hard rules, and exit codes in the format Claude consumes directly. Once installed it auto-refreshes on every `brevo` invocation so it stays in sync with the running CLI version (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`).
+  The skill loads the canonical decision tree, hard rules, and exit codes in the format Claude consumes directly. Once installed it auto-refreshes on every `brevo` invocation so it stays in sync with the running CLI version (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`). Note: the install targets `~/.claude/skills/`, which only Claude Code surfaces read — the Claude Desktop **chat** app does not load skills from this directory.
 
 - **You are any other AI agent** (Cursor, Copilot CLI, Gemini CLI, Codex, etc.) — **do not run `brevo skill:cli install`**. The skill format is Claude-specific and the install would land in a directory your tooling doesn't read. Use this `AGENTS.md` as your reference instead — it covers the same surface in less depth.
 
@@ -64,7 +64,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 | `brevo whoami` | Show the authenticated account (`--json`) |
 | `brevo app init` | Guided setup (login, create, scaffold) |
 | `brevo app list` | List OAuth apps (`--json`) |
-| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--logo-uri`, `--json`). Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
+| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--logo-uri`, `--json`). Only `--distribution private` is available today — `public` is rejected with a "coming soon" error. Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
 | `brevo app update` | Update name / redirect URLs / scopes / logo (`--app-id`, `--name`, `--redirect-uri`, `--scope` repeatable appends, `--logo-uri`, `--yes`, `--json`) |
 | `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`, `--json`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`, `--json`) |
@@ -89,8 +89,18 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 
 - New apps created via `brevo app create` default to `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. The CLI prints these on success.
 - `brevo app update --scope <scope>` is repeatable and appends, mirroring `--redirect-uri`. De-duped, order-preserving. Writes back to `app-config.json` when that file describes the target app. A single flag value may contain multiple comma- or whitespace-separated tokens (`--scope "crm:read, crm:write"` is equivalent to `--scope crm:read --scope crm:write`). Same normalization is applied to `auth.scopes` when read from `app-config.json`.
-- `brevo app available-scopes [--json] [--web]` lists the OAuth scopes the IdP currently supports. Text output groups names by category (e.g. `account`, `data_crm`, `messaging`); `--json` returns a flat `{ scopes: string[] }` of names. OIDC-reserved scopes (`openid`, `profile`, `email`, `offline_access`) and magic wildcards are excluded. The CLI validates scope **format** locally (must match `[A-Za-z0-9][A-Za-z0-9:_.-]*`) but does **not** validate that a scope is recognized by the IdP — server returns 400 on unknown scopes.
+- `brevo app available-scopes [--json] [--web]` lists the OAuth scopes the IdP currently supports. It reads a **public** catalog and works **without `brevo login`** (no API key needed). Text output groups names by category (e.g. `account`, `data_crm`, `messaging`); `--json` returns a flat `{ scopes: string[] }` of names. OIDC-reserved scopes (`openid`, `profile`, `email`, `offline_access`) and magic wildcards are excluded. The CLI validates scope **format** locally (must match `[A-Za-z0-9][A-Za-z0-9:_.-]*`) but does **not** validate that a scope is recognized by the IdP — server returns 400 on unknown scopes.
 - Passing `--web` to `brevo app available-scopes` additionally starts a short-lived loopback HTTP server on `127.0.0.1:<ephemeral>` rendering the same catalog as a styled HTML page and opens the user's browser. It stays in the foreground until Ctrl+C. Without `--web` the command exits after printing the list — TTY detection no longer triggers the browser. `--json` always suppresses the browser (`--json` returns before `--web` is evaluated).
+
+### Legacy `'all'` scope deprecation
+
+The legacy catch-all `'all'` OAuth scope is deprecated. The CLI **blocks** `brevo app update` and `brevo app start oauth` when scopes still contain `'all'` (no escape hatch, no silent rewrite); the only mutating path that proceeds is an explicit `--scope` migration. To handle a legacy app:
+
+1. **Detect** `'all'` in `auth.scopes` of a local `app-config.json`, or on a remote app via `brevo app list --json` — affected apps carry `"legacy_all_scope": true` (text output appends `(legacy 'all' — deprecated)` to the scopes line).
+2. **Prompt the user to pick granular scopes** — use `brevo app available-scopes --json` for the catalog, or fall back to the four defaults (`contacts:read`, `contacts:write`, `crm:read`, `crm:write`).
+3. **Migrate** with `brevo app update --scope <scope> --scope <scope> ...` — passing `--scope` drops `'all'` from the outgoing scope set and applies the new granular scopes (the summary shows a "Migrating from legacy 'all' scope" line and `all (removed)`).
+
+`brevo app scaffold` against an app whose remote scopes contain `'all'` never propagates it: the new `app-config.json` keeps the app's remaining granular scopes (or the four default scopes when `'all'` was the only scope), with a one-line substitution notice (suppressed under `--json`). Note the substitution is local-only — the remote app still needs the `--scope` migration above.
 
 ## Environment variables
 

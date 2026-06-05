@@ -930,6 +930,98 @@ describe('app/update', () => {
       expect(appService.updateApp).not.toHaveBeenCalled();
     });
 
+    describe("legacy 'all' scope deprecation (BEX-214)", () => {
+      /** No local app-config.json; remote app 42 has the given scopes. */
+      const mockRemoteApp = (scopes: string[]): void => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (appService.fetchApp as jest.Mock).mockResolvedValue({
+          app_id: '42',
+          name: 'My App',
+          redirect_uris: ['https://x/cb'],
+          scopes,
+        });
+      };
+      /** Local app-config.json whose auth.scopes still contains 'all'. */
+      const mockLegacyConfig = (): void => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...VALID_CONFIG,
+          auth: { ...VALID_CONFIG.auth, scopes: ['all'] },
+        });
+      };
+      const joinedStdout = (): string => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+      it("blocks the no-flag full-config push when auth.scopes contains 'all'", async () => {
+        mockLegacyConfig();
+
+        await expect(updateCommand({ yes: true })).rejects.toThrow(/legacy 'all'/);
+        expect(appService.updateApp).not.toHaveBeenCalled();
+      });
+
+      it("blocks the no-flag push in --json mode when auth.scopes contains 'all'", async () => {
+        mockLegacyConfig();
+
+        await expect(updateCommand({ yes: true, json: true })).rejects.toThrow(/legacy 'all'/);
+        expect(appService.updateApp).not.toHaveBeenCalled();
+      });
+
+      it("blocks a --name-only update when remote scopes contain 'all'", async () => {
+        mockRemoteApp(['all']);
+
+        await expect(updateCommand({ appId: '42', name: 'Renamed', yes: true })).rejects.toThrow(
+          /legacy 'all'/,
+        );
+        expect(appService.updateApp).not.toHaveBeenCalled();
+      });
+
+      it("blocks when --scope explicitly re-adds 'all'", async () => {
+        mockRemoteApp(['all']);
+
+        await expect(updateCommand({ appId: '42', scope: ['all'], yes: true })).rejects.toThrow(
+          /legacy 'all'/,
+        );
+        expect(appService.updateApp).not.toHaveBeenCalled();
+      });
+
+      it("--scope drops 'all' from the baseline and pushes a clean payload", async () => {
+        mockRemoteApp(['all']);
+
+        await updateCommand({ appId: '42', scope: ['crm:read', 'contacts:read'], yes: true });
+
+        expect(appService.updateApp).toHaveBeenCalledWith(
+          '42',
+          expect.objectContaining({ scopes: ['crm:read', 'contacts:read'] }),
+        );
+      });
+
+      it("writes migrated scopes (without 'all') back to app-config.json", async () => {
+        mockLegacyConfig();
+
+        await updateCommand({ scope: ['crm:read'], yes: true });
+
+        const writeArg = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+        expect(writeArg.auth.scopes).toEqual(['crm:read']);
+      });
+
+      it("renders the migration line and 'all (removed)' in the summary when --scope migrates", async () => {
+        mockRemoteApp(['all']);
+
+        await updateCommand({ appId: '42', scope: ['crm:read', 'contacts:read'], yes: true });
+
+        const beforeSuccess = joinedStdout().split('App updated.')[0];
+        expect(beforeSuccess).toContain("Migrating from legacy 'all' scope");
+        expect(beforeSuccess).toContain('crm:read (new)');
+        expect(beforeSuccess).toContain('all (removed)');
+      });
+
+      it('does not render the migration line when --scope is passed but existing scopes are granular', async () => {
+        mockRemoteApp(['contacts:read']);
+
+        await updateCommand({ appId: '42', scope: ['crm:read'], yes: true });
+
+        expect(joinedStdout()).not.toContain("Migrating from legacy 'all' scope");
+      });
+    });
+
     it('marks (removed) scopes in the summary when local config drops a scope the server still has', async () => {
       const config = {
         appId: '42',

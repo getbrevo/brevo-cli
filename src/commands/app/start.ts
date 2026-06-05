@@ -11,6 +11,7 @@ import { DEFAULT_PORT } from '../../lib/constants';
 import { readProjectConfig, writeProjectConfig, ProjectConfig } from '../../lib/config';
 import { createSpinner } from '../../lib/ui';
 import { appService } from '../../container';
+import { containsLegacyAllScope } from '../../lib/validators';
 
 /**
  * Feature registry — maps feature names to their entry files.
@@ -174,6 +175,14 @@ export const startCommand = withCommandHandler(
     const entryFile = resolveFeatureEntry(feature);
 
     const config = readProjectConfig();
+
+    // The child OAuth server builds its authorize URL from auth.scopes —
+    // refuse to launch a test flow with the deprecated legacy 'all' scope
+    // and point at the --scope migration path instead (BEX-214).
+    if (containsLegacyAllScope(config?.auth?.scopes)) {
+      throw new CliError(messages.LEGACY_ALL_SCOPE_START_BLOCK);
+    }
+
     const port = resolvePort(config, options.port);
 
     if (!(await isPortAvailable(port))) {

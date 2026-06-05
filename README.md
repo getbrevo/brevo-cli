@@ -2,6 +2,8 @@
 
 Command-line tool to create, manage, and test [Brevo](https://www.brevo.com/) OAuth integrations from your terminal.
 
+> 📖 Full command and option documentation: **[Brevo CLI reference](https://developers.brevo.com/docs/cli-reference)**
+
 ## Requirements
 
 - **Node.js** 20.15.0 or newer (required to run the CLI)
@@ -12,8 +14,12 @@ Command-line tool to create, manage, and test [Brevo](https://www.brevo.com/) OA
 ### Homebrew (macOS/Linux)
 
 ```bash
+brew tap getbrevo/tap
 brew install getbrevo/tap/brevo
+brevo --version
 ```
+
+(`brew install getbrevo/tap/brevo` adds the tap automatically if you skip the first command — the formula lives in [`getbrevo/homebrew-tap`](https://github.com/getbrevo/homebrew-tap).)
 
 ### npm
 

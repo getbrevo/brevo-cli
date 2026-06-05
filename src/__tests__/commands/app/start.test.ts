@@ -219,6 +219,49 @@ describe('app/start', () => {
     expect(getSpawnEnv().REDIRECT_URI).toBe('http://localhost:9999/ambient');
   });
 
+  describe("legacy 'all' scope pre-flight block", () => {
+    beforeEach(() => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+    });
+
+    it("blocks when auth.scopes in app-config.json contains 'all'", async () => {
+      (readProjectConfig as jest.Mock).mockReturnValueOnce({
+        appId: '42',
+        appName: 'Test',
+        auth: {
+          type: 'oauth',
+          scopes: ['all'],
+          redirectUrls: ['http://localhost:3009/auth/callback'],
+        },
+      });
+
+      await expect(startCommand({ feature: 'oauth' })).rejects.toThrow(/legacy 'all'/);
+      expect(spawn).not.toHaveBeenCalled();
+      expect(mockUpdateApp).not.toHaveBeenCalled();
+    });
+
+    it('starts normally when scopes are granular', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValueOnce({
+        appId: '42',
+        appName: 'Test',
+        auth: {
+          type: 'oauth',
+          scopes: ['contacts:read', 'crm:read'],
+          redirectUrls: ['http://localhost:3009/auth/callback'],
+        },
+      });
+
+      const mockChild = makeMockChild();
+      (spawn as unknown as jest.Mock).mockReturnValue(mockChild);
+
+      const promise = startCommand({ feature: 'oauth' });
+      process.nextTick(() => mockChild.emit('close', 0));
+      await promise;
+
+      expect(spawn).toHaveBeenCalled();
+    });
+  });
+
   describe('redirect-URL self-registration', () => {
     const ttyConfig = (
       redirectUrls: string[] = [],

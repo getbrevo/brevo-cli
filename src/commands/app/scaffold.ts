@@ -7,6 +7,7 @@ import {
   OAUTH_BASE,
   OAUTH_REALM,
   DEFAULT_SCOPES,
+  LEGACY_ALL_SCOPE,
 } from '../../lib/constants';
 import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { createSpinner, printBox } from '../../lib/ui';
@@ -16,6 +17,7 @@ import { CliError } from '../../lib/errors';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { loadAllTemplates } from '../../templates';
+import { containsLegacyAllScope } from '../../lib/validators';
 
 interface TreeNode {
   [key: string]: TreeNode;
@@ -176,7 +178,13 @@ export const scaffoldCommand = withCommandHandler(
 
     const rawAppName = ctx.appDetails?.name || path.basename(targetDir);
     const appName = rawAppName.replaceAll(/["\\\n\r\t]/g, '').trim() || 'my-app';
-    const scopes = ctx.appDetails?.scopes ?? [...DEFAULT_SCOPES];
+    // Never propagate the deprecated legacy 'all' scope into a fresh
+    // app-config.json — keep the app's granular scopes, fall back to
+    // DEFAULT_SCOPES when 'all' was the only scope, and tell the user (BEX-214).
+    const remoteScopes = ctx.appDetails?.scopes;
+    const legacyAllSubstituted = containsLegacyAllScope(remoteScopes);
+    const granularScopes = (remoteScopes ?? []).filter((s) => s !== LEGACY_ALL_SCOPE);
+    const scopes = granularScopes.length > 0 ? granularScopes : [...DEFAULT_SCOPES];
 
     const pkg = JSON.parse(
       fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'),
@@ -208,6 +216,9 @@ export const scaffoldCommand = withCommandHandler(
     }
 
     logSuccess(messages.APP_SCAFFOLD_SUCCESS(written));
+    if (legacyAllSubstituted) {
+      logWarn(messages.LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED(scopes.join(', ')));
+    }
     logInfo(formatFileTree(files.map((f) => f.name)));
 
     const relativeDir = path.relative(process.cwd(), targetDir) || '.';

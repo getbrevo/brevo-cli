@@ -1,4 +1,4 @@
-import { CLI } from '../lib/constants';
+import { CLI, BREVO_CLI_REFERENCE_URL, BREVO_OAUTH_SCOPES_DOCS_URL } from '../lib/constants';
 
 export const messages = {
   // Update notifier
@@ -110,6 +110,14 @@ export const messages = {
     `--app-id ${flagId} does not match app-config.json (${configId}). Pass --name or --redirect-uri to update app ${flagId}, or remove --app-id to update app ${configId}.`,
   APP_UPDATE_SCOPES_APPENDED: (scopes: string[]): string => `Scopes appended: ${scopes.join(', ')}`,
 
+  // Legacy 'all' scope deprecation (BEX-214)
+  LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (if you keep an app-config.json, edit auth.scopes there too).\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then re-run \`${CLI.APP_UPDATE_SCOPE} <scope>\` (repeatable) to migrate.`,
+  LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate with \`${CLI.APP_UPDATE_SCOPE} <scope>\` (repeatable), then re-run \`${CLI.APP_START('oauth')}\`.`,
+  LEGACY_ALL_SCOPE_LIST_TAG: ` (legacy 'all' — deprecated)`,
+  LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED: (writtenScopes: string): string =>
+    `This app still has the legacy 'all' OAuth scope (deprecated). Wrote ${writtenScopes} to app-config.json instead of 'all'. Migrate the app with \`${CLI.APP_UPDATE_SCOPE} <scope>\`.`,
+  LEGACY_ALL_SCOPE_UPDATE_MIGRATING: `Migrating from legacy 'all' scope — 'all' will be removed.`,
+
   // App delete
   APP_DELETE_CONFIRM: (name: string, id: string) =>
     `Delete app "${name}" (${id})? This cannot be undone.`,
@@ -188,7 +196,7 @@ export const messages = {
   SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string) =>
     `Installed ${name}@${version} → ${dir}`,
   SKILL_INSTALL_CLAUDE_ONLY:
-    'This skill is consumed by Claude (Claude Code, Claude Desktop). Other AI tools (Cursor, Copilot CLI, Gemini, etc.) should reference agent-context/AGENTS.md from the @getbrevo/cli npm package instead.',
+    'This skill is consumed by Claude Code. Other AI tools (Claude Desktop chat, Cursor, Copilot CLI, Gemini, etc.) should reference agent-context/AGENTS.md from the @getbrevo/cli npm package instead.',
   SKILL_INSTALL_ALREADY: (name: string, version: string) =>
     `${name}@${version} is already up to date.`,
   SKILL_UNINSTALL_SUCCESS: (name: string, dir: string) => `Uninstalled ${name} from ${dir}`,
@@ -201,6 +209,8 @@ export const messages = {
   // App scopes
   APP_SCOPES_EMPTY: 'The IdP returned an empty scope list.',
   APP_SCOPES_USAGE_HINT: `Add a scope to an app with \`${CLI.APP_UPDATE_SCOPE} <scope> --app-id <id>\`.`,
+  APP_SCOPES_DOCS_HINT: `Full CLI reference: ${BREVO_CLI_REFERENCE_URL}`,
+  APP_SCOPES_CATALOG_DOCS_HINT: `Scope catalog docs: ${BREVO_OAUTH_SCOPES_DOCS_URL}`,
   APP_SCOPES_WEB_LISTENING: (url: string): string => `Open in browser: ${url} (Ctrl+C to stop)`,
   APP_SCOPES_WEB_TITLE: 'Brevo OAuth scopes',
   APP_SCOPES_WEB_INTRO: (count: number, sourceUrl: string): string =>
@@ -213,6 +223,17 @@ export const messages = {
   APP_SCOPES_WEB_REFRESH_FAILED: `Refresh failed. Please restart \`${CLI.APP_SCOPES} --web\` to retry.`,
   APP_SCOPES_WEB_ENDPOINTS_LABEL: 'API endpoints',
   APP_SCOPES_WEB_NO_ENDPOINTS: 'No API endpoints listed for this scope.',
+  APP_SCOPES_WEB_COPY: 'Copy',
+  APP_SCOPES_WEB_COPIED: 'Copied!',
+  // {category} / {scope} are replaced client-side in the web page script.
+  APP_SCOPES_WEB_COPY_CATEGORY_ARIA: 'Copy {category} scopes',
+  APP_SCOPES_WEB_SELECT_SCOPE_ARIA: 'Select {scope}',
+  APP_SCOPES_WEB_COPY_SELECTED: 'Copy selected',
+  APP_SCOPES_WEB_SELECTED_PLACEHOLDER: `Tick scopes to build a comma-separated list for \`${CLI.APP_UPDATE_SCOPE}\` or app-config.json`,
+  APP_SCOPES_WEB_LEGACY_BADGE: 'deprecated',
+  APP_SCOPES_WEB_LEGACY_TITLE: `Legacy 'all' scope — replace with the granular scopes your integration uses.`,
+  APP_SCOPES_WEB_DOCS_LINK: 'Full CLI reference',
+  APP_SCOPES_WEB_CATALOG_DOCS_CTA: 'Read the scope catalog docs',
   OAUTH_METADATA_MISSING_SCOPES: 'IdP scopes response did not include a scopes array.',
   OAUTH_METADATA_FETCH_FAILED: (url: string, status: number): string =>
     `Failed to fetch OAuth scopes from ${url} (HTTP ${status}).`,

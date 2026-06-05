@@ -1,4 +1,5 @@
 import { CliError } from './errors';
+import { LEGACY_ALL_SCOPE } from './constants';
 
 const APP_NAME_MAX_LENGTH = 48;
 const APP_NAME_REGEX = /^[a-zA-Z0-9 ._\-\u00C0-\u024F]+$/;
@@ -128,6 +129,15 @@ export function collectScopes(value: string, previous: string[] = []): string[] 
     if (!out.includes(t)) out.push(t);
   }
   return out;
+}
+
+/**
+ * Returns true iff the scope list contains the deprecated legacy 'all' scope.
+ * Every code path that warns or blocks on the legacy scope calls this helper —
+ * no scattered string literals (BEX-214).
+ */
+export function containsLegacyAllScope(scopes: string[] | undefined): boolean {
+  return scopes?.includes(LEGACY_ALL_SCOPE) ?? false;
 }
 
 /**

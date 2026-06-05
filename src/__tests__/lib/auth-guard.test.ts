@@ -5,6 +5,31 @@ import { CliError } from '../../lib/errors';
 
 jest.mock('../../lib/config');
 
+/** Minimal commander Command stub with an optional parent, as seen by the preAction hook. */
+function mockCommand(name: string, parentName?: string): Command {
+  return {
+    name: () => name,
+    ...(parentName ? { parent: { name: () => parentName } } : {}),
+  } as unknown as Command;
+}
+
+/** Install the guard on a fresh program and run its preAction hook under the given argv. */
+async function runAuthGuard(argv: string[], actionCommand: Command): Promise<void> {
+  const program = new Command();
+  installAuthGuard(program);
+
+  const hooks = (program as any)._lifeCycleHooks?.preAction;
+  if (!hooks || hooks.length === 0) return;
+
+  const originalArgv = process.argv;
+  process.argv = argv;
+  try {
+    await hooks[0](program, actionCommand);
+  } finally {
+    process.argv = originalArgv;
+  }
+}
+
 describe('auth-guard', () => {
   let stderrSpy: jest.SpyInstance;
 
@@ -18,76 +43,46 @@ describe('auth-guard', () => {
   });
 
   it('should allow unauthenticated commands through', async () => {
-    const program = new Command();
-    installAuthGuard(program);
-
-    program.command('login').action(() => {});
     (config.isAuthenticated as jest.Mock).mockReturnValue(false);
 
-    // Simulate preAction hook for login command
-    const hooks = (program as any)._lifeCycleHooks?.preAction;
-    if (hooks && hooks.length > 0) {
-      const mockActionCommand = { name: () => 'login' } as unknown as Command;
-      // Should not throw
-      await hooks[0](program, mockActionCommand);
-    }
+    await expect(
+      runAuthGuard(['node', 'brevo', 'login'], mockCommand('login')),
+    ).resolves.toBeUndefined();
   });
 
   it('should block authenticated-only commands when not logged in', async () => {
-    const program = new Command();
-    installAuthGuard(program);
-
     (config.isAuthenticated as jest.Mock).mockReturnValue(false);
 
-    const hooks = (program as any)._lifeCycleHooks?.preAction;
-    if (hooks && hooks.length > 0) {
-      const originalArgv = process.argv;
-      process.argv = ['node', 'brevo', 'app', 'list'];
-
-      const mockActionCommand = { name: () => 'list' } as unknown as Command;
-      expect(() => hooks[0](program, mockActionCommand)).toThrow(CliError);
-
-      process.argv = originalArgv;
-    }
+    await expect(
+      runAuthGuard(['node', 'brevo', 'app', 'list'], mockCommand('list')),
+    ).rejects.toThrow(CliError);
   });
 
   it('should allow commands through when authenticated', async () => {
-    const program = new Command();
-    installAuthGuard(program);
-
     (config.isAuthenticated as jest.Mock).mockReturnValue(true);
 
-    const hooks = (program as any)._lifeCycleHooks?.preAction;
-    if (hooks && hooks.length > 0) {
-      const originalArgv = process.argv;
-      process.argv = ['node', 'brevo', 'app', 'list'];
+    await expect(
+      runAuthGuard(['node', 'brevo', 'app', 'list'], mockCommand('list')),
+    ).resolves.toBeUndefined();
+  });
 
-      const mockActionCommand = { name: () => 'list' } as unknown as Command;
-      await hooks[0](program, mockActionCommand);
+  it('should allow app available-scopes through without auth (public IdP catalog)', async () => {
+    (config.isAuthenticated as jest.Mock).mockReturnValue(false);
 
-      process.argv = originalArgv;
-    }
+    await expect(
+      runAuthGuard(
+        ['node', 'brevo', 'app', 'available-scopes'],
+        mockCommand('available-scopes', 'app'),
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it('should allow skill subcommands through without auth', async () => {
-    const program = new Command();
-    installAuthGuard(program);
-
     (config.isAuthenticated as jest.Mock).mockReturnValue(false);
 
-    const hooks = (program as any)._lifeCycleHooks?.preAction;
-    if (hooks && hooks.length > 0) {
-      const originalArgv = process.argv;
-      process.argv = ['node', 'brevo', 'skill:cli', 'install'];
-
-      // Same leaf name as `app list` but parented under `skill:cli` — must bypass auth.
-      const mockActionCommand = {
-        name: () => 'install',
-        parent: { name: () => 'skill:cli' },
-      } as unknown as Command;
-      await hooks[0](program, mockActionCommand);
-
-      process.argv = originalArgv;
-    }
+    // Same leaf name as `app list` but parented under `skill:cli` — must bypass auth.
+    await expect(
+      runAuthGuard(['node', 'brevo', 'skill:cli', 'install'], mockCommand('install', 'skill:cli')),
+    ).resolves.toBeUndefined();
   });
 });

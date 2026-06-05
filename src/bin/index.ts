@@ -10,7 +10,12 @@ import { CliError, AbortError, AuthExpiredError } from '../lib/errors';
 import { messages } from '../lang/en';
 import { readHiddenInput } from '../lib/hidden-input';
 import { saveCredentials, clearCredentials, getAuthCred, updateOauthTokens } from '../lib/config';
-import { ENDPOINTS, OAUTH_PROXY_URL, warnIfPathStripped } from '../lib/constants';
+import {
+  ENDPOINTS,
+  OAUTH_PROXY_URL,
+  warnIfPathStripped,
+  BREVO_CLI_REFERENCE_URL,
+} from '../lib/constants';
 import { refreshAccessToken, RefreshError } from '../services/oauth-refresh';
 import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
@@ -87,6 +92,8 @@ program
         `  $ brevo app scaffold --app-id APPID             # generate starter code`,
         `  $ brevo app start oauth --port 3000             # start OAuth test server`,
         `  $ brevo app available-scopes --web              # browse OAuth scope catalog`,
+        ``,
+        `Docs: ${BREVO_CLI_REFERENCE_URL}`,
         ``,
       ].join('\n');
     },

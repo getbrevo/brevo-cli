@@ -9,7 +9,8 @@ import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { readProjectConfig, saveAppName, writeProjectConfig } from '../../lib/config';
 import { OAuthApp } from '../../types';
-import { validateAppName, validateScopes } from '../../lib/validators';
+import { validateAppName, validateScopes, containsLegacyAllScope } from '../../lib/validators';
+import { LEGACY_ALL_SCOPE } from '../../lib/constants';
 import inquirer from 'inquirer';
 
 interface UpdateOptions {
@@ -108,6 +109,12 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
 
     const nextScopes = config!.auth?.scopes ?? [];
     validateScopes(nextScopes);
+
+    // The legacy 'all' scope is deprecated — block the push and point at the
+    // migration path (--scope). No silent rewrite, no escape hatch (BEX-214).
+    if (containsLegacyAllScope(nextScopes)) {
+      throw new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK);
+    }
 
     if (!options.json) {
       // Fail fast before the network fetch when we'd have nowhere to show the diff.
@@ -225,12 +232,24 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
   }
   const finalLogoUri = options.logoUri ?? existingLogoUri;
 
+  // Passing --scope signals migration intent: drop the deprecated legacy 'all'
+  // scope from the merge baseline so the outgoing payload is clean (BEX-214).
   const appendedScopes = options.scope ?? [];
-  const mergedScopes = [...existingScopes];
+  const hasScopeFlag = appendedScopes.length > 0;
+  const migratingLegacyScopes = hasScopeFlag && containsLegacyAllScope(existingScopes);
+  const mergedScopes = migratingLegacyScopes
+    ? existingScopes.filter((s) => s !== LEGACY_ALL_SCOPE)
+    : [...existingScopes];
   for (const s of appendedScopes) {
     if (!mergedScopes.includes(s)) {
       mergedScopes.push(s);
     }
+  }
+
+  // Block any outgoing payload that still carries 'all' — either no --scope
+  // was passed (no migration intent), or 'all' was explicitly re-added.
+  if (containsLegacyAllScope(mergedScopes)) {
+    throw new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK);
   }
 
   const hasRedirectUriFlag = options.redirectUri !== undefined;
@@ -256,6 +275,7 @@ export const updateCommand = withCommandHandler(async (options: UpdateOptions): 
       nextLogoUri: finalLogoUri,
       currentScopes: existingScopes,
       nextScopes: mergedScopes,
+      migratingLegacyScopes,
     });
   }
 
@@ -347,6 +367,52 @@ async function fetchExistingApp(appId: string, silent: boolean | undefined): Pro
   return app;
 }
 
+// Diff `current` vs `next`: next values keep their order (tagged `(new)` when
+// absent from current), values dropped from current trail with `(removed)`.
+function diffLines(current: string[], next: string[]): string[] {
+  const currentSet = new Set(current);
+  const nextSet = new Set(next);
+  return [
+    ...next.map((v) => (currentSet.has(v) ? v : `${v} (new)`)),
+    ...current.filter((v) => !nextSet.has(v)).map((v) => `${v} (removed)`),
+  ];
+}
+
+// Print a labelled block; continuation lines are indented to align under the
+// first value.
+function logAligned(label: string, lines: string[]): void {
+  lines.forEach((line, i) => {
+    logInfo(`${i === 0 ? label : '                 '}${line}`);
+  });
+}
+
+function renderNameLine(currentName: string | undefined, nextName: string | undefined): void {
+  if (!nextName) {
+    return;
+  }
+  const renamePrefix = currentName && currentName !== nextName ? `${currentName} → ` : '';
+  logInfo(`  Name:          ${renamePrefix}${nextName}`);
+}
+
+function renderScopeLines(currentScopes: string[] | undefined, nextScopes?: string[]): void {
+  if (nextScopes === undefined) {
+    return;
+  }
+  const lines = diffLines(currentScopes ?? [], nextScopes);
+  logAligned('  Scopes:        ', lines.length > 0 ? lines : ['(none)']);
+}
+
+function renderLogoLine(currentLogoUri?: string, nextLogoUri?: string): void {
+  const label = '  Logo URL:      ';
+  if (currentLogoUri && nextLogoUri && currentLogoUri !== nextLogoUri) {
+    logInfo(`${label}${currentLogoUri} → ${nextLogoUri}`);
+  } else if (nextLogoUri) {
+    logInfo(`${label}${nextLogoUri}`);
+  } else if (currentLogoUri) {
+    logInfo(`${label}${currentLogoUri} (unchanged)`);
+  }
+}
+
 function renderUpdateSummary(params: {
   appId: string;
   currentName: string | undefined;
@@ -357,70 +423,18 @@ function renderUpdateSummary(params: {
   nextLogoUri?: string;
   currentScopes?: string[];
   nextScopes?: string[];
+  migratingLegacyScopes?: boolean;
 }): void {
-  const {
-    appId,
-    currentName,
-    nextName,
-    currentUrls,
-    nextUrls,
-    currentLogoUri,
-    nextLogoUri,
-    currentScopes,
-    nextScopes,
-  } = params;
-  const currentSet = new Set(currentUrls);
-  const nextSet = new Set(nextUrls);
-  const addedSet = new Set(nextUrls.filter((u) => !currentSet.has(u)));
-  const removed = currentUrls.filter((u) => !nextSet.has(u));
-
   logInfo('');
   logInfo(`  ${messages.APP_UPDATE_SUMMARY}`);
-  logInfo(`  App ID:        ${appId}`);
-  if (nextName) {
-    if (currentName && currentName !== nextName) {
-      logInfo(`  Name:          ${currentName} → ${nextName}`);
-    } else {
-      logInfo(`  Name:          ${nextName}`);
-    }
+  logInfo(`  App ID:        ${params.appId}`);
+  renderNameLine(params.currentName, params.nextName);
+  logAligned('  Redirect URLs: ', diffLines(params.currentUrls, params.nextUrls));
+  if (params.migratingLegacyScopes) {
+    logInfo(`  ${messages.LEGACY_ALL_SCOPE_UPDATE_MIGRATING}`);
   }
-  const lines = [
-    ...nextUrls.map((u) => (addedSet.has(u) ? `${u} (new)` : u)),
-    ...removed.map((u) => `${u} (removed)`),
-  ];
-  lines.forEach((line, i) => {
-    const prefix = i === 0 ? '  Redirect URLs: ' : '                 ';
-    logInfo(`${prefix}${line}`);
-  });
-  if (nextScopes !== undefined) {
-    const currentScopesSet = new Set(currentScopes ?? []);
-    const nextScopesSet = new Set(nextScopes);
-    const addedScopes = new Set(nextScopes.filter((s) => !currentScopesSet.has(s)));
-    const removedScopes = (currentScopes ?? []).filter((s) => !nextScopesSet.has(s));
-    const scopeLines =
-      nextScopes.length === 0 && removedScopes.length === 0
-        ? ['(none)']
-        : [
-            ...nextScopes.map((s) => (addedScopes.has(s) ? `${s} (new)` : s)),
-            ...removedScopes.map((s) => `${s} (removed)`),
-          ];
-    scopeLines.forEach((line, i) => {
-      const prefix = i === 0 ? '  Scopes:        ' : '                 ';
-      logInfo(`${prefix}${line}`);
-    });
-  }
-
-  if (currentLogoUri || nextLogoUri) {
-    const label = '  Logo URL:      ';
-    if (currentLogoUri && nextLogoUri && currentLogoUri !== nextLogoUri) {
-      logInfo(`${label}${currentLogoUri} → ${nextLogoUri}`);
-    } else if (nextLogoUri) {
-      logInfo(`${label}${nextLogoUri}`);
-    } else if (currentLogoUri) {
-      logInfo(`${label}${currentLogoUri} (unchanged)`);
-    }
-  }
-
+  renderScopeLines(params.currentScopes, params.nextScopes);
+  renderLogoLine(params.currentLogoUri, params.nextLogoUri);
   logInfo('');
 }
 
