@@ -13,7 +13,7 @@ import { SKILL_CATALOG, SKILLS_BUNDLE_DIR, SkillEntry, getSkill } from '../skill
 
 export function getClaudeSkillsRoot(): string {
   const override = process.env.BREVO_CLAUDE_HOME;
-  if (override && override.trim()) {
+  if (override?.trim()) {
     return path.join(override, 'skills');
   }
   return path.join(os.homedir(), '.claude', 'skills');

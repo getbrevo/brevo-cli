@@ -91,7 +91,7 @@ async function fetchAppContext(appId: string, silent?: boolean): Promise<AppCont
     (url: string) => url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1'),
   );
   return {
-    appDetails: appDetails as AppContext['appDetails'],
+    appDetails,
     clientId: appDetails?.client_id || PLACEHOLDER_CLIENT_ID,
     clientSecret: appDetails?.client_secret || 'YOUR_CLIENT_SECRET',
     redirectUrls,

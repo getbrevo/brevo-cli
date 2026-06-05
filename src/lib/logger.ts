@@ -65,8 +65,22 @@ export function logDebug(context: string, data: unknown): void {
 
 function formatError(error: unknown): string {
   if (error instanceof Error) return error.stack ?? error.message;
-  if (typeof error === 'object') return JSON.stringify(error);
-  return String(error);
+  if (typeof error === 'string') return error;
+  if (
+    typeof error === 'number' ||
+    typeof error === 'boolean' ||
+    typeof error === 'bigint' ||
+    typeof error === 'symbol'
+  ) {
+    return String(error);
+  }
+  try {
+    // JSON.stringify returns undefined for bare `undefined` and functions.
+    return JSON.stringify(error) ?? 'undefined';
+  } catch {
+    // Circular structures make JSON.stringify throw.
+    return '[unserializable error]';
+  }
 }
 
 export function logError(message: string, error?: unknown): void {
