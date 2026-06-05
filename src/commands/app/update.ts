@@ -390,8 +390,8 @@ function renderNameLine(currentName: string | undefined, nextName: string | unde
   if (!nextName) {
     return;
   }
-  const renamed = currentName && currentName !== nextName;
-  logInfo(`  Name:          ${renamed ? `${currentName} → ` : ''}${nextName}`);
+  const renamePrefix = currentName && currentName !== nextName ? `${currentName} → ` : '';
+  logInfo(`  Name:          ${renamePrefix}${nextName}`);
 }
 
 function renderScopeLines(currentScopes: string[] | undefined, nextScopes?: string[]): void {
