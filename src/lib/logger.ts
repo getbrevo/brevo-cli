@@ -65,8 +65,8 @@ export function logDebug(context: string, data: unknown): void {
 
 function formatError(error: unknown): string {
   if (error instanceof Error) return error.stack ?? error.message;
-  if (typeof error === 'object') return JSON.stringify(error);
-  return String(error);
+  if (typeof error === 'string') return error;
+  return JSON.stringify(error) ?? 'undefined';
 }
 
 export function logError(message: string, error?: unknown): void {

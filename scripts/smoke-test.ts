@@ -33,6 +33,22 @@ interface Options {
   withInit: boolean;
 }
 
+function parsePortValue(arg: string): number {
+  const n = Number.parseInt(arg.slice('--port='.length), 10);
+  if (!Number.isInteger(n) || n <= 0 || n > 65535) {
+    throw new Error(`invalid --port value: ${arg}`);
+  }
+  return n;
+}
+
+function parseAgainstValue(arg: string): 'local' | 'published' {
+  const v = arg.slice('--against='.length);
+  if (v !== 'local' && v !== 'published') {
+    throw new Error(`--against must be 'local' or 'published', got: ${v}`);
+  }
+  return v;
+}
+
 function parseArgs(argv: string[]): Options {
   const opts: Options = {
     skipAuth: false,
@@ -52,20 +68,12 @@ function parseArgs(argv: string[]): Options {
       opts.ci = true;
       opts.verbose = true;
     } else if (arg.startsWith('--port=')) {
-      const n = Number.parseInt(arg.slice('--port='.length), 10);
-      if (!Number.isInteger(n) || n <= 0 || n > 65535) {
-        throw new Error(`invalid --port value: ${arg}`);
-      }
-      opts.port = n;
+      opts.port = parsePortValue(arg);
       opts.portExplicit = true;
     } else if (arg.startsWith('--report=')) {
       opts.reportPath = arg.slice('--report='.length);
     } else if (arg.startsWith('--against=')) {
-      const v = arg.slice('--against='.length);
-      if (v !== 'local' && v !== 'published') {
-        throw new Error(`--against must be 'local' or 'published', got: ${v}`);
-      }
-      opts.against = v;
+      opts.against = parseAgainstValue(arg);
     } else if (arg === '-h' || arg === '--help') {
       printHelp();
       process.exit(0);
@@ -143,6 +151,10 @@ function stepDone(state: State, ok: boolean, detail: string, ms: number): void {
   const line = `  ${icon} ${detail} — ${ok ? 'ok' : 'FAILED'} (${formatMs(ms)})`;
   process.stdout.write(line + '\n');
   logToFile(state, line);
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 function formatMs(ms: number): string {
@@ -584,7 +596,7 @@ function stepAppUpdate(state: State): string {
   }
   const updatedUris = updatedJson.redirect_uris;
   if (!Array.isArray(updatedUris)) {
-    throw new Error(`update redirect_uris is not an array: ${JSON.stringify(updatedUris)}`);
+    throw new TypeError(`update redirect_uris is not an array: ${JSON.stringify(updatedUris)}`);
   }
   // --redirect-uri appends (see CLAUDE.md + src/commands/app/update.ts:186-194):
   // the create-time URI must survive, and the new one must be present.
@@ -808,6 +820,34 @@ async function stepDeleteMainApp(state: State): Promise<string> {
   return `app ${id} deleted`;
 }
 
+// Secondary appId recovery: if our unique name made it through, the app is
+// identifiable even without parsing wizard output. Retry to absorb
+// list-endpoint propagation lag.
+async function findInitAppByName(state: State, expectedName: string): Promise<string | null> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const after = execOrThrow('brevo', ['app', 'list', '--json'], state);
+    const found = findAppByName(parseJson(after.stdout), expectedName);
+    if (found) return found;
+    if (attempt < 3) await sleep([500, 1000, 2000][attempt] ?? 2000);
+  }
+  return null;
+}
+
+// Tertiary appId recovery: read app-config.json (only present if user
+// scaffolded in wizard, which our scripted answers explicitly decline — but
+// keep as a safety net in case the wizard flow changes).
+function readInitAppIdFromConfig(state: State, tmp: string): string | null {
+  const cfgPath = join(tmp, 'app-config.json');
+  if (!existsSync(cfgPath)) return null;
+  try {
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+    if (cfg.appId) return String(cfg.appId);
+  } catch (e) {
+    logToFile(state, `app-config.json parse failed: ${errMsg(e)}`);
+  }
+  return null;
+}
+
 async function stepInitWizard(state: State): Promise<string> {
   const tmp = mkdtempSync(join(tmpdir(), 'brevo-smoke-init-'));
   state.initTmpDir = tmp;
@@ -836,43 +876,13 @@ async function stepInitWizard(state: State): Promise<string> {
   if (r.exitCode !== 0) throw new Error(`brevo app init exited ${r.exitCode}`);
   const output = r.stdout;
 
-  let appId: string | null = null;
-
   // Primary: parse "App ID: <uuid>" from wizard output. UUID format only — the
   // wizard prints other ids (Client ID is 32 hex) which we explicitly don't match.
   const uuidPattern = /App ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
-  const m = uuidPattern.exec(output);
-  if (m?.[1]) appId = m[1];
+  let appId: string | null = uuidPattern.exec(output)?.[1] ?? null;
 
-  // Secondary: name-based recovery. If our unique name made it through, the
-  // app is identifiable even without parsing wizard output. Retry to absorb
-  // list-endpoint propagation lag.
-  if (!appId) {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const after = execOrThrow('brevo', ['app', 'list', '--json'], state);
-      const found = findAppByName(parseJson(after.stdout), expectedName);
-      if (found) {
-        appId = found;
-        break;
-      }
-      if (attempt < 3) await sleep([500, 1000, 2000][attempt] ?? 2000);
-    }
-  }
-
-  // Tertiary: read app-config.json (only present if user scaffolded in wizard,
-  // which our scripted answers explicitly decline — but keep as a safety net
-  // in case the wizard flow changes).
-  if (!appId) {
-    const cfgPath = join(tmp, 'app-config.json');
-    if (existsSync(cfgPath)) {
-      try {
-        const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
-        if (cfg.appId) appId = String(cfg.appId);
-      } catch (e) {
-        logToFile(state, `app-config.json parse failed: ${e instanceof Error ? e.message : e}`);
-      }
-    }
-  }
+  if (!appId) appId = await findInitAppByName(state, expectedName);
+  if (!appId) appId = readInitAppIdFromConfig(state, tmp);
 
   // NO list-diff fallback. A blind "delete the first new app" path could
   // remove an app a human (or another process) just created on the same
@@ -939,7 +949,7 @@ function printOrphanWarning(state: State, suspectIds: string[], expectedName?: s
         `  ${COLOR.dim}brevo app delete --app-id <id> --force${COLOR.reset}\n`,
     );
   } catch (e) {
-    logToFile(state, `orphan listing failed: ${e instanceof Error ? e.message : e}`);
+    logToFile(state, `orphan listing failed: ${errMsg(e)}`);
   }
 }
 
@@ -968,47 +978,47 @@ function stepLogout(state: State): string {
   return 'logged out';
 }
 
+function killStartChild(state: State): void {
+  if (state.startChild && !state.startChild.killed) {
+    try {
+      state.startChild.kill('SIGKILL');
+    } catch {
+      // ignore
+    }
+    state.startChild = null;
+  }
+}
+
+function removeTmpDirs(state: State, logFailures: boolean): void {
+  for (const dir of [state.mainTmpDir, state.initTmpDir]) {
+    if (dir && existsSync(dir)) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch (e) {
+        if (logFailures) {
+          logToFile(state, `rm ${dir} failed: ${errMsg(e)}`);
+        }
+      }
+    }
+  }
+  state.mainTmpDir = null;
+  state.initTmpDir = null;
+}
+
 function stepFinalCleanup(state: State): string {
   if (state.linked) {
     if (state.opts.against === 'local') exec('yarn', ['unlink'], state);
     else exec('npm', ['uninstall', '-g', '@getbrevo/cli'], state);
     state.linked = false;
   }
-  for (const dir of [state.mainTmpDir, state.initTmpDir]) {
-    if (dir && existsSync(dir)) {
-      try {
-        rmSync(dir, { recursive: true, force: true });
-      } catch (e) {
-        logToFile(state, `rm ${dir} failed: ${e instanceof Error ? e.message : e}`);
-      }
-    }
-  }
-  state.mainTmpDir = null;
-  state.initTmpDir = null;
-  if (state.startChild && !state.startChild.killed) {
-    try {
-      state.startChild.kill('SIGKILL');
-    } catch {
-      // ignore
-    }
-    state.startChild = null;
-  }
+  removeTmpDirs(state, true);
+  killStartChild(state);
   return 'cleanup done';
 }
 
 // ──────────────────────────── trap cleanup ────────────────────────────
 
-// Best-effort: synchronous-ish, no throws. Runs on SIGINT/SIGTERM/uncaughtException
-// and as a final safety net after the run loop. Designed to be idempotent.
-function bestEffortCleanup(state: State): void {
-  if (state.startChild && !state.startChild.killed) {
-    try {
-      state.startChild.kill('SIGKILL');
-    } catch {
-      // ignore
-    }
-    state.startChild = null;
-  }
+function trapDeleteApps(state: State): void {
   for (const appId of [state.mainAppId, state.initAppId]) {
     if (!appId) continue;
     try {
@@ -1017,34 +1027,31 @@ function bestEffortCleanup(state: State): void {
       });
       logToFile(state, `trap: deleted app ${appId}`);
     } catch (e) {
-      logToFile(
-        state,
-        `trap: failed to delete app ${appId}: ${e instanceof Error ? e.message : e}`,
-      );
+      logToFile(state, `trap: failed to delete app ${appId}: ${errMsg(e)}`);
     }
   }
   state.mainAppId = null;
   state.initAppId = null;
-  for (const dir of [state.mainTmpDir, state.initTmpDir]) {
-    if (dir && existsSync(dir)) {
-      try {
-        rmSync(dir, { recursive: true, force: true });
-      } catch {
-        // ignore
-      }
-    }
+}
+
+function trapUninstallCli(state: State): void {
+  if (!state.linked) return;
+  try {
+    if (state.opts.against === 'local') spawnSync('yarn', ['unlink'], { timeout: 30_000 });
+    else spawnSync('npm', ['uninstall', '-g', '@getbrevo/cli'], { timeout: 30_000 });
+  } catch {
+    // ignore
   }
-  state.mainTmpDir = null;
-  state.initTmpDir = null;
-  if (state.linked) {
-    try {
-      if (state.opts.against === 'local') spawnSync('yarn', ['unlink'], { timeout: 30_000 });
-      else spawnSync('npm', ['uninstall', '-g', '@getbrevo/cli'], { timeout: 30_000 });
-    } catch {
-      // ignore
-    }
-    state.linked = false;
-  }
+  state.linked = false;
+}
+
+// Best-effort: synchronous-ish, no throws. Runs on SIGINT/SIGTERM/uncaughtException
+// and as a final safety net after the run loop. Designed to be idempotent.
+function bestEffortCleanup(state: State): void {
+  killStartChild(state);
+  trapDeleteApps(state);
+  removeTmpDirs(state, false);
+  trapUninstallCli(state);
 }
 
 // ──────────────────────────── report ────────────────────────────
@@ -1062,6 +1069,101 @@ function writeReport(state: State, ok: boolean): void {
 }
 
 // ──────────────────────────── main ────────────────────────────
+
+function installCleanupTraps(state: State): void {
+  let trapped = false;
+  const onSignal = (code: number) => {
+    if (!trapped) {
+      trapped = true;
+      bestEffortCleanup(state);
+    }
+    process.exit(code);
+  };
+  process.on('SIGINT', () => onSignal(130));
+  process.on('SIGTERM', () => onSignal(143));
+  process.on('uncaughtException', (err) => {
+    logToFile(state, `uncaught: ${err.stack || err.message}`);
+    if (!trapped) {
+      trapped = true;
+      bestEffortCleanup(state);
+    }
+    process.exit(1);
+  });
+}
+
+// If --port wasn't explicit, find a free port near the default rather than
+// failing later with "port already in use".
+async function resolvePort(opts: Options): Promise<void> {
+  if (opts.portExplicit) return;
+  try {
+    const free = await pickFreePort(opts.port);
+    if (free !== opts.port) {
+      process.stdout.write(
+        `${COLOR.dim}port ${opts.port} busy; using ${free} instead${COLOR.reset}\n`,
+      );
+    }
+    opts.port = free;
+  } catch (e) {
+    process.stderr.write(
+      `${COLOR.red}could not find a free port near ${opts.port}: ${errMsg(e)}${COLOR.reset}\n`,
+    );
+    process.exit(1);
+  }
+}
+
+function buildSteps(opts: Options): Array<[string, StepFn]> {
+  return [
+    ['Pre-flight', stepPreflight],
+    ['Reinstall local', stepReinstall],
+    ['Auth lifecycle', stepAuth],
+    ['App create', stepAppCreate],
+    ['App credentials', stepAppCredentials],
+    ['App update', stepAppUpdate],
+    ['Verify rename', stepVerifyRename],
+    ['Negative: public app rejected', stepPublicAppRejected],
+    ['Scaffold', stepScaffold],
+    ['Start briefly', stepStartBriefly],
+    ['Delete main test app', stepDeleteMainApp],
+    ...(opts.withInit
+      ? ([
+          ['brevo app init wizard', stepInitWizard],
+          ['Delete init-created app', stepDeleteInitApp],
+        ] as Array<[string, StepFn]>)
+      : []),
+    ['Logout', stepLogout],
+    ['Final cleanup', stepFinalCleanup],
+  ];
+}
+
+async function runSteps(
+  steps: Array<[string, StepFn]>,
+  state: State,
+): Promise<{ allOk: boolean; firstFailed: number }> {
+  let allOk = true;
+  let firstFailed = -1;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (!step) continue;
+    const [name, fn] = step;
+    const ok = await runStep(i + 1, name, fn, state);
+    if (!ok) {
+      allOk = false;
+      if (firstFailed < 0) firstFailed = i + 1;
+    }
+  }
+  return { allOk, firstFailed };
+}
+
+function hasLeftoverState(state: State): boolean {
+  return Boolean(
+    state.mainAppId ||
+    state.initAppId ||
+    state.mainTmpDir ||
+    state.initTmpDir ||
+    state.linked ||
+    state.startChild,
+  );
+}
 
 async function main(): Promise<void> {
   let opts: Options;
@@ -1089,90 +1191,16 @@ async function main(): Promise<void> {
     stepResults: [],
   };
 
-  let trapped = false;
-  const onSignal = (code: number) => {
-    if (!trapped) {
-      trapped = true;
-      bestEffortCleanup(state);
-    }
-    process.exit(code);
-  };
-  process.on('SIGINT', () => onSignal(130));
-  process.on('SIGTERM', () => onSignal(143));
-  process.on('uncaughtException', (err) => {
-    logToFile(state, `uncaught: ${err.stack || err.message}`);
-    if (!trapped) {
-      trapped = true;
-      bestEffortCleanup(state);
-    }
-    process.exit(1);
-  });
+  installCleanupTraps(state);
 
   process.stdout.write(`Brevo smoke test — log: ${logFile}\n`);
 
-  // If --port wasn't explicit, find a free port near the default rather than
-  // failing later with "port already in use".
-  if (!opts.portExplicit) {
-    try {
-      const free = await pickFreePort(opts.port);
-      if (free !== opts.port) {
-        process.stdout.write(
-          `${COLOR.dim}port ${opts.port} busy; using ${free} instead${COLOR.reset}\n`,
-        );
-      }
-      opts.port = free;
-    } catch (e) {
-      process.stderr.write(
-        `${COLOR.red}could not find a free port near ${opts.port}: ${e instanceof Error ? e.message : e}${COLOR.reset}\n`,
-      );
-      process.exit(1);
-    }
-  }
+  await resolvePort(opts);
 
-  const steps: Array<[string, StepFn]> = [
-    ['Pre-flight', stepPreflight],
-    ['Reinstall local', stepReinstall],
-    ['Auth lifecycle', stepAuth],
-    ['App create', stepAppCreate],
-    ['App credentials', stepAppCredentials],
-    ['App update', stepAppUpdate],
-    ['Verify rename', stepVerifyRename],
-    ['Negative: public app rejected', stepPublicAppRejected],
-    ['Scaffold', stepScaffold],
-    ['Start briefly', stepStartBriefly],
-    ['Delete main test app', stepDeleteMainApp],
-    ...(opts.withInit
-      ? ([
-          ['brevo app init wizard', stepInitWizard],
-          ['Delete init-created app', stepDeleteInitApp],
-        ] as Array<[string, StepFn]>)
-      : []),
-    ['Logout', stepLogout],
-    ['Final cleanup', stepFinalCleanup],
-  ];
-
-  let allOk = true;
-  let firstFailed = -1;
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i];
-    if (!step) continue;
-    const [name, fn] = step;
-    const ok = await runStep(i + 1, name, fn, state);
-    if (!ok) {
-      allOk = false;
-      if (firstFailed < 0) firstFailed = i + 1;
-    }
-  }
+  const { allOk, firstFailed } = await runSteps(buildSteps(opts), state);
 
   // Safety net: if any step left state behind (failed midway), clean it up here too.
-  if (
-    state.mainAppId ||
-    state.initAppId ||
-    state.mainTmpDir ||
-    state.initTmpDir ||
-    state.linked ||
-    state.startChild
-  ) {
+  if (hasLeftoverState(state)) {
     bestEffortCleanup(state);
   }
 
