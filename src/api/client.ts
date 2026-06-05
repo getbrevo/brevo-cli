@@ -1,5 +1,6 @@
 import { ApiError, ErrorCode } from '../lib/errors';
 import { logHttp, logHttpResponse, logDebug } from '../lib/logger';
+import { buildCliHeaders } from '../lib/telemetry';
 import { messages } from '../lang/en';
 
 interface RequestOptions {
@@ -174,6 +175,7 @@ export class ApiClient {
     return {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...buildCliHeaders(authHeader),
       ...opts.headers,
       ...authHeader,
     };
