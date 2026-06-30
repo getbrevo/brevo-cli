@@ -168,12 +168,13 @@ describe('readCache / writeCache', () => {
 });
 
 describe('formatBanner', () => {
-  it('contains current version, latest version, and install command', () => {
+  it('contains current version, latest version, and install commands', () => {
     const banner = formatBanner('1.0.0', '1.2.0', '@getbrevo/cli');
     expect(banner).toContain('1.0.0');
     expect(banner).toContain('1.2.0');
     expect(banner).toContain('npm install -g @getbrevo/cli');
     expect(banner).toContain('yarn global add @getbrevo/cli');
+    expect(banner).toContain('brew upgrade brevo');
   });
 
   it('produces a bordered box', () => {
@@ -489,6 +490,7 @@ describe('formatForceUpdateBanner', () => {
     expect(banner).toContain('2.0.0');
     expect(banner).toContain('npm install -g @getbrevo/cli');
     expect(banner).toContain('yarn global add @getbrevo/cli');
+    expect(banner).toContain('brew upgrade brevo');
     expect(banner).toContain('╭');
     expect(banner).toContain('╯');
   });

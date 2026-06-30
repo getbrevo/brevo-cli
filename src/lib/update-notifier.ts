@@ -191,44 +191,32 @@ export async function fetchLatestVersion(
   }
 }
 
-export function formatBanner(current: string, latest: string, name: string): string {
-  const line1 = messages.UPDATE_AVAILABLE(current, latest);
-  const line2 = messages.UPDATE_RUN(name);
-  const line3 = messages.UPDATE_RUN_YARN(name);
-  const inner = Math.max(line1.length, line2.length, line3.length) + 4;
+// Renders the lines into a bordered box, auto-sized to the longest line.
+function renderBox(lines: string[]): string {
+  const inner = Math.max(...lines.map((l) => l.length)) + 4;
   const top = '╭' + '─'.repeat(inner) + '╮';
   const bot = '╰' + '─'.repeat(inner) + '╯';
   const pad = (s: string): string => '  ' + s + ' '.repeat(inner - s.length - 2);
-  return [
-    '',
-    `  ${top}`,
-    `  │${pad(line1)}│`,
-    `  │${pad(line2)}│`,
-    `  │${pad(line3)}│`,
-    `  ${bot}`,
-    '',
-  ].join('\n');
+  return ['', `  ${top}`, ...lines.map((l) => `  │${pad(l)}│`), `  ${bot}`, ''].join('\n');
+}
+
+export function formatBanner(current: string, latest: string, name: string): string {
+  return renderBox([
+    messages.UPDATE_AVAILABLE(current, latest),
+    messages.UPDATE_RUN(name),
+    messages.UPDATE_RUN_YARN(name),
+    messages.UPDATE_RUN_BREW,
+  ]);
 }
 
 export function formatForceUpdateBanner(current: string, latest: string, name: string): string {
-  const line1 = messages.FORCE_UPDATE_REQUIRED(current, latest);
-  const line2 = messages.FORCE_UPDATE_HINT;
-  const line3 = messages.UPDATE_RUN(name);
-  const line4 = messages.UPDATE_RUN_YARN(name);
-  const inner = Math.max(line1.length, line2.length, line3.length, line4.length) + 4;
-  const top = '╭' + '─'.repeat(inner) + '╮';
-  const bot = '╰' + '─'.repeat(inner) + '╯';
-  const pad = (s: string): string => '  ' + s + ' '.repeat(inner - s.length - 2);
-  return [
-    '',
-    `  ${top}`,
-    `  │${pad(line1)}│`,
-    `  │${pad(line2)}│`,
-    `  │${pad(line3)}│`,
-    `  │${pad(line4)}│`,
-    `  ${bot}`,
-    '',
-  ].join('\n');
+  return renderBox([
+    messages.FORCE_UPDATE_REQUIRED(current, latest),
+    messages.FORCE_UPDATE_HINT,
+    messages.UPDATE_RUN(name),
+    messages.UPDATE_RUN_YARN(name),
+    messages.UPDATE_RUN_BREW,
+  ]);
 }
 
 export interface UpdateCheckHandle {
