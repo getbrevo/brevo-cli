@@ -28,7 +28,7 @@ function logEmptyAndThrow(): never {
 
 export function createAppService(client: ApiClient) {
   async function fetchAppsList(): Promise<OAuthApp[]> {
-    const apps = await client.get<OAuthApp[]>(ENDPOINTS.OAUTH_APPS);
+    const apps = await client.get<OAuthApp[]>(ENDPOINTS.APP_STORE_APPS);
     return (apps || []).map(normalizeAppId);
   }
 
@@ -38,7 +38,7 @@ export function createAppService(client: ApiClient) {
     async fetchApp(appId: string): Promise<OAuthApp | null> {
       let app: OAuthApp;
       try {
-        app = await client.get<OAuthApp>(ENDPOINTS.OAUTH_APP(appId));
+        app = await client.get<OAuthApp>(ENDPOINTS.APP_STORE_APP(appId));
       } catch (err) {
         rethrowNotFound(err, appId);
       }
@@ -83,7 +83,7 @@ export function createAppService(client: ApiClient) {
     async resolveAppCredentials(appId: string): Promise<{ app: OAuthApp; diffs: string[] } | null> {
       let raw: OAuthApp;
       try {
-        raw = await client.get<OAuthApp>(ENDPOINTS.OAUTH_APP(appId));
+        raw = await client.get<OAuthApp>(ENDPOINTS.APP_STORE_APP(appId));
       } catch (err) {
         rethrowNotFound(err, appId);
       }
@@ -127,12 +127,12 @@ export function createAppService(client: ApiClient) {
 
     async createApp(payload: {
       name: string;
-      public: boolean;
+      distribution_type: 'public' | 'private';
       redirect_uris?: string[];
       scopes?: string[];
       logo_uri?: string;
     }): Promise<CreateAppResponse> {
-      const raw = await client.post<CreateAppResponse>(ENDPOINTS.OAUTH_APPS, {
+      const raw = await client.post<CreateAppResponse>(ENDPOINTS.APP_STORE_APPS, {
         ...payload,
         source: 'cli',
         cli_version: CLI_VERSION,
@@ -144,7 +144,7 @@ export function createAppService(client: ApiClient) {
       appId: string,
       body: { name?: string; redirect_uris: string[]; scopes?: string[]; logo_uri?: string },
     ): Promise<void> {
-      await client.put(ENDPOINTS.APP_STORE_APP_UPDATE(appId), {
+      await client.patch(ENDPOINTS.APP_STORE_APP(appId), {
         ...body,
         cli_version: CLI_VERSION,
       });
@@ -152,7 +152,7 @@ export function createAppService(client: ApiClient) {
 
     async deleteApp(appId: string): Promise<void> {
       try {
-        await client.delete(ENDPOINTS.OAUTH_APP(appId));
+        await client.delete(ENDPOINTS.APP_STORE_APP(appId));
       } catch (err) {
         rethrowNotFound(err, appId);
       }

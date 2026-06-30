@@ -131,6 +131,16 @@ export function isNewer(current: string, latest: string): boolean {
   return compareVersions(current, latest) > 0;
 }
 
+// True when `latest` is at least one full major version ahead of `current`.
+// Used to gate the blocking force-update banner — a new major release is the
+// signal that the installed CLI may no longer be supported by the backend.
+export function isMajorBehind(current: string, latest: string): boolean {
+  const c = parseVersion(current);
+  const l = parseVersion(latest);
+  if (!c || !l) return false;
+  return l.major > c.major;
+}
+
 export function readCache(cachePath: string): UpdateCheckCache | undefined {
   try {
     const raw = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
@@ -200,6 +210,27 @@ export function formatBanner(current: string, latest: string, name: string): str
   ].join('\n');
 }
 
+export function formatForceUpdateBanner(current: string, latest: string, name: string): string {
+  const line1 = messages.FORCE_UPDATE_REQUIRED(current, latest);
+  const line2 = messages.FORCE_UPDATE_HINT;
+  const line3 = messages.UPDATE_RUN(name);
+  const line4 = messages.UPDATE_RUN_YARN(name);
+  const inner = Math.max(line1.length, line2.length, line3.length, line4.length) + 4;
+  const top = '╭' + '─'.repeat(inner) + '╮';
+  const bot = '╰' + '─'.repeat(inner) + '╯';
+  const pad = (s: string): string => '  ' + s + ' '.repeat(inner - s.length - 2);
+  return [
+    '',
+    `  ${top}`,
+    `  │${pad(line1)}│`,
+    `  │${pad(line2)}│`,
+    `  │${pad(line3)}│`,
+    `  │${pad(line4)}│`,
+    `  ${bot}`,
+    '',
+  ].join('\n');
+}
+
 export interface UpdateCheckHandle {
   cachedLatest?: string;
   pending: Promise<void>;
@@ -251,4 +282,30 @@ export async function notifyUpdate(
   if (handle.cachedLatest && isNewer(pkg.version, handle.cachedLatest)) {
     output.write(formatBanner(pkg.version, handle.cachedLatest, pkg.name) + '\n');
   }
+}
+
+// Blocking force-update gate. When the latest npm version is a full major
+// version ahead of the installed one, writes the force-update banner and
+// returns true so the caller can stop before running the command.
+//
+// Fails open: if the version check was skipped (CI / non-TTY / opt-out, in
+// which case the handle has no cachedLatest) or the fetch hasn't resolved
+// within waitMs, returns false so a slow or unreachable npm registry never
+// blocks the user.
+export async function enforceMinVersion(
+  handle: UpdateCheckHandle,
+  pkg: PkgInfo,
+  output: NodeJS.WriteStream = process.stderr,
+  waitMs: number = NOTIFY_WAIT_MS,
+): Promise<boolean> {
+  await Promise.race([
+    handle.pending,
+    new Promise<void>((resolve) => setTimeout(resolve, waitMs).unref?.()),
+  ]);
+
+  if (handle.cachedLatest && isMajorBehind(pkg.version, handle.cachedLatest)) {
+    output.write(formatForceUpdateBanner(pkg.version, handle.cachedLatest, pkg.name) + '\n');
+    return true;
+  }
+  return false;
 }

@@ -63,7 +63,7 @@ describe('services/app', () => {
       (mockClient.get as jest.Mock).mockResolvedValue({ app_id: UUID, name: 'test' });
       const result = await service.fetchApp(UUID);
       expect(result).toEqual({ app_id: UUID, name: 'test' });
-      expect(mockClient.get).toHaveBeenCalledWith(`/v3/oauth/apps/${UUID}`);
+      expect(mockClient.get).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}`);
     });
 
     it('should return null when response is null', async () => {
@@ -74,7 +74,7 @@ describe('services/app', () => {
   });
 
   describe('createApp', () => {
-    it('should POST to oauth/apps with payload and normalize app_id', async () => {
+    it('should POST to app-store/apps with payload and normalize app_id', async () => {
       const response = {
         app_id: 1,
         client_id: 'cli-123',
@@ -85,11 +85,11 @@ describe('services/app', () => {
       };
       (mockClient.post as jest.Mock).mockResolvedValue(response);
 
-      const result = await service.createApp({ name: 'Test App', public: false });
+      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
 
-      expect(mockClient.post).toHaveBeenCalledWith('/v3/oauth/apps', {
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps', {
         name: 'Test App',
-        public: false,
+        distribution_type: 'private',
         source: 'cli',
         cli_version: CLI_VERSION,
       });
@@ -98,22 +98,24 @@ describe('services/app', () => {
 
     it('should propagate API errors', async () => {
       (mockClient.post as jest.Mock).mockRejectedValue(new Error('API error'));
-      await expect(service.createApp({ name: 'Test', public: false })).rejects.toThrow('API error');
+      await expect(
+        service.createApp({ name: 'Test', distribution_type: 'private' }),
+      ).rejects.toThrow('API error');
     });
   });
 
   describe('updateApp', () => {
-    it('should PUT with the UUID path and return void regardless of response body', async () => {
+    it('should PATCH with the UUID path and return void regardless of response body', async () => {
       // Real server returns only {"message": "app updated successfully"} —
       // the service must not depend on any echoed fields.
-      (mockClient.put as jest.Mock).mockResolvedValue({ message: 'app updated successfully' });
+      (mockClient.patch as jest.Mock).mockResolvedValue({ message: 'app updated successfully' });
 
       const result = await service.updateApp(UUID, {
         name: 'Updated App',
         redirect_uris: ['http://localhost:3000'],
       });
 
-      expect(mockClient.put).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}`, {
+      expect(mockClient.patch).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}`, {
         name: 'Updated App',
         redirect_uris: ['http://localhost:3000'],
         cli_version: CLI_VERSION,
@@ -122,13 +124,13 @@ describe('services/app', () => {
     });
 
     it('forwards scopes when present', async () => {
-      (mockClient.put as jest.Mock).mockResolvedValue(undefined);
+      (mockClient.patch as jest.Mock).mockResolvedValue(undefined);
       await service.updateApp('42', {
         name: 'X',
         redirect_uris: ['https://x/cb'],
         scopes: ['contacts:read', 'crm:write'],
       });
-      expect(mockClient.put).toHaveBeenCalledWith(
+      expect(mockClient.patch).toHaveBeenCalledWith(
         expect.stringContaining('/v3/app-store/apps/42'),
         {
           name: 'X',
@@ -140,9 +142,9 @@ describe('services/app', () => {
     });
 
     it('omits scopes when undefined (back-compat)', async () => {
-      (mockClient.put as jest.Mock).mockResolvedValue(undefined);
+      (mockClient.patch as jest.Mock).mockResolvedValue(undefined);
       await service.updateApp('42', { name: 'X', redirect_uris: ['https://x/cb'] });
-      expect(mockClient.put).toHaveBeenCalledWith(
+      expect(mockClient.patch).toHaveBeenCalledWith(
         expect.stringContaining('/v3/app-store/apps/42'),
         { name: 'X', redirect_uris: ['https://x/cb'], cli_version: CLI_VERSION },
       );
@@ -181,7 +183,7 @@ describe('services/app', () => {
       const result = await service.resolveAppCredentials(UUID);
 
       expect(result?.app.app_id).toBe(UUID);
-      expect(mockClient.get).toHaveBeenCalledWith(`/v3/oauth/apps/${UUID}`);
+      expect(mockClient.get).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}`);
     });
 
     it('should prefer remote secret when API returns it', async () => {
@@ -274,7 +276,7 @@ describe('services/app', () => {
 
       await service.deleteApp('42');
 
-      expect(mockClient.delete).toHaveBeenCalledWith('/v3/oauth/apps/42');
+      expect(mockClient.delete).toHaveBeenCalledWith('/v3/app-store/apps/42');
     });
 
     it('should DELETE the app by UUID', async () => {
@@ -282,7 +284,7 @@ describe('services/app', () => {
 
       await service.deleteApp(UUID);
 
-      expect(mockClient.delete).toHaveBeenCalledWith(`/v3/oauth/apps/${UUID}`);
+      expect(mockClient.delete).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}`);
     });
 
     it('should propagate API errors', async () => {

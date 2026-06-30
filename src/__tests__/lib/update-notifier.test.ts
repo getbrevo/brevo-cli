@@ -5,13 +5,16 @@ import * as path from 'node:path';
 import {
   compareVersions,
   isNewer,
+  isMajorBehind,
   shouldSkipCheck,
   readCache,
   writeCache,
   formatBanner,
+  formatForceUpdateBanner,
   fetchLatestVersion,
   startUpdateCheck,
   notifyUpdate,
+  enforceMinVersion,
   shouldShowBannerBefore,
 } from '../../lib/update-notifier';
 
@@ -454,6 +457,90 @@ describe('notifyUpdate', () => {
       stream,
       50,
     );
+    expect(Date.now() - start).toBeLessThan(500);
+  });
+});
+
+describe('isMajorBehind', () => {
+  it('is true when latest is a full major ahead', () => {
+    expect(isMajorBehind('1.4.2', '2.0.0')).toBe(true);
+    expect(isMajorBehind('1.0.0', '3.1.0')).toBe(true);
+  });
+
+  it('is false for same-major newer versions', () => {
+    expect(isMajorBehind('1.1.0', '1.9.9')).toBe(false);
+  });
+
+  it('is false when current is equal or ahead', () => {
+    expect(isMajorBehind('2.0.0', '2.0.0')).toBe(false);
+    expect(isMajorBehind('2.1.0', '2.0.0')).toBe(false);
+  });
+
+  it('is false when either version is unparseable', () => {
+    expect(isMajorBehind('not-a-version', '2.0.0')).toBe(false);
+    expect(isMajorBehind('1.0.0', 'nope')).toBe(false);
+  });
+});
+
+describe('formatForceUpdateBanner', () => {
+  it('contains both versions and both install commands in a bordered box', () => {
+    const banner = formatForceUpdateBanner('1.4.2', '2.0.0', '@getbrevo/cli');
+    expect(banner).toContain('1.4.2');
+    expect(banner).toContain('2.0.0');
+    expect(banner).toContain('npm install -g @getbrevo/cli');
+    expect(banner).toContain('yarn global add @getbrevo/cli');
+    expect(banner).toContain('╭');
+    expect(banner).toContain('╯');
+  });
+});
+
+describe('enforceMinVersion', () => {
+  it('returns true and writes the banner on a major-version gap', async () => {
+    const { stream, output } = makeStream();
+    const mustUpdate = await enforceMinVersion(
+      { cachedLatest: '2.0.0', pending: Promise.resolve() },
+      { name: '@getbrevo/cli', version: '1.4.2' },
+      stream,
+      0,
+    );
+    expect(mustUpdate).toBe(true);
+    expect(output.join('')).toContain('2.0.0');
+  });
+
+  it('returns false within the same major (soft update only)', async () => {
+    const { stream, output } = makeStream();
+    const mustUpdate = await enforceMinVersion(
+      { cachedLatest: '1.9.0', pending: Promise.resolve() },
+      { name: '@getbrevo/cli', version: '1.0.0' },
+      stream,
+      0,
+    );
+    expect(mustUpdate).toBe(false);
+    expect(output).toHaveLength(0);
+  });
+
+  it('returns false (fails open) when there is no cached latest', async () => {
+    const { stream } = makeStream();
+    const mustUpdate = await enforceMinVersion(
+      { pending: Promise.resolve() },
+      { name: '@getbrevo/cli', version: '1.0.0' },
+      stream,
+      0,
+    );
+    expect(mustUpdate).toBe(false);
+  });
+
+  it('fails open when the fetch does not resolve within the wait timeout', async () => {
+    const { stream } = makeStream();
+    const neverResolves = new Promise<void>(() => {});
+    const start = Date.now();
+    const mustUpdate = await enforceMinVersion(
+      { pending: neverResolves },
+      { name: '@getbrevo/cli', version: '1.0.0' },
+      stream,
+      50,
+    );
+    expect(mustUpdate).toBe(false);
     expect(Date.now() - start).toBeLessThan(500);
   });
 });

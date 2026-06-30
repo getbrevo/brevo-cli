@@ -22,7 +22,12 @@ import { AccountResponse } from '../types';
 import { client } from '../container';
 import { registerAll } from '../lib/command-registry';
 import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
-import { startUpdateCheck, notifyUpdate, shouldShowBannerBefore } from '../lib/update-notifier';
+import {
+  startUpdateCheck,
+  notifyUpdate,
+  enforceMinVersion,
+  shouldShowBannerBefore,
+} from '../lib/update-notifier';
 import { skillService } from '../services/skill';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
@@ -171,11 +176,27 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 // Emit deferred warning if BREVO_API_URL had a path stripped
 warnIfPathStripped();
 
-const earlyNotify = showBannerEarly
-  ? notifyUpdate(updateCheck, { name: pkg.name, version })
-  : Promise.resolve();
+// Force-update gate — if the installed CLI is a full major version behind the
+// latest npm release, block the command (non-zero exit) so the user upgrades.
+// Skipped for --help/--version (so help stays reachable) and whenever the
+// update check itself is skipped (CI / non-TTY / opt-out). Fails open.
+const args = process.argv.slice(2);
+const isHelpOrVersion =
+  args.includes('--help') ||
+  args.includes('-h') ||
+  args.includes('--version') ||
+  args.includes('-V');
 
-earlyNotify
+const forceGate = isHelpOrVersion
+  ? Promise.resolve()
+  : enforceMinVersion(updateCheck, { name: pkg.name, version }).then((mustUpdate) => {
+      if (mustUpdate) process.exit(EXIT_CODES.ERROR);
+    });
+
+forceGate
+  .then(() =>
+    showBannerEarly ? notifyUpdate(updateCheck, { name: pkg.name, version }) : undefined,
+  )
   .then(() => program.parseAsync(process.argv))
   .then(async () => {
     if (!showBannerEarly) {

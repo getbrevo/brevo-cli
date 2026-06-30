@@ -84,7 +84,7 @@ describe('app/create', () => {
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Test App',
-      public: false,
+      distribution_type: 'private',
       redirect_uris: ['http://localhost:3009/auth/callback'],
       scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
@@ -220,7 +220,7 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledTimes(2);
     expect(appService.createApp).toHaveBeenLastCalledWith({
       name: 'New Name',
-      public: false,
+      distribution_type: 'private',
       redirect_uris: ['http://localhost:3009/auth/callback'],
       scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
@@ -274,7 +274,7 @@ describe('app/create', () => {
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Prompted App',
-      public: false,
+      distribution_type: 'private',
       redirect_uris: ['http://localhost:3009/auth/callback'],
       scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
@@ -331,7 +331,7 @@ describe('app/create', () => {
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Café Résumé',
-      public: false,
+      distribution_type: 'private',
       redirect_uris: ['http://localhost:3009/auth/callback'],
       scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
@@ -358,7 +358,7 @@ describe('app/create', () => {
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Multi URL App',
-      public: false,
+      distribution_type: 'private',
       redirect_uris: ['http://localhost:3009/auth/callback', 'https://myapp.com/callback'],
       scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
@@ -385,7 +385,7 @@ describe('app/create', () => {
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Flag App',
-      public: false,
+      distribution_type: 'private',
       redirect_uris: ['https://myapp.com/callback'],
       scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
@@ -411,7 +411,7 @@ describe('app/create', () => {
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Multi Flag App',
-      public: false,
+      distribution_type: 'private',
       redirect_uris: ['http://localhost:3000/cb', 'https://prod.example.com/cb'],
       scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });

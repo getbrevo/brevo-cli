@@ -31,28 +31,21 @@ describe('API_BASE', () => {
 describe('ENDPOINTS', () => {
   it('should define static endpoints', () => {
     expect(ENDPOINTS.ACCOUNT).toBe('/v3/account');
-    expect(ENDPOINTS.OAUTH_APPS).toBe('/v3/oauth/apps');
+    expect(ENDPOINTS.APP_STORE_APPS).toBe('/v3/app-store/apps');
     expect(ENDPOINTS.OAUTH_AUTHORIZE).toBe('/oauth/authorize');
     expect(ENDPOINTS.OAUTH_TOKEN).toBe('/oauth/token');
   });
 
-  it('should define dynamic OAUTH_APP endpoint', () => {
-    expect(ENDPOINTS.OAUTH_APP('123')).toBe('/v3/oauth/apps/123');
-    expect(ENDPOINTS.OAUTH_APP('550e8400-e29b-41d4-a716-446655440000')).toBe(
-      '/v3/oauth/apps/550e8400-e29b-41d4-a716-446655440000',
-    );
-  });
-
-  it('should define dynamic APP_STORE_APP_UPDATE endpoint', () => {
-    expect(ENDPOINTS.APP_STORE_APP_UPDATE('42')).toBe('/v3/app-store/apps/42');
-    expect(ENDPOINTS.APP_STORE_APP_UPDATE('550e8400-e29b-41d4-a716-446655440000')).toBe(
+  it('should define dynamic APP_STORE_APP endpoint', () => {
+    expect(ENDPOINTS.APP_STORE_APP('42')).toBe('/v3/app-store/apps/42');
+    expect(ENDPOINTS.APP_STORE_APP('550e8400-e29b-41d4-a716-446655440000')).toBe(
       '/v3/app-store/apps/550e8400-e29b-41d4-a716-446655440000',
     );
   });
 
   it('encodes path-unsafe characters in appId so input cannot alter the path', () => {
-    expect(ENDPOINTS.OAUTH_APP('a/b?c#d')).toBe('/v3/oauth/apps/a%2Fb%3Fc%23d');
-    expect(ENDPOINTS.APP_STORE_APP_UPDATE('has space')).toBe('/v3/app-store/apps/has%20space');
+    expect(ENDPOINTS.APP_STORE_APP('a/b?c#d')).toBe('/v3/app-store/apps/a%2Fb%3Fc%23d');
+    expect(ENDPOINTS.APP_STORE_APP('has space')).toBe('/v3/app-store/apps/has%20space');
   });
 });
 

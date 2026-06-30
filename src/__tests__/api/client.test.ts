@@ -112,7 +112,7 @@ describe('api client', () => {
           ),
       });
 
-      await expect(client.get('/v3/oauth/apps')).rejects.toMatchObject({
+      await expect(client.get('/v3/app-store/apps')).rejects.toMatchObject({
         apiCode: 'APP_LIMIT_REACHED',
         errorCode: ErrorCode.APP_LIMIT_REACHED,
       });
@@ -132,7 +132,9 @@ describe('api client', () => {
           ),
       });
 
-      await expect(client.get('/v3/oauth/apps')).rejects.toThrow(messages.APP_CREATE_LIMIT_REACHED);
+      await expect(client.get('/v3/app-store/apps')).rejects.toThrow(
+        messages.APP_CREATE_LIMIT_REACHED,
+      );
     });
 
     it('should fall back to API message for unknown apiCode', async () => {
@@ -149,7 +151,7 @@ describe('api client', () => {
           ),
       });
 
-      await expect(client.get('/v3/oauth/apps')).rejects.toThrow('Something went wrong');
+      await expect(client.get('/v3/app-store/apps')).rejects.toThrow('Something went wrong');
     });
   });
 
@@ -162,7 +164,7 @@ describe('api client', () => {
         text: () => Promise.resolve(JSON.stringify({ app_id: 1 })),
       });
 
-      const result = await client.post<{ app_id: number }>('/v3/oauth/apps', { name: 'test' });
+      const result = await client.post<{ app_id: number }>('/v3/app-store/apps', { name: 'test' });
       expect(result.app_id).toBe(1);
       expect(mockFetch).toHaveBeenCalledWith(
         expect.any(String),
@@ -183,7 +185,7 @@ describe('api client', () => {
         text: () => Promise.resolve(JSON.stringify({ updated: true })),
       });
 
-      await client.patch('/v3/oauth/apps/1', { redirect_uris: ['http://localhost:3000'] });
+      await client.patch('/v3/app-store/apps/1', { redirect_uris: ['http://localhost:3000'] });
       expect(mockFetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ method: 'PATCH' }),
@@ -200,7 +202,7 @@ describe('api client', () => {
         text: () => Promise.resolve(JSON.stringify({})),
       });
 
-      await client.put('/v3/oauth/apps/1', { name: 'updated' });
+      await client.put('/v3/app-store/apps/1', { name: 'updated' });
       expect(mockFetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ method: 'PUT' }),
@@ -217,7 +219,7 @@ describe('api client', () => {
         text: () => Promise.resolve(''),
       });
 
-      await client.delete('/v3/oauth/apps/1');
+      await client.delete('/v3/app-store/apps/1');
       expect(mockFetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ method: 'DELETE' }),
