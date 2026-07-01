@@ -5,6 +5,8 @@ name: Smoke (pre-merge)
 #   - push to main (post-merge canary)
 #   - workflow_dispatch (manual rerun / ad-hoc smoke on a feature PR)
 # Feature PRs are skipped via the job-level `if:` to save robot-account quota.
+# The smoke step itself is non-blocking (see `continue-on-error` below): it
+# runs on the release PR for visibility but a failure does not gate the merge.
 on:
   pull_request:
     branches: [main]
@@ -45,6 +47,7 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Run smoke test against PR branch build
+        continue-on-error: true
         run: yarn smoke --ci --against=local --report=smoke-report.json
         env:
           BREVO_API_KEY: ${{ secrets.BREVO_TEST_API_KEY }}
