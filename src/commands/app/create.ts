@@ -229,7 +229,7 @@ interface CreatedApp {
 function buildCreatePayload(inputs: CreateAppInputs) {
   return {
     name: inputs.appName,
-    public: inputs.distribution === 'public',
+    distribution_type: inputs.distribution as 'public' | 'private',
     redirect_uris: inputs.redirectUrls,
     scopes: [...DEFAULT_SCOPES],
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),

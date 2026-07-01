@@ -18,7 +18,7 @@ export const listCommand = withCommandHandler(
       spinner.stop();
     }
 
-    // The /v3/oauth/apps list endpoint lags behind /v3/app-store updates,
+    // The app-store list endpoint can lag behind writes (eventual consistency),
     // so a name set via `brevo app update` may not appear here for a while.
     // Merge locally cached names to mask the propagation delay. Once the server
     // catches up (cache equals server), drop the entry so any subsequent

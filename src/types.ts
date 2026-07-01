@@ -12,7 +12,7 @@ export interface OAuthApp {
   name: string;
   client_id: string;
   client_secret?: string;
-  public?: boolean;
+  distribution_type?: 'public' | 'private';
   redirect_uris: string[];
   scopes?: string[];
   logo_uri?: string;
@@ -25,7 +25,7 @@ export interface CreateAppResponse {
   name: string;
   client_id: string;
   client_secret: string;
-  public?: boolean;
+  distribution_type?: 'public' | 'private';
   redirect_uris: string[];
   logo_uri?: string;
   created_at: string;

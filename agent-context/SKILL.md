@@ -84,6 +84,10 @@ The legacy catch-all `'all'` OAuth scope is deprecated. The CLI **blocks** `brev
 
 `0` success · `1` general error · `2` aborted · `3` auth failure · `4` network · `5` not found.
 
+## Forced update
+
+When the installed CLI is a full **major** version behind the latest npm release, every command except `--help` / `--version` prints a blocking update banner to stderr and exits `1` **without running** — so a `brevo` call that suddenly exits `1` with an update banner means the CLI must be upgraded (`npm install -g @getbrevo/cli` or `yarn global add @getbrevo/cli`) before it will work. The gate honors the same opt-outs as the soft update notice (`BREVO_NO_UPDATE_NOTIFIER=1`, `--no-update-notifier`, CI, non-TTY), so it never fires in those contexts.
+
 ## Before sharing or committing output
 
 * [ ] No `xkeysib-…` API keys, client secrets, refresh tokens, or contents of `~/.brevo/credentials.json` / `.env.local` in messages, logs, or diffs.

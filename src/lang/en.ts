@@ -6,6 +6,13 @@ export const messages = {
     `Update available: ${current} → ${latest}`,
   UPDATE_RUN: (name: string): string => `Run: npm install -g ${name}`,
   UPDATE_RUN_YARN: (name: string): string => `Or:  yarn global add ${name}`,
+  // Homebrew formula is `brevo` (tap getbrevo/tap), not the npm package name.
+  UPDATE_RUN_BREW: 'Or:  brew upgrade brevo',
+
+  // Force update (major-version behind — blocks the command)
+  FORCE_UPDATE_REQUIRED: (current: string, latest: string): string =>
+    `Update required: v${current} is no longer supported (latest v${latest}).`,
+  FORCE_UPDATE_HINT: 'Update to continue using the Brevo CLI:',
 
   // Auth
   AUTH_WELCOME: 'Welcome to Brevo CLI',
