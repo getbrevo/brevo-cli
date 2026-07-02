@@ -4,6 +4,11 @@ Command-line tool to create, manage, and test [Brevo](https://www.brevo.com/) OA
 
 > 📖 Full command and option documentation: **[Brevo CLI reference](https://developers.brevo.com/docs/cli-reference)**
 
+> [!WARNING]
+> **Upgrade to v2.0.0.** All versions from **1.1.1** up to (but not including) **2.0.0** should be migrated to **2.0.0**. The `2.0.0` release introduces **breaking changes**, so some CLI commands may not work as expected on older versions.
+>
+> Upgrade with `npm install -g @getbrevo/cli@latest` (or `yarn global add @getbrevo/cli@latest`, or `brew upgrade brevo`), then confirm with `brevo --version`.
+
 ## Requirements
 
 - **Node.js** 20.15.0 or newer (required to run the CLI)
