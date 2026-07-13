@@ -30,7 +30,7 @@ describe('API_BASE', () => {
 
 describe('ENDPOINTS', () => {
   it('should define static endpoints', () => {
-    expect(ENDPOINTS.ACCOUNT).toBe('/v3/account');
+    expect(ENDPOINTS.ACCOUNT).toBe('/v3/account/info');
     expect(ENDPOINTS.APP_STORE_APPS).toBe('/v3/app-store/apps');
     expect(ENDPOINTS.OAUTH_AUTHORIZE).toBe('/oauth/authorize');
     expect(ENDPOINTS.OAUTH_TOKEN).toBe('/oauth/token');
