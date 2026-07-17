@@ -21,7 +21,12 @@ import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
 import { client } from '../container';
 import { registerAll } from '../lib/command-registry';
-import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
+import {
+  topLevelCommands,
+  appCommandGroup,
+  skillCommandGroup,
+  dpCommandGroup,
+} from '../commands/definitions';
 import {
   startUpdateCheck,
   notifyUpdate,
@@ -87,6 +92,16 @@ program
         `  brevo app available-scopes [--web] [--json]    List OAuth scopes supported by the IdP`,
         `                                                 (--web opens the catalog in a local browser page)`,
         ``,
+        `DP Functions commands:`,
+        `  brevo dp generate  <prompt> [options]           Generate an enrichment function using AI`,
+        `  brevo dp list      [--json]                     List stored functions`,
+        `  brevo dp get       <id> [--output] [--json]     Get function details`,
+        `  brevo dp delete    <id> [--force] [--json]      Delete a function`,
+        `  brevo dp publish   --file <path> [options]      Validate, test, and save a function`,
+        `  brevo dp run       --file|--id [options]        Execute a function`,
+        `  brevo dp validate  <file> [--json]              Validate ES5 syntax`,
+        `  brevo dp tools     [--json]                     List MCP tools`,
+        ``,
         `Run \`brevo <command> --help\` for details on a specific command.`,
         ``,
         `Examples:`,
@@ -122,7 +137,7 @@ installAuthGuard(program);
 
 // ──────────────── Register all commands ────────────────
 
-registerAll(program, topLevelCommands, [appCommandGroup, skillCommandGroup]);
+registerAll(program, topLevelCommands, [appCommandGroup, skillCommandGroup, dpCommandGroup]);
 
 // ──────────────── Re-auth handler ────────────────
 

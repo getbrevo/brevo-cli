@@ -1,7 +1,9 @@
 import { ApiClient } from './api/client';
+import { DpFunctionsClient } from './api/dp-functions-client';
 import { createAccountService, AccountService } from './services/account';
 import { createAppService, AppService } from './services/app';
-import { API_BASE } from './lib/constants';
+import { createDpFunctionsService, DpFunctionsService } from './services/dp-functions';
+import { API_BASE, DP_FUNCTIONS_API_BASE } from './lib/constants';
 import { getAuthCred } from './lib/config';
 
 /**
@@ -24,3 +26,15 @@ export const client = new ApiClient({ baseUrl: API_BASE, getAuthHeader: buildAut
 
 export const accountService: AccountService = createAccountService(client);
 export const appService: AppService = createAppService(client);
+
+// DP Functions — can be behind the main Brevo API gateway (production) or its
+// own host (local dev). Reuses the same auth credentials (api-key or OAuth Bearer).
+function buildDpAuthHeader(): Record<string, string> | undefined {
+  if (process.env.DP_FUNCTIONS_API_KEY) {
+    return { 'api-key': process.env.DP_FUNCTIONS_API_KEY };
+  }
+  return buildAuthHeader();
+}
+
+export const dpFunctionsClient = new DpFunctionsClient(DP_FUNCTIONS_API_BASE, buildDpAuthHeader);
+export const dpFunctionsService: DpFunctionsService = createDpFunctionsService(dpFunctionsClient);

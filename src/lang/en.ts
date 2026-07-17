@@ -245,6 +245,37 @@ export const messages = {
   OAUTH_METADATA_FETCH_FAILED: (url: string, status: number): string =>
     `Failed to fetch OAuth scopes from ${url} (HTTP ${status}).`,
 
+  // DP Functions
+  DP_GENERATE_PROMPT_REQUIRED: 'Prompt is required. Usage: brevo dp generate "your prompt"',
+  DP_GENERATING: 'Generating function...',
+  DP_GENERATE_SUCCESS: (path: string) => `Code saved to ${path}`,
+  DP_GENERATE_INVALID: 'Generated code has validation errors:',
+  DP_FILE_NOT_FOUND: (path: string) => `File not found: ${path}`,
+  DP_INVALID_JSON: (detail: string) => `Invalid JSON: ${detail}`,
+  DP_VALIDATE_PASSED: 'Validation passed.',
+  DP_VALIDATE_FAILED: 'Validation failed:',
+  DP_EXECUTE_FAILED: (detail: string) => `Execution failed: ${detail}`,
+  DP_PUBLISH_VALIDATE: 'Validating code...',
+  DP_PUBLISH_TEST: 'Testing execution...',
+  DP_PUBLISH_SAVE: 'Saving function...',
+  DP_PUBLISH_SUCCESS: (id: string) => `Function published (ID: ${id})`,
+  DP_PUBLISH_UPDATED: (id: string) => `Function updated (ID: ${id})`,
+  DP_PUBLISH_NAME_PROMPT: 'Function name:',
+  DP_FETCHING_TEST_DATA: 'Fetching test data...',
+  DP_LIST_EMPTY: 'No functions found.',
+  DP_DELETE_CONFIRM: (id: string) => `Delete function ${id}? This cannot be undone.`,
+  DP_DELETED: (id: string) => `Function ${id} deleted.`,
+  DP_DELETE_CANCELLED: 'Delete cancelled.',
+  DP_RUN_MUTUALLY_EXCLUSIVE: 'Provide either --file or --id, not both.',
+  DP_RUN_MISSING_SOURCE: 'Provide --file or --id to specify which function to run.',
+  DP_RUN_MISSING_DATA: 'Provide contact data via --data or --data-file.',
+  DP_CONNECTING_WS: 'Connecting to generation service...',
+  DP_ITERATION_PROMPT: 'Refine, save, or quit? (r/s/q)',
+  DP_PUBLISH_FILE_REQUIRED: '--file is required.',
+  DP_PUBLISH_CATEGORY_PROMPT: 'Category:',
+  DP_PUBLISH_ATTRIBUTE_PROMPT: 'Attribute ID (contact attribute key):',
+  DP_PUBLISH_DESCRIPTION_PROMPT: 'Description:',
+
   // General
   ABORTED: 'Aborted.',
 } as const;

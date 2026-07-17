@@ -140,3 +140,33 @@ export const BREVO_DOCS_URL = 'https://developers.brevo.com';
 export const BREVO_CLI_REFERENCE_URL = 'https://developers.brevo.com/docs/cli-reference';
 export const BREVO_OAUTH_SCOPES_DOCS_URL =
   'https://developers.brevo.com/docs/oauth-scopes#scope-catalog';
+
+// DP Functions API — can live behind the main Brevo API gateway (production:
+// https://api.brevo.com/v3/dp-functions) or its own host (local:
+// http://localhost:8080/api). The full URL including path prefix is preserved
+// so endpoints are appended as relative suffixes.
+function resolveDpFunctionsApiBase(): string {
+  const raw = process.env.DP_FUNCTIONS_API_URL || 'http://localhost:8080/api';
+  try {
+    new URL(raw);
+  } catch {
+    throw new CliError(`Invalid DP_FUNCTIONS_API_URL: "${raw}" is not a valid URL.`);
+  }
+  // Strip trailing slash so endpoint concatenation works consistently.
+  return raw.replace(/\/+$/, '');
+}
+
+export const DP_FUNCTIONS_API_BASE = resolveDpFunctionsApiBase();
+
+export const DP_FUNCTIONS_ENDPOINTS = {
+  FUNCTIONS: '/functions',
+  FUNCTION: (id: string) => `/functions/${encodeURIComponent(id)}`,
+  EXECUTE_FUNCTION: (id: string) => `/functions/${encodeURIComponent(id)}/execute`,
+  VALIDATE: '/validate',
+  EXECUTE_CODE: '/execute',
+  MCP_TOOLS: '/mcp-tools',
+  TEST_DATA: '/test-data',
+  GENERATE: '/generate',
+  GENERATE_TICKET: '/generate/ticket',
+  GENERATE_WS: '/generate/ws',
+} as const;

@@ -21,6 +21,14 @@ import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
+import { dpGenerateCommand } from './dp-functions/generate';
+import { dpListCommand } from './dp-functions/list';
+import { dpGetCommand } from './dp-functions/get';
+import { dpDeleteCommand } from './dp-functions/delete';
+import { dpPublishCommand } from './dp-functions/publish';
+import { dpRunCommand } from './dp-functions/run';
+import { dpValidateCommand } from './dp-functions/validate';
+import { dpToolsCommand } from './dp-functions/tools';
 
 export const topLevelCommands: CommandDefinition[] = [
   {
@@ -273,6 +281,165 @@ export const skillCommandGroup: SubcommandGroupDefinition = {
       examples: ['brevo skill:cli uninstall', 'brevo skill:cli uninstall --json'],
       options: [{ flags: '--json', description: 'Output as JSON' }],
       handler: (opts) => skillUninstallCommand({ json: Boolean(opts.json) }),
+    },
+  ],
+};
+
+export const dpCommandGroup: SubcommandGroupDefinition = {
+  name: 'dp',
+  description: 'Manage AI-generated enrichment functions (dp-functions)',
+  commands: [
+    {
+      name: 'generate',
+      description: 'Generate an enrichment function using AI (WebSocket, interactive)',
+      arguments: [{ name: '<prompt>', description: 'Description of what the function should do' }],
+      options: [
+        { flags: '--context-file <path>', description: 'Path to JSON context file' },
+        { flags: '--output <path>', description: 'Save generated code to file' },
+        { flags: '--session-id <id>', description: 'Resume an existing generation session' },
+        { flags: '--previous-code <path>', description: 'Path to previous code to improve' },
+        { flags: '--no-questions', description: 'Skip clarifying Q&A (CI mode)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      examples: [
+        'brevo dp generate "score contacts by email engagement"',
+        'brevo dp generate "normalize phone numbers" --context-file ctx.json',
+        'brevo dp generate "improve scoring" --previous-code score.js --session-id abc-123',
+      ],
+      handler: (opts, prompt) =>
+        dpGenerateCommand({
+          prompt: prompt as string,
+          contextFile: opts.contextFile as string | undefined,
+          output: opts.output as string | undefined,
+          sessionId: opts.sessionId as string | undefined,
+          previousCode: opts.previousCode as string | undefined,
+          noQuestions: Boolean(opts.noQuestions),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'list',
+      description: 'List all stored enrichment functions',
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      examples: ['brevo dp list', 'brevo dp list --json'],
+      handler: (opts) => dpListCommand({ json: Boolean(opts.json) }),
+    },
+    {
+      name: 'get',
+      description: 'Get details of a stored function',
+      arguments: [{ name: '<id>', description: 'Function ID' }],
+      options: [
+        { flags: '--output <path>', description: 'Save code to file' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      examples: ['brevo dp get abc123', 'brevo dp get abc123 --output fn.js'],
+      handler: (opts, id) =>
+        dpGetCommand({
+          id: id as string,
+          output: opts.output as string | undefined,
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'delete',
+      description: 'Delete a stored function',
+      arguments: [{ name: '<id>', description: 'Function ID' }],
+      options: [
+        { flags: '--force', description: 'Skip confirmation' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      examples: ['brevo dp delete abc123', 'brevo dp delete abc123 --force'],
+      handler: (opts, id) =>
+        dpDeleteCommand({
+          id: id as string,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'publish',
+      description: 'Validate, test, and save an enrichment function',
+      options: [
+        { flags: '--file <path>', description: 'Path to JavaScript function file (required)' },
+        { flags: '--name <name>', description: 'Function name' },
+        { flags: '--description <desc>', description: 'Function description' },
+        {
+          flags: '--category <cat>',
+          description: 'Category: contact, ecommerce, engagement, or revenue',
+        },
+        {
+          flags: '--attribute-id <id>',
+          description: 'Contact attribute key to write the result to',
+        },
+        {
+          flags: '--scope <scope>',
+          description: 'Scope: contact, objects, or order (repeatable)',
+          parser: collectScopes,
+        },
+        { flags: '--data <json>', description: 'Inline JSON test data' },
+        { flags: '--data-file <path>', description: 'Path to JSON test data file' },
+        { flags: '--id <id>', description: 'Update existing function by ID' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      examples: [
+        'brevo dp publish --file fn.js --name "Lead Scorer" --category contact --attribute-id lead_score',
+        'brevo dp publish --file fn.js --name "Scorer" --data \'{"email":"test@example.com"}\'',
+      ],
+      handler: (opts) =>
+        dpPublishCommand({
+          file: opts.file as string | undefined,
+          name: opts.name as string | undefined,
+          description: opts.description as string | undefined,
+          category: opts.category as string | undefined,
+          attributeId: opts.attributeId as string | undefined,
+          scope: opts.scope as string[] | undefined,
+          data: opts.data as string | undefined,
+          dataFile: opts.dataFile as string | undefined,
+          id: opts.id as string | undefined,
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'run',
+      description: 'Execute an enrichment function with contact data',
+      options: [
+        { flags: '--file <path>', description: 'Path to code file (ad-hoc execution)' },
+        { flags: '--id <id>', description: 'Stored function ID' },
+        { flags: '--data <json>', description: 'Inline JSON contact data' },
+        { flags: '--data-file <path>', description: 'Path to JSON data file' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      examples: [
+        'brevo dp run --file fn.js --data \'{"email":"test@example.com"}\'',
+        'brevo dp run --id abc123 --data-file contact.json',
+      ],
+      handler: (opts) =>
+        dpRunCommand({
+          file: opts.file as string | undefined,
+          id: opts.id as string | undefined,
+          data: opts.data as string | undefined,
+          dataFile: opts.dataFile as string | undefined,
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'validate',
+      description: 'Validate ES5 syntax of a function file',
+      arguments: [{ name: '<file>', description: 'Path to JavaScript file' }],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      examples: ['brevo dp validate fn.js'],
+      handler: (opts, file) =>
+        dpValidateCommand({
+          file: file as string,
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'tools',
+      description: 'List available MCP tools',
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      examples: ['brevo dp tools', 'brevo dp tools --json'],
+      handler: (opts) => dpToolsCommand({ json: Boolean(opts.json) }),
     },
   ],
 };
