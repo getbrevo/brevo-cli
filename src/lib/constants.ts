@@ -82,7 +82,7 @@ export const CLI_AUTH_METHODS = {
 } as const;
 
 export const ENDPOINTS = {
-  ACCOUNT: '/v3/account',
+  ACCOUNT: '/v3/account/info',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
   OAUTH_AUTHORIZE: '/oauth/authorize',

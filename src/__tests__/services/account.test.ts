@@ -34,7 +34,7 @@ describe('services/account', () => {
 
       const result = await service.validateApiKey('my-api-key');
 
-      expect(mockClient.getWithKey).toHaveBeenCalledWith('/v3/account', 'my-api-key');
+      expect(mockClient.getWithKey).toHaveBeenCalledWith('/v3/account/info', 'my-api-key');
       expect(result).toEqual(account);
     });
 
@@ -51,7 +51,7 @@ describe('services/account', () => {
 
       const result = await service.getAccount();
 
-      expect(mockClient.get).toHaveBeenCalledWith('/v3/account');
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/account/info');
       expect(result).toEqual(account);
     });
   });
