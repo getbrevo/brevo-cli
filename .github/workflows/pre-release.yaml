@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -72,7 +72,7 @@ jobs:
 
       - name: Create prerelease PR
         # changesets/action@v1.7.0
-        uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d
         with:
           title: "chore(release): version packages (alpha)"
           version: yarn version:packages
@@ -83,7 +83,7 @@ jobs:
         id: changesets
         if: steps.check_files.outputs.files_exists == 'true' && contains(github.event.head_commit.message, 'Version Packages')
         # changesets/action@v1.7.0
-        uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d
         with:
           version: echo "This step should never version"
           publish: yarn publish:packages
