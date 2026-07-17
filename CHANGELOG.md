@@ -1,5 +1,11 @@
 # @getbrevo/cli
 
+## 2.0.1
+
+### Patch Changes
+
+- 9df6fcd: Update account endpoint from `/v3/account` to `/v3/account/info`.
+
 ## 2.0.0
 
 ### Major Changes
