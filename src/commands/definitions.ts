@@ -1,11 +1,5 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import {
-  parseAppId,
-  parsePositiveInt,
-  collectUrls,
-  collectScopes,
-  validateUrl,
-} from '../lib/validators';
+import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -14,7 +8,7 @@ import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
-import { updateCommand } from './app/update';
+import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
@@ -133,55 +127,15 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         }),
     },
     {
-      name: 'update',
-      description: 'Update an app name, redirect URLs, scopes, or logo URL',
-      examples: [
-        'brevo app update',
-        'brevo app update --name "My New Name"',
-        'brevo app update --redirect-uri https://myapp.com/callback',
-        'brevo app update --name "My App" --redirect-uri https://myapp.com/callback',
-        'brevo app update --app-id 42 --name "My App"',
-        'brevo app update --app-id 42 --redirect-uri https://myapp.com/callback --json',
-        'brevo app update --logo-uri https://example.com/logo.png',
-        'brevo app update --scope crm:write',
-        'brevo app update --scope contacts:read --scope crm:write',
-      ],
+      name: 'upload',
+      description: 'Push app-config.json to Brevo, validated and synced with the server',
+      examples: ['brevo app upload', 'brevo app upload --yes', 'brevo app upload --json'],
       options: [
-        {
-          flags: '--app-id <id>',
-          description: 'App ID (uses app-config.json if omitted)',
-          parser: (v) => parseAppId(v),
-        },
-        { flags: '--name <name>', description: 'New app name' },
-        {
-          flags: '--redirect-uri <url>',
-          description: 'Redirect URI to append (repeatable)',
-          parser: collectUrls,
-        },
-        {
-          flags: '--scope <scope>',
-          description:
-            'OAuth scope to append (repeatable; comma- or whitespace-separated values are split)',
-          parser: collectScopes,
-        },
-        {
-          flags: '--logo-uri <url>',
-          description: 'App logo URL (http or https)',
-          parser: (v: string) => {
-            validateUrl(v, 'logo URL');
-            return v;
-          },
-        },
         { flags: '--yes', description: 'Skip confirmation prompt' },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
-        updateCommand({
-          appId: opts.appId,
-          name: opts.name,
-          redirectUri: opts.redirectUri,
-          logoUri: opts.logoUri,
-          scope: opts.scope,
+        uploadCommand({
           yes: Boolean(opts.yes),
           json: Boolean(opts.json),
         }),

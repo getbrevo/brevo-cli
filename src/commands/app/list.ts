@@ -19,7 +19,7 @@ export const listCommand = withCommandHandler(
     }
 
     // The app-store list endpoint can lag behind writes (eventual consistency),
-    // so a name set via `brevo app update` may not appear here for a while.
+    // so a name set via `brevo app upload` may not appear here for a while.
     // Merge locally cached names to mask the propagation delay. Once the server
     // catches up (cache equals server), drop the entry so any subsequent
     // out-of-band rename (e.g. dashboard) is visible on the next list.

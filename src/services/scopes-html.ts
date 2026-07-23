@@ -287,8 +287,7 @@ const SCRIPT = `
   var labels = JSON.parse(document.getElementById('labels').textContent);
 
   // Selected scope names, in click order. Rendered as '"a","b"' — pastes
-  // straight into app-config.json's auth.scopes array, and shells strip the
-  // quotes so "brevo app update --scope" accepts the same paste.
+  // straight into app-config.json's auth.scopes array.
   var selected = [];
 
   function quoted(names) {

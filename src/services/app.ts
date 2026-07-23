@@ -7,7 +7,7 @@ import { EXIT_CODES } from '../lib/exit-codes';
 import { logInfo } from '../lib/logger';
 import { createSpinner } from '../lib/ui';
 import { messages } from '../lang/en';
-import { OAuthApp, CreateAppResponse } from '../types';
+import { OAuthApp, CreateAppResponse, UploadAppPayload, UploadAppResponse } from '../types';
 import { getAppCredentials, saveAppCredentials } from '../lib/config';
 import { normalizeAppId } from './normalize-app-id';
 
@@ -146,6 +146,13 @@ export function createAppService(client: ApiClient) {
     ): Promise<void> {
       await client.patch(ENDPOINTS.APP_STORE_APP(appId), {
         ...body,
+        cli_version: CLI_VERSION,
+      });
+    },
+
+    async uploadApp(appId: string, payload: UploadAppPayload): Promise<UploadAppResponse> {
+      return client.post<UploadAppResponse>(ENDPOINTS.APP_STORE_APP_UPLOAD(appId), {
+        ...payload,
         cli_version: CLI_VERSION,
       });
     },
