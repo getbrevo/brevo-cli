@@ -22,14 +22,22 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
-### Legacy config write-back migration + `auth.type` narrowing (`BEX-255_change`)
+### `distribution_type` moved to a top-level field (`BEX-255_change`)
 _Added: 2026-07-23_
 
+Supersedes the "Legacy config write-back migration + `auth.type` narrowing" entry below —
+`auth.type` itself was relocated the same day per the Notion product-solutioning doc decision.
+
 **`readProjectConfig()` / write-back (`config.ts`)**
-- [ ] Legacy top-level `distribution` key is absent from the object `readProjectConfig()` returns — (Automated: `config.test.ts`)
-- [ ] Reading a legacy config then writing it back (`writeProjectConfig`) drops the top-level `distribution` key from disk and persists `auth.type` — (Automated: `config.test.ts`)
-- [ ] `ProjectConfig.auth.type` is typed `'private' | 'public'`, not `string` — (Manual: `tsc`/`yarn build`)
-- [ ] Existing legacy-backfill behavior (backfill on read, `auth.type` wins when both present) still holds — (Automated: `config.test.ts`)
+- [ ] Top-level `distribution_type` config backfills correctly when it's the only shape present — (Automated: `config.test.ts`)
+- [ ] Interim `auth.type` (never released) backfills into `distribution_type` when present — (Automated: `config.test.ts`)
+- [ ] Oldest legacy top-level `distribution` (every currently-published scaffold) backfills into `distribution_type` when present — (Automated: `config.test.ts`)
+- [ ] Precedence holds when multiple shapes coexist: `distribution_type` > `auth.type` > legacy `distribution` — (Automated: `config.test.ts`)
+- [ ] Defaults to `'private'` when no shape is present — (Automated: `config.test.ts`)
+- [ ] None of the three legacy shapes (`distribution`, `auth.type`) appear in the object `readProjectConfig()` returns — (Automated: `config.test.ts`)
+- [ ] Reading any legacy shape then writing it back (`writeProjectConfig`) converges the on-disk file to top-level `distribution_type` only, with `auth` reduced to `{ scopes, redirectUrls }` — (Automated: `config.test.ts`)
+- [ ] `ProjectConfig.distribution_type` is typed `'private' | 'public'`, not `string`; `auth` no longer has a `type` field — (Manual: `tsc`/`yarn build`)
+- [ ] Scaffold template (`app-config.json.tmpl`) writes `distribution_type` as a top-level key, not nested in `auth` — (Manual)
 
 ### OAuth callback URL hint wording (`enable-public-app`)
 _Added: 2026-07-23_
@@ -51,16 +59,13 @@ _Added: 2026-07-23_
 - [ ] Interactive prompt: **Public** is selectable (no `disabled: 'coming soon'`) and works — (Manual)
 - [ ] `APP_CREATE_PUBLIC_UNAVAILABLE` fully removed from `src/lang/en.ts`, no references remain — (grep)
 
-**`app-config.json` scaffold format**
-- [ ] Distribution type recorded under `auth.type` via `{{DISTRIBUTION}}` template var — (Automated: template tests)
+**`app-config.json` scaffold format** — *(updated: see "`distribution_type` moved to a top-level field" entry above — this now records under top-level `distribution_type`, not `auth.type`)*
+- [ ] Distribution type recorded as a top-level `distribution_type` key via `{{DISTRIBUTION}}` template var — (Automated: template tests)
 - [ ] `{{DISTRIBUTION}}` defaults to `'private'` when `appDetails.distribution_type` absent — (Automated: scaffold)
-- [ ] Redundant top-level `distribution` key no longer emitted — (Manual)
-- [ ] Public app → `auth.type: "public"`; private app → `auth.type: "private"` — (Manual)
+- [ ] Redundant top-level `distribution` key no longer emitted, `auth` has no `type` field — (Manual)
+- [ ] Public app → `distribution_type: "public"`; private app → `distribution_type: "private"` — (Manual)
 
-**`readProjectConfig()` legacy backfill (`config.ts`)**
-- [ ] Legacy top-level `distribution` key backfills `auth.type` when missing — (Automated: `config.test.ts`)
-- [ ] `auth.type` wins when both `auth.type` and legacy `distribution` present — (Automated: `config.test.ts`)
-- [ ] New-format config (no `distribution` key) reads `auth.type` directly — (Automated: `config.test.ts`)
+**`readProjectConfig()` legacy backfill (`config.ts`)** — *(superseded by the three-shape precedence in the entry above)*
 - [ ] Malformed config (bad JSON / non-object `auth` / empty `distribution`) does not throw — (Automated: `config.test.ts`)
 
 **`brevo app update` compatibility**

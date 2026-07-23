@@ -40,8 +40,8 @@ import { readProjectConfig, writeProjectConfig } from '../../../lib/config';
 const VALID_CONFIG = {
   appId: '42',
   appName: 'My Test App',
+  distribution_type: 'private',
   auth: {
-    type: 'private',
     scopes: ['global'],
     redirectUrls: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
   },
@@ -132,7 +132,8 @@ describe('app/update', () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       appId: '42',
       appName: 'Test',
-      auth: { type: 'private', scopes: [], redirectUrls: [] },
+      distribution_type: 'private',
+      auth: { scopes: [], redirectUrls: [] },
     });
 
     await expect(updateCommand({})).rejects.toThrow('no redirect URLs');
@@ -766,8 +767,8 @@ describe('app/update', () => {
       const config = {
         appId: '42',
         appName: 'My App',
+        distribution_type: 'private',
         auth: {
-          type: 'private',
           scopes: ['contacts:read'],
           redirectUrls: ['https://x/cb'],
         },
@@ -863,8 +864,8 @@ describe('app/update', () => {
       const config = {
         appId: '42',
         appName: 'Old',
+        distribution_type: 'private',
         auth: {
-          type: 'private',
           scopes: ['contacts:read', 'crm:read'],
           redirectUrls: ['https://x/cb'],
         },
@@ -883,8 +884,8 @@ describe('app/update', () => {
       const config = {
         appId: '42',
         appName: 'My App',
+        distribution_type: 'private',
         auth: {
-          type: 'private',
           scopes: ['contacts:read', 'crm:write'],
           redirectUrls: ['https://x/cb'],
         },
@@ -912,8 +913,8 @@ describe('app/update', () => {
       const config = {
         appId: '42',
         appName: 'My App',
+        distribution_type: 'private',
         auth: {
-          type: 'private',
           scopes: ['contacts:read', 'crm;read'],
           redirectUrls: ['https://x/cb'],
         },
@@ -1020,8 +1021,8 @@ describe('app/update', () => {
       const config = {
         appId: '42',
         appName: 'My App',
+        distribution_type: 'private',
         auth: {
-          type: 'private',
           scopes: ['contacts:read'],
           redirectUrls: ['https://x/cb'],
         },
