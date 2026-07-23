@@ -416,4 +416,59 @@ describe('app/scaffold', () => {
       expect(vars['{{APP_VERSION}}']).toBe(expected);
     },
   );
+
+  describe('runScaffold (core, no prompting/output)', () => {
+    it('writes files and returns metadata without prompting or printing', async () => {
+      const { runScaffold, computeSlug } = require('../../../commands/app/scaffold');
+      const ctx = {
+        appDetails: {
+          app_id: '1',
+          name: 'Test App',
+          client_id: 'cli-123',
+          client_secret: 'secret-456',
+          redirect_uris: ['http://localhost:3009/auth/callback'],
+          scopes: ['contacts:read'],
+        },
+        clientId: 'cli-123',
+        clientSecret: 'secret-456',
+        redirectUrls: ['http://localhost:3009/auth/callback'],
+        redirectUri: 'http://localhost:3009/auth/callback',
+      };
+
+      const result = runScaffold('1', ctx, tmpPath('run-scaffold-core'), false);
+
+      expect(result.written).toBeGreaterThan(0);
+      expect(result.legacyAllSubstituted).toBe(false);
+      expect(result.scopes).toEqual(['contacts:read']);
+      expect(result.files.length).toBeGreaterThan(0);
+      expect(fs.writeFileSync).toHaveBeenCalled();
+      // No prompt, no stdout — this is a pure computation + write step.
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(stdoutSpy).not.toHaveBeenCalled();
+      expect(computeSlug('Test App')).toBe('test-app');
+    });
+
+    it("substitutes the legacy 'all' scope and reports it via legacyAllSubstituted", () => {
+      const { runScaffold } = require('../../../commands/app/scaffold');
+      const ctx = {
+        appDetails: {
+          app_id: '1',
+          name: 'Legacy App',
+          client_id: 'cli-123',
+          client_secret: 'secret',
+          redirect_uris: [] as string[],
+          scopes: ['all'],
+        },
+        clientId: 'cli-123',
+        clientSecret: 'secret',
+        redirectUrls: [] as string[],
+        redirectUri: '',
+      };
+
+      const result = runScaffold('1', ctx, tmpPath('run-scaffold-legacy'), false);
+
+      expect(result.legacyAllSubstituted).toBe(true);
+      expect(result.scopes).not.toContain('all');
+    });
+  });
 });

@@ -59,7 +59,6 @@ export const messages = {
   APP_CREATE_NAME_PROMPT: 'App name:',
   APP_CREATE_TYPE_PROMPT: 'Distribution type?',
   APP_CREATE_SUCCESS: 'App created.',
-  APP_CREATE_SCAFFOLD_PROMPT: 'Generate starter code now?',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   APP_CREATE_REDIRECT_PROMPT:
     'OAuth callback URL — where users are sent after authorizing your app:',
@@ -81,6 +80,8 @@ export const messages = {
   APP_CREATE_BOX_TITLE: 'App created',
   APP_CREATE_BOX_SCOPES_LABEL: 'Default scopes:',
   APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
+  APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS: (dir: string, appId: string) =>
+    `Skipped scaffold: directory already exists (${dir}). Run \`${CLI.APP_SCAFFOLD(appId)}\` to choose a different path.`,
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,

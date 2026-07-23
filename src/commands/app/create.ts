@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
 import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
@@ -9,7 +11,7 @@ import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName } from '../../lib/validators';
 import { printBox, createSpinner } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
-import { scaffoldCommand } from './scaffold';
+import { scaffoldCommand, computeSlug, fetchAppContext, runScaffold } from './scaffold';
 import { appService } from '../../container';
 import { CreateAppResponse } from '../../types';
 
@@ -294,27 +296,31 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
   printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 }
 
-// Smart hand-off → scaffold
-async function offerScaffoldHandoff(result: CreateAppResponse, appName: string): Promise<void> {
-  const { shouldScaffold } = await inquirer.prompt([
-    {
-      type: 'confirm',
-      name: 'shouldScaffold',
-      message: messages.APP_CREATE_SCAFFOLD_PROMPT,
-      default: true,
-    },
-  ]);
+// Scaffolding is the default outcome of a create — no opt-in prompt.
+async function scaffoldAfterCreate(result: CreateAppResponse, appName: string): Promise<void> {
+  logInfo(`  ↳ Scaffolding "${appName}"...\n`);
+  await scaffoldCommand({ appId: result.app_id });
+}
 
-  if (shouldScaffold) {
-    logInfo(`  ↳ Scaffolding "${appName}"...\n`);
-    await scaffoldCommand({ appId: result.app_id });
-  } else {
-    printBox("What's next?", [
-      CLI.APP_SCAFFOLD(result.app_id),
-      CLI.APP_CREDENTIALS(result.app_id),
-      CLI.APP_LIST,
-    ]);
+// --json has no interactive directory prompt, so scaffolding here has to be
+// fully non-interactive: pick the same default directory `app scaffold` would
+// offer, and skip (not overwrite) if something's already there.
+async function scaffoldForJsonCreate(
+  appId: string,
+  appName: string,
+): Promise<
+  { directory: string; scaffolded: number } | { directory: string; scaffoldSkipped: string }
+> {
+  const targetDir = path.resolve(`./${computeSlug(appName)}`);
+  if (fs.existsSync(targetDir)) {
+    return {
+      directory: targetDir,
+      scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(targetDir, appId),
+    };
   }
+  const ctx = await fetchAppContext(appId, true);
+  const { written } = runScaffold(appId, ctx, targetDir, false);
+  return { directory: targetDir, scaffolded: written };
 }
 
 export const createCommand = withCommandHandler(
@@ -348,6 +354,7 @@ export const createCommand = withCommandHandler(
     if (appName) saveAppName(result.app_id, appName);
 
     if (jsonMode) {
+      const scaffold = await scaffoldForJsonCreate(result.app_id, appName);
       jsonOutput({
         appId: result.app_id,
         appName,
@@ -356,11 +363,12 @@ export const createCommand = withCommandHandler(
         redirectUri: result.redirect_uris,
         ...(inputs.logoUri ? { logoUri: inputs.logoUri } : {}),
         ...(result.version ? { version: result.version } : {}),
+        ...scaffold,
       });
       return;
     }
 
     renderCreatedApp(result, appName, inputs.logoUri);
-    await offerScaffoldHandoff(result, appName);
+    await scaffoldAfterCreate(result, appName);
   },
 );

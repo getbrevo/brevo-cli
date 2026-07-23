@@ -22,6 +22,46 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### `brevo app create` scaffolds by default (`add-app-version-config`, BEX-255 Part B)
+_Added: 2026-07-23_
+
+Directory creation is no longer opt-in. The "Generate starter code now?" confirmation is
+gone; `brevo app create` always scaffolds afterward, in both interactive and `--json` mode.
+
+**`scaffold.ts` refactor**
+- [ ] `computeSlug(name)` extracted as a pure, exported helper — same slugification as
+  before — (Automated: `scaffold.test.ts`)
+- [ ] `runScaffold(appId, ctx, targetDir, mergeOnly)` extracted as a side-effect-free-ish
+  core (no prompting, no logging/`jsonOutput`) — writes files, returns
+  `{ written, targetDir, legacyAllSubstituted, scopes, files }` — (Automated: `scaffold.test.ts`)
+- [ ] `fetchAppContext` exported (previously module-private) — (Manual: `tsc`/`yarn build`)
+- [ ] `brevo app scaffold` invoked directly is behaviorally unchanged: same single
+  `resolveAppCredentials` fetch, same prompts, same output — (Automated: `scaffold.test.ts`)
+
+**`brevo app create` (interactive)**
+- [ ] No "Generate starter code now?" prompt appears — `scaffoldCommand` is always called
+  with the new app's ID — (Automated: `create.test.ts`)
+- [ ] `messages.APP_CREATE_SCAFFOLD_PROMPT` removed from `src/lang/en.ts`, no references
+  remain — (grep)
+- [ ] The old "What's next?" fallback box (shown only when scaffold was declined) is
+  removed along with the decline path — (Manual)
+
+**`brevo app create --json`**
+- [ ] Scaffolds into the same default directory `app scaffold` would offer
+  (`./<slugified-app-name>`), computed from the app's name with **no extra API fetch**
+  for the slug itself — (Automated: `create.test.ts`)
+- [ ] On success, response includes `directory` (absolute path) and `scaffolded` (file
+  count) alongside the existing app fields, still as a single JSON blob (no double
+  output) — (Automated: `create.test.ts`)
+- [ ] When the target directory already exists, scaffolding is skipped (never
+  overwritten) and the response carries `scaffoldSkipped` (message) + `directory`
+  instead of `scaffolded` — the rest of the app-creation output is unaffected —
+  (Automated: `create.test.ts`)
+
+**Docs in sync**
+- [ ] `AGENTS.md` + `SKILL.md` describe automatic scaffolding (no confirm) and the
+  `directory`/`scaffolded`/`scaffoldSkipped` `--json` fields — (Manual)
+
 ### App `version` tracked in config (`add-app-version-config`)
 _Added: 2026-07-23_
 

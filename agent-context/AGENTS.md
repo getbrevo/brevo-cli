@@ -64,7 +64,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 | `brevo whoami` | Show the authenticated account (`--json`) |
 | `brevo app init` | Guided setup (login, create, scaffold) |
 | `brevo app list` | List OAuth apps (`--json`) |
-| `brevo app create` | Create an app (`--name`, `--distribution <private\|public>`, `--redirect-uri`, `--logo-uri`, `--json`). `private` = used exclusively by your organisation; `public` = distributed to end users or marketplace listings — default to `private` when unspecified. Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
+| `brevo app create` | Create an app (`--name`, `--distribution <private\|public>`, `--redirect-uri`, `--logo-uri`, `--json`). `private` = used exclusively by your organisation; `public` = distributed to end users or marketplace listings — default to `private` when unspecified. Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. Always scaffolds starter OAuth code afterward — no confirmation prompt. |
 | `brevo app update` | Update name / redirect URLs / scopes / logo (`--app-id`, `--name`, `--redirect-uri`, `--scope` repeatable appends, `--logo-uri`, `--yes`, `--json`) |
 | `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`, `--json`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`, `--json`) |
@@ -79,6 +79,7 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 ## Conventions
 
 - **Every command supports `--json`** — prefer this when parsing output programmatically.
+- **`brevo app create` always scaffolds afterward** — no "generate starter code now?" confirmation, in interactive mode or `--json`. Interactive mode still prompts for the target directory (default `./<slugified-app-name>`) and how to handle an existing one (overwrite / merge / choose a different path). Under `--json` there's no such prompt: the same default directory is used; if it already exists, the scaffold step is skipped rather than overwritten. The JSON response always includes `directory` (absolute path) alongside the app fields, plus either `scaffolded` (file count, on success) or `scaffoldSkipped` (a message, when the directory already existed).
 - **`app-config.json`** in the working directory pins the linked app — `brevo app update` and `brevo app start` read from it. The optional top-level `logoUri` string is pushed as `logo_uri` by a flagless `brevo app update`; leave it empty to keep the API value untouched. The top-level `version` string is server-assigned (set at `brevo app create`, shown by `brevo app create`/`brevo app list`/`brevo app update`) — the CLI never sends it and there is no flag to change it; `brevo app update` backfills it into `app-config.json` for projects scaffolded before this field existed.
 - **Credentials** live at `~/.brevo/credentials.json`. Never commit this file or any `.env.local`.
 - **Non-interactive auth:** `BREVO_API_KEY=xkeysib-... brevo login`. The legacy `--api-key` flag was removed because it leaks into shell history.

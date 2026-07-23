@@ -60,7 +60,7 @@ function formatFileTree(filePaths: string[]): string {
   return lines.join('\n');
 }
 
-interface AppContext {
+export interface AppContext {
   appDetails: Awaited<ReturnType<typeof appService.resolveAppCredentials>> extends infer R
     ? R extends { app: infer A }
       ? A
@@ -72,7 +72,16 @@ interface AppContext {
   redirectUri: string;
 }
 
-async function fetchAppContext(appId: string, silent?: boolean): Promise<AppContext> {
+export function computeSlug(name: string | undefined): string {
+  return (
+    (name || 'my-app')
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'my-app'
+  );
+}
+
+export async function fetchAppContext(appId: string, silent?: boolean): Promise<AppContext> {
   const spinner = createSpinner('Fetching app details...', { silent });
   const result = await appService.resolveAppCredentials(appId);
   spinner.stop();
@@ -153,6 +162,63 @@ function writeScaffoldFiles(
   return written;
 }
 
+export interface ScaffoldRunResult {
+  written: number;
+  targetDir: string;
+  legacyAllSubstituted: boolean;
+  scopes: string[];
+  files: Array<{ name: string; content: string }>;
+}
+
+// Pure(ish) core: given an already-fetched app context and a resolved target
+// directory, build template vars and write files. No prompting, no
+// logging/jsonOutput — callers own how the result is reported.
+export function runScaffold(
+  appId: string,
+  ctx: AppContext,
+  targetDir: string,
+  mergeOnly: boolean,
+): ScaffoldRunResult {
+  const rawAppName = ctx.appDetails?.name || path.basename(targetDir);
+  const appName = rawAppName.replaceAll(/["\\\n\r\t]/g, '').trim() || 'my-app';
+  // Never propagate the deprecated legacy 'all' scope into a fresh
+  // app-config.json — keep the app's granular scopes, fall back to
+  // DEFAULT_SCOPES when 'all' was the only scope, and tell the user (BEX-214).
+  const remoteScopes = ctx.appDetails?.scopes;
+  const legacyAllSubstituted = containsLegacyAllScope(remoteScopes);
+  const granularScopes = (remoteScopes ?? []).filter((s) => s !== LEGACY_ALL_SCOPE);
+  const scopes = granularScopes.length > 0 ? granularScopes : [...DEFAULT_SCOPES];
+
+  const pkg = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'),
+  );
+  const cliVersion: string = pkg.version;
+  const slug = computeSlug(ctx.appDetails?.name);
+
+  const vars = {
+    '{{APP_NAME}}': appName,
+    '{{APP_SLUG}}': slug,
+    '{{APP_ID}}': String(appId),
+    '{{CLIENT_ID}}': ctx.clientId,
+    '{{CLIENT_SECRET}}': ctx.clientSecret,
+    '{{REDIRECT_URI}}': ctx.redirectUri,
+    '{{REDIRECT_URLS_JSON}}': JSON.stringify(ctx.redirectUrls),
+    '{{SCOPES_JSON}}': JSON.stringify(scopes),
+    '{{DISTRIBUTION}}': ctx.appDetails?.distribution_type ?? 'private',
+    '{{LOGO_URI}}': ctx.appDetails?.logo_uri ?? '',
+    '{{APP_VERSION}}': ctx.appDetails?.version ?? '',
+    '{{OAUTH_BASE}}': OAUTH_BASE,
+    '{{OAUTH_REALM}}': OAUTH_REALM,
+    '{{CLI_VERSION}}': cliVersion,
+  };
+
+  fs.mkdirSync(path.join(targetDir, 'src', 'oauth'), { recursive: true });
+  const files = loadAllTemplates(vars);
+  const written = writeScaffoldFiles(files, targetDir, mergeOnly);
+
+  return { written, targetDir, legacyAllSubstituted, scopes, files };
+}
+
 export const scaffoldCommand = withCommandHandler(
   async (options: { appId?: string; json?: boolean }): Promise<void> => {
     // Refuse to scaffold inside an existing project — app-config.json in cwd
@@ -165,52 +231,19 @@ export const scaffoldCommand = withCommandHandler(
     const appId = options.appId ?? (await appService.pickApp('Select an app:'));
     const ctx = await fetchAppContext(appId, options.json);
 
-    const slug =
-      (ctx.appDetails?.name || 'my-app')
-        .toLowerCase()
-        .replaceAll(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '') || 'my-app';
+    const slug = computeSlug(ctx.appDetails?.name);
 
     const { targetDir, mergeOnly, chooseAgain } = await resolveTargetDir(`./${slug}`);
     if (chooseAgain) {
       return scaffoldCommand({ ...options, appId });
     }
 
-    const rawAppName = ctx.appDetails?.name || path.basename(targetDir);
-    const appName = rawAppName.replaceAll(/["\\\n\r\t]/g, '').trim() || 'my-app';
-    // Never propagate the deprecated legacy 'all' scope into a fresh
-    // app-config.json — keep the app's granular scopes, fall back to
-    // DEFAULT_SCOPES when 'all' was the only scope, and tell the user (BEX-214).
-    const remoteScopes = ctx.appDetails?.scopes;
-    const legacyAllSubstituted = containsLegacyAllScope(remoteScopes);
-    const granularScopes = (remoteScopes ?? []).filter((s) => s !== LEGACY_ALL_SCOPE);
-    const scopes = granularScopes.length > 0 ? granularScopes : [...DEFAULT_SCOPES];
-
-    const pkg = JSON.parse(
-      fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'),
+    const { written, legacyAllSubstituted, scopes, files } = runScaffold(
+      appId,
+      ctx,
+      targetDir,
+      mergeOnly,
     );
-    const cliVersion: string = pkg.version;
-
-    const vars = {
-      '{{APP_NAME}}': appName,
-      '{{APP_SLUG}}': slug,
-      '{{APP_ID}}': String(appId),
-      '{{CLIENT_ID}}': ctx.clientId,
-      '{{CLIENT_SECRET}}': ctx.clientSecret,
-      '{{REDIRECT_URI}}': ctx.redirectUri,
-      '{{REDIRECT_URLS_JSON}}': JSON.stringify(ctx.redirectUrls),
-      '{{SCOPES_JSON}}': JSON.stringify(scopes),
-      '{{DISTRIBUTION}}': ctx.appDetails?.distribution_type ?? 'private',
-      '{{LOGO_URI}}': ctx.appDetails?.logo_uri ?? '',
-      '{{APP_VERSION}}': ctx.appDetails?.version ?? '',
-      '{{OAUTH_BASE}}': OAUTH_BASE,
-      '{{OAUTH_REALM}}': OAUTH_REALM,
-      '{{CLI_VERSION}}': cliVersion,
-    };
-
-    fs.mkdirSync(path.join(targetDir, 'src', 'oauth'), { recursive: true });
-    const files = loadAllTemplates(vars);
-    const written = writeScaffoldFiles(files, targetDir, mergeOnly);
 
     if (options.json) {
       jsonOutput({ scaffolded: written, directory: targetDir });
