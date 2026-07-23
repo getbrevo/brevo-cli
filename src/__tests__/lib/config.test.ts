@@ -424,6 +424,46 @@ describe('config', () => {
       });
     });
 
+    describe('version field', () => {
+      const originalCwd = process.cwd();
+      let projectDir: string;
+
+      beforeEach(() => {
+        projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-project-'));
+        process.chdir(projectDir);
+      });
+
+      afterEach(() => {
+        process.chdir(originalCwd);
+        if (fs.existsSync(projectDir)) {
+          fs.rmSync(projectDir, { recursive: true, force: true });
+        }
+      });
+
+      function writeConfig(config: object): void {
+        fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+      }
+
+      it('round-trips the version field when present', () => {
+        writeConfig({
+          appId: '42',
+          version: '0.0.1',
+          auth: { scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.version).toBe('0.0.1');
+      });
+
+      it('leaves version undefined for a legacy config that predates the field', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.version).toBeUndefined();
+      });
+    });
+
     describe('distribution_type backward compatibility', () => {
       // distribution_type has moved twice: originally a top-level `distribution`
       // key (still the shape of every currently-published scaffold), briefly

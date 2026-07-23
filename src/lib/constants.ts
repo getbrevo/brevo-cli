@@ -95,8 +95,7 @@ export const CLI = {
   HELP: 'brevo --help',
   APP_CREATE: 'brevo app create',
   APP_LIST: 'brevo app list',
-  APP_SCAFFOLD: (appId?: string) =>
-    appId ? `brevo app scaffold --app-id ${appId}` : 'brevo app scaffold --app-id <id>',
+  APP_SCAFFOLD: 'brevo app scaffold',
   APP_CREDENTIALS: (appId?: string) =>
     appId ? `brevo app credentials --app-id ${appId}` : 'brevo app credentials --app-id <id>',
   APP_CREDENTIALS_REVEAL: (appId?: string) =>

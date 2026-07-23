@@ -34,22 +34,9 @@ export interface TemplateFile {
   templatePath: string;
 }
 
-export const TEMPLATE_MANIFEST: TemplateFile[] = [
-  { outputPath: 'src/oauth/server.js', templatePath: 'src/oauth/server.js.tmpl' },
-  { outputPath: 'src/oauth/handler.js', templatePath: 'src/oauth/handler.js.tmpl' },
-  {
-    outputPath: 'src/oauth/token-store.js',
-    templatePath: 'src/oauth/token-store.js.tmpl',
-  },
-  {
-    outputPath: 'src/oauth/.env.example',
-    templatePath: 'src/oauth/.env.example.tmpl',
-  },
-  { outputPath: 'src/oauth/.env.local', templatePath: 'src/oauth/.env.local.tmpl' },
-  {
-    outputPath: 'src/oauth/package.json',
-    templatePath: 'src/oauth/package.json.tmpl',
-  },
+// The basic project structure written by `brevo app create` — the linked-app
+// config plus project meta/docs. No feature-specific code lives here.
+export const BASE_TEMPLATE_MANIFEST: TemplateFile[] = [
   { outputPath: 'app-config.json', templatePath: 'app-config.json.tmpl' },
   { outputPath: '.gitignore', templatePath: 'gitignore.tmpl' },
   { outputPath: 'AGENTS.md', templatePath: 'AGENTS.md.tmpl' },
@@ -57,17 +44,61 @@ export const TEMPLATE_MANIFEST: TemplateFile[] = [
   { outputPath: 'README.md', templatePath: 'README.md.tmpl' },
 ];
 
-/**
- * Load all templates from disk, apply variable substitution, and return
- * an array of { name, content } ready to write.
- */
-export function loadAllTemplates(
+// Feature code written by `brevo app scaffold` (or `create`'s optional
+// follow-up), keyed by feature type. 'oauth' is the only feature today —
+// the "Test OAuth App" local callback server.
+export const FEATURE_TEMPLATE_MANIFESTS: Record<'oauth', TemplateFile[]> = {
+  oauth: [
+    { outputPath: 'src/oauth/server.js', templatePath: 'src/oauth/server.js.tmpl' },
+    { outputPath: 'src/oauth/handler.js', templatePath: 'src/oauth/handler.js.tmpl' },
+    {
+      outputPath: 'src/oauth/token-store.js',
+      templatePath: 'src/oauth/token-store.js.tmpl',
+    },
+    {
+      outputPath: 'src/oauth/.env.example',
+      templatePath: 'src/oauth/.env.example.tmpl',
+    },
+    { outputPath: 'src/oauth/.env.local', templatePath: 'src/oauth/.env.local.tmpl' },
+    {
+      outputPath: 'src/oauth/package.json',
+      templatePath: 'src/oauth/package.json.tmpl',
+    },
+  ],
+};
+
+export type FeatureType = keyof typeof FEATURE_TEMPLATE_MANIFESTS;
+
+function loadManifest(
+  manifest: TemplateFile[],
   vars: Record<string, string>,
 ): Array<{ name: string; content: string }> {
-  return TEMPLATE_MANIFEST.map((entry) => ({
+  return manifest.map((entry) => ({
     name: entry.outputPath,
     content: applyVars(loadTemplate(entry.templatePath), vars),
   }));
+}
+
+/**
+ * Load the base project templates (app-config.json + project meta files),
+ * apply variable substitution, and return an array of { name, content }
+ * ready to write.
+ */
+export function loadBaseTemplates(
+  vars: Record<string, string>,
+): Array<{ name: string; content: string }> {
+  return loadManifest(BASE_TEMPLATE_MANIFEST, vars);
+}
+
+/**
+ * Load a single feature's templates, apply variable substitution, and return
+ * an array of { name, content } ready to write.
+ */
+export function loadFeatureTemplates(
+  featureType: FeatureType,
+  vars: Record<string, string>,
+): Array<{ name: string; content: string }> {
+  return loadManifest(FEATURE_TEMPLATE_MANIFESTS[featureType], vars);
 }
 
 // ── Named exports (loaded at import time from .tmpl files) ──

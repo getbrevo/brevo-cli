@@ -40,10 +40,10 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 - "Authenticate" → `brevo login` (or `BREVO_API_KEY=xkeysib-... brevo login` for CI)
 - "Who am I logged in as?" → `brevo whoami --json`
 - "Show / pick an app" → `brevo app list --json`
-- "Create an app" → `brevo app create --name "<name>" --distribution <private|public> --redirect-uri <url> --json` (add `--logo-uri <https://…>` to set the app logo at creation time; new apps default to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`). Use `private` for apps used exclusively by the user's own organisation, `public` for apps distributed to end users or marketplace listings; default to `private` when the user hasn't said which.
+- "Create an app" → `brevo app create --name "<name>" --distribution <private|public> --redirect-uri <url> --json` (add `--logo-uri <https://…>` to set the app logo at creation time; new apps default to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`). Use `private` for apps used exclusively by the user's own organisation, `public` for apps distributed to end users or marketplace listings; default to `private` when the user hasn't said which. **Fails immediately if run from a directory that already has `app-config.json`** — `cd` elsewhere first, or use `brevo app scaffold` in that directory instead. Otherwise resolves (creates/`cd`s into) its target directory, creates the app, and writes the **basic project structure** (`app-config.json` + `.gitignore`/`AGENTS.md`/`CLAUDE.md`/`README.md`). It scaffolds a feature (the OAuth test server) **only** when the interactive prompt is answered yes; **non-interactive runs (`--json` or piped) stay base-only** — run `brevo app scaffold` afterward to add the OAuth code. Under `--json`, the response's `directory` field is where it landed and `scaffolded` is the base file count; check for `scaffoldSkipped` instead of `scaffolded` if that directory already existed (both directory setup and scaffolding are skipped together in that case, but the app is still created).
 - "Update app metadata" → `brevo app update --app-id <id> --name "<name>"` and/or `--redirect-uri <url>` (repeatable) and/or `--scope <scope>` (repeatable, appends) and/or `--logo-uri <https://…>`
 - "Get client credentials" → `brevo app credentials --app-id <id> --json` (add `--reveal-secret` to print the secret)
-- "Generate starter OAuth code" → `brevo app scaffold --app-id <id>`
+- "Add a feature (e.g. the OAuth test server) to an existing project" → `brevo app scaffold` (run **inside** the project directory; it reads the linked app from `app-config.json` — no `--app-id`). Not needed right after `app create` if you already accepted the feature prompt there.
 - "Run the OAuth test server" → `brevo app start oauth --port 3009` (must be inside the scaffolded directory)
 - "Delete an app" → `brevo app delete --app-id <id> --force`
 - "List supported OAuth scopes" → `brevo app available-scopes --json`
@@ -54,7 +54,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 1. **Always pass `--json`** when you intend to parse output. Every command supports it.
 2. **Never print, log, or commit** API keys (`xkeysib-…`), client secrets, refresh tokens, or contents of `~/.brevo/credentials.json` / `.env.local`. Redact before sharing diagnostics.
 3. **Don't use `--api-key`** — the flag was removed. Use the `BREVO_API_KEY` env var.
-4. **Don't run `brevo app scaffold` inside an existing scaffolded project** — it refuses if `app-config.json` exists in cwd. Use `brevo app update` to push config changes.
+4. **`brevo app create` refuses to run inside an already-linked directory** (`app-config.json` present) — `cd` elsewhere or use `brevo app scaffold` there instead. **`brevo app scaffold` requires an `app-config.json` in the current directory** (it adds a feature to an already-created project); with none present it errors, telling you to run `brevo app create` first or `cd` into an existing project. It reads the linked app from that config, diffs the config against the server, and if fields drifted it tells you and (on consent) rewrites `app-config.json` to match before writing the feature files (feature files are merged in — existing files are never clobbered). **Under `--json` it never prompts**: a config diff comes back as `{ "cancelled": true, "reason": "...", "diffs": [...] }`; with no diff it scaffolds the feature and returns `{ "scaffolded": <n>, "directory": "..." }`.
 5. **Prefer flag-driven over interactive** in agent contexts: `--name`, `--app-id`, `--force`, `--yes` so the command doesn't block on prompts.
 
 ## Locating the linked app
@@ -62,6 +62,8 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 If `app-config.json` exists in the working directory, it pins the app — `brevo app update` and `brevo app start` use it automatically. To target a different app, pass `--app-id`.
 
 `app-config.json` carries an optional top-level `logoUri` string. When set, a flagless `brevo app update` pushes it as `logo_uri` in the PUT body; when empty / absent, the field is left untouched on the API.
+
+`app-config.json` also carries a top-level `version` string — server-assigned at `brevo app create` and shown by `brevo app create`/`brevo app list`/`brevo app update`. It's read-only: the CLI never sends it and there's no flag to change it. `brevo app update` backfills it into `app-config.json` for projects scaffolded before this field existed.
 
 ## Scopes
 
@@ -78,7 +80,7 @@ The legacy catch-all `'all'` OAuth scope is deprecated. The CLI **blocks** `brev
 2. **Prompt the user to pick granular scopes** — use `brevo app available-scopes --json` for the catalog, or fall back to the four defaults (`contacts:read`, `contacts:write`, `crm:read`, `crm:write`).
 3. **Migrate** with `brevo app update --scope <scope> --scope <scope> ...` — passing `--scope` drops `'all'` from the outgoing scope set and applies the new granular scopes (the summary shows a "Migrating from legacy 'all' scope" line and `all (removed)`).
 
-`brevo app scaffold` against an app whose remote scopes contain `'all'` never propagates it: the new `app-config.json` keeps the app's remaining granular scopes (or the four default scopes when `'all'` was the only scope), with a one-line substitution notice (suppressed under `--json`). Note the substitution is local-only — the remote app still needs the `--scope` migration above.
+Writing `app-config.json` for an app whose remote scopes contain `'all'` never propagates it: the file keeps the app's remaining granular scopes (or the four default scopes when `'all'` was the only scope), with a one-line substitution notice (suppressed under `--json`). This applies when `brevo app create` writes the base config, and when `brevo app scaffold` rewrites it after a detected server drift. Note the substitution is local-only — the remote app still needs the `--scope` migration above.
 
 ## Exit codes
 

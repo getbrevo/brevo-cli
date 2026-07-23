@@ -60,9 +60,8 @@ describe('CLI', () => {
     expect(CLI.APP_DELETE).toBe('brevo app delete');
   });
 
-  it('should define dynamic APP_SCAFFOLD', () => {
-    expect(CLI.APP_SCAFFOLD('5')).toBe('brevo app scaffold --app-id 5');
-    expect(CLI.APP_SCAFFOLD()).toBe('brevo app scaffold --app-id <id>');
+  it('should define APP_SCAFFOLD', () => {
+    expect(CLI.APP_SCAFFOLD).toBe('brevo app scaffold');
   });
 
   it('should define dynamic APP_CREDENTIALS', () => {

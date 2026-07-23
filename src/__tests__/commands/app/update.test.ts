@@ -40,6 +40,7 @@ import { readProjectConfig, writeProjectConfig } from '../../../lib/config';
 const VALID_CONFIG = {
   appId: '42',
   appName: 'My Test App',
+  version: '1.0.0',
   distribution_type: 'private',
   auth: {
     scopes: ['global'],
@@ -115,6 +116,7 @@ describe('app/update', () => {
       name: 'My Test App',
       redirect_uris: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
       scopes: ['global'],
+      version: '1.0.0',
     });
   });
 
@@ -405,6 +407,7 @@ describe('app/update', () => {
       name: 'New Name',
       redirect_uris: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
       scopes: ['global'],
+      version: '1.0.0',
     });
   });
 
@@ -739,6 +742,145 @@ describe('app/update', () => {
     expect(body).not.toHaveProperty('logo_uri');
   });
 
+  describe('version', () => {
+    it('resolves version from config without an extra fetch when already present (with flags)', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(VALID_CONFIG);
+      (appService.updateApp as jest.Mock).mockResolvedValue(undefined);
+
+      await updateCommand({ name: 'New Name', yes: true });
+
+      expect(appService.fetchApp).not.toHaveBeenCalled();
+      expect(writeProjectConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ version: '1.0.0' }),
+      );
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('Version:       1.0.0');
+    });
+
+    it('backfills version from the API when a legacy config lacks it (with flags)', async () => {
+      const legacyConfig = {
+        appId: '42',
+        appName: 'My Test App',
+        distribution_type: 'private',
+        auth: {
+          scopes: ['global'],
+          redirectUrls: ['http://localhost:3000/callback'],
+        },
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue(legacyConfig);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'My Test App',
+        redirect_uris: ['http://localhost:3000/callback'],
+        version: '0.0.1',
+      });
+      (appService.updateApp as jest.Mock).mockResolvedValue(undefined);
+
+      await updateCommand({ name: 'New Name', yes: true });
+
+      expect(appService.fetchApp).toHaveBeenCalledWith('42');
+      expect(writeProjectConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ version: '0.0.1' }),
+      );
+    });
+
+    it('backfills version into app-config.json on a flagless push (non-JSON, reusing the diff fetch)', async () => {
+      const legacyConfig = {
+        appId: '42',
+        appName: 'My Test App',
+        distribution_type: 'private',
+        auth: {
+          scopes: ['global'],
+          redirectUrls: ['http://localhost:3000/callback'],
+        },
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue(legacyConfig);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'My Test App',
+        redirect_uris: ['http://localhost:3000/callback'],
+        version: '0.0.1',
+      });
+      (appService.updateApp as jest.Mock).mockResolvedValue(undefined);
+
+      await updateCommand({ yes: true });
+
+      // Only the diff-summary fetch — no dedicated second fetch for version.
+      expect(appService.fetchApp).toHaveBeenCalledTimes(1);
+      expect(writeProjectConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ version: '0.0.1' }),
+      );
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('Version:       0.0.1');
+      expect(output).toContain('app-config.json updated.');
+    });
+
+    it('backfills version into app-config.json on a flagless push under --json (dedicated fetch)', async () => {
+      const legacyConfig = {
+        appId: '42',
+        appName: 'My Test App',
+        distribution_type: 'private',
+        auth: {
+          scopes: ['global'],
+          redirectUrls: ['http://localhost:3000/callback'],
+        },
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue(legacyConfig);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'My Test App',
+        redirect_uris: ['http://localhost:3000/callback'],
+        version: '0.0.1',
+      });
+      (appService.updateApp as jest.Mock).mockResolvedValue(undefined);
+
+      await updateCommand({ yes: true, json: true });
+
+      expect(appService.fetchApp).toHaveBeenCalledWith('42');
+      expect(writeProjectConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ version: '0.0.1' }),
+      );
+      const output = stdoutSpy.mock.calls[0][0];
+      expect(JSON.parse(output).version).toBe('0.0.1');
+    });
+
+    it('does not fail the push when the version backfill fetch errors (flagless, --json)', async () => {
+      const legacyConfig = {
+        appId: '42',
+        appName: 'My Test App',
+        distribution_type: 'private',
+        auth: {
+          scopes: ['global'],
+          redirectUrls: ['http://localhost:3000/callback'],
+        },
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue(legacyConfig);
+      (appService.fetchApp as jest.Mock).mockRejectedValue(new Error('network down'));
+      (appService.updateApp as jest.Mock).mockResolvedValue(undefined);
+
+      await expect(updateCommand({ yes: true, json: true })).resolves.toBeUndefined();
+
+      expect(writeProjectConfig).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls[0][0];
+      expect(JSON.parse(output).version).toBeUndefined();
+    });
+
+    it('does not write app-config.json again on a flagless push when version already matches config', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(VALID_CONFIG);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'My Test App',
+        redirect_uris: VALID_CONFIG.auth.redirectUrls,
+        version: '1.0.0',
+      });
+      (appService.updateApp as jest.Mock).mockResolvedValue(undefined);
+
+      await updateCommand({ yes: true });
+
+      expect(writeProjectConfig).not.toHaveBeenCalled();
+    });
+  });
+
   describe('--scope flag', () => {
     it("appends new scopes to the app's existing scopes, de-duped, preserving order", async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(null);
@@ -767,6 +909,7 @@ describe('app/update', () => {
       const config = {
         appId: '42',
         appName: 'My App',
+        version: '1.0.0',
         distribution_type: 'private',
         auth: {
           scopes: ['contacts:read'],
@@ -864,6 +1007,7 @@ describe('app/update', () => {
       const config = {
         appId: '42',
         appName: 'Old',
+        version: '1.0.0',
         distribution_type: 'private',
         auth: {
           scopes: ['contacts:read', 'crm:read'],

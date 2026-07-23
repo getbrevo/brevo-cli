@@ -59,7 +59,6 @@ export const messages = {
   APP_CREATE_NAME_PROMPT: 'App name:',
   APP_CREATE_TYPE_PROMPT: 'Distribution type?',
   APP_CREATE_SUCCESS: 'App created.',
-  APP_CREATE_SCAFFOLD_PROMPT: 'Generate starter code now?',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   APP_CREATE_REDIRECT_PROMPT:
     'OAuth callback URL — where users are sent after authorizing your app:',
@@ -81,6 +80,19 @@ export const messages = {
   APP_CREATE_BOX_TITLE: 'App created',
   APP_CREATE_BOX_SCOPES_LABEL: 'Default scopes:',
   APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
+  APP_CREATE_SCAFFOLD_FEATURE_PROMPT: 'Do you want to scaffold a feature?',
+  APP_CREATE_BASE_SUCCESS: (count: number) => `Project structure created (${count} files)`,
+  APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] => [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    `${cdDir ? 2 : 1}. ${CLI.APP_SCAFFOLD}   (add a feature — e.g. the OAuth test server)`,
+  ],
+  APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS: (dir: string) =>
+    `Skipped scaffold: directory already exists (${dir}). cd into it and run \`${CLI.APP_SCAFFOLD}\` to add a feature.`,
+  APP_CREATE_DIR_EXISTS_SKIPPED: (dir: string) =>
+    `Skipped scaffolding: directory already exists (${dir}). cd into it and run \`${CLI.APP_SCAFFOLD}\` to add a feature.`,
+  APP_CREATE_ALREADY_LINKED: (name: string) =>
+    `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD}\` here to add a feature to this project.`,
+  APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -135,14 +147,30 @@ export const messages = {
   // App scaffold
   APP_SCAFFOLD_DIR_PROMPT: 'Output directory:',
   APP_SCAFFOLD_DIR_EXISTS: 'Directory already exists. What would you like to do?',
-  APP_SCAFFOLD_ALREADY_IN_PROJECT: `Project already scaffolded in this directory (app-config.json found). Run from a different directory, or use \`${CLI.APP_UPDATE}\` to push config changes.`,
-  APP_SCAFFOLD_SUCCESS: (count: number) => `Test app scaffolded (${count} files)`,
+  APP_SCAFFOLD_FEATURE_TYPE_PROMPT: 'What feature do you want to scaffold?',
+  APP_SCAFFOLD_NO_CONFIG: `No app-config.json found in this directory, so there is no app to scaffold a feature into. Run \`${CLI.APP_CREATE}\` to create an app here first, or cd into an existing project folder and try again.`,
+  APP_SCAFFOLD_DIFF_INTRO: (name: string) =>
+    `App "${name}" is linked here, but its local config differs from the server:`,
+  APP_SCAFFOLD_DIFF_LINE: (field: string, local: string, server: string) =>
+    `  ${field}: ${local} → ${server}`,
+  APP_SCAFFOLD_DIFF_CONFIRM:
+    'Scaffolding will update app-config.json to match the server. Continue?',
+  APP_SCAFFOLD_CANCELLED: 'Scaffold cancelled.',
+  APP_SCAFFOLD_JSON_DIFF_CANCELLED:
+    'app-config.json differs from the server and --json cannot prompt for confirmation. Re-run without --json to review and confirm the update.',
+  APP_SCAFFOLD_SUCCESS: (count: number) => `Feature scaffolded (${count} files)`,
+  APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
+  APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
   APP_SCAFFOLD_NEXT_STEPS_TITLE: 'Next steps',
-  APP_SCAFFOLD_NEXT_STEPS_LINES: (dir: string) => [
-    `1. cd ${dir}`,
-    `2. yarn --cwd src/oauth`,
+  // `cdDir` is the path (relative to the shell the user actually typed the
+  // command in) they need to `cd` into. It's undefined when scaffolding
+  // landed in that same directory, since process.chdir() inside the CLI
+  // only moves the CLI's own process, never the user's shell.
+  APP_SCAFFOLD_NEXT_STEPS_LINES: (cdDir?: string) => [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    `${cdDir ? 2 : 1}. yarn --cwd src/oauth`,
     `   (or: npm --prefix src/oauth install)`,
-    `3. ${CLI.APP_START('oauth')}`,
+    `${cdDir ? 3 : 2}. ${CLI.APP_START('oauth')}`,
   ],
   APP_SCAFFOLD_SCOPES_TIP: `Tip: list available scopes with \`${CLI.APP_SCOPES}\`. Update scopes via \`${CLI.APP_UPDATE_SCOPE} <name>\` (repeatable), or by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPDATE}\`.`,
 
