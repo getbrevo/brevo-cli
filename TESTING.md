@@ -122,8 +122,6 @@ the base files on consent before writing the feature files (merged in).
 
 Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
-Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
-
 ### Restore a real `cd` hint in scaffold's Next steps, corrected against the original cwd (`add-app-version-config`)
 _Added: 2026-07-23_
 
