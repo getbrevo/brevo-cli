@@ -64,7 +64,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 | `brevo whoami` | Show the authenticated account (`--json`) |
 | `brevo app init` | Guided setup (login, create, scaffold) |
 | `brevo app list` | List OAuth apps (`--json`) |
-| `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--logo-uri`, `--json`). Only `--distribution private` is available today — `public` is rejected with a "coming soon" error. Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
+| `brevo app create` | Create an app (`--name`, `--distribution <private\|public>`, `--redirect-uri`, `--logo-uri`, `--json`). `private` = used exclusively by your organisation; `public` = distributed to end users or marketplace listings — default to `private` when unspecified. Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
 | `brevo app update` | Update name / redirect URLs / scopes / logo (`--app-id`, `--name`, `--redirect-uri`, `--scope` repeatable appends, `--logo-uri`, `--yes`, `--json`) |
 | `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`, `--json`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`, `--json`) |

@@ -64,7 +64,7 @@ export const messages = {
   APP_CREATE_REDIRECT_PROMPT:
     'OAuth callback URL — where users are sent after authorizing your app:',
   APP_CREATE_REDIRECT_HINT: (cmd: string) =>
-    `Tip: The scaffolded example requires the default callback URL shown below — keep it to test with \`${cmd}\`.`,
+    `Tip: The default below is a local test-server callback URL, used when you run \`${cmd}\`. Keep it to test your app locally, then add your production callback URL when you go live.`,
   APP_CREATE_REDIRECT_ANOTHER: 'Add another redirect URL?',
   APP_CREATE_REDIRECT_EMPTY: 'Redirect URL cannot be empty',
   APP_CREATE_REDIRECT_INVALID: 'Invalid format. Must start with http:// or https://',
@@ -78,8 +78,6 @@ export const messages = {
     `Warning: Could not find a free port near ${port}. Defaulting to ${port} — it may conflict with a running process.`,
   APP_CREATE_LIMIT_REACHED:
     'You have reached the maximum number of OAuth apps allowed for your account. To make room, delete an existing app: brevo app delete',
-  APP_CREATE_PUBLIC_UNAVAILABLE:
-    'Public distribution is not yet available (coming soon). Use `--distribution private` for now.',
   APP_CREATE_BOX_TITLE: 'App created',
   APP_CREATE_BOX_SCOPES_LABEL: 'Default scopes:',
   APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
