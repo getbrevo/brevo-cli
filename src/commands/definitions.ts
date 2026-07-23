@@ -208,18 +208,10 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'scaffold',
-      description: 'Generate starter code for an app',
-      examples: ['brevo app scaffold', 'brevo app scaffold --app-id 42'],
-      options: [
-        {
-          flags: '--app-id <id>',
-          description: 'App ID',
-          parser: (v) => parseAppId(v),
-        },
-        { flags: '--json', description: 'Output as JSON' },
-      ],
-      handler: (opts) =>
-        scaffoldCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
+      description: 'Add a feature (e.g. the OAuth test server) to the app in this directory',
+      examples: ['brevo app scaffold', 'brevo app scaffold --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts) => scaffoldCommand({ json: Boolean(opts.json) }),
     },
     {
       name: 'available-scopes',

@@ -22,10 +22,13 @@ items to "Done" with the date.
 
 - [ ] **Extract the `chooseAgain` directory-retry loop into a shared helper.**
   The pattern `let dir = await resolveProjectDirectory(...); while (dir.chooseAgain)
-  { dir = await resolveProjectDirectory(...); }` is now duplicated 3 times across
-  `scaffold.ts` (twice) and `create.ts` (once). Worth extracting into a single
-  shared helper (e.g. `resolveDirectoryUntilChosen(slug)` in `scaffold.ts`) in a
-  follow-up. — (relates to `add-app-version-config`; see `TESTING.md`)
+  { dir = await resolveProjectDirectory(...); }` used to be duplicated 3 times. The
+  create/scaffold feature split removed the two copies in `scaffold.ts` (the
+  `resolveDirectoryOrCancel`/`resolveScaffoldTarget` helpers were deleted), leaving
+  a single copy in `create.ts`'s `resolveCreateDirectory`. Low priority now that
+  it's no longer duplicated, but still worth folding the loop into
+  `resolveProjectDirectory` itself if it ever grows a second caller again.
+  — (relates to `add-app-version-config`; see `TESTING.md`)
 
 - [ ] **Wrap directory-resolution filesystem calls in try/catch with a friendly
   `CliError`.** Neither `resolveProjectDirectory` (scaffold.ts) nor
