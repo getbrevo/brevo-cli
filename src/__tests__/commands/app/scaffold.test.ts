@@ -164,6 +164,30 @@ describe('app/scaffold', () => {
     expect(vars['{{CLIENT_ID}}']).toBe('api-client');
   });
 
+  it('does not print a redundant "cd" step in Next steps, since scaffolding already moved into the target directory', async () => {
+    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+      diffs: [],
+      app: {
+        app_id: '1',
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret',
+        redirect_uris: [],
+      },
+    });
+
+    mockPrompt
+      .mockResolvedValueOnce({ outputDir: tmpPath('test-next-steps') })
+      .mockResolvedValueOnce({ projectType: 'oauth' });
+
+    await scaffoldCommand({ appId: '1' });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).toContain('Next steps');
+    expect(output).not.toMatch(/cd /);
+    expect(output).toContain('yarn --cwd src/oauth');
+  });
+
   it('should pass cliVersion and DEFAULT_SCOPES into template vars', async () => {
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
       diffs: [],
@@ -670,6 +694,40 @@ describe('app/scaffold', () => {
 
       expect(chdirSpy).not.toHaveBeenCalled();
       expect(result.chooseAgain).toBe(true);
+    });
+
+    it('tells the user it is creating and moving into a fresh directory', async () => {
+      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('fresh-dir') });
+
+      await resolveProjectDirectory('./default-slug');
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('Creating');
+      expect(output).toContain('moving into it');
+    });
+
+    it('tells the user it is scaffolding into the current directory when it already exists as cwd', async () => {
+      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockPrompt
+        .mockResolvedValueOnce({ outputDir: process.cwd() })
+        .mockResolvedValueOnce({ action: 'overwrite' });
+
+      await resolveProjectDirectory('./default-slug');
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('current directory');
+    });
+
+    it('suppresses the directory notice in json mode', async () => {
+      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('fresh-dir-json') });
+
+      await resolveProjectDirectory('./default-slug', true);
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).not.toContain('Creating');
     });
   });
 

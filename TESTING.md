@@ -22,6 +22,33 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### Upfront directory notice + dead "cd" step removed from scaffold Next steps (`add-app-version-config`)
+_Added: 2026-07-23_
+
+`resolveProjectDirectory` and `resolveScaffoldTarget` already `process.chdir()` into the
+target directory as part of resolving it — before `reportScaffoldSuccess` ever renders the
+"Next steps" box. That made the box's `1. cd <dir>` step always print `cd .` (since cwd
+already *is* the target by then), which is both confusing and dead weight. Fixed by (a)
+telling the user upfront, before any files are written, where the project is landing
+("Scaffolding into the current directory." / "Creating ./my-app and moving into it..."),
+and (b) dropping the `cd` step from Next steps entirely, renumbering the remaining steps.
+
+- [x] `APP_SCAFFOLD_NEXT_STEPS_LINES()` takes no `dir` argument and no longer emits a `cd`
+  line — (Automated: `en.test.ts`)
+- [x] `resolveProjectDirectory` logs a notice before `mkdirSync`+`chdir` into a fresh
+  directory, and before `chdir` into an existing one (cwd-specific wording when the
+  resolved target *is* `process.cwd()`) — (Automated: `scaffold.test.ts`)
+- [x] The notice is suppressed under `--json` (new `jsonMode` param on
+  `resolveProjectDirectory`/`resolveScaffoldTarget`, threaded from `scaffoldCommand`'s
+  `options.json`) — no stray text before the JSON blob — (Automated: `scaffold.test.ts`)
+- [x] The two silent `targetDir: process.cwd()` shortcuts in `resolveScaffoldTarget`
+  (same-app-no-diff, and confirmed-diff-overwrite) also print the cwd notice, guarded by
+  the same `jsonMode` flag — (Automated: `scaffold.test.ts`)
+- [x] End-to-end `scaffoldCommand` run: printed "Next steps" box contains no `cd ` token —
+  (Automated: `scaffold.test.ts`)
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
 ### Decoupled create/scaffold directory flow (`add-app-version-config`, BEX-255 follow-up)
 _Added: 2026-07-23_
 

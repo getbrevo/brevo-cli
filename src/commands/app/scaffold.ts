@@ -110,6 +110,7 @@ export async function fetchAppContext(appId: string, silent?: boolean): Promise<
 
 export async function resolveProjectDirectory(
   defaultDir: string,
+  jsonMode = false,
 ): Promise<{ targetDir: string; mergeOnly: boolean; chooseAgain: boolean }> {
   const { outputDir } = await inquirer.prompt([
     {
@@ -122,6 +123,9 @@ export async function resolveProjectDirectory(
   const targetDir = path.resolve(outputDir);
 
   if (!fs.existsSync(targetDir)) {
+    if (!jsonMode) {
+      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
+    }
     fs.mkdirSync(targetDir, { recursive: true });
     process.chdir(targetDir);
     return { targetDir, mergeOnly: false, chooseAgain: false };
@@ -141,6 +145,13 @@ export async function resolveProjectDirectory(
   ]);
   if (action === 'new') {
     return { targetDir, mergeOnly: false, chooseAgain: true };
+  }
+  if (!jsonMode) {
+    if (targetDir === process.cwd()) {
+      logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
+    } else {
+      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
+    }
   }
   process.chdir(targetDir);
   return { targetDir, mergeOnly: action === 'merge', chooseAgain: false };
@@ -311,11 +322,7 @@ export function reportScaffoldSuccess(result: {
   }
   logInfo(formatFileTree(result.files.map((f) => f.name)));
 
-  const relativeDir = path.relative(process.cwd(), result.targetDir) || '.';
-  printBox(
-    messages.APP_SCAFFOLD_NEXT_STEPS_TITLE,
-    messages.APP_SCAFFOLD_NEXT_STEPS_LINES(relativeDir),
-  );
+  printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_SCAFFOLD_NEXT_STEPS_LINES());
   logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
 }
 
@@ -323,13 +330,14 @@ async function resolveScaffoldTarget(
   appId: string,
   slug: string,
   ctx: AppContext,
+  jsonMode = false,
 ): Promise<{ targetDir: string; mergeOnly: boolean } | null> {
   const cwdConfigPath = path.join(process.cwd(), 'app-config.json');
 
   if (!fs.existsSync(cwdConfigPath)) {
-    let dir = await resolveProjectDirectory(`./${slug}`);
+    let dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
     while (dir.chooseAgain) {
-      dir = await resolveProjectDirectory(`./${slug}`);
+      dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
     }
     return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly };
   }
@@ -338,6 +346,7 @@ async function resolveScaffoldTarget(
   if (localConfig?.appId === appId) {
     const diffs = diffLocalConfig(localConfig, ctx);
     if (diffs.length === 0) {
+      if (!jsonMode) logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
       return { targetDir: process.cwd(), mergeOnly: true };
     }
 
@@ -354,6 +363,7 @@ async function resolveScaffoldTarget(
       },
     ]);
     if (!confirmed) return null;
+    if (!jsonMode) logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
     return { targetDir: process.cwd(), mergeOnly: false };
   }
 
@@ -372,9 +382,9 @@ async function resolveScaffoldTarget(
   ]);
   if (choice === 'cancel') return null;
 
-  let dir = await resolveProjectDirectory(`./${slug}`);
+  let dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
   while (dir.chooseAgain) {
-    dir = await resolveProjectDirectory(`./${slug}`);
+    dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
   }
   return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly };
 }
@@ -385,7 +395,7 @@ export const scaffoldCommand = withCommandHandler(
     const ctx = await fetchAppContext(appId, options.json);
     const slug = computeSlug(ctx.appDetails?.name);
 
-    const target = await resolveScaffoldTarget(appId, slug, ctx);
+    const target = await resolveScaffoldTarget(appId, slug, ctx, options.json);
     if (!target) {
       if (options.json) {
         jsonOutput({ cancelled: true });

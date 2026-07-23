@@ -151,12 +151,13 @@ export const messages = {
     `This directory is linked to a different app ("${name}"). What would you like to do?`,
   APP_SCAFFOLD_CANCELLED: 'Scaffold cancelled.',
   APP_SCAFFOLD_SUCCESS: (count: number) => `Test app scaffolded (${count} files)`,
+  APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
+  APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
   APP_SCAFFOLD_NEXT_STEPS_TITLE: 'Next steps',
-  APP_SCAFFOLD_NEXT_STEPS_LINES: (dir: string) => [
-    `1. cd ${dir}`,
-    `2. yarn --cwd src/oauth`,
+  APP_SCAFFOLD_NEXT_STEPS_LINES: () => [
+    `1. yarn --cwd src/oauth`,
     `   (or: npm --prefix src/oauth install)`,
-    `3. ${CLI.APP_START('oauth')}`,
+    `2. ${CLI.APP_START('oauth')}`,
   ],
   APP_SCAFFOLD_SCOPES_TIP: `Tip: list available scopes with \`${CLI.APP_SCOPES}\`. Update scopes via \`${CLI.APP_UPDATE_SCOPE} <name>\` (repeatable), or by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPDATE}\`.`,
 
