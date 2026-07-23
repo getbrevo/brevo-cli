@@ -81,6 +81,7 @@ export const messages = {
   APP_CREATE_BOX_SCOPES_LABEL: 'Default scopes:',
   APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
   APP_CREATE_SCAFFOLD_FEATURE_PROMPT: 'Do you want to scaffold a feature?',
+  APP_CREATE_BASE_SUCCESS: (count: number) => `Project structure created (${count} files)`,
   APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] => [
     ...(cdDir ? [`1. cd ${cdDir}`] : []),
     `${cdDir ? 2 : 1}. ${CLI.APP_SCAFFOLD}   (add a feature — e.g. the OAuth test server)`,

@@ -63,6 +63,9 @@ the base files on consent before writing the feature files (merged in).
 - [x] Writes base files via `runBaseScaffold` always; interactive asks
   `APP_CREATE_SCAFFOLD_FEATURE_PROMPT` (default yes) then `promptFeatureType` and writes the
   feature — (Automated: `create.test.ts`)
+- [x] Interactive order: the created-app box + base-files report
+  (`reportBaseScaffoldSuccess`) print **before** the "scaffold a feature?" prompt fires; the
+  feature scaffold + its Next steps come after — (Automated: `create.test.ts`)
 - [x] Non-interactive runs stay base-only: `--json` and piped (non-TTY) create write base
   files but never call `runFeatureScaffold` — oauth is added later via `brevo app scaffold` —
   (Automated: `create.test.ts`)
