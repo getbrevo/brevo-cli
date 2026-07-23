@@ -42,6 +42,7 @@ jest.mock('../../../commands/app/scaffold', () => ({
   runFeatureScaffold: jest.fn(),
   resolveProjectDirectory: jest.fn(),
   promptFeatureType: jest.fn(),
+  reportBaseScaffoldSuccess: jest.fn(),
   reportScaffoldSuccess: jest.fn(),
   computeCdHint: jest.fn(),
 }));
@@ -64,6 +65,7 @@ import {
   runFeatureScaffold,
   resolveProjectDirectory,
   promptFeatureType,
+  reportBaseScaffoldSuccess,
   reportScaffoldSuccess,
   computeCdHint,
 } from '../../../commands/app/scaffold';
@@ -199,6 +201,35 @@ describe('app/create', () => {
         false,
       );
       expect(reportScaffoldSuccess).toHaveBeenCalled();
+    });
+
+    it('renders the created-app box + base files before prompting to scaffold a feature', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 30,
+        name: 'Order App',
+        client_id: 'cli-order',
+        client_secret: 'secret-order',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+        version: '0.0.1',
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+
+      await createCommand({ name: 'Order App', distribution: 'private' });
+
+      // The base-files report (which prints right after the created-app box)
+      // must run before the "scaffold a feature?" prompt fires.
+      expect(reportBaseScaffoldSuccess).toHaveBeenCalled();
+      const baseOrder = (reportBaseScaffoldSuccess as jest.Mock).mock.invocationCallOrder[0]!;
+      const scaffoldPromptIdx = mockPrompt.mock.calls.findIndex(
+        ([q]) => Array.isArray(q) && q[0]?.name === 'scaffoldRaw',
+      );
+      expect(scaffoldPromptIdx).toBeGreaterThanOrEqual(0);
+      const scaffoldPromptOrder = mockPrompt.mock.invocationCallOrder[scaffoldPromptIdx]!;
+      expect(baseOrder).toBeLessThan(scaffoldPromptOrder);
     });
 
     it('writes only base files when the user declines the feature prompt', async () => {

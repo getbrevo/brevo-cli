@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import inquirer from 'inquirer';
 import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
-import { logInfo, logError, logSuccess } from '../../lib/logger';
+import { logInfo, logError } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { ApiError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
@@ -18,6 +18,7 @@ import {
   runFeatureScaffold,
   resolveProjectDirectory,
   promptFeatureType,
+  reportBaseScaffoldSuccess,
   reportScaffoldSuccess,
   computeCdHint,
 } from './scaffold';
@@ -395,22 +396,7 @@ export const createCommand = withCommandHandler(
     // Always write the basic project structure (app-config.json + meta files).
     const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);
 
-    // Decide whether to also scaffold a feature. Only the interactive prompt
-    // triggers it (default yes → pick a type). Non-interactive runs (--json or
-    // piped) can't prompt and stay base-only — a feature is added afterward with
-    // `brevo app scaffold`.
-    let feature: FeatureType | null = null;
-    if (interactive && (await promptScaffoldFeature())) {
-      feature = await promptFeatureType(true);
-    }
-
-    const feat = feature
-      ? runFeatureScaffold(feature, result.app_id, ctx, dir.targetDir, dir.mergeOnly)
-      : { written: 0, files: [] as Array<{ name: string; content: string }> };
-
-    const written = base.written + feat.written;
-    const files = [...base.files, ...feat.files];
-
+    // --json never scaffolds a feature — emit the base result as a single blob.
     if (jsonMode) {
       jsonOutput({
         appId: result.app_id,
@@ -421,25 +407,39 @@ export const createCommand = withCommandHandler(
         ...(logoUri ? { logoUri } : {}),
         ...(result.version ? { version: result.version } : {}),
         directory: dir.targetDir,
-        scaffolded: written,
+        scaffolded: base.written,
       });
       return;
     }
 
+    // Show the created-app box and the base files that were just written,
+    // before asking about features.
     renderCreatedApp(result, finalAppName, logoUri);
+    reportBaseScaffoldSuccess(base);
+
     const cdDir = computeCdHint(originalCwd, dir.targetDir);
+
+    // Then offer to scaffold a feature (default yes → pick a type). Only the
+    // interactive prompt triggers it; a piped (non-TTY) run stays base-only.
+    let feature: FeatureType | null = null;
+    if (interactive && (await promptScaffoldFeature())) {
+      feature = await promptFeatureType(true);
+    }
+
     if (feature) {
+      const feat = runFeatureScaffold(feature, result.app_id, ctx, dir.targetDir, dir.mergeOnly);
       reportScaffoldSuccess({
-        written,
-        legacyAllSubstituted: base.legacyAllSubstituted,
+        written: feat.written,
+        // The legacy 'all' substitution (if any) was already surfaced by
+        // reportBaseScaffoldSuccess above — don't repeat it here.
+        legacyAllSubstituted: false,
         scopes: base.scopes,
-        files,
+        files: feat.files,
         targetDir: dir.targetDir,
         cdDir,
       });
     } else {
       // Base project only — point the user at `brevo app scaffold` to add a feature.
-      logSuccess(messages.APP_SCAFFOLD_SUCCESS(written));
       logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
       printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_BASE_ONLY_NEXT(cdDir));
     }

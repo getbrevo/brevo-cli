@@ -360,6 +360,22 @@ export function runFeatureScaffold(
   return { written, files };
 }
 
+// Report the basic project structure written by `brevo app create` — shown
+// with the created-app box, before the feature prompt. No "Next steps" box
+// (that belongs to a feature scaffold, or the base-only follow-up in create.ts).
+export function reportBaseScaffoldSuccess(result: {
+  written: number;
+  legacyAllSubstituted: boolean;
+  scopes: string[];
+  files: Array<{ name: string; content: string }>;
+}): void {
+  logSuccess(messages.APP_CREATE_BASE_SUCCESS(result.written));
+  if (result.legacyAllSubstituted) {
+    logWarn(messages.LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED(result.scopes.join(', ')));
+  }
+  logInfo(formatFileTree(result.files.map((f) => f.name)));
+}
+
 export function reportScaffoldSuccess(result: {
   written: number;
   legacyAllSubstituted: boolean;
