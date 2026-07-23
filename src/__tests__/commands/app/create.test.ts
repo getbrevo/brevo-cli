@@ -30,7 +30,6 @@ jest.mock('../../../container', () => ({
 }));
 
 jest.mock('../../../commands/app/scaffold', () => ({
-  scaffoldCommand: jest.fn(),
   computeSlug: jest.fn(
     (name: string | undefined) =>
       (name || 'my-app')
@@ -40,6 +39,9 @@ jest.mock('../../../commands/app/scaffold', () => ({
   ),
   fetchAppContext: jest.fn(),
   runScaffold: jest.fn(),
+  resolveProjectDirectory: jest.fn(),
+  promptProjectType: jest.fn(),
+  reportScaffoldSuccess: jest.fn(),
 }));
 
 jest.mock('node:fs');
@@ -48,23 +50,45 @@ jest.mock('node:fs');
 import * as fs from 'node:fs';
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
-import { saveAppCredentials, saveAppName } from '../../../lib/config';
-import { scaffoldCommand, fetchAppContext, runScaffold } from '../../../commands/app/scaffold';
+import {
+  saveAppCredentials,
+  saveAppName,
+  hasLocalApp,
+  readProjectConfig,
+} from '../../../lib/config';
+import {
+  computeSlug,
+  fetchAppContext,
+  runScaffold,
+  resolveProjectDirectory,
+  promptProjectType,
+  reportScaffoldSuccess,
+} from '../../../commands/app/scaffold';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
 describe('app/create', () => {
   let stdoutSpy: jest.SpyInstance;
   const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+  let chdirSpy: jest.SpyInstance;
 
   beforeEach(() => {
     stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    chdirSpy = jest.spyOn(process, 'chdir').mockImplementation(() => undefined);
     Object.defineProperty(process.stdin, 'isTTY', {
       configurable: true,
       writable: true,
       value: true,
     });
     jest.clearAllMocks();
+    // jest.clearAllMocks() only clears mock.calls/instances/results — it does
+    // NOT reset a persistent implementation set via mockReturnValue in an
+    // earlier test (that requires mockReset/resetAllMocks, which this repo's
+    // jest.config.js doesn't enable). Re-assert the defaults from the
+    // `../../../lib/config` mock factory here so tests are isolated from
+    // whatever the previous test left behind in these two mocks.
+    (hasLocalApp as jest.Mock).mockReturnValue(false);
+    (readProjectConfig as jest.Mock).mockReturnValue(null);
     (fs.existsSync as jest.Mock).mockReturnValue(false);
     (fetchAppContext as jest.Mock).mockResolvedValue({
       appDetails: null,
@@ -80,10 +104,17 @@ describe('app/create', () => {
       scopes: [],
       files: [],
     });
+    (resolveProjectDirectory as jest.Mock).mockResolvedValue({
+      targetDir: '/cwd/test-app',
+      mergeOnly: false,
+      chooseAgain: false,
+    });
+    (promptProjectType as jest.Mock).mockResolvedValue('oauth');
   });
 
   afterEach(() => {
     stdoutSpy.mockRestore();
+    chdirSpy.mockRestore();
     if (originalIsTTYDescriptor) {
       Object.defineProperty(process.stdin, 'isTTY', originalIsTTYDescriptor);
     } else {
@@ -119,7 +150,7 @@ describe('app/create', () => {
       clientId: 'cli-123',
       clientSecret: 'secret-456',
     });
-    expect(scaffoldCommand).toHaveBeenCalledWith({ appId: 1 });
+    expect(runScaffold).toHaveBeenCalledWith(1, expect.anything(), '/cwd/test-app', false);
   });
 
   describe('scaffold-by-default', () => {
@@ -141,7 +172,7 @@ describe('app/create', () => {
       expect(mockPrompt).not.toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ name: 'shouldScaffold' })]),
       );
-      expect(scaffoldCommand).toHaveBeenCalledWith({ appId: 8 });
+      expect(runScaffold).toHaveBeenCalledWith(8, expect.anything(), '/cwd/test-app', false);
     });
 
     it('scaffolds into the default directory under --json and reports it', async () => {
@@ -198,6 +229,104 @@ describe('app/create', () => {
       expect(parsed.scaffolded).toBeUndefined();
       expect(typeof parsed.scaffoldSkipped).toBe('string');
       expect(parsed.scaffoldSkipped).toContain('already exists');
+    });
+  });
+
+  describe('linked-directory guard', () => {
+    it('throws immediately when app-config.json is already linked in cwd, without calling the API', async () => {
+      (hasLocalApp as jest.Mock).mockReturnValue(true);
+      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
+
+      await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
+        /already linked/i,
+      );
+
+      expect(appService.createApp).not.toHaveBeenCalled();
+      expect(mockPrompt).not.toHaveBeenCalled();
+    });
+
+    it('includes the linked app name in the error message', async () => {
+      (hasLocalApp as jest.Mock).mockReturnValue(true);
+      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
+
+      await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
+        'Existing App',
+      );
+    });
+  });
+
+  describe('directory setup', () => {
+    it('resolves the directory before the create API call, interactively', async () => {
+      const createCallOrder: string[] = [];
+      (resolveProjectDirectory as jest.Mock).mockImplementation(async () => {
+        createCallOrder.push('directory');
+        return { targetDir: '/cwd/dir-app', mergeOnly: false, chooseAgain: false };
+      });
+      (appService.createApp as jest.Mock).mockImplementation(async () => {
+        createCallOrder.push('create');
+        return {
+          app_id: 20,
+          name: 'Dir App',
+          client_id: 'cli-dir',
+          client_secret: 'secret-dir',
+          redirect_uris: ['http://localhost:3009/auth/callback'],
+        };
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await createCommand({ name: 'Dir App', distribution: 'private' });
+
+      expect(createCallOrder).toEqual(['directory', 'create']);
+      expect(runScaffold).toHaveBeenCalledWith(20, expect.anything(), '/cwd/dir-app', false);
+    });
+
+    it('does not prompt for a directory under --json (non-interactive resolution)', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 21,
+        name: 'JSON Dir App',
+        client_id: 'cli-json-dir',
+        client_secret: 'secret-json-dir',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+
+      await createCommand({
+        name: 'JSON Dir App',
+        distribution: 'private',
+        redirectUri: ['http://localhost:3009/auth/callback'],
+        json: true,
+      });
+
+      expect(resolveProjectDirectory).not.toHaveBeenCalled();
+      expect(chdirSpy).toHaveBeenCalled();
+    });
+
+    it('shows the project-type prompt after app creation, not before', async () => {
+      const order: string[] = [];
+      (appService.createApp as jest.Mock).mockImplementation(async () => {
+        order.push('create');
+        return {
+          app_id: 22,
+          name: 'Ordered App',
+          client_id: 'cli-ordered',
+          client_secret: 'secret-ordered',
+          redirect_uris: ['http://localhost:3009/auth/callback'],
+        };
+      });
+      (promptProjectType as jest.Mock).mockImplementation(async () => {
+        order.push('projectType');
+        return 'oauth';
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await createCommand({ name: 'Ordered App', distribution: 'private' });
+
+      expect(order).toEqual(['create', 'projectType']);
     });
   });
 

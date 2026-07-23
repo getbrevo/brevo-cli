@@ -11,7 +11,14 @@ import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName } from '../../lib/validators';
 import { printBox, createSpinner } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
-import { scaffoldCommand, computeSlug, fetchAppContext, runScaffold } from './scaffold';
+import {
+  computeSlug,
+  fetchAppContext,
+  runScaffold,
+  resolveProjectDirectory,
+  promptProjectType,
+  reportScaffoldSuccess,
+} from './scaffold';
 import { appService } from '../../container';
 import { CreateAppResponse } from '../../types';
 
@@ -39,33 +46,15 @@ const validateLogoUrl = (input: string): true | string => {
   return validateHttpUrl(trimmed, messages.APP_CREATE_LOGO_INVALID);
 };
 
-// 0. Check for existing app-config.json in current directory.
-//    Returns true when it is OK to proceed with creation.
-async function confirmCreateOverLinkedApp(): Promise<boolean> {
-  if (!hasLocalApp()) return true;
-  if (!process.stdin.isTTY) {
-    throw new CliError(
-      'An app is already linked in this directory (app-config.json). Use --force or run interactively.',
-    );
-  }
+// 0. Refuse outright if an app is already linked in this directory — no
+//    confirm, no override. The user must leave the directory or run
+//    `brevo app scaffold` here instead (which knows how to refresh a linked
+//    project against the server).
+function guardAgainstLinkedApp(): void {
+  if (!hasLocalApp()) return;
   const projectConfig = readProjectConfig();
-  const linkedName = projectConfig?.appName || String(projectConfig?.appId);
-  logInfo(`  App "${linkedName}" is already linked in this directory (app-config.json).`);
-
-  const { proceed } = await inquirer.prompt([
-    {
-      type: 'confirm',
-      name: 'proceed',
-      message: 'Create a new app anyway?',
-      default: false,
-    },
-  ]);
-
-  if (!proceed) {
-    logInfo(`\n  Use \`${CLI.APP_UPDATE}\` to modify the existing app.\n`);
-    return false;
-  }
-  return true;
+  const linkedName = projectConfig?.appName || String(projectConfig?.appId ?? '');
+  throw new CliError(messages.APP_CREATE_ALREADY_LINKED(linkedName));
 }
 
 // 1. App name
@@ -212,6 +201,33 @@ async function resolveLogoUri(
   return trimmed || undefined;
 }
 
+type CreateDirectoryResult =
+  | { targetDir: string; mergeOnly: boolean; skipped: false }
+  | { targetDir: string; skipped: true };
+
+async function resolveCreateDirectory(
+  appName: string,
+  interactive: boolean,
+): Promise<CreateDirectoryResult> {
+  const slug = computeSlug(appName);
+
+  if (!interactive) {
+    const targetDir = path.resolve(`./${slug}`);
+    if (fs.existsSync(targetDir)) {
+      return { targetDir, skipped: true };
+    }
+    fs.mkdirSync(targetDir, { recursive: true });
+    process.chdir(targetDir);
+    return { targetDir, mergeOnly: false, skipped: false };
+  }
+
+  let dir = await resolveProjectDirectory(`./${slug}`);
+  while (dir.chooseAgain) {
+    dir = await resolveProjectDirectory(`./${slug}`);
+  }
+  return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly, skipped: false };
+}
+
 interface CreateAppInputs {
   appName: string;
   distribution: string;
@@ -296,33 +312,6 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
   printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 }
 
-// Scaffolding is the default outcome of a create — no opt-in prompt.
-async function scaffoldAfterCreate(result: CreateAppResponse, appName: string): Promise<void> {
-  logInfo(`  ↳ Scaffolding "${appName}"...\n`);
-  await scaffoldCommand({ appId: result.app_id });
-}
-
-// --json has no interactive directory prompt, so scaffolding here has to be
-// fully non-interactive: pick the same default directory `app scaffold` would
-// offer, and skip (not overwrite) if something's already there.
-async function scaffoldForJsonCreate(
-  appId: string,
-  appName: string,
-): Promise<
-  { directory: string; scaffolded: number } | { directory: string; scaffoldSkipped: string }
-> {
-  const targetDir = path.resolve(`./${computeSlug(appName)}`);
-  if (fs.existsSync(targetDir)) {
-    return {
-      directory: targetDir,
-      scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(targetDir, appId),
-    };
-  }
-  const ctx = await fetchAppContext(appId, true);
-  const { written } = runScaffold(appId, ctx, targetDir, false);
-  return { directory: targetDir, scaffolded: written };
-}
-
 export const createCommand = withCommandHandler(
   async (options: {
     name?: string;
@@ -333,42 +322,80 @@ export const createCommand = withCommandHandler(
   }): Promise<void> => {
     const jsonMode = !!options.json;
 
-    if (!(await confirmCreateOverLinkedApp())) {
-      return;
-    }
+    guardAgainstLinkedApp();
 
-    const inputs: CreateAppInputs = {
-      appName: await resolveAppName(options.name),
-      distribution: await resolveDistribution(options.distribution),
-      redirectUrls: await resolveRedirectUrls(options.redirectUri, jsonMode),
-      logoUri: await resolveLogoUri(options.logoUri, jsonMode),
-    };
+    const appName = await resolveAppName(options.name);
+    const distribution = await resolveDistribution(options.distribution);
+    const redirectUrls = await resolveRedirectUrls(options.redirectUri, jsonMode);
+    const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
 
-    const { result, appName } = await createAppWithRetry(inputs, jsonMode);
+    const interactive = !jsonMode && !!process.stdin.isTTY;
+    const dir = await resolveCreateDirectory(appName, interactive);
+
+    const inputs: CreateAppInputs = { appName, distribution, redirectUrls, logoUri };
+    const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
 
     // Store app credentials locally — client_secret may not be retrievable again
     saveAppCredentials(result.app_id, {
       clientId: result.client_id,
       clientSecret: result.client_secret,
     });
-    if (appName) saveAppName(result.app_id, appName);
+    if (finalAppName) saveAppName(result.app_id, finalAppName);
+
+    if (dir.skipped) {
+      if (jsonMode) {
+        jsonOutput({
+          appId: result.app_id,
+          appName: finalAppName,
+          clientId: result.client_id,
+          clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
+          redirectUri: result.redirect_uris,
+          ...(logoUri ? { logoUri } : {}),
+          ...(result.version ? { version: result.version } : {}),
+          directory: dir.targetDir,
+          scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(
+            dir.targetDir,
+            result.app_id,
+          ),
+        });
+        return;
+      }
+      renderCreatedApp(result, finalAppName, logoUri);
+      logInfo(messages.APP_CREATE_DIR_EXISTS_SKIPPED(dir.targetDir));
+      return;
+    }
+
+    const ctx = await fetchAppContext(result.app_id, jsonMode);
+    await promptProjectType(interactive);
+    const { written, legacyAllSubstituted, scopes, files } = runScaffold(
+      result.app_id,
+      ctx,
+      dir.targetDir,
+      dir.mergeOnly,
+    );
 
     if (jsonMode) {
-      const scaffold = await scaffoldForJsonCreate(result.app_id, appName);
       jsonOutput({
         appId: result.app_id,
-        appName,
+        appName: finalAppName,
         clientId: result.client_id,
         clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
         redirectUri: result.redirect_uris,
-        ...(inputs.logoUri ? { logoUri: inputs.logoUri } : {}),
+        ...(logoUri ? { logoUri } : {}),
         ...(result.version ? { version: result.version } : {}),
-        ...scaffold,
+        directory: dir.targetDir,
+        scaffolded: written,
       });
       return;
     }
 
-    renderCreatedApp(result, appName, inputs.logoUri);
-    await scaffoldAfterCreate(result, appName);
+    renderCreatedApp(result, finalAppName, logoUri);
+    reportScaffoldSuccess({
+      written,
+      legacyAllSubstituted,
+      scopes,
+      files,
+      targetDir: dir.targetDir,
+    });
   },
 );
