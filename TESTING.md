@@ -22,6 +22,51 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### Decoupled create/scaffold directory flow (`add-app-version-config`, BEX-255 follow-up)
+_Added: 2026-07-23_
+
+`brevo app create` now hard-errors when `app-config.json` already exists in cwd
+(no confirm, no override — the old "create a new app anyway?" prompt is gone), and
+resolves (`cd`s into) its target directory as its own step right before the create
+API call, instead of that happening inside the auto-scaffold step afterward.
+`brevo app scaffold` gained a project-type prompt and is now directory-aware:
+no linked project → directory setup; linked to the same app → diffs local config
+against the server, only prompting (and fully regenerating on consent) if they
+differ; linked to a different app → must pick a new directory or cancel.
+
+- [x] `brevo app create` throws immediately (no API call, no prompts) when
+  `app-config.json` exists in cwd, naming the linked app in the error — (Automated: `create.test.ts`)
+- [x] `resolveProjectDirectory` (scaffold.ts) creates + `chdir`s into a fresh
+  directory; `chdir`s (no re-`mkdir`) when overwriting/merging an existing one;
+  does not `chdir` when the user picks a different path — (Automated: `scaffold.test.ts`)
+- [x] `promptProjectType` shows a single-choice ("Test OAuth App") list prompt
+  when interactive, returns `'oauth'` without prompting otherwise — (Automated: `scaffold.test.ts`)
+- [x] `diffLocalConfig` reports differences across `appName`, `distribution_type`,
+  redirect URLs, scopes (legacy `'all'` excluded), `logoUri`, `version` — (Automated: `scaffold.test.ts`)
+- [x] `brevo app scaffold` with no `app-config.json` in cwd: same directory-setup
+  flow as before, now via `resolveProjectDirectory` — (Automated: `scaffold.test.ts`)
+- [x] `brevo app scaffold` with `app-config.json` in cwd for the **same** app and
+  **no** diff: proceeds merge-only with no confirmation prompt — (Automated: `scaffold.test.ts`)
+- [x] `brevo app scaffold` with `app-config.json` in cwd for the **same** app and a
+  diff: shows the differing fields, consent → full overwrite of every template
+  file; decline → cancels, nothing written — (Automated: `scaffold.test.ts`)
+- [x] `brevo app scaffold` with `app-config.json` in cwd for a **different** app:
+  offers "choose a different directory" (loops into directory setup) or "cancel";
+  never writes into the mismatched directory — (Automated: `scaffold.test.ts`)
+- [x] `brevo app create` (interactive): directory prompt appears after
+  name/distribution/redirect/logo, before the create API call; `process.chdir`
+  is called with the resolved directory; project-type prompt appears **after**
+  the app is created, before scaffolding — (Automated: `create.test.ts`)
+- [x] `brevo app create --json`: directory resolved and `chdir`'d into
+  non-interactively with no prompts; if the default directory already exists,
+  both directory setup and scaffolding are skipped (app creation still
+  succeeds), reported via `scaffoldSkipped` — (Automated: `create.test.ts`)
+- [x] `AGENTS.md` + `SKILL.md` describe the new hard-error guard, the
+  directory-first `create` flow, and `scaffold`'s diff-driven same-app behavior
+  (no more blanket refusal wording) — (Manual)
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
 ### `brevo app create` scaffolds by default (`add-app-version-config`, BEX-255 Part B)
 _Added: 2026-07-23_
 
