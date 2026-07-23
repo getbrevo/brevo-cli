@@ -394,3 +394,20 @@ _Added: 2026-07-23_
 **Docs in sync**
 - [ ] `AGENTS.md` + `SKILL.md` document `--distribution public` and stay aligned — (Manual)
 - [ ] `brevo app create --distribution public` example present in `definitions.ts` — (Manual)
+
+### Scaffold overwrite prompt + `--overwrite` flag
+_Added: 2026-07-23_
+
+**`brevo app scaffold` conflict handling (`scaffold.ts` / `resolveFeatureConflict`)**
+- [ ] No existing feature files → no conflict prompt, feature written (unchanged) — (Automated: `scaffold.test.ts`)
+- [ ] Existing feature files, interactive, choose **Merge** → existing files skipped, missing ones added — (Automated: `scaffold.test.ts`)
+- [ ] Existing feature files, interactive, choose **Overwrite** → existing files rewritten — (Automated: `scaffold.test.ts`)
+- [ ] Existing feature files, interactive, choose **Cancel** → nothing written, "Scaffold cancelled." printed — (Automated: `scaffold.test.ts`)
+- [ ] `--overwrite` (interactive) → no conflict prompt, existing files rewritten — (Automated: `scaffold.test.ts`)
+- [ ] `--json` with existing files, no flag → merges (skips), never prompts — (Automated: `scaffold.test.ts`)
+- [ ] `--json --overwrite` with existing files → overwrites, never prompts — (Automated: `scaffold.test.ts`)
+- [ ] Conflict prompt is independent of the config-drift confirm (both can appear in one run) — (Manual)
+
+**Flag wiring & docs**
+- [ ] `--overwrite` registered on `scaffold` in `definitions.ts`, threaded to `scaffoldCommand` — (Manual)
+- [ ] `AGENTS.md` + `SKILL.md` document the conflict prompt and `--overwrite`, and stay aligned — (Manual)

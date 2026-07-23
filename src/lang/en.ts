@@ -141,6 +141,11 @@ export const messages = {
   APP_SCAFFOLD_DIR_PROMPT: 'Output directory:',
   APP_SCAFFOLD_DIR_EXISTS: 'Directory already exists. What would you like to do?',
   APP_SCAFFOLD_FEATURE_TYPE_PROMPT: 'What feature do you want to scaffold?',
+  APP_SCAFFOLD_FEATURE_EXISTS:
+    'This feature already has files in this project. What would you like to do?',
+  APP_SCAFFOLD_FEATURE_EXISTS_OVERWRITE: 'Overwrite existing files',
+  APP_SCAFFOLD_FEATURE_EXISTS_MERGE: 'Merge (keep existing, add missing)',
+  APP_SCAFFOLD_FEATURE_EXISTS_CANCEL: 'Cancel',
   APP_SCAFFOLD_NO_CONFIG: `No app-config.json found in this directory, so there is no app to scaffold a feature into. Run \`${CLI.APP_CREATE}\` to create an app here first, or cd into an existing project folder and try again.`,
   APP_SCAFFOLD_DIFF_INTRO: (name: string) =>
     `App "${name}" is linked here, but its local config differs from the server:`,

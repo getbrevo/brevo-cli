@@ -163,9 +163,20 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     {
       name: 'scaffold',
       description: 'Add a feature (e.g. the OAuth test server) to the app in this directory',
-      examples: ['brevo app scaffold', 'brevo app scaffold --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => scaffoldCommand({ json: Boolean(opts.json) }),
+      examples: [
+        'brevo app scaffold',
+        'brevo app scaffold --overwrite',
+        'brevo app scaffold --json',
+      ],
+      options: [
+        {
+          flags: '--overwrite',
+          description: 'Overwrite existing feature files instead of merging (skips the prompt)',
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        scaffoldCommand({ json: Boolean(opts.json), overwrite: Boolean(opts.overwrite) }),
     },
     {
       name: 'available-scopes',

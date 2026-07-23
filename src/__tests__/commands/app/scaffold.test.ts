@@ -160,15 +160,74 @@ describe('app/scaffold', () => {
       expect(loadFeatureTemplates).toHaveBeenCalledWith('oauth', expect.anything());
     });
 
-    it('skips existing feature files in merge mode', async () => {
+    it('prompts on existing feature files and skips them when the user chooses merge', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
-      // Every feature file already exists → merge skips them all.
+      // Every feature file already exists → conflict prompt, then merge skips them all.
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
+      mockPrompt
+        .mockResolvedValueOnce({ featureType: 'oauth' })
+        .mockResolvedValueOnce({ action: 'merge' });
+
+      await scaffoldCommand({});
+
+      expect(mockPrompt).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: 'action' })]),
+      );
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('overwrites existing feature files when the user chooses overwrite', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockPrompt
+        .mockResolvedValueOnce({ featureType: 'oauth' })
+        .mockResolvedValueOnce({ action: 'overwrite' });
+
+      await scaffoldCommand({});
+
+      // Existing files are rewritten rather than skipped.
+      expect(fs.writeFileSync).toHaveBeenCalled();
+    });
+
+    it('cancels without writing when the user chooses cancel on the conflict prompt', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockPrompt
+        .mockResolvedValueOnce({ featureType: 'oauth' })
+        .mockResolvedValueOnce({ action: 'cancel' });
 
       await scaffoldCommand({});
 
       expect(fs.writeFileSync).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('cancelled');
+    });
+
+    it('does not prompt for conflicts when no feature files exist', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      // existsSync defaults to false in beforeEach → no conflict.
+      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
+
+      await scaffoldCommand({});
+
+      expect(mockPrompt).not.toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: 'action' })]),
+      );
+      expect(fs.writeFileSync).toHaveBeenCalled();
+    });
+
+    it('overwrites existing feature files without prompting when --overwrite is passed', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
+
+      await scaffoldCommand({ overwrite: true });
+
+      // No conflict prompt — the flag decides.
+      expect(mockPrompt).not.toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: 'action' })]),
+      );
+      expect(fs.writeFileSync).toHaveBeenCalled();
     });
 
     it('shows the diff and refreshes the base config (full overwrite) on consent', async () => {
@@ -296,6 +355,27 @@ describe('app/scaffold', () => {
       expect(parsed.diffs).toEqual(
         expect.arrayContaining([expect.objectContaining({ field: 'redirectUrls' })]),
       );
+    });
+
+    it('merges (skips existing feature files) by default without prompting', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await scaffoldCommand({ json: true });
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      // Every feature file already exists → merge skips them all.
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('overwrites existing feature files when --overwrite is passed', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await scaffoldCommand({ json: true, overwrite: true });
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(fs.writeFileSync).toHaveBeenCalled();
     });
   });
 
