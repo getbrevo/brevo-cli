@@ -61,11 +61,14 @@ the base files on consent before writing the feature files (merged in).
 
 **`create.ts`**
 - [x] Writes base files via `runBaseScaffold` always; interactive asks
-  `APP_CREATE_SCAFFOLD_FEATURE_PROMPT` (default yes) then `promptFeatureType`; non-interactive
-  (`--json` or piped) auto-scaffolds `oauth` — (Automated: `create.test.ts`)
+  `APP_CREATE_SCAFFOLD_FEATURE_PROMPT` (default yes) then `promptFeatureType` and writes the
+  feature — (Automated: `create.test.ts`)
+- [x] Non-interactive runs stay base-only: `--json` and piped (non-TTY) create write base
+  files but never call `runFeatureScaffold` — oauth is added later via `brevo app scaffold` —
+  (Automated: `create.test.ts`)
 - [x] Decline → only base files written, no `runFeatureScaffold`, lighter next-steps note
   pointing at `brevo app scaffold` — (Automated: `create.test.ts`)
-- [x] `--json` `scaffolded` count covers base + feature; `scaffoldSkipped` still emitted when
+- [x] `--json` `scaffolded` count is the base file count; `scaffoldSkipped` still emitted when
   the target directory already existed — (Automated: `create.test.ts`)
 
 **Docs**

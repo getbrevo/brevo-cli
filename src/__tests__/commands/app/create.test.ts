@@ -226,7 +226,7 @@ describe('app/create', () => {
       expect(output).toContain('brevo app scaffold');
     });
 
-    it('auto-scaffolds the oauth feature under --json and reports the total count', async () => {
+    it('writes base files only under --json (no feature) and reports the base count', async () => {
       (appService.createApp as jest.Mock).mockResolvedValue({
         app_id: 9,
         name: 'JSON Scaffold App',
@@ -240,10 +240,6 @@ describe('app/create', () => {
         scopes: [],
         files: [],
       });
-      (runFeatureScaffold as jest.Mock).mockReturnValue({
-        written: 6,
-        files: [],
-      });
 
       await createCommand({
         name: 'JSON Scaffold App',
@@ -252,20 +248,40 @@ describe('app/create', () => {
         json: true,
       });
 
-      // --json can't prompt, so it scaffolds the default (oauth) feature.
+      // --json can't prompt, so it stays base-only — oauth is added later via
+      // `brevo app scaffold`.
       expect(mockPrompt).not.toHaveBeenCalled();
-      expect(runFeatureScaffold).toHaveBeenCalledWith(
-        'oauth',
-        9,
-        expect.anything(),
-        expect.any(String),
-        false,
-      );
+      expect(runBaseScaffold).toHaveBeenCalledWith(9, expect.anything(), expect.any(String), false);
+      expect(runFeatureScaffold).not.toHaveBeenCalled();
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       const parsed = JSON.parse(output);
-      expect(parsed.scaffolded).toBe(11);
+      expect(parsed.scaffolded).toBe(5);
       expect(typeof parsed.directory).toBe('string');
       expect(parsed.scaffoldSkipped).toBeUndefined();
+    });
+
+    it('writes base files only for a piped (non-TTY) non-json create', async () => {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        configurable: true,
+        writable: true,
+        value: false,
+      });
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 15,
+        name: 'Piped App',
+        client_id: 'cli-piped',
+        client_secret: 'secret-piped',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+
+      await createCommand({
+        name: 'Piped App',
+        distribution: 'private',
+        redirectUri: ['http://localhost:3009/auth/callback'],
+      });
+
+      expect(runBaseScaffold).toHaveBeenCalled();
+      expect(runFeatureScaffold).not.toHaveBeenCalled();
     });
 
     it('skips scaffolding under --json when the default directory already exists', async () => {

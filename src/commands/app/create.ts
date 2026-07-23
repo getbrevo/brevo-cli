@@ -395,13 +395,12 @@ export const createCommand = withCommandHandler(
     // Always write the basic project structure (app-config.json + meta files).
     const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);
 
-    // Decide whether to also scaffold a feature. Interactive: ask (default yes)
-    // then pick a type. Non-interactive (--json or piped): can't prompt, so
-    // auto-scaffold the default (oauth) feature.
+    // Decide whether to also scaffold a feature. Only the interactive prompt
+    // triggers it (default yes → pick a type). Non-interactive runs (--json or
+    // piped) can't prompt and stay base-only — a feature is added afterward with
+    // `brevo app scaffold`.
     let feature: FeatureType | null = null;
-    if (!interactive) {
-      feature = 'oauth';
-    } else if (await promptScaffoldFeature()) {
+    if (interactive && (await promptScaffoldFeature())) {
       feature = await promptFeatureType(true);
     }
 
