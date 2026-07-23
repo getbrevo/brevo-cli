@@ -86,6 +86,7 @@ export const messages = {
     `Skipped scaffolding: directory already exists (${dir}). Run \`${CLI.APP_SCAFFOLD()}\` to choose a different path.`,
   APP_CREATE_ALREADY_LINKED: (name: string) =>
     `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD()}\` here to refresh this project against the server.`,
+  APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -150,6 +151,12 @@ export const messages = {
   APP_SCAFFOLD_DIFFERENT_APP_PROMPT: (name: string) =>
     `This directory is linked to a different app ("${name}"). What would you like to do?`,
   APP_SCAFFOLD_CANCELLED: 'Scaffold cancelled.',
+  APP_SCAFFOLD_JSON_DIR_EXISTS: (dir: string) =>
+    `Target directory already exists (${dir}). --json cannot prompt to overwrite, merge, or choose a different path. Re-run without --json to resolve interactively, or point at a fresh directory.`,
+  APP_SCAFFOLD_JSON_DIFF_CANCELLED:
+    'app-config.json differs from the server and --json cannot prompt for confirmation. Re-run without --json to review and confirm the update.',
+  APP_SCAFFOLD_JSON_DIFFERENT_APP_CANCELLED:
+    'This directory is linked to a different app and --json cannot prompt to choose a new path. Run from a different directory, or re-run without --json.',
   APP_SCAFFOLD_SUCCESS: (count: number) => `Test app scaffolded (${count} files)`,
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
   APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,

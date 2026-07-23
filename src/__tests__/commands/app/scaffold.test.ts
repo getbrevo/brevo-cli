@@ -131,7 +131,8 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-json') });
+    // --json never prompts — resolveProjectDirectory uses the default dir
+    // directly, so no outputDir prompt is queued here.
 
     await scaffoldCommand({ appId: '1', json: true });
 
@@ -473,6 +474,97 @@ describe('app/scaffold', () => {
     });
   });
 
+  describe('brevo app scaffold --json never blocks on interactive prompts', () => {
+    const cwdAppConfig = path.join(process.cwd(), 'app-config.json');
+    const serverApp = {
+      app_id: '1',
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      scopes: ['contacts:read'],
+      distribution_type: 'private' as const,
+      logo_uri: '',
+      version: '1.0.0',
+    };
+    const matchingLocalConfig = {
+      appId: '1',
+      appName: 'Test App',
+      distribution_type: 'private' as const,
+      logoUri: '',
+      version: '1.0.0',
+      auth: { scopes: ['contacts:read'], redirectUrls: ['http://localhost:3009/auth/callback'] },
+    };
+
+    it('does not prompt when the target directory already exists, and reports why in the JSON output', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+        diffs: [],
+        app: {
+          app_id: '1',
+          name: 'Test App',
+          client_id: 'cli-123',
+          client_secret: 'secret',
+          redirect_uris: [] as string[],
+        },
+      });
+      // No app-config.json in cwd, but the (default) target directory
+      // already exists — everything except app-config.json exists.
+      (fs.existsSync as jest.Mock).mockImplementation((p: string) => p !== cwdAppConfig);
+
+      await scaffoldCommand({ appId: '1', json: true });
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+
+      const output = stdoutSpy.mock.calls[0][0];
+      const parsed = JSON.parse(output);
+      expect(parsed.cancelled).toBe(true);
+      expect(parsed.reason).toMatch(/already exists/i);
+    });
+
+    it('does not prompt when the linked app config differs from the server, and surfaces the diffs in the JSON output', async () => {
+      (fs.existsSync as jest.Mock).mockImplementation((p: string) => p === cwdAppConfig);
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+        diffs: [],
+        app: serverApp,
+      });
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...matchingLocalConfig,
+        auth: { scopes: ['contacts:read'], redirectUrls: ['http://old-host/cb'] },
+      });
+
+      await scaffoldCommand({ appId: '1', json: true });
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+
+      const output = stdoutSpy.mock.calls[0][0];
+      const parsed = JSON.parse(output);
+      expect(parsed.cancelled).toBe(true);
+      expect(parsed.diffs).toEqual(
+        expect.arrayContaining([expect.objectContaining({ field: 'redirectUrls' })]),
+      );
+    });
+
+    it('does not prompt when the directory is linked to a different app, and cancels', async () => {
+      (fs.existsSync as jest.Mock).mockImplementation((p: string) => p === cwdAppConfig);
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+        diffs: [],
+        app: serverApp,
+      });
+      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '999', appName: 'Other App' });
+
+      await scaffoldCommand({ appId: '1', json: true });
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+
+      const output = stdoutSpy.mock.calls[0][0];
+      const parsed = JSON.parse(output);
+      expect(parsed.cancelled).toBe(true);
+    });
+  });
+
   describe("legacy 'all' scope substitution", () => {
     const DEFAULTS = ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'];
 
@@ -493,12 +585,14 @@ describe('app/scaffold', () => {
           scopes: remoteScopes,
         },
       });
-      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath(dir) });
-      // promptProjectType only prompts when interactive (i.e. !json) — queuing
-      // an answer for it when json is true would go unconsumed and bleed into
-      // the next test's mockPrompt queue (mockClear doesn't drop queued
-      // once-implementations), so only queue it when it will actually be read.
+      // Both the outputDir prompt and promptProjectType only fire when
+      // interactive (i.e. !json) — --json uses the default dir directly and
+      // never prompts. Queuing answers for either when json is true would go
+      // unconsumed and bleed into the next test's mockPrompt queue
+      // (mockClear doesn't drop queued once-implementations), so only queue
+      // them when they will actually be read.
       if (!json) {
+        mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath(dir) });
         mockPrompt.mockResolvedValueOnce({ projectType: 'oauth' });
       }
 
@@ -722,12 +816,14 @@ describe('app/scaffold', () => {
 
     it('suppresses the directory notice in json mode', async () => {
       const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
-      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('fresh-dir-json') });
+      // jsonMode skips the outputDir prompt entirely and uses the default
+      // directly — no prompt to queue here.
 
       await resolveProjectDirectory('./default-slug', true);
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       expect(output).not.toContain('Creating');
+      expect(mockPrompt).not.toHaveBeenCalled();
     });
   });
 

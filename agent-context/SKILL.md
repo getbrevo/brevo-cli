@@ -54,7 +54,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 1. **Always pass `--json`** when you intend to parse output. Every command supports it.
 2. **Never print, log, or commit** API keys (`xkeysib-…`), client secrets, refresh tokens, or contents of `~/.brevo/credentials.json` / `.env.local`. Redact before sharing diagnostics.
 3. **Don't use `--api-key`** — the flag was removed. Use the `BREVO_API_KEY` env var.
-4. **`brevo app create` refuses to run inside an already-linked directory** (`app-config.json` present) — `cd` elsewhere or use `brevo app scaffold` there instead. `brevo app scaffold` itself is directory-aware, not a hard refusal: same app linked → diffs local config against the server and only prompts if they differ (consent → full regenerate; decline → cancels); different app linked → requires choosing a different directory or cancelling.
+4. **`brevo app create` refuses to run inside an already-linked directory** (`app-config.json` present) — `cd` elsewhere or use `brevo app scaffold` there instead. `brevo app scaffold` itself is directory-aware, not a hard refusal: same app linked → diffs local config against the server and only prompts if they differ (consent → full regenerate; decline → cancels); different app linked → requires choosing a different directory or cancelling. **Under `--json` it never prompts** for any of this — a directory conflict, a config diff, or a different-app-linked directory all come back as `{ "cancelled": true, "reason": "...", "diffs": [...] }` (only the relevant fields present) instead of blocking.
 5. **Prefer flag-driven over interactive** in agent contexts: `--name`, `--app-id`, `--force`, `--yes` so the command doesn't block on prompts.
 
 ## Locating the linked app

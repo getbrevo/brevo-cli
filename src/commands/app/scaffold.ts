@@ -108,18 +108,33 @@ export async function fetchAppContext(appId: string, silent?: boolean): Promise<
   };
 }
 
+// `unresolved: true` signals a directory conflict that couldn't be resolved
+// without a prompt (only reachable when jsonMode is true). The other branch
+// deliberately leaves `unresolved` unset (rather than `false`) so existing
+// callers/tests that compare against `{ targetDir, mergeOnly, chooseAgain }`
+// via `toEqual` keep working unmodified (`toEqual` ignores undefined keys).
+export type ResolveProjectDirectoryResult =
+  | { targetDir: string; mergeOnly: boolean; chooseAgain: boolean; unresolved?: false }
+  | { targetDir: string; unresolved: true };
+
 export async function resolveProjectDirectory(
   defaultDir: string,
   jsonMode = false,
-): Promise<{ targetDir: string; mergeOnly: boolean; chooseAgain: boolean }> {
-  const { outputDir } = await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'outputDir',
-      message: messages.APP_SCAFFOLD_DIR_PROMPT,
-      default: defaultDir,
-    },
-  ]);
+): Promise<ResolveProjectDirectoryResult> {
+  // --json must never block on a prompt: skip the "Output directory:" input
+  // and use the default directly.
+  const outputDir = jsonMode
+    ? defaultDir
+    : ((
+        await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'outputDir',
+            message: messages.APP_SCAFFOLD_DIR_PROMPT,
+            default: defaultDir,
+          },
+        ])
+      ).outputDir as string);
   const targetDir = path.resolve(outputDir);
 
   if (!fs.existsSync(targetDir)) {
@@ -129,6 +144,12 @@ export async function resolveProjectDirectory(
     fs.mkdirSync(targetDir, { recursive: true });
     process.chdir(targetDir);
     return { targetDir, mergeOnly: false, chooseAgain: false };
+  }
+
+  // --json can't ask "Overwrite / Merge / Choose a different path" either —
+  // report this as unresolved instead of guessing on the user's behalf.
+  if (jsonMode) {
+    return { targetDir, unresolved: true };
   }
 
   const { action } = await inquirer.prompt([
@@ -146,12 +167,10 @@ export async function resolveProjectDirectory(
   if (action === 'new') {
     return { targetDir, mergeOnly: false, chooseAgain: true };
   }
-  if (!jsonMode) {
-    if (targetDir === process.cwd()) {
-      logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
-    } else {
-      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
-    }
+  if (targetDir === process.cwd()) {
+    logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
+  } else {
+    logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
   }
   process.chdir(targetDir);
   return { targetDir, mergeOnly: action === 'merge', chooseAgain: false };
@@ -326,20 +345,47 @@ export function reportScaffoldSuccess(result: {
   logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
 }
 
+interface ScaffoldTargetResolved {
+  cancelled: false;
+  targetDir: string;
+  mergeOnly: boolean;
+}
+
+interface ScaffoldTargetCancelled {
+  cancelled: true;
+  reason?: string;
+  diffs?: ConfigDiff[];
+}
+
+type ScaffoldTargetResult = ScaffoldTargetResolved | ScaffoldTargetCancelled;
+
+// Shared by both call sites below: resolve (and, if needed, re-resolve after
+// "choose a different path") a project directory, surfacing an unresolved
+// --json directory conflict as a cancellation instead of prompting.
+async function resolveDirectoryOrCancel(
+  slug: string,
+  jsonMode: boolean,
+): Promise<ScaffoldTargetResult> {
+  let dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
+  while (!dir.unresolved && dir.chooseAgain) {
+    dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
+  }
+  if (dir.unresolved) {
+    return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIR_EXISTS(dir.targetDir) };
+  }
+  return { cancelled: false, targetDir: dir.targetDir, mergeOnly: dir.mergeOnly };
+}
+
 async function resolveScaffoldTarget(
   appId: string,
   slug: string,
   ctx: AppContext,
   jsonMode = false,
-): Promise<{ targetDir: string; mergeOnly: boolean } | null> {
+): Promise<ScaffoldTargetResult> {
   const cwdConfigPath = path.join(process.cwd(), 'app-config.json');
 
   if (!fs.existsSync(cwdConfigPath)) {
-    let dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
-    while (dir.chooseAgain) {
-      dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
-    }
-    return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly };
+    return resolveDirectoryOrCancel(slug, jsonMode);
   }
 
   const localConfig = readProjectConfig();
@@ -347,12 +393,19 @@ async function resolveScaffoldTarget(
     const diffs = diffLocalConfig(localConfig, ctx);
     if (diffs.length === 0) {
       if (!jsonMode) logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
-      return { targetDir: process.cwd(), mergeOnly: true };
+      return { cancelled: false, targetDir: process.cwd(), mergeOnly: true };
     }
 
-    logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.appName || appId));
-    for (const diff of diffs) {
-      logInfo(messages.APP_SCAFFOLD_DIFF_LINE(diff.field, diff.local, diff.server));
+    if (!jsonMode) {
+      logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.appName || appId));
+      for (const diff of diffs) {
+        logInfo(messages.APP_SCAFFOLD_DIFF_LINE(diff.field, diff.local, diff.server));
+      }
+    }
+    // --json can't prompt for confirmation — decline and surface the diffs
+    // so a script can decide how to proceed.
+    if (jsonMode) {
+      return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIFF_CANCELLED, diffs };
     }
     const { confirmed } = await inquirer.prompt([
       {
@@ -362,11 +415,15 @@ async function resolveScaffoldTarget(
         default: true,
       },
     ]);
-    if (!confirmed) return null;
-    if (!jsonMode) logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
-    return { targetDir: process.cwd(), mergeOnly: false };
+    if (!confirmed) return { cancelled: true };
+    logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
+    return { cancelled: false, targetDir: process.cwd(), mergeOnly: false };
   }
 
+  // --json can't prompt to choose a different directory either — decline.
+  if (jsonMode) {
+    return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIFFERENT_APP_CANCELLED };
+  }
   const { choice } = await inquirer.prompt([
     {
       type: 'list',
@@ -380,13 +437,9 @@ async function resolveScaffoldTarget(
       ],
     },
   ]);
-  if (choice === 'cancel') return null;
+  if (choice === 'cancel') return { cancelled: true };
 
-  let dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
-  while (dir.chooseAgain) {
-    dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
-  }
-  return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly };
+  return resolveDirectoryOrCancel(slug, jsonMode);
 }
 
 export const scaffoldCommand = withCommandHandler(
@@ -396,9 +449,13 @@ export const scaffoldCommand = withCommandHandler(
     const slug = computeSlug(ctx.appDetails?.name);
 
     const target = await resolveScaffoldTarget(appId, slug, ctx, options.json);
-    if (!target) {
+    if (target.cancelled) {
       if (options.json) {
-        jsonOutput({ cancelled: true });
+        jsonOutput({
+          cancelled: true,
+          ...(target.reason ? { reason: target.reason } : {}),
+          ...(target.diffs ? { diffs: target.diffs } : {}),
+        });
         return;
       }
       logInfo(messages.APP_SCAFFOLD_CANCELLED);

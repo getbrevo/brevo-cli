@@ -222,8 +222,16 @@ async function resolveCreateDirectory(
   }
 
   let dir = await resolveProjectDirectory(`./${slug}`);
-  while (dir.chooseAgain) {
+  while (!dir.unresolved && dir.chooseAgain) {
     dir = await resolveProjectDirectory(`./${slug}`);
+  }
+  if (dir.unresolved) {
+    // Unreachable in practice: `interactive` is only true when we're not in
+    // --json/non-TTY mode, and resolveProjectDirectory only reports
+    // `unresolved` when called with jsonMode=true (never the case here).
+    // Fail loudly instead of silently guessing a directory if this ever
+    // changes.
+    throw new CliError(messages.APP_CREATE_DIR_UNRESOLVED);
   }
   return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly, skipped: false };
 }

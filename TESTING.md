@@ -22,6 +22,36 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### `brevo app scaffold --json` no longer blocks on interactive prompts (`add-app-version-config`)
+_Added: 2026-07-23_
+
+Critical fix: `jsonMode` on `resolveProjectDirectory`/`resolveScaffoldTarget` only suppressed
+`logInfo()` before this — it never stopped `inquirer.prompt()` from firing, so `--json` would
+hang in CI/scripts on the "Output directory:" prompt, the "Directory already exists" overwrite
+prompt, the config-diff confirm prompt, or the different-app-linked choice prompt. `--json` now
+never calls `inquirer.prompt()`; every one of those cases is treated as declined/cancelled and
+reported via the JSON `cancelled` output instead.
+
+- [x] `resolveProjectDirectory` skips the initial "Output directory:" prompt under `jsonMode`,
+  using `defaultDir` directly — (Automated: `scaffold.test.ts`)
+- [x] `resolveProjectDirectory` returns `{ targetDir, unresolved: true }` (no prompt) when the
+  target directory already exists under `jsonMode`, instead of showing the
+  overwrite/merge/choose-path prompt — (Automated: `scaffold.test.ts`)
+- [x] `resolveScaffoldTarget` Case B (same app linked, config differs): under `jsonMode`, skips
+  the confirm prompt and returns a cancellation carrying the computed `diffs` — (Automated: `scaffold.test.ts`)
+- [x] `resolveScaffoldTarget` Case C (different app linked): under `jsonMode`, skips the
+  choice prompt and returns a cancellation — (Automated: `scaffold.test.ts`)
+- [x] `scaffoldCommand({ json: true })` never calls `inquirer.prompt` in any of the three
+  scenarios above, and always emits valid, parseable JSON with `cancelled: true` — (Automated: `scaffold.test.ts`)
+- [x] Interactive (non-`--json`) behavior for all of the above is unchanged — every prompt still
+  fires exactly as before — (Automated: `scaffold.test.ts`, all pre-existing tests pass unmodified in spirit)
+- [x] `create.ts`'s `resolveCreateDirectory` interactive branch still compiles and behaves
+  identically against the new `ResolveProjectDirectoryResult` union (defensively throws
+  `CliError` if ever handed `unresolved: true`, which can't happen since it's only called with
+  `jsonMode=false`) — (Automated: `create.test.ts`; Manual: `tsc`/`yarn build`)
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
 ### Upfront directory notice + dead "cd" step removed from scaffold Next steps (`add-app-version-config`)
 _Added: 2026-07-23_
 
