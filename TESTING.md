@@ -22,6 +22,41 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### `brevo app upload` replaces `brevo app update` (BEX-250)
+_Added: 2026-07-23_
+
+`brevo app update` is fully removed (no stub, no forwarding shim). `brevo app upload`
+takes only `--yes`/`--json` — no `--app-id`, no edit flags. It always fetches the
+remote app and renders a local-vs-server diff before pushing (even under `--yes`;
+under `--json` the diff is structured data, never a prompt), POSTs to
+`/v3/app-store/apps/{id}/upload` with the confirmed wire shape (`app_version`,
+`auth.distribution_type`, `auth.redirect_urls`), and writes the server-confirmed
+state back into `app-config.json` on success.
+
+- [ ] `brevo app upload` outside a directory with usable `app-config.json` (missing
+  file / invalid JSON / missing `appId`) hard-errors, no API call — (Automated: `upload.test.ts`)
+- [ ] Diff always fetched and shown/returned regardless of `--yes`/`--json` — (Automated: `upload.test.ts`)
+- [ ] No differences → exit 0, "already up to date at version X", no `uploadApp` call — (Automated: `upload.test.ts`)
+- [ ] Differences + no `--yes`/`--json` + TTY → confirm prompt; decline cancels with
+  no upload — (Automated: `upload.test.ts`)
+- [ ] Differences + no `--yes`/`--json` + non-TTY → throws (no way to confirm) — (Automated: `upload.test.ts`)
+- [ ] Outgoing payload matches the confirmed contract exactly: `distribution_type`
+  nested under `auth`, `app_version` top-level, `redirect_urls` (not `redirect_uris`)
+  — (Automated: `upload.test.ts`, `app.test.ts`)
+- [ ] `ui_app` is never included in the outgoing payload — (Automated: `upload.test.ts`)
+- [ ] Legacy `'all'` scope still blocks the upload (same as `update.ts` did) — (Automated: `upload.test.ts`)
+- [ ] Redirect URL protocol validation unchanged from `update.ts` — (Automated: `upload.test.ts`)
+- [ ] Server rejection (e.g. `app_version_outdated`) propagates as an error, exit 1 — (Automated: `upload.test.ts`)
+- [ ] Success writes server-confirmed name/logo/distribution/version/scopes/redirectUrls
+  back into `app-config.json` — (Automated: `upload.test.ts`)
+- [ ] `brevo app update` is fully deregistered — running it is an unknown command — (Manual: `brevo app update --help` / grep)
+- [ ] All ~11 messages that referenced `brevo app update --scope`/`--redirect-uri`
+  now point at editing `app-config.json` + `brevo app upload` instead — (grep, Manual)
+- [ ] `AGENTS.md` + `SKILL.md` describe `upload` (no flags beyond `--yes`/`--json`,
+  no `--app-id`) and no longer mention `update` — (Manual)
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
 ### `brevo app scaffold --json` no longer blocks on interactive prompts (`add-app-version-config`)
 _Added: 2026-07-23_
 
