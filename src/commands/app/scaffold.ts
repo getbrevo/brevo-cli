@@ -213,8 +213,10 @@ function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDif
     });
   }
 
-  const localRedirects = [...(localConfig.auth?.redirectUrls ?? [])].sort();
-  const serverRedirects = [...ctx.redirectUrls].sort();
+  const localRedirects = [...(localConfig.auth?.redirectUrls ?? [])].sort((a, b) =>
+    a.localeCompare(b),
+  );
+  const serverRedirects = [...ctx.redirectUrls].sort((a, b) => a.localeCompare(b));
   if (JSON.stringify(localRedirects) !== JSON.stringify(serverRedirects)) {
     diffs.push({
       field: 'redirectUrls',
@@ -223,10 +225,10 @@ function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDif
     });
   }
 
-  const localScopes = [...(localConfig.auth?.scopes ?? [])].sort();
+  const localScopes = [...(localConfig.auth?.scopes ?? [])].sort((a, b) => a.localeCompare(b));
   const serverScopes = [...(ctx.appDetails?.scopes ?? [])]
     .filter((s) => s !== LEGACY_ALL_SCOPE)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
   if (JSON.stringify(localScopes) !== JSON.stringify(serverScopes)) {
     diffs.push({
       field: 'scopes',
