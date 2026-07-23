@@ -13,11 +13,11 @@ import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { createSpinner, printBox } from '../../lib/ui';
 import { messages } from '../../lang/en';
 import { withCommandHandler } from '../../lib/command-handler';
-import { CliError } from '../../lib/errors';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { loadAllTemplates } from '../../templates';
 import { containsLegacyAllScope } from '../../lib/validators';
+import { readProjectConfig, ProjectConfig } from '../../lib/config';
 
 interface TreeNode {
   [key: string]: TreeNode;
@@ -108,7 +108,7 @@ export async function fetchAppContext(appId: string, silent?: boolean): Promise<
   };
 }
 
-async function resolveTargetDir(
+export async function resolveProjectDirectory(
   defaultDir: string,
 ): Promise<{ targetDir: string; mergeOnly: boolean; chooseAgain: boolean }> {
   const { outputDir } = await inquirer.prompt([
@@ -122,6 +122,8 @@ async function resolveTargetDir(
   const targetDir = path.resolve(outputDir);
 
   if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+    process.chdir(targetDir);
     return { targetDir, mergeOnly: false, chooseAgain: false };
   }
 
@@ -137,11 +139,88 @@ async function resolveTargetDir(
       ],
     },
   ]);
-  return {
-    targetDir,
-    mergeOnly: action === 'merge',
-    chooseAgain: action === 'new',
-  };
+  if (action === 'new') {
+    return { targetDir, mergeOnly: false, chooseAgain: true };
+  }
+  process.chdir(targetDir);
+  return { targetDir, mergeOnly: action === 'merge', chooseAgain: false };
+}
+
+export async function promptProjectType(interactive: boolean): Promise<'oauth'> {
+  if (!interactive) return 'oauth';
+  const { projectType } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'projectType',
+      message: messages.APP_SCAFFOLD_PROJECT_TYPE_PROMPT,
+      choices: [{ name: 'Test OAuth App', value: 'oauth' }],
+    },
+  ]);
+  return projectType;
+}
+
+interface ConfigDiff {
+  field: string;
+  local: string;
+  server: string;
+}
+
+function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDiff[] {
+  const diffs: ConfigDiff[] = [];
+
+  const serverName = ctx.appDetails?.name;
+  if (serverName && localConfig.appName !== serverName) {
+    diffs.push({ field: 'appName', local: localConfig.appName, server: serverName });
+  }
+
+  const serverDistribution = ctx.appDetails?.distribution_type ?? 'private';
+  if (localConfig.distribution_type !== serverDistribution) {
+    diffs.push({
+      field: 'distribution_type',
+      local: localConfig.distribution_type,
+      server: serverDistribution,
+    });
+  }
+
+  const localRedirects = [...(localConfig.auth?.redirectUrls ?? [])].sort();
+  const serverRedirects = [...ctx.redirectUrls].sort();
+  if (JSON.stringify(localRedirects) !== JSON.stringify(serverRedirects)) {
+    diffs.push({
+      field: 'redirectUrls',
+      local: localRedirects.join(', ') || '(none)',
+      server: serverRedirects.join(', ') || '(none)',
+    });
+  }
+
+  const localScopes = [...(localConfig.auth?.scopes ?? [])].sort();
+  const serverScopes = [...(ctx.appDetails?.scopes ?? [])]
+    .filter((s) => s !== LEGACY_ALL_SCOPE)
+    .sort();
+  if (JSON.stringify(localScopes) !== JSON.stringify(serverScopes)) {
+    diffs.push({
+      field: 'scopes',
+      local: localScopes.join(', ') || '(none)',
+      server: serverScopes.join(', ') || '(none)',
+    });
+  }
+
+  const localLogo = localConfig.logoUri ?? '';
+  const serverLogo = ctx.appDetails?.logo_uri ?? '';
+  if (localLogo !== serverLogo) {
+    diffs.push({ field: 'logoUri', local: localLogo || '(none)', server: serverLogo || '(none)' });
+  }
+
+  const localVersion = localConfig.version ?? '';
+  const serverVersion = ctx.appDetails?.version ?? '';
+  if (localVersion !== serverVersion) {
+    diffs.push({
+      field: 'version',
+      local: localVersion || '(none)',
+      server: serverVersion || '(none)',
+    });
+  }
+
+  return diffs;
 }
 
 function writeScaffoldFiles(
@@ -219,48 +298,123 @@ export function runScaffold(
   return { written, targetDir, legacyAllSubstituted, scopes, files };
 }
 
+export function reportScaffoldSuccess(result: {
+  written: number;
+  legacyAllSubstituted: boolean;
+  scopes: string[];
+  files: Array<{ name: string; content: string }>;
+  targetDir: string;
+}): void {
+  logSuccess(messages.APP_SCAFFOLD_SUCCESS(result.written));
+  if (result.legacyAllSubstituted) {
+    logWarn(messages.LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED(result.scopes.join(', ')));
+  }
+  logInfo(formatFileTree(result.files.map((f) => f.name)));
+
+  const relativeDir = path.relative(process.cwd(), result.targetDir) || '.';
+  printBox(
+    messages.APP_SCAFFOLD_NEXT_STEPS_TITLE,
+    messages.APP_SCAFFOLD_NEXT_STEPS_LINES(relativeDir),
+  );
+  logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
+}
+
+async function resolveScaffoldTarget(
+  appId: string,
+  slug: string,
+  ctx: AppContext,
+): Promise<{ targetDir: string; mergeOnly: boolean } | null> {
+  const cwdConfigPath = path.join(process.cwd(), 'app-config.json');
+
+  if (!fs.existsSync(cwdConfigPath)) {
+    let dir = await resolveProjectDirectory(`./${slug}`);
+    while (dir.chooseAgain) {
+      dir = await resolveProjectDirectory(`./${slug}`);
+    }
+    return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly };
+  }
+
+  const localConfig = readProjectConfig();
+  if (localConfig?.appId === appId) {
+    const diffs = diffLocalConfig(localConfig, ctx);
+    if (diffs.length === 0) {
+      return { targetDir: process.cwd(), mergeOnly: true };
+    }
+
+    logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.appName || appId));
+    for (const diff of diffs) {
+      logInfo(messages.APP_SCAFFOLD_DIFF_LINE(diff.field, diff.local, diff.server));
+    }
+    const { confirmed } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'confirmed',
+        message: messages.APP_SCAFFOLD_DIFF_CONFIRM,
+        default: true,
+      },
+    ]);
+    if (!confirmed) return null;
+    return { targetDir: process.cwd(), mergeOnly: false };
+  }
+
+  const { choice } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'choice',
+      message: messages.APP_SCAFFOLD_DIFFERENT_APP_PROMPT(
+        localConfig?.appName || 'a different app',
+      ),
+      choices: [
+        { name: 'Choose a different directory', value: 'choose' },
+        { name: 'Cancel', value: 'cancel' },
+      ],
+    },
+  ]);
+  if (choice === 'cancel') return null;
+
+  let dir = await resolveProjectDirectory(`./${slug}`);
+  while (dir.chooseAgain) {
+    dir = await resolveProjectDirectory(`./${slug}`);
+  }
+  return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly };
+}
+
 export const scaffoldCommand = withCommandHandler(
   async (options: { appId?: string; json?: boolean }): Promise<void> => {
-    // Refuse to scaffold inside an existing project — app-config.json in cwd
-    // means the user is already in a scaffolded project and likely meant to
-    // run `brevo app update` instead.
-    if (fs.existsSync(path.join(process.cwd(), 'app-config.json'))) {
-      throw new CliError(messages.APP_SCAFFOLD_ALREADY_IN_PROJECT);
-    }
-
     const appId = options.appId ?? (await appService.pickApp('Select an app:'));
     const ctx = await fetchAppContext(appId, options.json);
-
     const slug = computeSlug(ctx.appDetails?.name);
 
-    const { targetDir, mergeOnly, chooseAgain } = await resolveTargetDir(`./${slug}`);
-    if (chooseAgain) {
-      return scaffoldCommand({ ...options, appId });
+    const target = await resolveScaffoldTarget(appId, slug, ctx);
+    if (!target) {
+      if (options.json) {
+        jsonOutput({ cancelled: true });
+        return;
+      }
+      logInfo(messages.APP_SCAFFOLD_CANCELLED);
+      return;
     }
+
+    await promptProjectType(!options.json);
 
     const { written, legacyAllSubstituted, scopes, files } = runScaffold(
       appId,
       ctx,
-      targetDir,
-      mergeOnly,
+      target.targetDir,
+      target.mergeOnly,
     );
 
     if (options.json) {
-      jsonOutput({ scaffolded: written, directory: targetDir });
+      jsonOutput({ scaffolded: written, directory: target.targetDir });
       return;
     }
 
-    logSuccess(messages.APP_SCAFFOLD_SUCCESS(written));
-    if (legacyAllSubstituted) {
-      logWarn(messages.LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED(scopes.join(', ')));
-    }
-    logInfo(formatFileTree(files.map((f) => f.name)));
-
-    const relativeDir = path.relative(process.cwd(), targetDir) || '.';
-    printBox(
-      messages.APP_SCAFFOLD_NEXT_STEPS_TITLE,
-      messages.APP_SCAFFOLD_NEXT_STEPS_LINES(relativeDir),
-    );
-    logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
+    reportScaffoldSuccess({
+      written,
+      legacyAllSubstituted,
+      scopes,
+      files,
+      targetDir: target.targetDir,
+    });
   },
 );

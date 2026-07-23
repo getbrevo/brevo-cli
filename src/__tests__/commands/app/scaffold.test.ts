@@ -33,6 +33,7 @@ jest.mock('../../../lib/config', () => ({
   getApiKey: jest.fn().mockReturnValue('test-key'),
   getAppCredentials: jest.fn(),
   saveAppCredentials: jest.fn(),
+  readProjectConfig: jest.fn().mockReturnValue(null),
 }));
 
 jest.mock('../../../templates', () => ({
@@ -65,23 +66,28 @@ jest.mock('node:path', () => {
 
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
+import { readProjectConfig } from '../../../lib/config';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
 describe('app/scaffold', () => {
   let stdoutSpy: jest.SpyInstance;
+  let chdirSpy: jest.SpyInstance;
 
   beforeEach(() => {
     stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    chdirSpy = jest.spyOn(process, 'chdir').mockImplementation(() => undefined);
     jest.clearAllMocks();
     (fs.existsSync as jest.Mock).mockReturnValue(false);
     (fs.mkdirSync as jest.Mock).mockReturnValue(undefined);
     (fs.writeFileSync as jest.Mock).mockReturnValue(undefined);
     (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify({ version: '9.9.9' }));
+    (readProjectConfig as jest.Mock).mockReturnValue(null);
   });
 
   afterEach(() => {
     stdoutSpy.mockRestore();
+    chdirSpy.mockRestore();
   });
 
   it('should scaffold files for a given app ID', async () => {
@@ -96,7 +102,9 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-scaffold') }); // dir prompt
+    mockPrompt
+      .mockResolvedValueOnce({ outputDir: tmpPath('test-scaffold') }) // dir prompt
+      .mockResolvedValueOnce({ projectType: 'oauth' });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -145,7 +153,9 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-creds') });
+    mockPrompt
+      .mockResolvedValueOnce({ outputDir: tmpPath('test-creds') })
+      .mockResolvedValueOnce({ projectType: 'oauth' });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -166,7 +176,9 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-version') });
+    mockPrompt
+      .mockResolvedValueOnce({ outputDir: tmpPath('test-version') })
+      .mockResolvedValueOnce({ projectType: 'oauth' });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -193,7 +205,9 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-redirect') });
+    mockPrompt
+      .mockResolvedValueOnce({ outputDir: tmpPath('test-redirect') })
+      .mockResolvedValueOnce({ projectType: 'oauth' });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -214,7 +228,9 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-fallback') });
+    mockPrompt
+      .mockResolvedValueOnce({ outputDir: tmpPath('test-fallback') })
+      .mockResolvedValueOnce({ projectType: 'oauth' });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -236,7 +252,9 @@ describe('app/scaffold', () => {
       },
     });
 
-    mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-pick') });
+    mockPrompt
+      .mockResolvedValueOnce({ outputDir: tmpPath('test-pick') })
+      .mockResolvedValueOnce({ projectType: 'oauth' });
 
     await scaffoldCommand({});
 
@@ -260,7 +278,8 @@ describe('app/scaffold', () => {
 
     mockPrompt
       .mockResolvedValueOnce({ outputDir: tmpPath('existing') }) // dir prompt
-      .mockResolvedValueOnce({ action: 'overwrite' }); // action prompt
+      .mockResolvedValueOnce({ action: 'overwrite' }) // action prompt
+      .mockResolvedValueOnce({ projectType: 'oauth' });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -283,7 +302,8 @@ describe('app/scaffold', () => {
 
     mockPrompt
       .mockResolvedValueOnce({ outputDir: tmpPath('merge') })
-      .mockResolvedValueOnce({ action: 'merge' });
+      .mockResolvedValueOnce({ action: 'merge' })
+      .mockResolvedValueOnce({ projectType: 'oauth' });
 
     await scaffoldCommand({ appId: '1' });
 
@@ -292,14 +312,106 @@ describe('app/scaffold', () => {
     expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
 
-  it('should refuse to scaffold when app-config.json exists in cwd', async () => {
+  describe('directory already linked to an app', () => {
     const cwdAppConfig = path.join(process.cwd(), 'app-config.json');
-    (fs.existsSync as jest.Mock).mockImplementation((p: string) => p === cwdAppConfig);
+    const serverApp = {
+      app_id: '1',
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      scopes: ['contacts:read'],
+      distribution_type: 'private' as const,
+      logo_uri: '',
+      version: '1.0.0',
+    };
+    const matchingLocalConfig = {
+      appId: '1',
+      appName: 'Test App',
+      distribution_type: 'private' as const,
+      logoUri: '',
+      version: '1.0.0',
+      auth: { scopes: ['contacts:read'], redirectUrls: ['http://localhost:3009/auth/callback'] },
+    };
 
-    await expect(scaffoldCommand({ appId: '1' })).rejects.toThrow(/already scaffolded/i);
+    beforeEach(() => {
+      (fs.existsSync as jest.Mock).mockImplementation((p: string) => p === cwdAppConfig);
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+        diffs: [],
+        app: serverApp,
+      });
+    });
 
-    expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
-    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    it('proceeds merge-only with no prompt when the linked config already matches the server', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      mockPrompt.mockResolvedValueOnce({ projectType: 'oauth' });
+
+      await scaffoldCommand({ appId: '1' });
+
+      expect(mockPrompt).not.toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: 'confirmed' })]),
+      );
+      expect(fs.writeFileSync).toHaveBeenCalled();
+      expect(chdirSpy).not.toHaveBeenCalled();
+    });
+
+    it('shows the diff and does a full overwrite on consent when the config differs', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...matchingLocalConfig,
+        auth: { scopes: ['contacts:read'], redirectUrls: ['http://old-host/cb'] },
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ confirmed: true })
+        .mockResolvedValueOnce({ projectType: 'oauth' });
+
+      await scaffoldCommand({ appId: '1' });
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('redirectUrls');
+      expect(output).toContain('differs from the server');
+      expect(fs.writeFileSync).toHaveBeenCalled();
+    });
+
+    it('cancels without writing when the config differs and the user declines', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...matchingLocalConfig,
+        auth: { scopes: ['contacts:read'], redirectUrls: ['http://old-host/cb'] },
+      });
+      mockPrompt.mockResolvedValueOnce({ confirmed: false });
+
+      await scaffoldCommand({ appId: '1' });
+
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toMatch(/cancelled/i);
+    });
+
+    it('offers a different directory when the linked app does not match', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '999', appName: 'Other App' });
+      mockPrompt
+        .mockResolvedValueOnce({ choice: 'choose' })
+        .mockResolvedValueOnce({ outputDir: tmpPath('different-app-dir') })
+        .mockResolvedValueOnce({ projectType: 'oauth' });
+      (fs.existsSync as jest.Mock).mockImplementation(
+        (p: string) => p === cwdAppConfig && p !== tmpPath('different-app-dir'),
+      );
+
+      await scaffoldCommand({ appId: '1' });
+
+      expect(fs.writeFileSync).toHaveBeenCalled();
+      expect(chdirSpy).toHaveBeenCalledWith(tmpPath('different-app-dir'));
+    });
+
+    it('cancels without writing when the linked app does not match and the user cancels', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '999', appName: 'Other App' });
+      mockPrompt.mockResolvedValueOnce({ choice: 'cancel' });
+
+      await scaffoldCommand({ appId: '1' });
+
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toMatch(/cancelled/i);
+    });
   });
 
   describe("legacy 'all' scope substitution", () => {
@@ -323,6 +435,13 @@ describe('app/scaffold', () => {
         },
       });
       mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath(dir) });
+      // promptProjectType only prompts when interactive (i.e. !json) — queuing
+      // an answer for it when json is true would go unconsumed and bleed into
+      // the next test's mockPrompt queue (mockClear doesn't drop queued
+      // once-implementations), so only queue it when it will actually be read.
+      if (!json) {
+        mockPrompt.mockResolvedValueOnce({ projectType: 'oauth' });
+      }
 
       await scaffoldCommand({ appId: '1', json });
 
@@ -382,7 +501,9 @@ describe('app/scaffold', () => {
         ...(logoUri === undefined ? {} : { logo_uri: logoUri }),
       };
       (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({ diffs: [], app });
-      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-logo') });
+      mockPrompt
+        .mockResolvedValueOnce({ outputDir: tmpPath('test-logo') })
+        .mockResolvedValueOnce({ projectType: 'oauth' });
 
       await scaffoldCommand({ appId: '1' });
 
@@ -407,7 +528,9 @@ describe('app/scaffold', () => {
         ...(version === undefined ? {} : { version }),
       };
       (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({ diffs: [], app });
-      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-version') });
+      mockPrompt
+        .mockResolvedValueOnce({ outputDir: tmpPath('test-version') })
+        .mockResolvedValueOnce({ projectType: 'oauth' });
 
       await scaffoldCommand({ appId: '1' });
 
@@ -469,6 +592,70 @@ describe('app/scaffold', () => {
 
       expect(result.legacyAllSubstituted).toBe(true);
       expect(result.scopes).not.toContain('all');
+    });
+  });
+
+  describe('resolveProjectDirectory', () => {
+    it('creates and chdirs into a fresh directory', async () => {
+      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('fresh-dir') });
+
+      const result = await resolveProjectDirectory('./default-slug');
+
+      expect(fs.mkdirSync).toHaveBeenCalledWith(tmpPath('fresh-dir'), { recursive: true });
+      expect(chdirSpy).toHaveBeenCalledWith(tmpPath('fresh-dir'));
+      expect(result).toEqual({
+        targetDir: tmpPath('fresh-dir'),
+        mergeOnly: false,
+        chooseAgain: false,
+      });
+    });
+
+    it('chdirs (without re-mkdir) when overwriting an existing directory', async () => {
+      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockPrompt
+        .mockResolvedValueOnce({ outputDir: tmpPath('existing-dir') })
+        .mockResolvedValueOnce({ action: 'overwrite' });
+
+      const result = await resolveProjectDirectory('./default-slug');
+
+      expect(chdirSpy).toHaveBeenCalledWith(tmpPath('existing-dir'));
+      expect(result.chooseAgain).toBe(false);
+    });
+
+    it('does not chdir when the user chooses a different path', async () => {
+      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockPrompt
+        .mockResolvedValueOnce({ outputDir: tmpPath('existing-dir') })
+        .mockResolvedValueOnce({ action: 'new' });
+
+      const result = await resolveProjectDirectory('./default-slug');
+
+      expect(chdirSpy).not.toHaveBeenCalled();
+      expect(result.chooseAgain).toBe(true);
+    });
+  });
+
+  describe('promptProjectType', () => {
+    it('prompts and returns the selected type when interactive', async () => {
+      const { promptProjectType } = require('../../../commands/app/scaffold');
+      mockPrompt.mockResolvedValueOnce({ projectType: 'oauth' });
+
+      const result = await promptProjectType(true);
+
+      expect(mockPrompt).toHaveBeenCalledWith([expect.objectContaining({ name: 'projectType' })]);
+      expect(result).toBe('oauth');
+    });
+
+    it('returns oauth without prompting when not interactive', async () => {
+      const { promptProjectType } = require('../../../commands/app/scaffold');
+
+      const result = await promptProjectType(false);
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(result).toBe('oauth');
     });
   });
 });

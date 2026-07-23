@@ -82,6 +82,10 @@ export const messages = {
   APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
   APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS: (dir: string, appId: string) =>
     `Skipped scaffold: directory already exists (${dir}). Run \`${CLI.APP_SCAFFOLD(appId)}\` to choose a different path.`,
+  APP_CREATE_DIR_EXISTS_SKIPPED: (dir: string) =>
+    `Skipped scaffolding: directory already exists (${dir}). Run \`${CLI.APP_SCAFFOLD()}\` to choose a different path.`,
+  APP_CREATE_ALREADY_LINKED: (name: string) =>
+    `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD()}\` here to refresh this project against the server.`,
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -136,7 +140,16 @@ export const messages = {
   // App scaffold
   APP_SCAFFOLD_DIR_PROMPT: 'Output directory:',
   APP_SCAFFOLD_DIR_EXISTS: 'Directory already exists. What would you like to do?',
-  APP_SCAFFOLD_ALREADY_IN_PROJECT: `Project already scaffolded in this directory (app-config.json found). Run from a different directory, or use \`${CLI.APP_UPDATE}\` to push config changes.`,
+  APP_SCAFFOLD_PROJECT_TYPE_PROMPT: 'What kind of project do you want to scaffold?',
+  APP_SCAFFOLD_DIFF_INTRO: (name: string) =>
+    `App "${name}" is linked here, but its local config differs from the server:`,
+  APP_SCAFFOLD_DIFF_LINE: (field: string, local: string, server: string) =>
+    `  ${field}: ${local} → ${server}`,
+  APP_SCAFFOLD_DIFF_CONFIRM:
+    'Update app-config.json and regenerate scaffold files to match the server?',
+  APP_SCAFFOLD_DIFFERENT_APP_PROMPT: (name: string) =>
+    `This directory is linked to a different app ("${name}"). What would you like to do?`,
+  APP_SCAFFOLD_CANCELLED: 'Scaffold cancelled.',
   APP_SCAFFOLD_SUCCESS: (count: number) => `Test app scaffolded (${count} files)`,
   APP_SCAFFOLD_NEXT_STEPS_TITLE: 'Next steps',
   APP_SCAFFOLD_NEXT_STEPS_LINES: (dir: string) => [
