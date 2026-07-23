@@ -63,6 +63,8 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 
 `app-config.json` carries an optional top-level `logoUri` string. When set, a flagless `brevo app update` pushes it as `logo_uri` in the PUT body; when empty / absent, the field is left untouched on the API.
 
+`app-config.json` also carries a top-level `version` string — server-assigned at `brevo app create` and shown by `brevo app create`/`brevo app list`/`brevo app update`. It's read-only: the CLI never sends it and there's no flag to change it. `brevo app update` backfills it into `app-config.json` for projects scaffolded before this field existed.
+
 ## Scopes
 
 - New apps created via `brevo app create` default to `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. The CLI prints the default set on success and points to `brevo app update --scope` for changes.

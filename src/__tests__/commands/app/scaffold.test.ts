@@ -391,4 +391,29 @@ describe('app/scaffold', () => {
       expect(vars['{{LOGO_URI}}']).toBe(expected);
     },
   );
+
+  it.each<[string, string | undefined, string]>([
+    ['present', '0.0.1', '0.0.1'],
+    ['absent', undefined, ''],
+  ])(
+    'should pass {{APP_VERSION}} into template vars when version is %s',
+    async (_label, version, expected) => {
+      const app = {
+        app_id: '1',
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret',
+        redirect_uris: [] as string[],
+        ...(version === undefined ? {} : { version }),
+      };
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({ diffs: [], app });
+      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('test-version') });
+
+      await scaffoldCommand({ appId: '1' });
+
+      const { loadAllTemplates } = require('../../../templates');
+      const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{APP_VERSION}}']).toBe(expected);
+    },
+  );
 });

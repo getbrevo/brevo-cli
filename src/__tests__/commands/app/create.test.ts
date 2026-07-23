@@ -116,6 +116,69 @@ describe('app/create', () => {
     expect(parsed.clientSecret).toContain('[hidden');
   });
 
+  it('should show the server-assigned version in the created-app box', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 3,
+      name: 'Versioned App',
+      client_id: 'cli-v',
+      client_secret: 'secret-v',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      version: '0.0.1',
+    });
+
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ another: false })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ shouldScaffold: false });
+
+    await createCommand({ name: 'Versioned App', distribution: 'private' });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).toContain('App version:    0.0.1');
+  });
+
+  it('should include version in --json output when the API returns one', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 6,
+      name: 'JSON Versioned App',
+      client_id: 'cli-jv',
+      client_secret: 'secret-jv',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      version: '0.0.1',
+    });
+
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ another: false });
+
+    await createCommand({ name: 'JSON Versioned App', distribution: 'private', json: true });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.version).toBe('0.0.1');
+  });
+
+  it('should omit version from output when the API does not return one', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 7,
+      name: 'No Version App',
+      client_id: 'cli-nv',
+      client_secret: 'secret-nv',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ another: false });
+
+    await createCommand({ name: 'No Version App', distribution: 'private', json: true });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.version).toBeUndefined();
+  });
+
   it('should print the test-flow hint above the redirect prompt in interactive mode', async () => {
     (appService.createApp as jest.Mock).mockResolvedValue({
       app_id: 4,

@@ -63,6 +63,7 @@ describe('app/list', () => {
           client_secret: 'secret',
           redirect_uris: ['http://localhost:3000'],
           scopes: ['all'],
+          version: '0.0.1',
           created_at: '2026-01-01',
           updated_at: '2026-01-01',
         },
@@ -77,6 +78,45 @@ describe('app/list', () => {
       expect(output).toContain('http://localhost:3000');
       expect(output).toContain('Scopes:');
       expect(output).toContain('all');
+      expect(output).toContain('Version:       0.0.1');
+    });
+
+    it('should show (none) for version when the app has none', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+        {
+          app_id: 1,
+          name: 'Test App',
+          client_id: 'cli-123',
+          redirect_uris: [],
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ]);
+
+      await listCommand({ json: false });
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('Version:       (none)');
+    });
+
+    it('should include version in --json output', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+        {
+          app_id: 1,
+          name: 'Test',
+          client_id: 'cli-123',
+          redirect_uris: [],
+          version: '0.0.1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ]);
+
+      await listCommand({ json: true });
+
+      const output = stdoutSpy.mock.calls[0][0];
+      const parsed = JSON.parse(output);
+      expect(parsed[0].version).toBe('0.0.1');
     });
 
     it('should output JSON without client_secret when --json', async () => {

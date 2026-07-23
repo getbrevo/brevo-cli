@@ -9,7 +9,16 @@ items to "Done" with the date.
 
 ## Open
 
-_(nothing open)_
+- [ ] **Backfill `version` into `app-config.json` from `brevo app credentials` / re-scaffold.**
+  `brevo app update` now backfills a legacy `app-config.json` missing the `version`
+  field (added in `add-app-version-config`) on its next run — see `TESTING.md`. But a
+  project a developer never runs `update` on stays without `version` indefinitely:
+  `brevo app credentials` doesn't write to `app-config.json` at all, and re-running
+  `brevo app scaffold` against an existing project only fills in missing template
+  files (`mergeOnly`), it doesn't update the config's `version` if the file already
+  exists. Mirrors the existing distribution-type migration pattern above — worth
+  wiring the same one-time backfill into at least `app credentials` for parity.
+  — (relates to `add-app-version-config`; see `TESTING.md`)
 
 ---
 

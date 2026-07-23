@@ -286,6 +286,7 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
     ...result.redirect_uris.map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
     ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
+    ...(result.version ? [`App version:    ${result.version}`] : []),
     `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_SCOPES].join(', ')}`,
     '',
     messages.APP_CREATE_BOX_SCOPE_HINT,
@@ -354,6 +355,7 @@ export const createCommand = withCommandHandler(
         clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
         redirectUri: result.redirect_uris,
         ...(inputs.logoUri ? { logoUri: inputs.logoUri } : {}),
+        ...(result.version ? { version: result.version } : {}),
       });
       return;
     }

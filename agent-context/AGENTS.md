@@ -79,7 +79,7 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 ## Conventions
 
 - **Every command supports `--json`** — prefer this when parsing output programmatically.
-- **`app-config.json`** in the working directory pins the linked app — `brevo app update` and `brevo app start` read from it. The optional top-level `logoUri` string is pushed as `logo_uri` by a flagless `brevo app update`; leave it empty to keep the API value untouched.
+- **`app-config.json`** in the working directory pins the linked app — `brevo app update` and `brevo app start` read from it. The optional top-level `logoUri` string is pushed as `logo_uri` by a flagless `brevo app update`; leave it empty to keep the API value untouched. The top-level `version` string is server-assigned (set at `brevo app create`, shown by `brevo app create`/`brevo app list`/`brevo app update`) — the CLI never sends it and there is no flag to change it; `brevo app update` backfills it into `app-config.json` for projects scaffolded before this field existed.
 - **Credentials** live at `~/.brevo/credentials.json`. Never commit this file or any `.env.local`.
 - **Non-interactive auth:** `BREVO_API_KEY=xkeysib-... brevo login`. The legacy `--api-key` flag was removed because it leaks into shell history.
 - **Skip prompts:** `--force` for delete/logout; `--yes` for `app update`.

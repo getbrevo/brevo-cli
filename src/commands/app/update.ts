@@ -103,6 +103,7 @@ function reportUpdateResult(
     redirectUris: string[];
     scopes: string[];
     logoUri?: string;
+    version?: string;
     configWrittenBack?: boolean;
   },
   jsonMode: boolean | undefined,
@@ -114,6 +115,7 @@ function reportUpdateResult(
       redirect_uris: params.redirectUris,
       scopes: params.scopes,
       ...(params.logoUri ? { logo_uri: params.logoUri } : {}),
+      ...(params.version ? { version: params.version } : {}),
     });
     return;
   }
@@ -128,6 +130,9 @@ function reportUpdateResult(
   logInfo(`  Scopes:        ${params.scopes.length > 0 ? params.scopes.join(', ') : '(none)'}`);
   if (params.logoUri) {
     logInfo(`  Logo URL:      ${params.logoUri}`);
+  }
+  if (params.version) {
+    logInfo(`  Version:       ${params.version}`);
   }
   if (params.configWrittenBack) {
     logInfo('  app-config.json updated.');
@@ -157,6 +162,7 @@ async function pushFullConfig(
     throw new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK);
   }
 
+  let remote: OAuthApp | undefined;
   if (!options.json) {
     // Fail fast before the network fetch when we'd have nowhere to show the diff.
     if (!options.yes && !process.stdin.isTTY) {
@@ -164,7 +170,7 @@ async function pushFullConfig(
     }
     // Fetch current remote state so the summary can show deltas vs. what the
     // push will apply. Hard-fail on fetch error — the user asked for a diff.
-    const remote = await fetchExistingApp(appId, options.json);
+    remote = await fetchExistingApp(appId, options.json);
     renderUpdateSummary({
       appId,
       currentName: remote.name,
@@ -193,6 +199,14 @@ async function pushFullConfig(
 
   if (config.appName) saveAppName(appId, config.appName);
 
+  // Version is server-assigned and never pushed by the CLI — resolve it from
+  // whatever's cheapest: the local config, the diff-summary fetch above, or
+  // (only when both are unavailable, i.e. a legacy config under --json) one
+  // dedicated fetch. This is what backfills `version` into an app-config.json
+  // written before this field existed.
+  const version = config.version ?? remote?.version ?? (await fetchVersionOnly(appId));
+  const configWrittenBack = writeVersionOnlyBack(config, version);
+
   reportUpdateResult(
     {
       appId,
@@ -200,9 +214,37 @@ async function pushFullConfig(
       redirectUris: redirectUrls,
       scopes: nextScopes,
       logoUri: config.logoUri,
+      version,
+      configWrittenBack,
     },
     options.json,
   );
+}
+
+// Best-effort version lookup used only to backfill a legacy config that has
+// neither a cached `version` nor a diff-summary fetch to read it from.
+// Never fails the update over this — a missing version just stays missing.
+async function fetchVersionOnly(appId: string): Promise<string | undefined> {
+  try {
+    const app = await appService.fetchApp(appId);
+    return app?.version;
+  } catch {
+    return undefined;
+  }
+}
+
+// pushFullConfig doesn't otherwise touch app-config.json (it pushes the file
+// as-is) — this adds only the resolved `version` key, leaving every other
+// field exactly as the user wrote it.
+function writeVersionOnlyBack(
+  config: NonNullable<ProjectConfig>,
+  version: string | undefined,
+): boolean {
+  if (!version || version === config.version) {
+    return false;
+  }
+  writeProjectConfig({ ...config, version });
+  return true;
 }
 
 interface ExistingAppState {
@@ -210,6 +252,7 @@ interface ExistingAppState {
   redirectUrls: string[];
   logoUri: string | undefined;
   scopes: string[];
+  version: string | undefined;
 }
 
 async function resolveExistingState(
@@ -223,12 +266,25 @@ async function resolveExistingState(
     Array.isArray(configRedirectUrls) && configRedirectUrls.length > 0;
 
   if (config && shouldWriteBack && hasUsableConfigRedirectUrls) {
-    // Use config as baseline only when it can safely preserve redirect URLs
+    if (config.version) {
+      // Use config as baseline only when it can safely preserve redirect URLs
+      return {
+        name: config.appName,
+        redirectUrls: configRedirectUrls,
+        logoUri: config.logoUri,
+        scopes: config.auth?.scopes ?? [],
+        version: config.version,
+      };
+    }
+    // Config predates the `version` field — fetch once to backfill it. Every
+    // other value still comes from config; this only exists to source version.
+    const app = await fetchExistingApp(appId, silent);
     return {
       name: config.appName,
       redirectUrls: configRedirectUrls,
       logoUri: config.logoUri,
       scopes: config.auth?.scopes ?? [],
+      version: app.version,
     };
   }
   if (config && shouldWriteBack) {
@@ -240,6 +296,7 @@ async function resolveExistingState(
       redirectUrls: app.redirect_uris ?? [],
       logoUri: config.logoUri ?? app.logo_uri,
       scopes: config.auth?.scopes ?? app.scopes ?? [],
+      version: config.version ?? app.version,
     };
   }
   const app = await fetchExistingApp(appId, silent);
@@ -248,6 +305,7 @@ async function resolveExistingState(
     redirectUrls: app.redirect_uris ?? [],
     logoUri: app.logo_uri,
     scopes: app.scopes ?? [],
+    version: app.version,
   };
 }
 
@@ -289,6 +347,7 @@ function writeBackProjectConfig(
   options: UpdateOptions,
   mergedUrls: string[],
   mergedScopes: string[],
+  version: string | undefined,
 ): boolean {
   if (!shouldWriteBack || !config) {
     return false;
@@ -299,6 +358,9 @@ function writeBackProjectConfig(
   }
   if (options.logoUri) {
     updatedConfig.logoUri = options.logoUri;
+  }
+  if (version) {
+    updatedConfig.version = version;
   }
   updatedConfig.auth = {
     ...updatedConfig.auth,
@@ -377,6 +439,7 @@ async function updateWithFlags(
     options,
     mergedUrls,
     mergedScopes,
+    existing.version,
   );
 
   reportUpdateResult(
@@ -386,6 +449,7 @@ async function updateWithFlags(
       redirectUris: mergedUrls,
       scopes: mergedScopes,
       logoUri: finalLogoUri,
+      version: existing.version,
       configWrittenBack,
     },
     options.json,

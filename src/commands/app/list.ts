@@ -64,6 +64,7 @@ export const listCommand = withCommandHandler(
         process.stdout.write(`    Redirect URLs: (none)\n`);
       }
       process.stdout.write(`    Logo URL:      ${app.logo_uri || '(none)'}\n`);
+      process.stdout.write(`    Version:       ${app.version || '(none)'}\n`);
       const scopes = app.scopes ?? [];
       const legacyTag = containsLegacyAllScope(scopes) ? messages.LEGACY_ALL_SCOPE_LIST_TAG : '';
       process.stdout.write(

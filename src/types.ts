@@ -16,6 +16,7 @@ export interface OAuthApp {
   redirect_uris: string[];
   scopes?: string[];
   logo_uri?: string;
+  version?: string;
   created_at: string;
   updated_at: string;
 }
@@ -28,6 +29,7 @@ export interface CreateAppResponse {
   distribution_type?: 'public' | 'private';
   redirect_uris: string[];
   logo_uri?: string;
+  version?: string;
   created_at: string;
   updated_at: string;
 }

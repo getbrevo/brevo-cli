@@ -22,6 +22,51 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### App `version` tracked in config (`add-app-version-config`)
+_Added: 2026-07-23_
+
+The app-store API now returns a `version` field on every app (create + list + get); this
+threads it through the CLI and backfills it into local `app-config.json` files written
+before the field existed.
+
+**Types (`types.ts`, `config.ts`)**
+- [ ] `OAuthApp.version` / `CreateAppResponse.version` / `ProjectConfig.version` are all
+  optional `string` — (Manual: `tsc`/`yarn build`)
+- [ ] `readProjectConfig()` round-trips `version` unchanged when present, leaves it
+  `undefined` for a legacy config that predates the field — (Automated: `config.test.ts`)
+
+**`brevo app create`**
+- [ ] Server-assigned `version` shown in the created-app box (`App version: X`) and in
+  `--json` output — (Automated: `create.test.ts`)
+- [ ] Omitted from both outputs when the API response has no `version` — (Automated: `create.test.ts`)
+
+**`brevo app scaffold`**
+- [ ] `{{APP_VERSION}}` sourced from `ctx.appDetails.version`, written into the new
+  `app-config.json`'s `version` key — (Automated: `scaffold.test.ts`)
+- [ ] Falls back to `''` when the app has no version — (Automated: `scaffold.test.ts`)
+
+**`brevo app list`**
+- [ ] Human output shows a `Version:` line per app, `(none)` when absent — (Automated: `list.test.ts`)
+- [ ] `--json` output includes `version` per app — (Automated: `list.test.ts`)
+
+**`brevo app update` (backward compatibility for existing apps/configs)**
+- [ ] Fast path (config already has `redirectUrls` **and** `version`): no extra API
+  fetch — (Automated: `update.test.ts`)
+- [ ] Legacy config missing `version` (flag-driven update): one fetch backfills it into
+  `app-config.json` and the update output — (Automated: `update.test.ts`)
+- [ ] Flagless push (no `--json`): backfill reuses the existing diff-summary fetch, no
+  second network call — (Automated: `update.test.ts`)
+- [ ] Flagless push under `--json` (previously never fetched at all): one dedicated fetch
+  backfills `version` into `app-config.json` and the JSON output — (Automated: `update.test.ts`)
+- [ ] A failed backfill fetch doesn't fail the update — the push still succeeds, `version`
+  is just left out — (Automated: `update.test.ts`)
+- [ ] No repeated write when the resolved version already matches what's on disk — (Automated: `update.test.ts`)
+- [ ] No `--app-version` (or similar) flag exists — version is never CLI-settable — (Manual: `definitions.ts` / `--help`)
+
+**Docs in sync**
+- [ ] `AGENTS.md` + `SKILL.md` mention the `version` field in `app-config.json` alongside
+  `logoUri`/`cliVersion` — (Manual)
+
 ### `distribution_type` moved to a top-level field (`BEX-255_change`)
 _Added: 2026-07-23_
 

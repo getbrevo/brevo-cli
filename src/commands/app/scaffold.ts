@@ -202,6 +202,7 @@ export const scaffoldCommand = withCommandHandler(
       '{{SCOPES_JSON}}': JSON.stringify(scopes),
       '{{DISTRIBUTION}}': ctx.appDetails?.distribution_type ?? 'private',
       '{{LOGO_URI}}': ctx.appDetails?.logo_uri ?? '',
+      '{{APP_VERSION}}': ctx.appDetails?.version ?? '',
       '{{OAUTH_BASE}}': OAUTH_BASE,
       '{{OAUTH_REALM}}': OAUTH_REALM,
       '{{CLI_VERSION}}': cliVersion,
