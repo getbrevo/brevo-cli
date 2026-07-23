@@ -35,6 +35,17 @@ items to "Done" with the date.
   error instead of a friendly `CliError` message. Worth fixing in both places
   together in a follow-up. — (relates to `add-app-version-config`; see `TESTING.md`)
 
+- [ ] **Fix case mismatch so app-limit-reached shows the friendly error message.**
+  `brevo app create` (and `brevo app scaffold`'s create step) fails silently with
+  the raw API fallback message instead of `messages.APP_CREATE_LIMIT_REACHED` when
+  a user hits the 10-app limit. Root cause: the API returns `{"code":
+  "app_limit_reached"}` (lowercase — confirmed from a real `422` debug log), but
+  `mapErrorCode`/`apiCodeMessages` in `src/api/client.ts:26-33,106-108` only match
+  the uppercase literal `'APP_LIMIT_REACHED'`, so `ApiError.errorCode` never gets
+  set and the friendly-message branch in `src/commands/app/create.ts:294` never
+  fires. Fix by comparing case-insensitively (or normalizing `apiCode` to
+  uppercase before the lookup) in both `apiCodeMessages` and `mapErrorCode`.
+
 ---
 
 ## Done
