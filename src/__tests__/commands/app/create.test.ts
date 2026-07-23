@@ -1019,7 +1019,7 @@ describe('app/create', () => {
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(stdoutCalls).toContain('Default scopes');
     expect(stdoutCalls).toContain('contacts:read');
-    expect(stdoutCalls).toContain('brevo app update --scope');
+    expect(stdoutCalls).toContain('brevo app upload');
   });
 
   it('suppresses the scope info line under --json', async () => {

@@ -340,6 +340,47 @@ export function runBaseScaffold(
   return { written, legacyAllSubstituted, scopes, files };
 }
 
+export type FeatureConflictChoice = 'merge' | 'overwrite' | 'cancel';
+
+// Decide how to handle feature files that already exist on disk, before any
+// write. Precedence:
+//   1. `--overwrite` flag  → overwrite, no prompt (interactive or --json)
+//   2. no existing files   → merge (nothing to skip; identical to a fresh write)
+//   3. --json (no flag)    → merge (non-destructive default; use --overwrite to force)
+//   4. interactive         → prompt Overwrite / Merge / Cancel
+export async function resolveFeatureConflict(
+  featureType: FeatureType,
+  appId: string,
+  ctx: AppContext,
+  targetDir: string,
+  opts: { jsonMode: boolean; overwrite: boolean },
+): Promise<FeatureConflictChoice> {
+  if (opts.overwrite) return 'overwrite';
+
+  const { vars } = buildTemplateVars(appId, ctx, targetDir);
+  const files = loadFeatureTemplates(featureType, vars);
+  const anyExists = files.some((f) => fs.existsSync(path.join(targetDir, f.name)));
+  if (!anyExists) return 'merge';
+
+  // --json can't prompt — stay non-destructive and merge. Scripts that want to
+  // regenerate feature files must pass --overwrite explicitly.
+  if (opts.jsonMode) return 'merge';
+
+  const { action } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'action',
+      message: messages.APP_SCAFFOLD_FEATURE_EXISTS,
+      choices: [
+        { name: messages.APP_SCAFFOLD_FEATURE_EXISTS_OVERWRITE, value: 'overwrite' },
+        { name: messages.APP_SCAFFOLD_FEATURE_EXISTS_MERGE, value: 'merge' },
+        { name: messages.APP_SCAFFOLD_FEATURE_EXISTS_CANCEL, value: 'cancel' },
+      ],
+    },
+  ]);
+  return action as FeatureConflictChoice;
+}
+
 export interface FeatureScaffoldResult {
   written: number;
   files: Array<{ name: string; content: string }>;
@@ -461,8 +502,9 @@ async function resolveScaffoldPlan(
 }
 
 export const scaffoldCommand = withCommandHandler(
-  async (options: { json?: boolean }): Promise<void> => {
+  async (options: { json?: boolean; overwrite?: boolean }): Promise<void> => {
     const jsonMode = !!options.json;
+    const overwrite = !!options.overwrite;
 
     // Scaffolding a feature only makes sense inside an already-created project.
     const localConfig = readProjectConfig();
@@ -488,6 +530,18 @@ export const scaffoldCommand = withCommandHandler(
     const feature = await promptFeatureType(!jsonMode);
     const targetDir = process.cwd();
 
+    // Decide how existing feature files are handled (overwrite/merge/cancel)
+    // before writing anything.
+    const conflict = await resolveFeatureConflict(feature, appId, ctx, targetDir, {
+      jsonMode,
+      overwrite,
+    });
+    if (conflict === 'cancel') {
+      logInfo(messages.APP_SCAFFOLD_CANCELLED);
+      return;
+    }
+    const featureMergeOnly = conflict === 'merge';
+
     // Refresh the base config/meta files (full overwrite) only when the local
     // config drifted from the server and the user consented.
     let baseWritten = 0;
@@ -502,8 +556,9 @@ export const scaffoldCommand = withCommandHandler(
       scopes = base.scopes;
     }
 
-    // Feature files are merged in — never clobber hand-edited code.
-    const feat = runFeatureScaffold(feature, appId, ctx, targetDir, true);
+    // Feature files merge by default (never clobber hand-edited code); the user
+    // (or --overwrite) can opt into a full overwrite via resolveFeatureConflict.
+    const feat = runFeatureScaffold(feature, appId, ctx, targetDir, featureMergeOnly);
 
     const written = baseWritten + feat.written;
     const files = [...baseFiles, ...feat.files];

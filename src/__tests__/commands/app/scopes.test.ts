@@ -47,7 +47,7 @@ describe('app/scopes', () => {
     expect(out).toContain('  crm:write');
     expect(out).toContain('  account:read');
     expect(out.indexOf('data_crm:')).toBeLessThan(out.indexOf('account:'));
-    expect(out).toContain('brevo app update --scope');
+    expect(out).toContain('brevo app upload');
     expect(out).toContain('https://developers.brevo.com/docs/oauth-scopes#scope-catalog');
     expect(out).toContain('https://developers.brevo.com/docs/cli-reference');
   });
@@ -69,7 +69,7 @@ describe('app/scopes', () => {
     expect(JSON.parse(lastJsonLine)).toEqual({
       scopes: ['contacts:read', 'crm:write'],
     });
-    expect(out).not.toContain('brevo app update --scope');
+    expect(out).not.toContain('brevo app upload');
     expect(out).not.toContain('https://developers.brevo.com/docs/oauth-scopes#scope-catalog');
     expect(out).not.toContain('https://developers.brevo.com/docs/cli-reference');
   });

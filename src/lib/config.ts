@@ -345,7 +345,7 @@ export function deleteAppCredentials(appId: string): void {
   writeCredentials(creds);
 }
 
-// Locally cached app names mirror values from `app update` and `app credentials`.
+// Locally cached app names mirror values from `app upload` and `app credentials`.
 // Server-side, the PUT endpoint and the GET-list endpoint are eventually consistent,
 // so `app list` can return a stale name immediately after an update. Merging this
 // cache on top of the list response masks the lag. Entries expire after
@@ -451,7 +451,7 @@ export function readProjectConfig(): ProjectConfig | null {
     // Normalize auth.scopes silently — split on commas/whitespace so an entry
     // like "crm:read, campaigns:read" written by a user editing the JSON by
     // hand becomes two scopes. Strict charset validation is enforced later,
-    // in the update command, so unrelated commands that just happen to read
+    // in the upload command, so unrelated commands that just happen to read
     // config aren't broken by a malformed scope.
     const rawAuth = (raw as Record<string, unknown>).auth;
     let authOverride: Record<string, unknown> | undefined;
@@ -493,7 +493,7 @@ export function readProjectConfig(): ProjectConfig | null {
     }
     // Drop the legacy top-level `distribution` key from the returned config —
     // it's already folded into distribution_type above. Callers that write
-    // this object back to disk (update.ts, start.ts) then naturally migrate
+    // this object back to disk (upload.ts, start.ts) then naturally migrate
     // old projects to the new shape on their next write, instead of
     // round-tripping the stray key forever.
     const { distribution: _legacyDistribution, ...rawWithoutLegacyDistribution } = rawRecord;

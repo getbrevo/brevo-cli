@@ -118,9 +118,15 @@ A `TESTING.md` entry tracks all of the above as verification criteria for this b
 
 ## Implementation notes (as shipped)
 
-_Added 2026-07-23 after implementation, to keep this doc in sync with the code._
+_Added 2026-07-23 after implementation, to keep this doc in sync with the code.
+Revised 2026-07-23 after BEX-250 replaced `brevo app update` with `brevo app upload` —
+the "Design → `brevo app update`" section above describes the version write-back
+against the (now removed) `update` command; this section is authoritative for where
+that logic actually lives today._
 
-Shipped essentially as designed. Concrete anchors in the current code:
+Shipped essentially as designed, except the config write-back path moved from the
+removed `brevo app update` command to its replacement, `brevo app upload` (BEX-250).
+Concrete anchors in the current code:
 
 - **Data model** — `version?: string` on `OAuthApp` and `CreateAppResponse`
   (`src/types.ts`) and on `ProjectConfig` (`src/lib/config.ts`).
@@ -132,16 +138,24 @@ Shipped essentially as designed. Concrete anchors in the current code:
   a `"version"` key. Note: the scaffold flow was itself restructured (see
   `create-scaffold-directory-flow-design.md` → "Implementation notes"); version
   threading survived that restructure via `buildTemplateVars`, shared by both
-  `runBaseScaffold` and `runFeatureScaffold`.
+  `runBaseScaffold` and `runFeatureScaffold`. `version` also participates in the
+  scaffold config diff (`diffLocalConfig` in `scaffold.ts`).
 - **`brevo app list`** — a `Version:` line in the human output; JSON flows through
   automatically (`src/commands/app/list.ts`).
-- **`brevo app update`** — `ExistingAppState.version`, the config-fast-path /
-  backfill-on-legacy-config logic in `resolveExistingState`, `writeBackProjectConfig`
-  writing `version`, and `pushFullConfig`'s version-only write-back
-  (`writeVersionOnlyBack` + `fetchVersionOnly` best-effort backfill) all landed as
-  described (`src/commands/app/update.ts`). `version` also participates in the scaffold
-  config diff (`diffLocalConfig` in `scaffold.ts`).
+- **`brevo app upload`** (replaces `brevo app update`) — version is no longer treated
+  as read-only. `upload` sends the local `version` on the wire as `app_version`,
+  falling back to the server's current value when the local config lacks one
+  (`buildDiff`'s `nextVersion: config.version || remote.version || ''`), and writes the
+  server-confirmed `version` back into `app-config.json` on success
+  (`writeProjectConfig({ ..., version: response.app_version ?? diff.nextVersion })`).
+  The always-run diff fetch (`fetchExistingApp`, unconditional under `--yes`/`--json`
+  per BEX-250) supplies the remote value, so there is no separate version-only
+  backfill fetch — `buildDiff`/`hasNoChanges`/`renderUploadDiff` surface `version` in
+  the diff, and a legacy `app-config.json` missing `version` picks up the server's
+  value on its next `upload` (`src/commands/app/upload.ts`).
 - **Docs** — the `version` field is documented in `agent-context/AGENTS.md` and
   `agent-context/SKILL.md`.
 
-No deviations of note from this design.
+The only deviation from this design is the update→upload move (BEX-250); the version
+behavior itself landed as designed, with the added capability that `upload` now sends
+`version` on the wire (the design assumed a read-only, server-assigned field).

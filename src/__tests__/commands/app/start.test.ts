@@ -106,9 +106,7 @@ describe('app/start', () => {
     (fs.existsSync as jest.Mock).mockReturnValue(true);
     (isPortAvailable as jest.Mock).mockResolvedValueOnce(false);
 
-    await expect(startCommand({ feature: 'oauth' })).rejects.toThrow(
-      'brevo app update --redirect-uri',
-    );
+    await expect(startCommand({ feature: 'oauth' })).rejects.toThrow('brevo app upload');
   });
 
   it('should throw simple error when custom --port is in use', async () => {

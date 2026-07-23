@@ -151,6 +151,62 @@ describe('services/app', () => {
     });
   });
 
+  describe('uploadApp', () => {
+    it('should POST to the upload endpoint with the full payload plus cli_version', async () => {
+      const response = {
+        app_id: UUID,
+        name: 'Test App',
+        logo_uri: '',
+        app_version: '0.0.2',
+        auth: {
+          distribution_type: 'private',
+          scopes: ['contacts:read'],
+          redirect_urls: ['http://localhost:3010/auth/callback'],
+        },
+      };
+      (mockClient.post as jest.Mock).mockResolvedValue(response);
+
+      const result = await service.uploadApp(UUID, {
+        app_id: UUID,
+        name: 'Test App',
+        logo_uri: '',
+        app_version: '0.0.2',
+        auth: {
+          distribution_type: 'private',
+          scopes: ['contacts:read'],
+          redirect_urls: ['http://localhost:3010/auth/callback'],
+        },
+      });
+
+      expect(mockClient.post).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/upload`, {
+        app_id: UUID,
+        name: 'Test App',
+        logo_uri: '',
+        app_version: '0.0.2',
+        auth: {
+          distribution_type: 'private',
+          scopes: ['contacts:read'],
+          redirect_urls: ['http://localhost:3010/auth/callback'],
+        },
+        cli_version: CLI_VERSION,
+      });
+      expect(result).toEqual(response);
+    });
+
+    it('should propagate API errors (e.g. app_version_outdated rejections)', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new Error('app_version_outdated'));
+      await expect(
+        service.uploadApp('42', {
+          app_id: '42',
+          name: 'X',
+          logo_uri: '',
+          app_version: '0.0.1',
+          auth: { distribution_type: 'private', scopes: [], redirect_urls: [] },
+        }),
+      ).rejects.toThrow('app_version_outdated');
+    });
+  });
+
   describe('resolveAppCredentials', () => {
     it('should merge local secret when API does not return it', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue({

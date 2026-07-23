@@ -85,6 +85,7 @@ export const ENDPOINTS = {
   ACCOUNT: '/v3/account/info',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
+  APP_STORE_APP_UPLOAD: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/upload`,
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -102,12 +103,11 @@ export const CLI = {
     appId
       ? `brevo app credentials --reveal-secret --app-id ${appId}`
       : 'brevo app credentials --reveal-secret',
-  APP_UPDATE: 'brevo app update',
+  APP_UPLOAD: 'brevo app upload',
   APP_DELETE: 'brevo app delete',
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
-  APP_UPDATE_SCOPE: 'brevo app update --scope',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;

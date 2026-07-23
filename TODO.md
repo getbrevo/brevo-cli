@@ -10,9 +10,10 @@ items to "Done" with the date.
 ## Open
 
 - [ ] **Backfill `version` into `app-config.json` from `brevo app credentials` / re-scaffold.**
-  `brevo app update` now backfills a legacy `app-config.json` missing the `version`
-  field (added in `add-app-version-config`) on its next run — see `TESTING.md`. But a
-  project a developer never runs `update` on stays without `version` indefinitely:
+  `brevo app upload` (formerly `update`) now backfills a legacy `app-config.json`
+  missing the `version` field (added in `add-app-version-config`) on its next run —
+  see `TESTING.md`. But a project a developer never runs `upload` on stays without
+  `version` indefinitely:
   `brevo app credentials` doesn't write to `app-config.json` at all, and re-running
   `brevo app scaffold` against an existing project only fills in missing template
   files (`mergeOnly`), it doesn't update the config's `version` if the file already
@@ -37,6 +38,21 @@ items to "Done" with the date.
   race (directory removed between mkdir and chdir) would surface as a raw Node
   error instead of a friendly `CliError` message. Worth fixing in both places
   together in a follow-up. — (relates to `add-app-version-config`; see `TESTING.md`)
+
+- [ ] **Wire the Submitted/In-Review lifecycle lock into `brevo app upload`.** BEX-254's
+  disposition (superseded by BEX-250) calls for blocking `upload` when the app's
+  current state is `Submitted` or `In Review`. Deferred because BEX-252 (status)/
+  BEX-253 (withdraw) — the tickets that would introduce a state field/endpoint to
+  read — don't exist in this codebase yet. Wire this in once either lands.
+  — (relates to `BEX-250-app-upload`; see `TESTING.md`)
+
+- [ ] **Confirm `ui_app` passthrough risk with backend.** `brevo app upload` never
+  sends `ui_app` (local config has no field for it). If the upload endpoint treats a
+  missing `ui_app` as "clear the existing value" rather than "leave untouched," any
+  app that has one set (e.g. via a future dashboard UI) would have it silently wiped
+  on the next CLI upload. Confirmed accepted risk for this pass — revisit if/when
+  `ui_app` authoring becomes CLI-relevant.
+  — (relates to `BEX-250-app-upload`; see `docs/superpowers/specs/2026-07-23-app-upload-replaces-update-design.md`)
 
 - [ ] **Fix case mismatch so app-limit-reached shows the friendly error message.**
   `brevo app create` (and `brevo app scaffold`'s create step) fails silently with

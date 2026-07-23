@@ -2,15 +2,6 @@
 
 _Date: 2026-07-23_
 
-> **Implementation status (as of the `add-app-version-config` branch): NOT
-> IMPLEMENTED — proposal only.** On this branch `brevo app upload` does not exist,
-> `brevo app update` is still fully registered (`src/commands/app/update.ts`,
-> `definitions.ts`), and there is no `uploadApp()` in `src/services/app.ts`. This
-> work is tracked separately under BEX-250 (its own worktree) and remains **blocked
-> on open question #1** (endpoint + payload shape) below — nothing here has been
-> synced to code yet because there is no implementation to sync to. Leaving this doc
-> as the design of record; it will be reconciled against the code once BEX-250 lands.
-
 ## Source of truth
 
 [BEX-250 — CLI: Brevo app upload command](https://mailinblue.atlassian.net/browse/BEX-250) is the
@@ -33,18 +24,15 @@ Context pulled from:
 1. **`brevo app update` is fully removed**, not deprecated-in-place. The command is
    deregistered — `brevo app update` becomes an unknown command, same as any other
    removed subcommand. No stub, no forwarding shim.
-2. **The API contract is unconfirmed and stays flagged, not guessed.** BEX-250's own
-   description says `POST /cli/apps/{app_id}/upload`; the live example hits
-   `POST /v3/app-store/apps/{app_id}/upload` with a different payload shape
-   (snake_case, `auth.distribution_type`, `auth.redirect_urls`, plus a `ui_app` block).
-   This doc does not pick one — it's called out below as the top blocker for
-   implementation, to be confirmed with Shubham/backend before `src/services/app.ts`
-   gets a `uploadApp()` implementation.
+2. **The API contract is confirmed** — `POST /v3/app-store/apps/{app_id}/upload`,
+   snake_case payload with `auth.distribution_type`/`auth.redirect_urls`/`app_version`.
+   See "Resolved" section below for the exact shape and the field-naming quirks to
+   preserve. (BEX-250's own ticket text says `POST /cli/apps/{app_id}/upload` — that's
+   now known to be stale/inaccurate; the `v3/app-store` path is authoritative.)
 3. **`ui_app` (extension_point / action_link / trigger / context_properties) is out of
-   scope.** The CLI does not author, prompt for, or validate this block. If it's already
-   present in a given app's config (as in the live example, which is presumably an
-   existing app's full record), `upload` passes it through unmodified. No scaffold
-   changes, no new config fields for it in this pass.
+   scope and never sent.** The CLI does not author, prompt for, or validate this block,
+   and does not fetch-and-passthrough an existing value either — confirmed accepted
+   risk, see "Resolved" section below.
 4. **BEX-254 is superseded, not independently implemented.** See disposition below.
 5. **No `--app-id` flag on `upload`.** Unlike `update.ts`, `upload` resolves the app
    *only* from `app-config.json` in the current working directory. There is no flag
@@ -119,26 +107,105 @@ requirement — the Submitted/In-Review lock check — into BEX-250's acceptance
 above, rather than losing it. BEX-254's soft dependency on BEX-248 ("App Locking
 Management") carries over to BEX-250 for the same reason.
 
-## Open questions / blockers
+## Resolved (2026-07-23, confirmed by user)
 
-1. **Endpoint and payload shape** (decision #2) — needs confirmation with
-   Shubham/backend before the config→payload mapping in `src/services/app.ts` can be
-   written. This blocks implementation, not this doc.
-2. Full list of server error codes beyond `app_version_outdated` still isn't enumerated
-   (carried over from BEX-250's original open question #3) — needed before writing exact
-   CLI error copy in `en.ts`.
-3. Whether the upload response echoes back the full canonical app record (so `upload`
-   can write it back into `app-config.json` the way `update.ts` did) depends on
-   decision #2 being resolved first.
+### Endpoint and payload — decision #2 is now locked in
+
+`POST /v3/app-store/apps/{app_id}/upload`. Confirmed request/response shape:
+
+```json
+{
+  "app_id": "b3218c78-0b09-4fef-a5ed-8280b54a6b82",
+  "name": "test2.0.0",
+  "logo_uri": "",
+  "app_version": "0.0.2",
+  "auth": {
+    "distribution_type": "private",
+    "scopes": ["account:read", "account:write", "..."],
+    "redirect_urls": ["http://localhost:3010/auth/callback"]
+  }
+}
+```
+
+Two field-naming quirks vs. the rest of the API, both intentional per the confirmed
+contract, not to be "normalized" away:
+
+- `distribution_type` moves **into** the `auth` object on the wire, even though local
+  `app-config.json` keeps it as a top-level `distribution_type` field (per the
+  already-shipped `BEX-255_change` decision) — the CLI's own config shape and the
+  upload wire shape are allowed to differ; `upload.ts` is responsible for the
+  translation in both directions (request: lift `distribution_type` into `auth`;
+  response: pull it back out to top-level before writing `app-config.json`).
+- The version field is `app_version` here (top-level, sibling of `auth`), not `version`
+  like the `GET`/`list` responses (`OAuthApp.version`). This is upload-specific wire
+  naming — do not reuse `OAuthApp` for the upload request/response type; define a
+  dedicated `UploadAppPayload`/`UploadAppResponse` shape in `src/types.ts`.
+- Redirect URLs are `redirect_urls` (not `redirect_uris`, unlike every other endpoint
+  in this codebase — `create`/`update`/`GET` all use `redirect_uris`). Another
+  upload-specific wire quirk to preserve exactly, not "fix" for consistency.
+
+### `ui_app` — never sent (decision confirmed, risk accepted)
+
+Local `app-config.json` has no field for `ui_app` and never will in this pass. `upload`
+never includes it in the request body. If the server treats a missing `ui_app` as
+"clear the existing value" rather than "leave untouched," that's an accepted,
+documented risk (flagged in `TODO.md`) — not solved by fetch-and-passthrough. This
+keeps `upload`'s payload construction simple and avoids depending on the shape of a
+field the CLI doesn't understand.
+
+### Lifecycle gate — deferred entirely
+
+BEX-252 (status)/BEX-253 (withdraw) don't exist in this codebase — no state field on
+`OAuthApp`, no state-read endpoint, no submit/withdraw commands. The Submitted/In-Review
+lock check from BEX-254's disposition is **out of scope for this implementation pass**.
+Everything else in the acceptance criteria ships now; the lock check is a `TODO.md`
+follow-up once BEX-252/253 land.
+
+### Flags — full-config push only, no edit flags
+
+`brevo app upload` takes **only** `--yes` and `--json`. Unlike `update`, there is no
+`--name`, `--redirect-uri`, `--scope`, or `--logo-uri`. To change any of those values,
+edit `app-config.json` directly, then run `upload`. This is a bigger behavior change
+than the original BEX-250 ticket implied (it only called out dropping `--app-id`) —
+confirmed explicitly with the user because it collapses `update.ts`'s
+`updateWithFlags`/`pushFullConfig` dual-path into a single push-only flow, and because
+it ripples into every other message in the codebase that told users to run
+`brevo app update --scope`/`--redirect-uri` as a one-liner fix.
+
+### Ripple effect: messages referencing removed `update` flags
+
+None of these are in `update.ts` itself — all need rewording to point at editing
+`app-config.json` + running `upload` instead of a flag:
+
+- `src/lang/en.ts`: `APP_CREATE_BOX_SCOPE_HINT`, `LEGACY_ALL_SCOPE_DEPRECATED_BLOCK`,
+  `LEGACY_ALL_SCOPE_START_BLOCK`, `LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED`,
+  `APP_SCAFFOLD_SCOPES_TIP`, `APP_START_PORT_IN_USE`, `APP_START_CUSTOM_PORT_IN_USE`,
+  `APP_START_REDIRECT_DECLINED`, `APP_START_REDIRECT_NON_INTERACTIVE`,
+  `APP_SCOPES_USAGE_HINT`, `APP_SCOPES_WEB_SELECTED_PLACEHOLDER`.
+- `start.ts`'s `ensureRedirectRegistered` calls `appService.updateApp()` (the `PATCH`
+  service method, not the CLI command) directly to auto-register a new localhost
+  redirect URL — this is internal, unrelated to the `update` CLI command's flag
+  surface, and is **unaffected** by this change. `appService.updateApp()` stays exactly
+  as it is; only the CLI-facing `update` command (`update.ts`, its `definitions.ts`
+  entry, and its messages) goes away.
+
+## Remaining open questions (non-blocking, deferred)
+
+1. Full list of server error codes beyond `app_version_outdated` still isn't enumerated
+   — `upload.ts` surfaces whatever message/status the server returns on rejection
+   rather than hard-coding a full error-code catalog.
+2. Lifecycle gate (see above) — deferred to a follow-up once BEX-252/253 exist.
 
 ## Next steps
 
-1. You review this doc and confirm the BEX-250 rewrite above.
-2. I push the revised description/acceptance criteria to BEX-250 on Jira (per your
-   instruction that BEX-250 is the source of truth) and add a comment/transition on
-   BEX-254 marking it superseded.
-3. Once open question #1 (endpoint/payload) is resolved, we move to an implementation
-   plan via `writing-plans` — new `src/commands/app/upload.ts`, removal of
-   `src/commands/app/update.ts` and its tests, `definitions.ts`/`constants.ts`/`en.ts`
-   updates, and the `AGENTS.md`/`SKILL.md` sync required by this repo's CLAUDE.md for
-   any user-visible command change.
+1. ~~You review this doc and confirm the BEX-250 rewrite above.~~ Done — endpoint,
+   payload, `ui_app`, lifecycle gate, and flag scope all confirmed 2026-07-23.
+2. Push the revised description/acceptance criteria to BEX-250 on Jira and add a
+   comment/transition on BEX-254 marking it superseded (not done as part of this
+   implementation pass — flag to the user separately).
+3. Move to an implementation plan via `writing-plans` — new `src/commands/app/upload.ts`
+   + `uploadApp()` in `src/services/app.ts` + `UploadAppPayload`/`UploadAppResponse` in
+   `src/types.ts`, removal of `src/commands/app/update.ts` and its tests,
+   `definitions.ts`/`constants.ts`/`en.ts` updates (including the ripple-effect
+   rewording above), and the `AGENTS.md`/`SKILL.md` sync required by this repo's
+   CLAUDE.md for any user-visible command change.

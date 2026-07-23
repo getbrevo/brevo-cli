@@ -33,3 +33,33 @@ export interface CreateAppResponse {
   created_at: string;
   updated_at: string;
 }
+
+// Wire shape for POST /v3/app-store/apps/{app_id}/upload — deliberately
+// distinct from OAuthApp: distribution_type nests under auth (OAuthApp keeps
+// it top-level), the version field is named app_version (not version), and
+// redirect URLs are redirect_urls (not redirect_uris like every other
+// endpoint). These are confirmed, intentional quirks of this one endpoint —
+// do not "fix" them to match OAuthApp's naming.
+export interface UploadAppPayload {
+  app_id: string;
+  name: string;
+  logo_uri: string;
+  app_version: string;
+  auth: {
+    distribution_type: 'public' | 'private';
+    scopes: string[];
+    redirect_urls: string[];
+  };
+}
+
+export interface UploadAppResponse {
+  app_id: string;
+  name: string;
+  logo_uri?: string;
+  app_version?: string;
+  auth: {
+    distribution_type?: 'public' | 'private';
+    scopes?: string[];
+    redirect_urls?: string[];
+  };
+}

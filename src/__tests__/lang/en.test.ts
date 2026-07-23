@@ -63,16 +63,16 @@ describe('messages (lang/en)', () => {
     expect(messages.APP_SCAFFOLD_CREATING_DIR('./my-app')).toContain('./my-app');
   });
 
-  it('should have a scaffold scopes tip that points at both update paths', () => {
+  it('should have a scaffold scopes tip that points at editing app-config.json + upload', () => {
     const tip = messages.APP_SCAFFOLD_SCOPES_TIP;
     expect(tip).toContain('brevo app available-scopes');
-    expect(tip).toContain('brevo app update --scope');
+    expect(tip).toContain('brevo app upload');
     expect(tip).toContain('app-config.json');
   });
 
-  it('should have working app update messages', () => {
-    expect(messages.APP_UPDATE_INVALID_REDIRECT_URL('ftp://bad')).toContain('ftp://bad');
-    expect(messages.APP_UPDATE_INVALID_REDIRECT_PROTOCOL('ftp://bad')).toContain('ftp://bad');
+  it('should have working app upload messages', () => {
+    expect(messages.APP_UPLOAD_INVALID_REDIRECT_URL('ftp://bad')).toContain('ftp://bad');
+    expect(messages.APP_UPLOAD_INVALID_REDIRECT_PROTOCOL('ftp://bad')).toContain('ftp://bad');
   });
 
   it('should advertise https for the logo URL', () => {
@@ -87,14 +87,10 @@ describe('messages (lang/en)', () => {
   });
 
   describe('scope-related messages', () => {
-    it('exports the create-time box strings (title, scopes label, update hint)', () => {
+    it('exports the create-time box strings (title, scopes label, upload hint)', () => {
       expect(messages.APP_CREATE_BOX_TITLE).toMatch(/created/i);
       expect(messages.APP_CREATE_BOX_SCOPES_LABEL).toMatch(/scope/i);
-      expect(messages.APP_CREATE_BOX_SCOPE_HINT).toContain('brevo app update --scope');
-    });
-
-    it('exports the update-time appended summary', () => {
-      expect(messages.APP_UPDATE_SCOPES_APPENDED(['contacts:read'])).toContain('contacts:read');
+      expect(messages.APP_CREATE_BOX_SCOPE_HINT).toContain('brevo app upload');
     });
 
     it('exports the app scopes empty-result message', () => {
@@ -102,8 +98,9 @@ describe('messages (lang/en)', () => {
       expect(messages.APP_SCOPES_EMPTY).toMatch(/scope/i);
     });
 
-    it('exports the app scopes usage hint pointing to brevo app update --scope', () => {
-      expect(messages.APP_SCOPES_USAGE_HINT).toContain('brevo app update --scope');
+    it('exports the app scopes usage hint pointing to app-config.json + brevo app upload', () => {
+      expect(messages.APP_SCOPES_USAGE_HINT).toContain('brevo app upload');
+      expect(messages.APP_SCOPES_USAGE_HINT).toContain('app-config.json');
     });
 
     it('exports IdP scopes error messages', () => {
@@ -116,9 +113,9 @@ describe('messages (lang/en)', () => {
       expect(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK).toContain("'all'");
       expect(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK).toContain('app-config.json');
       expect(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK).toContain('brevo app available-scopes');
-      expect(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK).toContain('brevo app update --scope');
+      expect(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK).toContain('brevo app upload');
       expect(messages.LEGACY_ALL_SCOPE_START_BLOCK).toContain("'all'");
-      expect(messages.LEGACY_ALL_SCOPE_START_BLOCK).toContain('brevo app update --scope');
+      expect(messages.LEGACY_ALL_SCOPE_START_BLOCK).toContain('brevo app upload');
       expect(messages.LEGACY_ALL_SCOPE_START_BLOCK).toContain('brevo app start oauth');
       expect(messages.LEGACY_ALL_SCOPE_LIST_TAG).toMatch(/legacy/i);
       expect(messages.LEGACY_ALL_SCOPE_LIST_TAG).toMatch(/deprecated/i);
@@ -151,7 +148,7 @@ describe('messages (lang/en)', () => {
       expect(messages.APP_SCOPES_WEB_COPY_CATEGORY_ARIA).toContain('{category}');
       expect(messages.APP_SCOPES_WEB_SELECT_SCOPE_ARIA).toContain('{scope}');
       expect(messages.APP_SCOPES_WEB_COPY_SELECTED).toMatch(/copy/i);
-      expect(messages.APP_SCOPES_WEB_SELECTED_PLACEHOLDER).toContain('brevo app update --scope');
+      expect(messages.APP_SCOPES_WEB_SELECTED_PLACEHOLDER).toContain('auth.scopes');
       expect(messages.APP_SCOPES_WEB_LEGACY_BADGE).toMatch(/deprecated/i);
       expect(messages.APP_SCOPES_WEB_LEGACY_TITLE).toMatch(/legacy 'all'/i);
       expect(messages.APP_SCOPES_WEB_DOCS_LINK).toMatch(/cli reference/i);
