@@ -17,6 +17,7 @@ import {
   getAppCredentials,
   getCredentialsPath,
   readProjectConfig,
+  writeProjectConfig,
   hasLocalApp,
 } from '../../lib/config';
 
@@ -390,7 +391,7 @@ describe('config', () => {
       it('splits a comma-embedded scope entry into individual tokens', () => {
         writeConfig({
           appId: '42',
-          auth: { type: 'private', scopes: ['crm:read', 'crm:write, campaigns:read'] },
+          auth: { scopes: ['crm:read', 'crm:write, campaigns:read'] },
         });
         const cfg = readProjectConfig();
         expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write', 'campaigns:read']);
@@ -399,7 +400,7 @@ describe('config', () => {
       it('leaves well-formed scope arrays untouched', () => {
         writeConfig({
           appId: '42',
-          auth: { type: 'private', scopes: ['crm:read', 'crm:write'] },
+          auth: { scopes: ['crm:read', 'crm:write'] },
         });
         const cfg = readProjectConfig();
         expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write']);
@@ -408,7 +409,7 @@ describe('config', () => {
       it('deduplicates scopes', () => {
         writeConfig({
           appId: '42',
-          auth: { type: 'private', scopes: ['crm:read', 'crm:read', 'crm:write'] },
+          auth: { scopes: ['crm:read', 'crm:read', 'crm:write'] },
         });
         const cfg = readProjectConfig();
         expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write']);
@@ -417,13 +418,17 @@ describe('config', () => {
       it('does not throw on malformed scope chars (charset is enforced later, at update time)', () => {
         writeConfig({
           appId: '42',
-          auth: { type: 'private', scopes: ['crm;read'] },
+          auth: { scopes: ['crm;read'] },
         });
         expect(() => readProjectConfig()).not.toThrow();
       });
     });
 
-    describe('legacy distribution key', () => {
+    describe('distribution_type backward compatibility', () => {
+      // distribution_type has moved twice: originally a top-level `distribution`
+      // key (still the shape of every currently-published scaffold), briefly
+      // `auth.type` (an interim design that never shipped), now a top-level
+      // `distribution_type` key.
       const originalCwd = process.cwd();
       let projectDir: string;
 
@@ -443,33 +448,112 @@ describe('config', () => {
         fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
       }
 
-      it('backfills auth.type from a legacy top-level distribution key', () => {
+      it('backfills distribution_type from the oldest legacy top-level distribution key', () => {
         writeConfig({
           appId: '42',
           auth: { scopes: ['crm:read'], redirectUrls: [] },
           distribution: 'public',
         });
         const cfg = readProjectConfig();
-        expect(cfg?.auth?.type).toBe('public');
+        expect(cfg?.distribution_type).toBe('public');
       });
 
-      it('prefers auth.type over the legacy distribution key when both exist', () => {
+      it('backfills distribution_type from the interim auth.type key', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'public', scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.distribution_type).toBe('public');
+      });
+
+      it('prefers top-level distribution_type over both legacy shapes when all are present', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'public',
+          auth: { type: 'private', scopes: ['crm:read'] },
+          distribution: 'private',
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.distribution_type).toBe('public');
+      });
+
+      it('prefers the interim auth.type over the oldest legacy distribution key', () => {
         writeConfig({
           appId: '42',
           auth: { type: 'public', scopes: ['crm:read'] },
           distribution: 'private',
         });
         const cfg = readProjectConfig();
-        expect(cfg?.auth?.type).toBe('public');
+        expect(cfg?.distribution_type).toBe('public');
       });
 
-      it('reads a new-format config without a distribution key', () => {
+      it('defaults distribution_type to private when no shape is present', () => {
         writeConfig({
           appId: '42',
-          auth: { type: 'private', scopes: ['crm:read'] },
+          auth: { scopes: ['crm:read'] },
         });
         const cfg = readProjectConfig();
-        expect(cfg?.auth?.type).toBe('private');
+        expect(cfg?.distribution_type).toBe('private');
+      });
+
+      it('reads a new-format config with a top-level distribution_type directly', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'private',
+          auth: { scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.distribution_type).toBe('private');
+      });
+
+      it('does not carry the legacy distribution key forward in the returned config', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+          distribution: 'public',
+        });
+        const cfg = readProjectConfig();
+        expect(cfg).not.toHaveProperty('distribution');
+      });
+
+      it('does not carry the interim auth.type key forward in the returned config', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'public', scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth).not.toHaveProperty('type');
+      });
+
+      it('migrates the oldest legacy config to the new shape on the next write', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+          distribution: 'public',
+        });
+        const cfg = readProjectConfig();
+        writeProjectConfig(cfg!);
+        const onDisk = JSON.parse(
+          fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'),
+        );
+        expect(onDisk).not.toHaveProperty('distribution');
+        expect(onDisk.auth).not.toHaveProperty('type');
+        expect(onDisk.distribution_type).toBe('public');
+      });
+
+      it('migrates an interim auth.type config to the new shape on the next write', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'public', scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        writeProjectConfig(cfg!);
+        const onDisk = JSON.parse(
+          fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'),
+        );
+        expect(onDisk.auth).not.toHaveProperty('type');
+        expect(onDisk.distribution_type).toBe('public');
       });
     });
   });
