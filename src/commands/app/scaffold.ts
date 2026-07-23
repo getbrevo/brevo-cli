@@ -170,7 +170,7 @@ function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDif
 
   const serverName = ctx.appDetails?.name;
   if (serverName && localConfig.appName !== serverName) {
-    diffs.push({ field: 'appName', local: localConfig.appName, server: serverName });
+    diffs.push({ field: 'appName', local: localConfig.appName || '(none)', server: serverName });
   }
 
   const serverDistribution = ctx.appDetails?.distribution_type ?? 'private';

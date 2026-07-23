@@ -372,6 +372,41 @@ describe('app/scaffold', () => {
       expect(fs.writeFileSync).toHaveBeenCalled();
     });
 
+    it.each<[string, Record<string, unknown>, string]>([
+      ['appName', { appName: 'Old Name' }, 'appName'],
+      ['distribution_type', { distribution_type: 'public' as const }, 'distribution_type'],
+      [
+        'scopes',
+        {
+          auth: {
+            scopes: ['contacts:write'],
+            redirectUrls: ['http://localhost:3009/auth/callback'],
+          },
+        },
+        'scopes',
+      ],
+      ['logoUri', { logoUri: 'https://old.example.com/logo.png' }, 'logoUri'],
+      ['version', { version: '0.9.0' }, 'version'],
+    ])(
+      'shows a diff and asks consent when %s differs from the server',
+      async (_label, override, expectedFieldLabel) => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...matchingLocalConfig,
+          ...override,
+        });
+        mockPrompt
+          .mockResolvedValueOnce({ confirmed: true })
+          .mockResolvedValueOnce({ projectType: 'oauth' });
+
+        await scaffoldCommand({ appId: '1' });
+
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(output).toContain(expectedFieldLabel);
+        expect(output).toContain('differs from the server');
+        expect(fs.writeFileSync).toHaveBeenCalled();
+      },
+    );
+
     it('cancels without writing when the config differs and the user declines', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
