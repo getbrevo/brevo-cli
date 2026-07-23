@@ -57,6 +57,39 @@ state back into `app-config.json` on success.
 
 Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
+### Restore a real `cd` hint in scaffold's Next steps, corrected against the original cwd (`add-app-version-config`)
+_Added: 2026-07-23_
+
+Follow-up correction to the "dead cd step" fix above: that fix removed the `cd <dir>` step
+from Next steps on the theory it was always a no-op `cd .` (true, but only because it was
+computed *after* the CLI's internal `process.chdir()` already ran). The actual bug was that
+`process.chdir()` only moves the CLI's own Node process — it never moves the shell the user
+typed the command into — so the user's terminal never actually lands inside the scaffolded
+directory even though the CLI printed "...and moving into it...". Fixed by capturing
+`process.cwd()` at the very top of `createCommand`/`scaffoldCommand`, before any directory
+resolution/chdir happens, and computing the `cd` hint relative to *that* original cwd instead
+of the CLI's current (already-moved) cwd.
+
+- [x] `computeCdHint(originalCwd, targetDir)` (new export, `scaffold.ts`) returns
+  `path.relative(originalCwd, targetDir)`, or `undefined` when they're the same directory —
+  (Automated: `en.test.ts`, `scaffold.test.ts`)
+- [x] `APP_SCAFFOLD_NEXT_STEPS_LINES(cdDir?)` prepends `1. cd <cdDir>` and renumbers the
+  remaining steps only when `cdDir` is given; omits it entirely when `cdDir` is `undefined` —
+  (Automated: `en.test.ts`)
+- [x] `scaffoldCommand`: scaffolding into a directory other than the one the command was run
+  from prints a `cd <relative-path>` step in Next steps — (Automated: `scaffold.test.ts`)
+- [x] `scaffoldCommand`: scaffolding into the same directory the command was run from (cwd
+  overwrite, or the cwd-linked-app shortcut) omits the `cd` step — (Automated:
+  `scaffold.test.ts`)
+- [x] `createCommand` captures `process.cwd()` before directory resolution runs, and forwards
+  `computeCdHint(originalCwd, targetDir)` into `reportScaffoldSuccess` — (Automated:
+  `create.test.ts`)
+- [ ] Manually verify `brevo app create` in a fresh directory and in an "overwrite existing
+  directory" run both print the correct relative `cd` path in Next steps, and that running
+  the printed `cd` actually lands in the scaffolded project — (Manual)
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
 ### `brevo app scaffold --json` no longer blocks on interactive prompts (`add-app-version-config`)
 _Added: 2026-07-23_
 

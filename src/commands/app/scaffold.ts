@@ -334,6 +334,7 @@ export function reportScaffoldSuccess(result: {
   scopes: string[];
   files: Array<{ name: string; content: string }>;
   targetDir: string;
+  cdDir?: string;
 }): void {
   logSuccess(messages.APP_SCAFFOLD_SUCCESS(result.written));
   if (result.legacyAllSubstituted) {
@@ -341,8 +342,19 @@ export function reportScaffoldSuccess(result: {
   }
   logInfo(formatFileTree(result.files.map((f) => f.name)));
 
-  printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_SCAFFOLD_NEXT_STEPS_LINES());
+  printBox(
+    messages.APP_SCAFFOLD_NEXT_STEPS_TITLE,
+    messages.APP_SCAFFOLD_NEXT_STEPS_LINES(result.cdDir),
+  );
   logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
+}
+
+// process.chdir() only moves the CLI's own process, never the shell the user
+// typed the command in — so the "cd" hint in Next steps must be relative to
+// where the command was actually invoked (captured before any chdir), not
+// the CLI's current (already-moved) cwd.
+export function computeCdHint(originalCwd: string, targetDir: string): string | undefined {
+  return path.relative(originalCwd, targetDir) || undefined;
 }
 
 interface ScaffoldTargetResolved {
@@ -444,6 +456,7 @@ async function resolveScaffoldTarget(
 
 export const scaffoldCommand = withCommandHandler(
   async (options: { appId?: string; json?: boolean }): Promise<void> => {
+    const originalCwd = process.cwd();
     const appId = options.appId ?? (await appService.pickApp('Select an app:'));
     const ctx = await fetchAppContext(appId, options.json);
     const slug = computeSlug(ctx.appDetails?.name);
@@ -482,6 +495,7 @@ export const scaffoldCommand = withCommandHandler(
       scopes,
       files,
       targetDir: target.targetDir,
+      cdDir: computeCdHint(originalCwd, target.targetDir),
     });
   },
 );

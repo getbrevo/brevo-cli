@@ -10,9 +10,10 @@ items to "Done" with the date.
 ## Open
 
 - [ ] **Backfill `version` into `app-config.json` from `brevo app credentials` / re-scaffold.**
-  `brevo app update` now backfills a legacy `app-config.json` missing the `version`
-  field (added in `add-app-version-config`) on its next run — see `TESTING.md`. But a
-  project a developer never runs `update` on stays without `version` indefinitely:
+  `brevo app upload` (formerly `update`) now backfills a legacy `app-config.json`
+  missing the `version` field (added in `add-app-version-config`) on its next run —
+  see `TESTING.md`. But a project a developer never runs `upload` on stays without
+  `version` indefinitely:
   `brevo app credentials` doesn't write to `app-config.json` at all, and re-running
   `brevo app scaffold` against an existing project only fills in missing template
   files (`mergeOnly`), it doesn't update the config's `version` if the file already
@@ -49,6 +50,17 @@ items to "Done" with the date.
   on the next CLI upload. Confirmed accepted risk for this pass — revisit if/when
   `ui_app` authoring becomes CLI-relevant.
   — (relates to `BEX-250-app-upload`; see `docs/superpowers/specs/2026-07-23-app-upload-replaces-update-design.md`)
+
+- [ ] **Fix case mismatch so app-limit-reached shows the friendly error message.**
+  `brevo app create` (and `brevo app scaffold`'s create step) fails silently with
+  the raw API fallback message instead of `messages.APP_CREATE_LIMIT_REACHED` when
+  a user hits the 10-app limit. Root cause: the API returns `{"code":
+  "app_limit_reached"}` (lowercase — confirmed from a real `422` debug log), but
+  `mapErrorCode`/`apiCodeMessages` in `src/api/client.ts:26-33,106-108` only match
+  the uppercase literal `'APP_LIMIT_REACHED'`, so `ApiError.errorCode` never gets
+  set and the friendly-message branch in `src/commands/app/create.ts:294` never
+  fires. Fix by comparing case-insensitively (or normalizing `apiCode` to
+  uppercase before the lookup) in both `apiCodeMessages` and `mapErrorCode`.
 
 ---
 
