@@ -279,11 +279,11 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     ...config,
     appName: finalName,
     logoUri: response.logo_uri ?? config.logoUri,
-    distribution_type: response.auth?.distribution_type ?? config.distribution_type,
+    distribution_type: response.auth.distribution_type ?? config.distribution_type,
     version: response.app_version ?? diff.nextVersion,
     auth: {
-      scopes: response.auth?.scopes ?? scopes,
-      redirectUrls: response.auth?.redirect_urls ?? redirectUrls,
+      scopes: response.auth.scopes ?? scopes,
+      redirectUrls: response.auth.redirect_urls ?? redirectUrls,
     },
   });
 

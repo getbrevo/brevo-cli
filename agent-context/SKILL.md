@@ -41,7 +41,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 - "Who am I logged in as?" → `brevo whoami --json`
 - "Show / pick an app" → `brevo app list --json`
 - "Create an app" → `brevo app create --name "<name>" --distribution <private|public> --redirect-uri <url> --json` (add `--logo-uri <https://…>` to set the app logo at creation time; new apps default to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`). Use `private` for apps used exclusively by the user's own organisation, `public` for apps distributed to end users or marketplace listings; default to `private` when the user hasn't said which. **Fails immediately if run from a directory that already has `app-config.json`** — `cd` elsewhere first, or use `brevo app scaffold` in that directory instead. Otherwise resolves (creates/`cd`s into) its target directory before creating the app, **then always scaffolds starter OAuth code too** — no separate `app scaffold` call needed. Under `--json`, the response's `directory` field is where it landed; check for `scaffoldSkipped` instead of `scaffolded` if that directory already existed (both directory setup and scaffolding are skipped together in that case, but the app is still created).
-- "Update app metadata" → `brevo app update --app-id <id> --name "<name>"` and/or `--redirect-uri <url>` (repeatable) and/or `--scope <scope>` (repeatable, appends) and/or `--logo-uri <https://…>`
+- "Update app metadata" → edit the relevant field(s) in `app-config.json` (`appName`, `auth.redirectUrls`, `auth.scopes`, `logoUri`), then run `brevo app upload --json` (no `--app-id`/`--name`/`--redirect-uri`/`--scope`/`--logo-uri` flags exist — `upload` always pushes the whole file, resolved only from cwd's `app-config.json`)
 - "Get client credentials" → `brevo app credentials --app-id <id> --json` (add `--reveal-secret` to print the secret)
 - "Generate starter OAuth code for an app that doesn't have it yet, or re-scaffold" → `brevo app scaffold --app-id <id>` (not needed right after `app create` — that already scaffolds)
 - "Run the OAuth test server" → `brevo app start oauth --port 3009` (must be inside the scaffolded directory)
@@ -59,28 +59,28 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 
 ## Locating the linked app
 
-If `app-config.json` exists in the working directory, it pins the app — `brevo app update` and `brevo app start` use it automatically. To target a different app, pass `--app-id`.
+If `app-config.json` exists in the working directory, it pins the app — `brevo app upload` and `brevo app start` use it automatically. Unlike most other commands, `upload` has **no** `--app-id` override — it only ever reads cwd's `app-config.json`, hard-erroring if that file is missing, invalid, or lacks `appId`.
 
-`app-config.json` carries an optional top-level `logoUri` string. When set, a flagless `brevo app update` pushes it as `logo_uri` in the PUT body; when empty / absent, the field is left untouched on the API.
+`app-config.json` carries an optional top-level `logoUri` string. When set, `brevo app upload` pushes it as `logo_uri`; when empty / absent, the field is left untouched on the API.
 
-`app-config.json` also carries a top-level `version` string — server-assigned at `brevo app create` and shown by `brevo app create`/`brevo app list`/`brevo app update`. It's read-only: the CLI never sends it and there's no flag to change it. `brevo app update` backfills it into `app-config.json` for projects scaffolded before this field existed.
+`app-config.json` also carries a top-level `version` string, shown by `brevo app create`/`brevo app list`. `brevo app upload` sends it on the wire as `app_version` (falling back to the server's current value if locally absent) and writes back whatever version the server confirms after a successful upload.
 
 ## Scopes
 
-- New apps created via `brevo app create` default to `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. The CLI prints the default set on success and points to `brevo app update --scope` for changes.
-- `brevo app update --scope <scope>` is **repeatable and appends** — passing `--scope X --scope Y` adds both to the app's existing scope set, de-duped, order-preserving. A single flag value may also contain multiple comma- or whitespace-separated tokens (`--scope "crm:read, crm:write"` ≡ `--scope crm:read --scope crm:write`); the same normalization is applied to `auth.scopes` when read from `app-config.json`, so a malformed entry like `"crm:write, campaigns:read"` is split into two scopes on read. To see what's currently set, run `brevo app credentials --app-id <id> --json`. To remove a scope, edit `app-config.json` and run `brevo app update` without `--scope`.
+- New apps created via `brevo app create` default to `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. The CLI prints the default set on success and points to editing `app-config.json` + `brevo app upload` for changes.
+- To add, remove, or change scopes: edit `auth.scopes` in `app-config.json` directly, then run `brevo app upload`. Comma- or whitespace-separated values in a single entry are normalized on read (e.g. `"crm:write, campaigns:read"` becomes two scopes). To see what's currently set, run `brevo app credentials --app-id <id> --json`.
 - `brevo app available-scopes [--json] [--web]` lists the OAuth scopes the IdP currently supports. It reads a **public** catalog and works **without `brevo login`** (no API key needed). Text output groups names by category (e.g. `account`, `data_crm`, `messaging`); `--json` returns a flat `{ scopes: string[] }` of names. OIDC-reserved scopes (`openid`, `profile`, `email`, `offline_access`) and magic wildcards are excluded. The CLI validates scope **format** locally (must match `[A-Za-z0-9][A-Za-z0-9:_.-]*`) but does **not** validate that a scope is recognized by the IdP — use `app available-scopes` to confirm spelling before passing an unfamiliar scope.
 - Passing `--web` to `brevo app available-scopes` **also opens a browser** to a styled local page (loopback `http://127.0.0.1:<port>/`) and stays running until Ctrl+C. Without `--web` the command exits after printing the list — TTY detection no longer triggers the browser. `--json` always suppresses the browser, so agent invocations using `--json` behave the same regardless of `--web`.
 
 ### Legacy `'all'` scope deprecation
 
-The legacy catch-all `'all'` OAuth scope is deprecated. The CLI **blocks** `brevo app update` and `brevo app start oauth` when scopes still contain `'all'` (no escape hatch, no silent rewrite); the only mutating path that proceeds is an explicit `--scope` migration. To handle a legacy app:
+The legacy catch-all `'all'` OAuth scope is deprecated. The CLI **blocks** `brevo app upload` and `brevo app start oauth` when scopes still contain `'all'` (no escape hatch, no silent rewrite); the only mutating path that proceeds is editing `auth.scopes` in `app-config.json` and running `upload`. To handle a legacy app:
 
 1. **Detect** `'all'` in `auth.scopes` of a local `app-config.json`, or on a remote app via `brevo app list --json` — affected apps carry `"legacy_all_scope": true` (text output appends `(legacy 'all' — deprecated)` to the scopes line).
 2. **Prompt the user to pick granular scopes** — use `brevo app available-scopes --json` for the catalog, or fall back to the four defaults (`contacts:read`, `contacts:write`, `crm:read`, `crm:write`).
-3. **Migrate** with `brevo app update --scope <scope> --scope <scope> ...` — passing `--scope` drops `'all'` from the outgoing scope set and applies the new granular scopes (the summary shows a "Migrating from legacy 'all' scope" line and `all (removed)`).
+3. **Migrate** by editing `auth.scopes` in `app-config.json` to replace `'all'` with the granular scopes your integration uses, then run `brevo app upload` (the summary shows a "Migrating from legacy 'all' scope" line and `all (removed)`).
 
-`brevo app scaffold` against an app whose remote scopes contain `'all'` never propagates it: the new `app-config.json` keeps the app's remaining granular scopes (or the four default scopes when `'all'` was the only scope), with a one-line substitution notice (suppressed under `--json`). Note the substitution is local-only — the remote app still needs the `--scope` migration above.
+`brevo app scaffold` against an app whose remote scopes contain `'all'` never propagates it: the new `app-config.json` keeps the app's remaining granular scopes (or the four default scopes when `'all'` was the only scope), with a one-line substitution notice (suppressed under `--json`). Note the substitution is local-only — the remote app still needs the `app-config.json` edit + `brevo app upload` migration above.
 
 ## Exit codes
 

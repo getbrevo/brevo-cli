@@ -48,6 +48,20 @@ const BASE_REMOTE = {
   updated_at: '2026-01-01',
 };
 
+// Wire shape for appService.uploadApp()'s resolved response — distinct from
+// BASE_REMOTE (which mirrors OAuthApp / fetchApp's shape): auth is nested.
+const BASE_UPLOAD_RESPONSE = {
+  app_id: '1',
+  name: 'Test App',
+  logo_uri: '',
+  app_version: '1.0.0',
+  auth: {
+    distribution_type: 'private' as const,
+    scopes: ['contacts:read'],
+    redirect_urls: ['http://localhost:3009/auth/callback'],
+  },
+};
+
 describe('app/upload', () => {
   let stdoutSpy: jest.SpyInstance;
   const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
@@ -122,7 +136,10 @@ describe('app/upload', () => {
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     mockPrompt.mockResolvedValueOnce({ confirmed: true });
-    (appService.uploadApp as jest.Mock).mockResolvedValue({ ...BASE_REMOTE, name: 'Renamed App' });
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      ...BASE_UPLOAD_RESPONSE,
+      name: 'Renamed App',
+    });
 
     await uploadCommand({});
 
@@ -156,7 +173,10 @@ describe('app/upload', () => {
   it('POSTs the correct wire shape — distribution_type nested under auth, app_version, redirect_urls', async () => {
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
-    (appService.uploadApp as jest.Mock).mockResolvedValue({ ...BASE_REMOTE, name: 'Renamed App' });
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      ...BASE_UPLOAD_RESPONSE,
+      name: 'Renamed App',
+    });
 
     await uploadCommand({ yes: true });
 
@@ -176,7 +196,10 @@ describe('app/upload', () => {
   it('never sends a ui_app field', async () => {
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
-    (appService.uploadApp as jest.Mock).mockResolvedValue({ ...BASE_REMOTE, name: 'Renamed App' });
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      ...BASE_UPLOAD_RESPONSE,
+      name: 'Renamed App',
+    });
 
     await uploadCommand({ yes: true });
 
@@ -246,7 +269,10 @@ describe('app/upload', () => {
   it('outputs structured JSON including the diff under --json, with no prompt', async () => {
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
-    (appService.uploadApp as jest.Mock).mockResolvedValue({ ...BASE_REMOTE, name: 'Renamed App' });
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      ...BASE_UPLOAD_RESPONSE,
+      name: 'Renamed App',
+    });
 
     await uploadCommand({ json: true });
 
@@ -256,6 +282,28 @@ describe('app/upload', () => {
     expect(parsed.name).toBe('Renamed App');
     expect(parsed.current).toBeDefined();
     expect(parsed.next).toBeDefined();
+  });
+
+  it('shows the legacy all-scope migration banner when the REMOTE app still has "all" scope', async () => {
+    const changedConfig = {
+      ...BASE_CONFIG,
+      auth: { ...BASE_CONFIG.auth, scopes: ['contacts:read', 'crm:read'] },
+    };
+    (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({
+      ...BASE_REMOTE,
+      scopes: ['all'],
+    });
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      ...BASE_UPLOAD_RESPONSE,
+      auth: { ...BASE_UPLOAD_RESPONSE.auth, scopes: ['contacts:read', 'crm:read'] },
+    });
+
+    await uploadCommand({ yes: true });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).toContain("Migrating from legacy 'all' scope");
+    expect(appService.uploadApp).toHaveBeenCalled();
   });
 
   it('outputs upToDate JSON (no upload call) when nothing differs under --json', async () => {
