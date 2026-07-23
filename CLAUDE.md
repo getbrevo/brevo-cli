@@ -141,6 +141,20 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - Services are tested against mocked API client responses.
 - Template tests verify variable substitution, not file I/O.
 
+## Working docs: TESTING.md and TODO.md
+
+Two root-level scratch files track in-flight branch work: `TESTING.md` (running checklist of
+verification criteria) and `TODO.md` (running work tracker). They are **not** permanent repo
+docs — they exist only for the lifetime of a branch/PR.
+
+- **Whenever you make a change that needs verification**, append an entry to `TESTING.md`
+  (follow its template) covering what must hold true — new criteria, not a rewrite of old ones.
+- **Whenever you identify follow-up work that isn't done in the current change**, append an
+  item to `TODO.md` under `## Open` rather than letting it fall through silently.
+- **Before merging the branch into `main`, delete both `TESTING.md` and `TODO.md`.** They are
+  per-branch working state, not something that belongs in `main`'s history going forward — do
+  not merge them in.
+
 ## Adding a new command
 
 1. Create handler in `src/commands/` (or `src/commands/app/` for app subcommands)

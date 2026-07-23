@@ -135,7 +135,7 @@ describe('app/create', () => {
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('brevo app start oauth');
-    expect(output).toMatch(/scaffolded example requires the default callback url/i);
+    expect(output).toMatch(/local test-server callback url/i);
   });
 
   it('should suppress the test-flow hint under --json', async () => {
@@ -154,7 +154,7 @@ describe('app/create', () => {
     await createCommand({ name: 'JSON Hint App', distribution: 'private', json: true });
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).not.toMatch(/scaffolded example requires the default callback url/i);
+    expect(output).not.toMatch(/local test-server callback url/i);
     expect(() => JSON.parse(output)).not.toThrow();
   });
 
@@ -178,7 +178,7 @@ describe('app/create', () => {
     });
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).not.toMatch(/scaffolded example requires the default callback url/i);
+    expect(output).not.toMatch(/local test-server callback url/i);
   });
 
   it('should throw CliError on APP_LIMIT_REACHED', async () => {

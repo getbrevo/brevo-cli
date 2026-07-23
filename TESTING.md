@@ -22,6 +22,15 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### OAuth callback URL hint wording (`enable-public-app`)
+_Added: 2026-07-23_
+
+**`brevo app create` redirect prompt (`APP_CREATE_REDIRECT_HINT`)**
+- [ ] Hint labels the localhost default as a "local test-server callback URL" and mentions `brevo app start oauth` — (Automated: `create.test.ts`)
+- [ ] Hint still suppressed under `--json` — (Automated: `create.test.ts`)
+- [ ] Hint still not printed when `--redirect-uri` is provided — (Automated: `create.test.ts`)
+- [ ] Wording change only; no prompt-flow, validation, or payload change — (Manual)
+
 ### Public app distribution (`enable-public-app`)
 _Added: 2026-07-23_
 
