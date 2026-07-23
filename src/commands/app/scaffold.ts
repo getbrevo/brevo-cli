@@ -13,9 +13,10 @@ import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { createSpinner, printBox } from '../../lib/ui';
 import { messages } from '../../lang/en';
 import { withCommandHandler } from '../../lib/command-handler';
+import { CliError } from '../../lib/errors';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
-import { loadAllTemplates } from '../../templates';
+import { loadBaseTemplates, loadFeatureTemplates, FeatureType } from '../../templates';
 import { containsLegacyAllScope } from '../../lib/validators';
 import { readProjectConfig, ProjectConfig } from '../../lib/config';
 
@@ -176,17 +177,17 @@ export async function resolveProjectDirectory(
   return { targetDir, mergeOnly: action === 'merge', chooseAgain: false };
 }
 
-export async function promptProjectType(interactive: boolean): Promise<'oauth'> {
+export async function promptFeatureType(interactive: boolean): Promise<FeatureType> {
   if (!interactive) return 'oauth';
-  const { projectType } = await inquirer.prompt([
+  const { featureType } = await inquirer.prompt([
     {
       type: 'list',
-      name: 'projectType',
-      message: messages.APP_SCAFFOLD_PROJECT_TYPE_PROMPT,
+      name: 'featureType',
+      message: messages.APP_SCAFFOLD_FEATURE_TYPE_PROMPT,
       choices: [{ name: 'Test OAuth App', value: 'oauth' }],
     },
   ]);
-  return projectType;
+  return featureType;
 }
 
 interface ConfigDiff {
@@ -271,23 +272,15 @@ function writeScaffoldFiles(
   return written;
 }
 
-export interface ScaffoldRunResult {
-  written: number;
-  targetDir: string;
-  legacyAllSubstituted: boolean;
+interface TemplateVars {
+  vars: Record<string, string>;
   scopes: string[];
-  files: Array<{ name: string; content: string }>;
+  legacyAllSubstituted: boolean;
 }
 
-// Pure(ish) core: given an already-fetched app context and a resolved target
-// directory, build template vars and write files. No prompting, no
-// logging/jsonOutput — callers own how the result is reported.
-export function runScaffold(
-  appId: string,
-  ctx: AppContext,
-  targetDir: string,
-  mergeOnly: boolean,
-): ScaffoldRunResult {
+// Build the `{{...}}` substitution map shared by base and feature templates,
+// plus the resolved scopes and whether the legacy 'all' scope was substituted.
+function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): TemplateVars {
   const rawAppName = ctx.appDetails?.name || path.basename(targetDir);
   const appName = rawAppName.replaceAll(/["\\\n\r\t]/g, '').trim() || 'my-app';
   // Never propagate the deprecated legacy 'all' scope into a fresh
@@ -321,11 +314,50 @@ export function runScaffold(
     '{{CLI_VERSION}}': cliVersion,
   };
 
-  fs.mkdirSync(path.join(targetDir, 'src', 'oauth'), { recursive: true });
-  const files = loadAllTemplates(vars);
-  const written = writeScaffoldFiles(files, targetDir, mergeOnly);
+  return { vars, scopes, legacyAllSubstituted };
+}
 
-  return { written, targetDir, legacyAllSubstituted, scopes, files };
+export interface BaseScaffoldResult {
+  written: number;
+  legacyAllSubstituted: boolean;
+  scopes: string[];
+  files: Array<{ name: string; content: string }>;
+}
+
+// Write the basic project structure (app-config.json + project meta files).
+// No prompting, no logging/jsonOutput — callers own how the result is reported.
+export function runBaseScaffold(
+  appId: string,
+  ctx: AppContext,
+  targetDir: string,
+  mergeOnly: boolean,
+): BaseScaffoldResult {
+  const { vars, scopes, legacyAllSubstituted } = buildTemplateVars(appId, ctx, targetDir);
+  const files = loadBaseTemplates(vars);
+  const written = writeScaffoldFiles(files, targetDir, mergeOnly);
+  return { written, legacyAllSubstituted, scopes, files };
+}
+
+export interface FeatureScaffoldResult {
+  written: number;
+  files: Array<{ name: string; content: string }>;
+}
+
+// Write a single feature's files into an existing project directory.
+export function runFeatureScaffold(
+  featureType: FeatureType,
+  appId: string,
+  ctx: AppContext,
+  targetDir: string,
+  mergeOnly: boolean,
+): FeatureScaffoldResult {
+  const { vars } = buildTemplateVars(appId, ctx, targetDir);
+  if (featureType === 'oauth') {
+    fs.mkdirSync(path.join(targetDir, 'src', 'oauth'), { recursive: true });
+  }
+  const files = loadFeatureTemplates(featureType, vars);
+  const written = writeScaffoldFiles(files, targetDir, mergeOnly);
+  return { written, files };
 }
 
 export function reportScaffoldSuccess(result: {
@@ -357,117 +389,76 @@ export function computeCdHint(originalCwd: string, targetDir: string): string | 
   return path.relative(originalCwd, targetDir) || undefined;
 }
 
-interface ScaffoldTargetResolved {
+// Resolve which app this project is linked to (from cwd's app-config.json),
+// and decide whether the base config has drifted from the server. Returns a
+// cancellation instead of prompting when running under --json.
+interface ScaffoldPlanResolved {
   cancelled: false;
-  targetDir: string;
-  mergeOnly: boolean;
+  appId: string;
+  ctx: AppContext;
+  refreshBase: boolean;
 }
 
-interface ScaffoldTargetCancelled {
+interface ScaffoldPlanCancelled {
   cancelled: true;
   reason?: string;
   diffs?: ConfigDiff[];
 }
 
-type ScaffoldTargetResult = ScaffoldTargetResolved | ScaffoldTargetCancelled;
+type ScaffoldPlan = ScaffoldPlanResolved | ScaffoldPlanCancelled;
 
-// Shared by both call sites below: resolve (and, if needed, re-resolve after
-// "choose a different path") a project directory, surfacing an unresolved
-// --json directory conflict as a cancellation instead of prompting.
-async function resolveDirectoryOrCancel(
-  slug: string,
+async function resolveScaffoldPlan(
+  localConfig: ProjectConfig,
   jsonMode: boolean,
-): Promise<ScaffoldTargetResult> {
-  let dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
-  while (!dir.unresolved && dir.chooseAgain) {
-    dir = await resolveProjectDirectory(`./${slug}`, jsonMode);
-  }
-  if (dir.unresolved) {
-    return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIR_EXISTS(dir.targetDir) };
-  }
-  return { cancelled: false, targetDir: dir.targetDir, mergeOnly: dir.mergeOnly };
-}
+): Promise<ScaffoldPlan> {
+  const appId = localConfig.appId;
+  const ctx = await fetchAppContext(appId, jsonMode);
+  const diffs = diffLocalConfig(localConfig, ctx);
 
-async function resolveScaffoldTarget(
-  appId: string,
-  slug: string,
-  ctx: AppContext,
-  jsonMode = false,
-): Promise<ScaffoldTargetResult> {
-  const cwdConfigPath = path.join(process.cwd(), 'app-config.json');
-
-  if (!fs.existsSync(cwdConfigPath)) {
-    return resolveDirectoryOrCancel(slug, jsonMode);
+  // No drift → nothing to refresh; just add the feature.
+  if (diffs.length === 0) {
+    return { cancelled: false, appId, ctx, refreshBase: false };
   }
 
-  const localConfig = readProjectConfig();
-  if (localConfig?.appId === appId) {
-    const diffs = diffLocalConfig(localConfig, ctx);
-    if (diffs.length === 0) {
-      if (!jsonMode) logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
-      return { cancelled: false, targetDir: process.cwd(), mergeOnly: true };
-    }
-
-    if (!jsonMode) {
-      logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.appName || appId));
-      for (const diff of diffs) {
-        logInfo(messages.APP_SCAFFOLD_DIFF_LINE(diff.field, diff.local, diff.server));
-      }
-    }
-    // --json can't prompt for confirmation — decline and surface the diffs
-    // so a script can decide how to proceed.
-    if (jsonMode) {
-      return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIFF_CANCELLED, diffs };
-    }
-    const { confirmed } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'confirmed',
-        message: messages.APP_SCAFFOLD_DIFF_CONFIRM,
-        default: true,
-      },
-    ]);
-    if (!confirmed) return { cancelled: true };
-    logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
-    return { cancelled: false, targetDir: process.cwd(), mergeOnly: false };
-  }
-
-  // --json can't prompt to choose a different directory either — decline.
+  // --json can't prompt for confirmation — decline and surface the diffs so a
+  // script can decide how to proceed.
   if (jsonMode) {
-    return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIFFERENT_APP_CANCELLED };
+    return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIFF_CANCELLED, diffs };
   }
-  const { choice } = await inquirer.prompt([
+
+  logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.appName || appId));
+  for (const diff of diffs) {
+    logInfo(messages.APP_SCAFFOLD_DIFF_LINE(diff.field, diff.local, diff.server));
+  }
+  const { confirmed } = await inquirer.prompt([
     {
-      type: 'list',
-      name: 'choice',
-      message: messages.APP_SCAFFOLD_DIFFERENT_APP_PROMPT(
-        localConfig?.appName || 'a different app',
-      ),
-      choices: [
-        { name: 'Choose a different directory', value: 'choose' },
-        { name: 'Cancel', value: 'cancel' },
-      ],
+      type: 'confirm',
+      name: 'confirmed',
+      message: messages.APP_SCAFFOLD_DIFF_CONFIRM,
+      default: true,
     },
   ]);
-  if (choice === 'cancel') return { cancelled: true };
-
-  return resolveDirectoryOrCancel(slug, jsonMode);
+  if (!confirmed) return { cancelled: true };
+  return { cancelled: false, appId, ctx, refreshBase: true };
 }
 
 export const scaffoldCommand = withCommandHandler(
-  async (options: { appId?: string; json?: boolean }): Promise<void> => {
-    const originalCwd = process.cwd();
-    const appId = options.appId ?? (await appService.pickApp('Select an app:'));
-    const ctx = await fetchAppContext(appId, options.json);
-    const slug = computeSlug(ctx.appDetails?.name);
+  async (options: { json?: boolean }): Promise<void> => {
+    const jsonMode = !!options.json;
 
-    const target = await resolveScaffoldTarget(appId, slug, ctx, options.json);
-    if (target.cancelled) {
-      if (options.json) {
+    // Scaffolding a feature only makes sense inside an already-created project.
+    const localConfig = readProjectConfig();
+    if (!localConfig) {
+      throw new CliError(messages.APP_SCAFFOLD_NO_CONFIG);
+    }
+
+    const plan = await resolveScaffoldPlan(localConfig, jsonMode);
+    if (plan.cancelled) {
+      if (jsonMode) {
         jsonOutput({
           cancelled: true,
-          ...(target.reason ? { reason: target.reason } : {}),
-          ...(target.diffs ? { diffs: target.diffs } : {}),
+          ...(plan.reason ? { reason: plan.reason } : {}),
+          ...(plan.diffs ? { diffs: plan.diffs } : {}),
         });
         return;
       }
@@ -475,27 +466,42 @@ export const scaffoldCommand = withCommandHandler(
       return;
     }
 
-    await promptProjectType(!options.json);
+    const { appId, ctx, refreshBase } = plan;
+    const feature = await promptFeatureType(!jsonMode);
+    const targetDir = process.cwd();
 
-    const { written, legacyAllSubstituted, scopes, files } = runScaffold(
-      appId,
-      ctx,
-      target.targetDir,
-      target.mergeOnly,
-    );
+    // Refresh the base config/meta files (full overwrite) only when the local
+    // config drifted from the server and the user consented.
+    let baseWritten = 0;
+    let baseFiles: Array<{ name: string; content: string }> = [];
+    let legacyAllSubstituted = false;
+    let scopes: string[] = [];
+    if (refreshBase) {
+      const base = runBaseScaffold(appId, ctx, targetDir, false);
+      baseWritten = base.written;
+      baseFiles = base.files;
+      legacyAllSubstituted = base.legacyAllSubstituted;
+      scopes = base.scopes;
+    }
 
-    if (options.json) {
-      jsonOutput({ scaffolded: written, directory: target.targetDir });
+    // Feature files are merged in — never clobber hand-edited code.
+    const feat = runFeatureScaffold(feature, appId, ctx, targetDir, true);
+
+    const written = baseWritten + feat.written;
+    const files = [...baseFiles, ...feat.files];
+
+    if (jsonMode) {
+      jsonOutput({ scaffolded: written, directory: targetDir });
       return;
     }
 
+    // scaffold always runs in the project directory, so no `cd` hint is needed.
     reportScaffoldSuccess({
       written,
       legacyAllSubstituted,
       scopes,
       files,
-      targetDir: target.targetDir,
-      cdDir: computeCdHint(originalCwd, target.targetDir),
+      targetDir,
     });
   },
 );

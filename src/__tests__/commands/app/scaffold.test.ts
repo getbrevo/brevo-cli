@@ -37,18 +37,20 @@ jest.mock('../../../lib/config', () => ({
 }));
 
 jest.mock('../../../templates', () => ({
-  loadAllTemplates: jest.fn((vars: Record<string, string>) => [
+  loadBaseTemplates: jest.fn((_vars: Record<string, string>) => [
+    { name: 'app-config.json', content: '{}' },
+    { name: '.gitignore', content: 'src/oauth/.env.local' },
+    { name: 'AGENTS.md', content: '# Agents' },
+    { name: 'CLAUDE.md', content: '# Claude' },
+    { name: 'README.md', content: '# README' },
+  ]),
+  loadFeatureTemplates: jest.fn((_featureType: string, vars: Record<string, string>) => [
     { name: 'src/oauth/server.js', content: '// server' },
     { name: 'src/oauth/handler.js', content: '// handler' },
     { name: 'src/oauth/token-store.js', content: '// token store' },
     { name: 'src/oauth/.env.example', content: `CLIENT_ID=${vars['{{CLIENT_ID}}'] || ''}` },
     { name: 'src/oauth/.env.local', content: `CLIENT_ID=${vars['{{CLIENT_ID}}'] || ''}` },
     { name: 'src/oauth/package.json', content: '{}' },
-    { name: 'app-config.json', content: '{}' },
-    { name: '.gitignore', content: 'src/oauth/.env.local' },
-    { name: 'AGENTS.md', content: '# Agents' },
-    { name: 'CLAUDE.md', content: '# Claude' },
-    { name: 'README.md', content: '# README' },
   ]),
 }));
 
@@ -70,6 +72,28 @@ import { readProjectConfig } from '../../../lib/config';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
+// A server app + a local config that exactly matches it (no drift). Individual
+// tests override fields on either side to introduce a diff.
+const serverApp = {
+  app_id: '1',
+  name: 'Test App',
+  client_id: 'cli-123',
+  client_secret: 'secret-456',
+  redirect_uris: ['http://localhost:3009/auth/callback'],
+  scopes: ['contacts:read'],
+  distribution_type: 'private' as const,
+  logo_uri: '',
+  version: '1.0.0',
+};
+const matchingLocalConfig = {
+  appId: '1',
+  appName: 'Test App',
+  distribution_type: 'private' as const,
+  logoUri: '',
+  version: '1.0.0',
+  auth: { scopes: ['contacts:read'], redirectUrls: ['http://localhost:3009/auth/callback'] },
+};
+
 describe('app/scaffold', () => {
   let stdoutSpy: jest.SpyInstance;
   let chdirSpy: jest.SpyInstance;
@@ -83,6 +107,10 @@ describe('app/scaffold', () => {
     (fs.writeFileSync as jest.Mock).mockReturnValue(undefined);
     (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify({ version: '9.9.9' }));
     (readProjectConfig as jest.Mock).mockReturnValue(null);
+    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+      diffs: [],
+      app: serverApp,
+    });
   });
 
   afterEach(() => {
@@ -90,343 +118,77 @@ describe('app/scaffold', () => {
     chdirSpy.mockRestore();
   });
 
-  it('should scaffold files for a given app ID', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret-456',
-        redirect_uris: ['http://localhost:3009/auth/callback'],
-      },
+  describe('scaffoldCommand', () => {
+    it('errors (without fetching the app) when no app-config.json exists in cwd', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+
+      await expect(scaffoldCommand({})).rejects.toThrow(/app-config\.json/i);
+
+      expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
     });
 
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: tmpPath('test-scaffold') }) // dir prompt
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({ appId: '1' });
-
-    expect(appService.resolveAppCredentials).toHaveBeenCalledWith('1');
-    expect(fs.mkdirSync).toHaveBeenCalled();
-    expect(fs.writeFileSync).toHaveBeenCalled();
-
-    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).toContain('scaffolded');
-    expect(output).toContain('brevo app start oauth');
-    expect(output).toContain('brevo app available-scopes');
-    expect(output).toContain('app-config.json');
-  });
-
-  it('should output JSON when --json flag is used', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [],
-      },
-    });
-
-    // --json never prompts — resolveProjectDirectory uses the default dir
-    // directly, so no outputDir prompt is queued here.
-
-    await scaffoldCommand({ appId: '1', json: true });
-
-    const output = stdoutSpy.mock.calls[0][0];
-    const parsed = JSON.parse(output);
-    expect(parsed.scaffolded).toBeGreaterThan(0);
-    expect(parsed.directory).toBeTruthy();
-  });
-
-  it('should use API credentials for templates', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'api-client',
-        client_secret: 'api-secret',
-        redirect_uris: ['http://localhost:3009/auth/callback'],
-      },
-    });
-
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: tmpPath('test-creds') })
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({ appId: '1' });
-
-    const { loadAllTemplates } = require('../../../templates');
-    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-    expect(vars['{{CLIENT_ID}}']).toBe('api-client');
-  });
-
-  it('prints a "cd" step in Next steps pointing at the target directory, since process.chdir() never moves the user\'s own shell', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [],
-      },
-    });
-
-    const targetDir = tmpPath('test-next-steps');
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: targetDir })
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({ appId: '1' });
-
-    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    const expectedCdDir = path.relative(process.cwd(), targetDir);
-    expect(output).toContain('Next steps');
-    expect(output).toContain(`cd ${expectedCdDir}`);
-    expect(output).toContain('yarn --cwd src/oauth');
-  });
-
-  it('omits the "cd" step in Next steps when scaffolding landed in the directory the command was run from', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [],
-      },
-    });
-
-    const cwdAppConfig = path.join(process.cwd(), 'app-config.json');
-    // cwdConfigPath must report false so resolveScaffoldTarget falls through
-    // to resolveDirectoryOrCancel/resolveProjectDirectory instead of the
-    // "app already linked here" branch; the target dir itself (== cwd) must
-    // report true so resolveProjectDirectory shows the overwrite/merge prompt.
-    (fs.existsSync as jest.Mock).mockImplementation((p: string) => p !== cwdAppConfig);
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: process.cwd() })
-      .mockResolvedValueOnce({ action: 'overwrite' })
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({ appId: '1' });
-
-    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).toContain('Next steps');
-    expect(output).not.toMatch(/cd /);
-    expect(output).toContain('yarn --cwd src/oauth');
-  });
-
-  it('should pass cliVersion and DEFAULT_SCOPES into template vars', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [],
-      },
-    });
-
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: tmpPath('test-version') })
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({ appId: '1' });
-
-    const { loadAllTemplates } = require('../../../templates');
-    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-    expect(vars['{{CLI_VERSION}}']).toBe('9.9.9');
-    expect(vars['{{SCOPES_JSON}}']).toBe(
-      JSON.stringify(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']),
-    );
-  });
-
-  it('should prefer localhost redirect URI over production URLs', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [
-          'https://myapp.example.com/callback',
-          'http://localhost:3009/auth/callback',
-        ],
-      },
-    });
-
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: tmpPath('test-redirect') })
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({ appId: '1' });
-
-    const { loadAllTemplates } = require('../../../templates');
-    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-    expect(vars['{{REDIRECT_URI}}']).toBe('http://localhost:3009/auth/callback');
-  });
-
-  it('should fall back to DEFAULT_REDIRECT_URI when only production URLs exist', async () => {
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: ['https://myapp.example.com/callback'],
-      },
-    });
-
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: tmpPath('test-fallback') })
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({ appId: '1' });
-
-    const { loadAllTemplates } = require('../../../templates');
-    const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-    expect(vars['{{REDIRECT_URI}}']).toBe('http://localhost:3009/auth/callback');
-  });
-
-  it('should prompt app picker when no appId provided', async () => {
-    (appService.pickApp as jest.Mock).mockResolvedValue('5');
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '5',
-        name: 'Picked App',
-        client_id: 'cli-picked',
-        client_secret: 'secret',
-        redirect_uris: [],
-      },
-    });
-
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: tmpPath('test-pick') })
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({});
-
-    expect(appService.pickApp).toHaveBeenCalled();
-    expect(appService.resolveAppCredentials).toHaveBeenCalledWith('5');
-  });
-
-  it('should handle existing directory with overwrite', async () => {
-    const cwdAppConfig = path.join(process.cwd(), 'app-config.json');
-    (fs.existsSync as jest.Mock).mockImplementation((p: string) => p !== cwdAppConfig);
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [],
-      },
-    });
-
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: tmpPath('existing') }) // dir prompt
-      .mockResolvedValueOnce({ action: 'overwrite' }) // action prompt
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({ appId: '1' });
-
-    expect(fs.writeFileSync).toHaveBeenCalled();
-  });
-
-  it('should skip existing files in merge mode', async () => {
-    const cwdAppConfig = path.join(process.cwd(), 'app-config.json');
-    (fs.existsSync as jest.Mock).mockImplementation((p: string) => p !== cwdAppConfig);
-    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-      diffs: [],
-      app: {
-        app_id: '1',
-        name: 'Test',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [],
-      },
-    });
-
-    mockPrompt
-      .mockResolvedValueOnce({ outputDir: tmpPath('merge') })
-      .mockResolvedValueOnce({ action: 'merge' })
-      .mockResolvedValueOnce({ projectType: 'oauth' });
-
-    await scaffoldCommand({ appId: '1' });
-
-    // In merge mode with all files existing, writeFileSync should not be called
-    // (mkdirSync is still called for directory creation)
-    expect(fs.writeFileSync).not.toHaveBeenCalled();
-  });
-
-  describe('directory already linked to an app', () => {
-    const cwdAppConfig = path.join(process.cwd(), 'app-config.json');
-    const serverApp = {
-      app_id: '1',
-      name: 'Test App',
-      client_id: 'cli-123',
-      client_secret: 'secret',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read'],
-      distribution_type: 'private' as const,
-      logo_uri: '',
-      version: '1.0.0',
-    };
-    const matchingLocalConfig = {
-      appId: '1',
-      appName: 'Test App',
-      distribution_type: 'private' as const,
-      logoUri: '',
-      version: '1.0.0',
-      auth: { scopes: ['contacts:read'], redirectUrls: ['http://localhost:3009/auth/callback'] },
-    };
-
-    beforeEach(() => {
-      (fs.existsSync as jest.Mock).mockImplementation((p: string) => p === cwdAppConfig);
-      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-        diffs: [],
-        app: serverApp,
-      });
-    });
-
-    it('proceeds merge-only with no prompt when the linked config already matches the server', async () => {
+    it('reads the app id from app-config.json (no picker) and scaffolds the feature merge-only', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
-      mockPrompt.mockResolvedValueOnce({ projectType: 'oauth' });
+      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
-      await scaffoldCommand({ appId: '1' });
+      await scaffoldCommand({});
 
+      expect(appService.pickApp).not.toHaveBeenCalled();
+      expect(appService.resolveAppCredentials).toHaveBeenCalledWith('1');
+      // No diff → no confirm prompt.
       expect(mockPrompt).not.toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ name: 'confirmed' })]),
       );
+      // Feature files written (existsSync false → nothing to skip).
       expect(fs.writeFileSync).toHaveBeenCalled();
-      expect(chdirSpy).not.toHaveBeenCalled();
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('scaffolded');
+      expect(output).toContain('brevo app start oauth');
+      expect(output).toContain('brevo app available-scopes');
     });
 
-    it('shows the diff and does a full overwrite on consent when the config differs', async () => {
+    it('does not write the base config when there is no drift (feature-only, merge)', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
+
+      await scaffoldCommand({});
+
+      const { loadBaseTemplates, loadFeatureTemplates } = require('../../../templates');
+      expect(loadBaseTemplates).not.toHaveBeenCalled();
+      expect(loadFeatureTemplates).toHaveBeenCalledWith('oauth', expect.anything());
+    });
+
+    it('skips existing feature files in merge mode', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      // Every feature file already exists → merge skips them all.
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
+
+      await scaffoldCommand({});
+
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('shows the diff and refreshes the base config (full overwrite) on consent', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
         auth: { scopes: ['contacts:read'], redirectUrls: ['http://old-host/cb'] },
       });
       mockPrompt
         .mockResolvedValueOnce({ confirmed: true })
-        .mockResolvedValueOnce({ projectType: 'oauth' });
+        .mockResolvedValueOnce({ featureType: 'oauth' });
 
-      await scaffoldCommand({ appId: '1' });
+      await scaffoldCommand({});
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       expect(output).toContain('redirectUrls');
       expect(output).toContain('differs from the server');
+
+      const { loadBaseTemplates, loadFeatureTemplates } = require('../../../templates');
+      expect(loadBaseTemplates).toHaveBeenCalled();
+      expect(loadFeatureTemplates).toHaveBeenCalledWith('oauth', expect.anything());
       expect(fs.writeFileSync).toHaveBeenCalled();
     });
 
@@ -448,15 +210,12 @@ describe('app/scaffold', () => {
     ])(
       'shows a diff and asks consent when %s differs from the server',
       async (_label, override, expectedFieldLabel) => {
-        (readProjectConfig as jest.Mock).mockReturnValue({
-          ...matchingLocalConfig,
-          ...override,
-        });
+        (readProjectConfig as jest.Mock).mockReturnValue({ ...matchingLocalConfig, ...override });
         mockPrompt
           .mockResolvedValueOnce({ confirmed: true })
-          .mockResolvedValueOnce({ projectType: 'oauth' });
+          .mockResolvedValueOnce({ featureType: 'oauth' });
 
-        await scaffoldCommand({ appId: '1' });
+        await scaffoldCommand({});
 
         const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
         expect(output).toContain(expectedFieldLabel);
@@ -472,105 +231,65 @@ describe('app/scaffold', () => {
       });
       mockPrompt.mockResolvedValueOnce({ confirmed: false });
 
-      await scaffoldCommand({ appId: '1' });
+      await scaffoldCommand({});
 
       expect(fs.writeFileSync).not.toHaveBeenCalled();
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       expect(output).toMatch(/cancelled/i);
     });
 
-    it('offers a different directory when the linked app does not match', async () => {
-      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '999', appName: 'Other App' });
-      mockPrompt
-        .mockResolvedValueOnce({ choice: 'choose' })
-        .mockResolvedValueOnce({ outputDir: tmpPath('different-app-dir') })
-        .mockResolvedValueOnce({ projectType: 'oauth' });
-      (fs.existsSync as jest.Mock).mockImplementation(
-        (p: string) => p === cwdAppConfig && p !== tmpPath('different-app-dir'),
-      );
+    it('uses API credentials for feature templates', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+        diffs: [],
+        app: { ...serverApp, client_id: 'api-client', client_secret: 'api-secret' },
+      });
+      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
-      await scaffoldCommand({ appId: '1' });
+      await scaffoldCommand({});
 
-      expect(fs.writeFileSync).toHaveBeenCalled();
-      expect(chdirSpy).toHaveBeenCalledWith(tmpPath('different-app-dir'));
+      const { loadFeatureTemplates } = require('../../../templates');
+      const vars = (loadFeatureTemplates as jest.Mock).mock.calls[0][1];
+      expect(vars['{{CLIENT_ID}}']).toBe('api-client');
     });
 
-    it('cancels without writing when the linked app does not match and the user cancels', async () => {
-      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '999', appName: 'Other App' });
-      mockPrompt.mockResolvedValueOnce({ choice: 'cancel' });
+    it('never prints a "cd" step (scaffold always runs in the project directory)', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
-      await scaffoldCommand({ appId: '1' });
+      await scaffoldCommand({});
 
-      expect(fs.writeFileSync).not.toHaveBeenCalled();
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-      expect(output).toMatch(/cancelled/i);
+      expect(output).toContain('Next steps');
+      expect(output).not.toMatch(/cd /);
+      expect(output).toContain('yarn --cwd src/oauth');
     });
   });
 
-  describe('brevo app scaffold --json never blocks on interactive prompts', () => {
-    const cwdAppConfig = path.join(process.cwd(), 'app-config.json');
-    const serverApp = {
-      app_id: '1',
-      name: 'Test App',
-      client_id: 'cli-123',
-      client_secret: 'secret',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read'],
-      distribution_type: 'private' as const,
-      logo_uri: '',
-      version: '1.0.0',
-    };
-    const matchingLocalConfig = {
-      appId: '1',
-      appName: 'Test App',
-      distribution_type: 'private' as const,
-      logoUri: '',
-      version: '1.0.0',
-      auth: { scopes: ['contacts:read'], redirectUrls: ['http://localhost:3009/auth/callback'] },
-    };
+  describe('scaffoldCommand --json', () => {
+    it('writes the feature and reports { scaffolded, directory } when there is no drift', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
 
-    it('does not prompt when the target directory already exists, and reports why in the JSON output', async () => {
-      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-        diffs: [],
-        app: {
-          app_id: '1',
-          name: 'Test App',
-          client_id: 'cli-123',
-          client_secret: 'secret',
-          redirect_uris: [] as string[],
-        },
-      });
-      // No app-config.json in cwd, but the (default) target directory
-      // already exists — everything except app-config.json exists.
-      (fs.existsSync as jest.Mock).mockImplementation((p: string) => p !== cwdAppConfig);
+      await scaffoldCommand({ json: true });
 
-      await scaffoldCommand({ appId: '1', json: true });
-
+      // --json never prompts.
       expect(mockPrompt).not.toHaveBeenCalled();
-      expect(fs.writeFileSync).not.toHaveBeenCalled();
-
       const output = stdoutSpy.mock.calls[0][0];
       const parsed = JSON.parse(output);
-      expect(parsed.cancelled).toBe(true);
-      expect(parsed.reason).toMatch(/already exists/i);
+      expect(parsed.scaffolded).toBeGreaterThan(0);
+      expect(parsed.directory).toBeTruthy();
     });
 
-    it('does not prompt when the linked app config differs from the server, and surfaces the diffs in the JSON output', async () => {
-      (fs.existsSync as jest.Mock).mockImplementation((p: string) => p === cwdAppConfig);
-      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-        diffs: [],
-        app: serverApp,
-      });
+    it('cancels and surfaces the diffs (no prompt) when the config differs', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
         auth: { scopes: ['contacts:read'], redirectUrls: ['http://old-host/cb'] },
       });
 
-      await scaffoldCommand({ appId: '1', json: true });
+      await scaffoldCommand({ json: true });
 
       expect(mockPrompt).not.toHaveBeenCalled();
       expect(fs.writeFileSync).not.toHaveBeenCalled();
-
       const output = stdoutSpy.mock.calls[0][0];
       const parsed = JSON.parse(output);
       expect(parsed.cancelled).toBe(true);
@@ -578,206 +297,174 @@ describe('app/scaffold', () => {
         expect.arrayContaining([expect.objectContaining({ field: 'redirectUrls' })]),
       );
     });
-
-    it('does not prompt when the directory is linked to a different app, and cancels', async () => {
-      (fs.existsSync as jest.Mock).mockImplementation((p: string) => p === cwdAppConfig);
-      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-        diffs: [],
-        app: serverApp,
-      });
-      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '999', appName: 'Other App' });
-
-      await scaffoldCommand({ appId: '1', json: true });
-
-      expect(mockPrompt).not.toHaveBeenCalled();
-      expect(fs.writeFileSync).not.toHaveBeenCalled();
-
-      const output = stdoutSpy.mock.calls[0][0];
-      const parsed = JSON.parse(output);
-      expect(parsed.cancelled).toBe(true);
-    });
   });
 
-  describe("legacy 'all' scope substitution", () => {
-    const DEFAULTS = ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'];
-
-    /** Scaffold an app with the given remote scopes; return written scopes + CLI output. */
-    const scaffoldWithScopes = async (
-      remoteScopes: string[],
-      dir: string,
-      json = false,
-    ): Promise<{ writtenScopes: string; output: string }> => {
-      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
-        diffs: [],
-        app: {
-          app_id: '1',
-          name: 'Legacy App',
-          client_id: 'cli-123',
-          client_secret: 'secret',
-          redirect_uris: [] as string[],
-          scopes: remoteScopes,
-        },
-      });
-      // Both the outputDir prompt and promptProjectType only fire when
-      // interactive (i.e. !json) — --json uses the default dir directly and
-      // never prompts. Queuing answers for either when json is true would go
-      // unconsumed and bleed into the next test's mockPrompt queue
-      // (mockClear doesn't drop queued once-implementations), so only queue
-      // them when they will actually be read.
-      if (!json) {
-        mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath(dir) });
-        mockPrompt.mockResolvedValueOnce({ projectType: 'oauth' });
-      }
-
-      await scaffoldCommand({ appId: '1', json });
-
-      const { loadAllTemplates } = require('../../../templates');
-      const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-      return {
-        writtenScopes: vars['{{SCOPES_JSON}}'],
-        output: stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''),
-      };
+  describe('runBaseScaffold (core, no prompting/output)', () => {
+    const ctx = {
+      appDetails: {
+        app_id: '1',
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret-456',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+        scopes: ['contacts:read'],
+      },
+      clientId: 'cli-123',
+      clientSecret: 'secret-456',
+      redirectUrls: ['http://localhost:3009/auth/callback'],
+      redirectUri: 'http://localhost:3009/auth/callback',
     };
 
-    it("writes DEFAULT_SCOPES when 'all' is the only scope and prints the substitution notice", async () => {
-      const { writtenScopes, output } = await scaffoldWithScopes(['all'], 'test-legacy');
-      expect(writtenScopes).toBe(JSON.stringify(DEFAULTS));
-      expect(output).toMatch(/legacy 'all'/);
-    });
+    it('writes base files and returns metadata without prompting or printing', async () => {
+      const { runBaseScaffold, computeSlug } = require('../../../commands/app/scaffold');
 
-    it("keeps granular scopes and only drops 'all' when scopes are mixed", async () => {
-      const { writtenScopes, output } = await scaffoldWithScopes(
-        ['all', 'crm:deals', 'companies:read'],
-        'test-legacy-mixed',
-      );
-      expect(writtenScopes).toBe(JSON.stringify(['crm:deals', 'companies:read']));
-      expect(output).toMatch(/legacy 'all'/);
-      expect(output).toContain('crm:deals');
-    });
-
-    it('suppresses the substitution notice under --json', async () => {
-      const { writtenScopes, output } = await scaffoldWithScopes(['all'], 'test-legacy-json', true);
-      expect(output).not.toMatch(/legacy 'all'/);
-      // Still substitutes in the written config
-      expect(writtenScopes).toBe(JSON.stringify(DEFAULTS));
-    });
-
-    it('propagates granular remote scopes untouched, with no notice', async () => {
-      const { writtenScopes, output } = await scaffoldWithScopes(
-        ['contacts:read', 'crm:write'],
-        'test-granular',
-      );
-      expect(writtenScopes).toBe(JSON.stringify(['contacts:read', 'crm:write']));
-      expect(output).not.toMatch(/legacy 'all'/);
-    });
-  });
-
-  it.each<[string, string | undefined, string]>([
-    ['present', 'https://example.com/logo.png', 'https://example.com/logo.png'],
-    ['absent', undefined, ''],
-  ])(
-    'should pass {{LOGO_URI}} into template vars when logo_uri is %s',
-    async (_label, logoUri, expected) => {
-      const app = {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [] as string[],
-        ...(logoUri === undefined ? {} : { logo_uri: logoUri }),
-      };
-      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({ diffs: [], app });
-      mockPrompt
-        .mockResolvedValueOnce({ outputDir: tmpPath('test-logo') })
-        .mockResolvedValueOnce({ projectType: 'oauth' });
-
-      await scaffoldCommand({ appId: '1' });
-
-      const { loadAllTemplates } = require('../../../templates');
-      const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-      expect(vars['{{LOGO_URI}}']).toBe(expected);
-    },
-  );
-
-  it.each<[string, string | undefined, string]>([
-    ['present', '0.0.1', '0.0.1'],
-    ['absent', undefined, ''],
-  ])(
-    'should pass {{APP_VERSION}} into template vars when version is %s',
-    async (_label, version, expected) => {
-      const app = {
-        app_id: '1',
-        name: 'Test App',
-        client_id: 'cli-123',
-        client_secret: 'secret',
-        redirect_uris: [] as string[],
-        ...(version === undefined ? {} : { version }),
-      };
-      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({ diffs: [], app });
-      mockPrompt
-        .mockResolvedValueOnce({ outputDir: tmpPath('test-version') })
-        .mockResolvedValueOnce({ projectType: 'oauth' });
-
-      await scaffoldCommand({ appId: '1' });
-
-      const { loadAllTemplates } = require('../../../templates');
-      const vars = (loadAllTemplates as jest.Mock).mock.calls[0][0];
-      expect(vars['{{APP_VERSION}}']).toBe(expected);
-    },
-  );
-
-  describe('runScaffold (core, no prompting/output)', () => {
-    it('writes files and returns metadata without prompting or printing', async () => {
-      const { runScaffold, computeSlug } = require('../../../commands/app/scaffold');
-      const ctx = {
-        appDetails: {
-          app_id: '1',
-          name: 'Test App',
-          client_id: 'cli-123',
-          client_secret: 'secret-456',
-          redirect_uris: ['http://localhost:3009/auth/callback'],
-          scopes: ['contacts:read'],
-        },
-        clientId: 'cli-123',
-        clientSecret: 'secret-456',
-        redirectUrls: ['http://localhost:3009/auth/callback'],
-        redirectUri: 'http://localhost:3009/auth/callback',
-      };
-
-      const result = runScaffold('1', ctx, tmpPath('run-scaffold-core'), false);
+      const result = runBaseScaffold('1', ctx, tmpPath('run-base-core'), false);
 
       expect(result.written).toBeGreaterThan(0);
       expect(result.legacyAllSubstituted).toBe(false);
       expect(result.scopes).toEqual(['contacts:read']);
       expect(result.files.length).toBeGreaterThan(0);
       expect(fs.writeFileSync).toHaveBeenCalled();
-      // No prompt, no stdout — this is a pure computation + write step.
       expect(mockPrompt).not.toHaveBeenCalled();
       expect(stdoutSpy).not.toHaveBeenCalled();
       expect(computeSlug('Test App')).toBe('test-app');
     });
 
-    it("substitutes the legacy 'all' scope and reports it via legacyAllSubstituted", () => {
-      const { runScaffold } = require('../../../commands/app/scaffold');
-      const ctx = {
-        appDetails: {
-          app_id: '1',
-          name: 'Legacy App',
-          client_id: 'cli-123',
-          client_secret: 'secret',
-          redirect_uris: [] as string[],
-          scopes: ['all'],
+    it('passes cliVersion and DEFAULT_SCOPES fallback into template vars', () => {
+      const { runBaseScaffold } = require('../../../commands/app/scaffold');
+      runBaseScaffold(
+        '1',
+        { ...ctx, appDetails: { ...ctx.appDetails, scopes: [] } },
+        tmpPath('run-base-vars'),
+        false,
+      );
+
+      const { loadBaseTemplates } = require('../../../templates');
+      const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{CLI_VERSION}}']).toBe('9.9.9');
+      expect(vars['{{SCOPES_JSON}}']).toBe(
+        JSON.stringify(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']),
+      );
+    });
+
+    it.each<[string, string | undefined, string]>([
+      ['present', 'https://example.com/logo.png', 'https://example.com/logo.png'],
+      ['absent', undefined, ''],
+    ])('maps {{LOGO_URI}} when logo_uri is %s', (_label, logoUri, expected) => {
+      const { runBaseScaffold } = require('../../../commands/app/scaffold');
+      runBaseScaffold(
+        '1',
+        {
+          ...ctx,
+          appDetails: {
+            ...ctx.appDetails,
+            ...(logoUri === undefined ? {} : { logo_uri: logoUri }),
+          },
         },
-        clientId: 'cli-123',
-        clientSecret: 'secret',
-        redirectUrls: [] as string[],
-        redirectUri: '',
+        tmpPath('run-base-logo'),
+        false,
+      );
+      const { loadBaseTemplates } = require('../../../templates');
+      const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{LOGO_URI}}']).toBe(expected);
+    });
+
+    it.each<[string, string | undefined, string]>([
+      ['present', '0.0.1', '0.0.1'],
+      ['absent', undefined, ''],
+    ])('maps {{APP_VERSION}} when version is %s', (_label, version, expected) => {
+      const { runBaseScaffold } = require('../../../commands/app/scaffold');
+      runBaseScaffold(
+        '1',
+        {
+          ...ctx,
+          appDetails: { ...ctx.appDetails, ...(version === undefined ? {} : { version }) },
+        },
+        tmpPath('run-base-version'),
+        false,
+      );
+      const { loadBaseTemplates } = require('../../../templates');
+      const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{APP_VERSION}}']).toBe(expected);
+    });
+
+    describe("legacy 'all' scope substitution", () => {
+      const DEFAULTS = ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'];
+
+      const run = (
+        remoteScopes: string[],
+      ): { writtenScopes: string; legacyAllSubstituted: boolean } => {
+        const { runBaseScaffold } = require('../../../commands/app/scaffold');
+        const result = runBaseScaffold(
+          '1',
+          { ...ctx, appDetails: { ...ctx.appDetails, scopes: remoteScopes } },
+          tmpPath('run-base-legacy'),
+          false,
+        );
+        const { loadBaseTemplates } = require('../../../templates');
+        const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
+        return {
+          writtenScopes: vars['{{SCOPES_JSON}}'],
+          legacyAllSubstituted: result.legacyAllSubstituted,
+        };
       };
 
-      const result = runScaffold('1', ctx, tmpPath('run-scaffold-legacy'), false);
+      it("writes DEFAULT_SCOPES when 'all' is the only scope", () => {
+        const { writtenScopes, legacyAllSubstituted } = run(['all']);
+        expect(writtenScopes).toBe(JSON.stringify(DEFAULTS));
+        expect(legacyAllSubstituted).toBe(true);
+      });
 
-      expect(result.legacyAllSubstituted).toBe(true);
-      expect(result.scopes).not.toContain('all');
+      it("keeps granular scopes and only drops 'all' when scopes are mixed", () => {
+        const { writtenScopes, legacyAllSubstituted } = run(['all', 'crm:deals', 'companies:read']);
+        expect(writtenScopes).toBe(JSON.stringify(['crm:deals', 'companies:read']));
+        expect(legacyAllSubstituted).toBe(true);
+      });
+
+      it('propagates granular remote scopes untouched', () => {
+        const { writtenScopes, legacyAllSubstituted } = run(['contacts:read', 'crm:write']);
+        expect(writtenScopes).toBe(JSON.stringify(['contacts:read', 'crm:write']));
+        expect(legacyAllSubstituted).toBe(false);
+      });
+    });
+  });
+
+  describe('runFeatureScaffold (core, no prompting/output)', () => {
+    const ctx = {
+      appDetails: {
+        app_id: '1',
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret-456',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+        scopes: ['contacts:read'],
+      },
+      clientId: 'cli-123',
+      clientSecret: 'secret-456',
+      redirectUrls: ['http://localhost:3009/auth/callback'],
+      redirectUri: 'http://localhost:3009/auth/callback',
+    };
+
+    it('writes the oauth feature files and returns the written count', () => {
+      const { runFeatureScaffold } = require('../../../commands/app/scaffold');
+
+      const result = runFeatureScaffold('oauth', '1', ctx, tmpPath('run-feature-core'), false);
+
+      expect(result.written).toBeGreaterThan(0);
+      expect(result.files.length).toBeGreaterThan(0);
+      expect(fs.writeFileSync).toHaveBeenCalled();
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(stdoutSpy).not.toHaveBeenCalled();
+    });
+
+    it('skips existing files under mergeOnly', () => {
+      const { runFeatureScaffold } = require('../../../commands/app/scaffold');
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      const result = runFeatureScaffold('oauth', '1', ctx, tmpPath('run-feature-merge'), true);
+
+      expect(result.written).toBe(0);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
     });
   });
 
@@ -823,34 +510,8 @@ describe('app/scaffold', () => {
       expect(result.chooseAgain).toBe(true);
     });
 
-    it('tells the user it is creating and moving into a fresh directory', async () => {
-      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
-      mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('fresh-dir') });
-
-      await resolveProjectDirectory('./default-slug');
-
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-      expect(output).toContain('Creating');
-      expect(output).toContain('moving into it');
-    });
-
-    it('tells the user it is scaffolding into the current directory when it already exists as cwd', async () => {
-      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      mockPrompt
-        .mockResolvedValueOnce({ outputDir: process.cwd() })
-        .mockResolvedValueOnce({ action: 'overwrite' });
-
-      await resolveProjectDirectory('./default-slug');
-
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-      expect(output).toContain('current directory');
-    });
-
     it('suppresses the directory notice in json mode', async () => {
       const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
-      // jsonMode skips the outputDir prompt entirely and uses the default
-      // directly — no prompt to queue here.
 
       await resolveProjectDirectory('./default-slug', true);
 
@@ -860,21 +521,21 @@ describe('app/scaffold', () => {
     });
   });
 
-  describe('promptProjectType', () => {
+  describe('promptFeatureType', () => {
     it('prompts and returns the selected type when interactive', async () => {
-      const { promptProjectType } = require('../../../commands/app/scaffold');
-      mockPrompt.mockResolvedValueOnce({ projectType: 'oauth' });
+      const { promptFeatureType } = require('../../../commands/app/scaffold');
+      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
-      const result = await promptProjectType(true);
+      const result = await promptFeatureType(true);
 
-      expect(mockPrompt).toHaveBeenCalledWith([expect.objectContaining({ name: 'projectType' })]);
+      expect(mockPrompt).toHaveBeenCalledWith([expect.objectContaining({ name: 'featureType' })]);
       expect(result).toBe('oauth');
     });
 
     it('returns oauth without prompting when not interactive', async () => {
-      const { promptProjectType } = require('../../../commands/app/scaffold');
+      const { promptFeatureType } = require('../../../commands/app/scaffold');
 
-      const result = await promptProjectType(false);
+      const result = await promptFeatureType(false);
 
       expect(mockPrompt).not.toHaveBeenCalled();
       expect(result).toBe('oauth');

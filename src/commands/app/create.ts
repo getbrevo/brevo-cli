@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import inquirer from 'inquirer';
 import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
-import { logInfo, logError } from '../../lib/logger';
+import { logInfo, logError, logSuccess } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { ApiError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
@@ -14,13 +14,15 @@ import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from 
 import {
   computeSlug,
   fetchAppContext,
-  runScaffold,
+  runBaseScaffold,
+  runFeatureScaffold,
   resolveProjectDirectory,
-  promptProjectType,
+  promptFeatureType,
   reportScaffoldSuccess,
   computeCdHint,
 } from './scaffold';
 import { appService } from '../../container';
+import { FeatureType } from '../../templates';
 import { CreateAppResponse } from '../../types';
 
 function validateHttpUrl(trimmed: string, invalidMessage: string): true | string {
@@ -122,6 +124,22 @@ async function promptAddAnotherRedirect(): Promise<boolean> {
     },
   ]);
   return String(anotherRaw).toLowerCase().trim().startsWith('y');
+}
+
+// Whether to scaffold a feature after creating the app. Defaults to yes —
+// pressing Enter opts in.
+async function promptScaffoldFeature(): Promise<boolean> {
+  const { scaffoldRaw } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'scaffoldRaw',
+      message: messages.APP_CREATE_SCAFFOLD_FEATURE_PROMPT + ' (Y/n)',
+      default: 'y',
+      validate: validateYesNo,
+    },
+  ]);
+  const val = String(scaffoldRaw).toLowerCase().trim();
+  return val === '' || val.startsWith('y');
 }
 
 async function promptRedirectUrls(quiet: boolean): Promise<string[]> {
@@ -363,10 +381,7 @@ export const createCommand = withCommandHandler(
           ...(logoUri ? { logoUri } : {}),
           ...(result.version ? { version: result.version } : {}),
           directory: dir.targetDir,
-          scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(
-            dir.targetDir,
-            result.app_id,
-          ),
+          scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(dir.targetDir),
         });
         return;
       }
@@ -376,13 +391,25 @@ export const createCommand = withCommandHandler(
     }
 
     const ctx = await fetchAppContext(result.app_id, jsonMode);
-    await promptProjectType(interactive);
-    const { written, legacyAllSubstituted, scopes, files } = runScaffold(
-      result.app_id,
-      ctx,
-      dir.targetDir,
-      dir.mergeOnly,
-    );
+
+    // Always write the basic project structure (app-config.json + meta files).
+    const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);
+
+    // Decide whether to also scaffold a feature. Only the interactive prompt
+    // triggers it (default yes → pick a type). Non-interactive runs (--json or
+    // piped) can't prompt and stay base-only — a feature is added afterward with
+    // `brevo app scaffold`.
+    let feature: FeatureType | null = null;
+    if (interactive && (await promptScaffoldFeature())) {
+      feature = await promptFeatureType(true);
+    }
+
+    const feat = feature
+      ? runFeatureScaffold(feature, result.app_id, ctx, dir.targetDir, dir.mergeOnly)
+      : { written: 0, files: [] as Array<{ name: string; content: string }> };
+
+    const written = base.written + feat.written;
+    const files = [...base.files, ...feat.files];
 
     if (jsonMode) {
       jsonOutput({
@@ -400,13 +427,21 @@ export const createCommand = withCommandHandler(
     }
 
     renderCreatedApp(result, finalAppName, logoUri);
-    reportScaffoldSuccess({
-      written,
-      legacyAllSubstituted,
-      scopes,
-      files,
-      targetDir: dir.targetDir,
-      cdDir: computeCdHint(originalCwd, dir.targetDir),
-    });
+    const cdDir = computeCdHint(originalCwd, dir.targetDir);
+    if (feature) {
+      reportScaffoldSuccess({
+        written,
+        legacyAllSubstituted: base.legacyAllSubstituted,
+        scopes: base.scopes,
+        files,
+        targetDir: dir.targetDir,
+        cdDir,
+      });
+    } else {
+      // Base project only — point the user at `brevo app scaffold` to add a feature.
+      logSuccess(messages.APP_SCAFFOLD_SUCCESS(written));
+      logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
+      printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_BASE_ONLY_NEXT(cdDir));
+    }
   },
 );

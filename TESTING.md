@@ -57,6 +57,70 @@ state back into `app-config.json` on success.
 
 Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
+### Split `app create` (base files) from feature scaffolding (`app scaffold`) (`add-app-version-config`)
+_Added: 2026-07-23_
+
+The OAuth test-server code is now a *feature*, not part of `brevo app create`. `create`
+writes only the basic project structure (`app-config.json` + `.gitignore`/`AGENTS.md`/
+`CLAUDE.md`/`README.md`), then interactively asks whether to scaffold a feature (default
+yes) or, under `--json`, auto-scaffolds `oauth`. `brevo app scaffold` is repurposed to add
+a feature into an already-created project: it requires `app-config.json` in cwd, reads the
+app id from it (no `--app-id`/picker), diffs the config against the server, and refreshes
+the base files on consent before writing the feature files (merged in).
+
+**Templates (`templates/index.ts`)**
+- [x] `TEMPLATE_MANIFEST`/`loadAllTemplates` replaced by `BASE_TEMPLATE_MANIFEST` +
+  `FEATURE_TEMPLATE_MANIFESTS.oauth`, with `loadBaseTemplates`/`loadFeatureTemplates`
+  loaders and an exported `FeatureType` — (Manual: `tsc`/`yarn build`)
+- [x] Base group = the 5 meta files; oauth feature group = the 6 `src/oauth/*` files — (Manual)
+
+**`scaffold.ts`**
+- [x] `runScaffold` split into `buildTemplateVars` + `runBaseScaffold` + `runFeatureScaffold`;
+  `promptProjectType` renamed to `promptFeatureType` (prompt name `featureType`) —
+  (Automated: `scaffold.test.ts`)
+- [x] `scaffoldCommand` errors (no server fetch) when `readProjectConfig()` is null —
+  (Automated: `scaffold.test.ts`)
+- [x] Reads app id from cwd config, no `--app-id`/picker; no-diff → feature-only merge write,
+  no confirm prompt — (Automated: `scaffold.test.ts`)
+- [x] Diff detected → shows fields + `differs from the server`, consent → base refresh
+  (full overwrite) + feature merge; decline → cancelled, nothing written — (Automated:
+  `scaffold.test.ts`)
+- [x] `--json` + diff → `{ cancelled: true, diffs }` (no prompt); `--json` + no diff →
+  `{ scaffolded, directory }` — (Automated: `scaffold.test.ts`)
+- [x] Next steps never prints a `cd` step (scaffold always runs in the project dir) —
+  (Automated: `scaffold.test.ts`)
+- [x] `--app-id` flag removed from the `scaffold` definition; `CLI.APP_SCAFFOLD` is now a
+  plain string — (Automated: `constants.test.ts`, `definitions.test.ts`)
+- [x] `init`'s "scaffold this app" action calls `scaffoldCommand({})` (reads cwd config) —
+  (Automated: `init.test.ts`)
+
+**`create.ts`**
+- [x] Writes base files via `runBaseScaffold` always; interactive asks
+  `APP_CREATE_SCAFFOLD_FEATURE_PROMPT` (default yes) then `promptFeatureType` and writes the
+  feature — (Automated: `create.test.ts`)
+- [x] Non-interactive runs stay base-only: `--json` and piped (non-TTY) create write base
+  files but never call `runFeatureScaffold` — oauth is added later via `brevo app scaffold` —
+  (Automated: `create.test.ts`)
+- [x] Decline → only base files written, no `runFeatureScaffold`, lighter next-steps note
+  pointing at `brevo app scaffold` — (Automated: `create.test.ts`)
+- [x] `--json` `scaffolded` count is the base file count; `scaffoldSkipped` still emitted when
+  the target directory already existed — (Automated: `create.test.ts`)
+
+**Docs**
+- [x] `AGENTS.md` + `SKILL.md` updated: create-writes-base-only, feature prompt,
+  scaffold-requires-config / diff-refresh / feature-merge, no `--app-id` on scaffold — (Manual)
+
+**Manual**
+- [ ] `brevo app create` in a fresh dir, accept the feature prompt → `src/oauth/*` appears;
+  decline → only base files + a note pointing at `brevo app scaffold` — (Manual)
+- [ ] `brevo app scaffold` in a dir with no `app-config.json` → friendly error — (Manual)
+- [ ] Edit a field in `app-config.json`, run `brevo app scaffold` → it reports the drift and
+  on consent rewrites the config to match the server, then writes the feature — (Manual)
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
 ### Restore a real `cd` hint in scaffold's Next steps, corrected against the original cwd (`add-app-version-config`)
 _Added: 2026-07-23_
 

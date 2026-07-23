@@ -89,7 +89,7 @@ export const initCommand = withCommandHandler(
 
       if (action === 'scaffold') {
         process.stdout.write('\n');
-        await scaffoldCommand({ appId: configAppId });
+        await scaffoldCommand({});
         logInfo(`\n  ${messages.INIT_DONE}\n`);
         return;
       }
