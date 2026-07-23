@@ -24,22 +24,26 @@ directory, regardless of which app it belongs to, pointing the user at
 
 - `brevo app create` owns directory setup directly: prompt for a directory, create
   it, and `chdir` into it, as its own step — not bundled inside the scaffold call.
+- `brevo app create` run inside a directory that already has `app-config.json`
+  hard-errors immediately (no confirm, no override) — it never creates a second app
+  on top of a linked one.
 - Scaffolding gains an explicit "what kind of project?" prompt (single option today:
   *Test OAuth App*), shown both when `create` continues into scaffolding and when
   `brevo app scaffold` is run standalone.
 - `brevo app scaffold` run standalone becomes directory-aware instead of a blanket
   refusal: it distinguishes "no linked project here" (do directory setup, same as
-  create), "already linked to this app" (confirm before re-scaffolding in place),
-  and "linked to a different app" (must pick another directory or cancel).
+  create), "already linked to this app" (diff local `app-config.json` against the
+  server, ask consent only if they differ, then fully regenerate on consent), and
+  "linked to a different app" (must pick another directory or cancel).
 
 ## Non-goals
 
 - No new scaffold *types* beyond the existing OAuth starter. The project-type prompt
   is introduced now purely as a UI seam for cleaner separation of concerns, not
   because a second type is planned — it will offer exactly one choice.
-- No change to `confirmCreateOverLinkedApp()` — the existing "app-config.json for
-  *this* app already exists, create a new app anyway?" guard inside `create` is
-  unrelated to the scaffold-directory rework and stays as-is.
+- No `--force`-style override for `create`'s new hard error. If `app-config.json`
+  exists in cwd, `create` always throws — the only ways forward are to `cd` out of
+  that directory or run `brevo app scaffold` there instead.
 - No "proceed anyway" override for Case C (scaffold pointed at a directory linked to
   a *different* app) — that path only ever offers "choose a different directory" or
   "cancel", to avoid mixing two apps' files in one folder.
@@ -67,7 +71,17 @@ Two new shared pieces of logic, used by both `create.ts` and `scaffold.ts`:
 `runScaffold(appId, ctx, targetDir, mergeOnly)` is unchanged — it stays the pure,
 prompt-free file-writing core.
 
-### `brevo app create`
+### `brevo app create` — existing linked directory
+
+Today, `confirmCreateOverLinkedApp()` detects `app-config.json` in cwd and *asks*
+"Create a new app anyway?" — a soft confirm the user can accept to create a second,
+unrelated app on top of an already-linked directory. This becomes a hard,
+unconditional error instead: `create` throws immediately, telling the user to
+either move to a different directory or run `brevo app scaffold` there (scaffold is
+now the tool that refreshes an existing linked project against the server — see
+below). There is no confirm prompt and no override flag.
+
+### `brevo app create` — directory + scaffold flow
 
 Prompt order becomes: app name → distribution → redirect URL(s) → logo URL →
 **directory** (new) → API call → project-type prompt → scaffold write.
@@ -107,10 +121,18 @@ Case A — no app-config.json in cwd:
   ? Directory: ./my-app        ← resolveProjectDirectory(slug), same as create
 
 Case B — app-config.json in cwd, SAME app (matching app ID):
-  App "my-app" is already linked in this directory.
-  ? Update/re-scaffold it here? (Y/n)
-    yes → proceed in place (merge-only write, same as today's scaffold-over-existing-dir behavior)
-    no  → cancel
+  (fetch server state, diff against local app-config.json)
+
+  If no differences:
+    → proceed directly (merge-only write — fills in any missing files, nothing to confirm)
+
+  If differences found:
+    App "my-app" is linked here, but its local config differs from the server:
+      redirectUrls:  http://localhost:3000/cb  →  http://localhost:8080/cb
+      scopes:        contacts:read             →  contacts:read, crm:read
+    ? Update app-config.json and regenerate scaffold files to match the server? (Y/n)
+      yes → full overwrite (every template file regenerated, same as today's "overwrite" action)
+      no  → cancel, nothing written
 
 Case C — app-config.json in cwd, DIFFERENT app:
   This directory is linked to a different app ("other-app").
@@ -127,27 +149,51 @@ Case C — app-config.json in cwd, DIFFERENT app:
   directory (or one with no `app-config.json`) — it now creates+chdirs instead of
   just writing to a subpath as before.
 - Case B replaces today's blanket refusal for the matching-app case with a
-  confirmation; on yes it proceeds with the existing merge-only write behavior.
+  diff-driven flow: fetch the server's current app state (already available via
+  `ctx`/`fetchAppContext`), compare it against the fields already tracked in local
+  `app-config.json` (`appName`, `distribution_type`, `auth.redirectUrls`,
+  `auth.scopes`, `logoUri`, `version`), and:
+  - **No differences** — proceed straight through with a merge-only write (same as
+    today's default re-scaffold behavior). Nothing to ask consent for.
+  - **Differences found** — print each differing field (local value → server value)
+    and ask for explicit consent to update. On consent, do a **full overwrite** of
+    every template file (not just `app-config.json`) — same semantics as today's
+    existing "Overwrite existing files" action, so the regenerated files are
+    internally consistent with the refreshed config rather than a mix of old
+    template code and new config values. On decline, cancel — nothing is written.
 - Case C is new — today's code treats this identically to Case B (hard refusal).
   Only "choose a different directory" or "cancel" are offered — no "proceed anyway"
   override, to avoid writing one app's files into a directory tied to another app.
-- The project-type prompt runs after directory resolution, in all three cases,
+- The project-type prompt runs after directory/diff resolution, in all three cases,
   right before `runScaffold`.
+
+A new `diffLocalConfig(localConfig, ctx): ConfigDiff[]` helper (internal to
+`scaffold.ts`, not exported) compares the fields already tracked in local
+`app-config.json` against the equivalent fields on `ctx` (the already-fetched
+server state): `appName` vs `ctx.appDetails?.name`, `distribution_type` vs
+`ctx.appDetails?.distribution_type`, `auth.redirectUrls` vs `ctx.redirectUrls`,
+`auth.scopes` vs `ctx.appDetails?.scopes` (minus the legacy `'all'` scope, same
+filtering `runScaffold` already applies), `logoUri` vs `ctx.appDetails?.logo_uri`,
+`version` vs `ctx.appDetails?.version`. Each difference is `{ field, local, server }`
+for direct display in the confirmation prompt.
 
 ### Files touched
 
-- `src/commands/app/scaffold.ts` — add `resolveProjectDirectory`, `promptProjectType`;
-  replace `resolveTargetDir`'s directory-only prompt usage and the `hasLocalApp`
-  guard with the three-case branch; `scaffoldCommand` calls the new helpers.
-- `src/commands/app/create.ts` — call `resolveProjectDirectory` before the API call;
-  after creation, call `promptProjectType` + `runScaffold` directly instead of
+- `src/commands/app/scaffold.ts` — add `resolveProjectDirectory`, `promptProjectType`,
+  `diffLocalConfig`; replace `resolveTargetDir`'s directory-only prompt usage and the
+  `hasLocalApp` guard with the three-case branch; `scaffoldCommand` calls the new
+  helpers.
+- `src/commands/app/create.ts` — replace `confirmCreateOverLinkedApp()`'s soft
+  confirm with an unconditional throw; call `resolveProjectDirectory` before the API
+  call; after creation, call `promptProjectType` + `runScaffold` directly instead of
   routing through `scaffoldCommand`'s own directory prompt.
 - `src/lang/en.ts` — new prompt strings: directory prompt (if not already covered by
-  `APP_SCAFFOLD_DIR_PROMPT`), project-type prompt, Case B confirmation, Case C
-  choice list.
+  `APP_SCAFFOLD_DIR_PROMPT`), project-type prompt, Case B diff display + consent
+  prompt, Case C choice list, `create`'s new hard-error message.
 - Tests: `create.test.ts` (directory prompt + chdir behavior, continuation into
-  scaffold with project-type prompt), `scaffold.test.ts` (three-case directory
-  branch, shared helpers, project-type prompt).
+  scaffold with project-type prompt, hard-error on linked directory), `scaffold.test.ts`
+  (three-case directory branch, shared helpers, project-type prompt, diff-and-consent
+  logic for Case B).
 
 ### Docs
 
@@ -166,13 +212,15 @@ New/updated coverage, mirroring existing patterns in each file:
 - `create.test.ts`: directory prompt appears before the API call; `process.chdir`
   is called with the resolved directory; `--json` mode resolves the same default
   directory non-interactively; continuation into scaffold shows the project-type
-  prompt and skips a second directory prompt.
+  prompt and skips a second directory prompt; running `create` with `app-config.json`
+  already in cwd throws immediately with no prompt and no API call.
 - `scaffold.test.ts`: Case A creates+chdirs when no `app-config.json` is present;
-  Case B confirms before re-scaffolding when the config matches the target app;
-  Case C offers choose-a-different-directory/cancel when the config is for a
-  different app, and never writes into that directory without the user first
-  picking a new one; project-type prompt appears in all three cases and is skipped
-  under `--json`.
+  Case B with no diff proceeds merge-only with no confirmation; Case B with a diff
+  displays the differing fields and asks consent — yes does a full overwrite, no
+  cancels with nothing written; Case C offers choose-a-different-directory/cancel
+  when the config is for a different app, and never writes into that directory
+  without the user first picking a new one; project-type prompt appears in all three
+  cases and is skipped under `--json`.
 
 A `TESTING.md` entry tracks all of the above as verification criteria for this
 branch, following the existing template.
@@ -190,3 +238,14 @@ branch, following the existing template.
   it).** Rejected in favor of keeping it last, immediately before the API call —
   keeps today's existing name/distribution/redirect/logo prompt order completely
   unchanged, directory setup is purely additive at the end.
+- **`--force` override for `create`'s new hard error.** Rejected — the user
+  confirmed no escape hatch is wanted; the only paths forward are leaving the
+  linked directory or using `brevo app scaffold` there.
+- **Merge-only write on Case B consent (only refresh `app-config.json`, leave other
+  template files alone).** Rejected in favor of a full overwrite — the user
+  confirmed they want every template file regenerated together so the scaffolded
+  code and the refreshed config never drift out of sync with each other.
+- **Blanket "re-scaffold here?" confirm for Case B regardless of diff.** Rejected —
+  replaced with a diff-driven flow so the user is only interrupted when there's an
+  actual difference to consent to; an already-up-to-date project re-scaffolds
+  silently (merge-only, filling in any missing files).
