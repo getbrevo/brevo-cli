@@ -422,6 +422,56 @@ describe('config', () => {
         expect(() => readProjectConfig()).not.toThrow();
       });
     });
+
+    describe('legacy distribution key', () => {
+      const originalCwd = process.cwd();
+      let projectDir: string;
+
+      beforeEach(() => {
+        projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-project-'));
+        process.chdir(projectDir);
+      });
+
+      afterEach(() => {
+        process.chdir(originalCwd);
+        if (fs.existsSync(projectDir)) {
+          fs.rmSync(projectDir, { recursive: true, force: true });
+        }
+      });
+
+      function writeConfig(config: object): void {
+        fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+      }
+
+      it('backfills auth.type from a legacy top-level distribution key', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'], redirectUrls: [] },
+          distribution: 'public',
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.type).toBe('public');
+      });
+
+      it('prefers auth.type over the legacy distribution key when both exist', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'public', scopes: ['crm:read'] },
+          distribution: 'private',
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.type).toBe('public');
+      });
+
+      it('reads a new-format config without a distribution key', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'private', scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.type).toBe('private');
+      });
+    });
   });
 
   describe('hasLocalApp', () => {

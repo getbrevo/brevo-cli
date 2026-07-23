@@ -286,11 +286,29 @@ describe('app/create', () => {
     );
   });
 
-  it('should reject --distribution public with coming-soon error before calling API', async () => {
-    await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
-      'Public distribution is not yet available',
-    );
-    expect(appService.createApp).not.toHaveBeenCalled();
+  it('should create a public app when --distribution public is passed', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 7,
+      name: 'Public App',
+      client_id: 'cli-public',
+      client_secret: 'secret-public',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
+      .mockResolvedValueOnce({ another: false }) // no more URLs
+      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
+      .mockResolvedValueOnce({ shouldScaffold: false }); // scaffold
+
+    await createCommand({ name: 'Public App', distribution: 'public' });
+
+    expect(appService.createApp).toHaveBeenCalledWith({
+      name: 'Public App',
+      distribution_type: 'public',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+    });
   });
 
   it('should reject app name with emojis via --name flag', async () => {

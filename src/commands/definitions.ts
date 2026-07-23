@@ -70,6 +70,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       examples: [
         'brevo app create',
         'brevo app create --name "My App" --distribution private',
+        'brevo app create --name "My App" --distribution public',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',

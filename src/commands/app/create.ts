@@ -88,9 +88,6 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
 async function resolveDistribution(distributionFlag: string | undefined): Promise<string> {
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
-  if (distributionFlag === 'public') {
-    throw new CliError(messages.APP_CREATE_PUBLIC_UNAVAILABLE);
-  }
   if (distributionFlag) {
     return distributionFlag;
   }
@@ -107,7 +104,6 @@ async function resolveDistribution(distributionFlag: string | undefined): Promis
         {
           name: 'Public   (Distributed to end users or marketplace listings)',
           value: 'public',
-          disabled: 'coming soon',
         },
       ],
     },

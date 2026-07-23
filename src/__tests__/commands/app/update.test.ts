@@ -45,7 +45,6 @@ const VALID_CONFIG = {
     scopes: ['global'],
     redirectUrls: ['http://localhost:3000/callback', 'https://myapp.com/callback'],
   },
-  distribution: 'private',
 };
 
 describe('app/update', () => {
@@ -134,7 +133,6 @@ describe('app/update', () => {
       appId: '42',
       appName: 'Test',
       auth: { type: 'private', scopes: [], redirectUrls: [] },
-      distribution: 'private',
     });
 
     await expect(updateCommand({})).rejects.toThrow('no redirect URLs');
@@ -773,7 +771,6 @@ describe('app/update', () => {
           scopes: ['contacts:read'],
           redirectUrls: ['https://x/cb'],
         },
-        distribution: 'private',
       };
       (readProjectConfig as jest.Mock).mockReturnValue(config);
 
@@ -871,7 +868,6 @@ describe('app/update', () => {
           scopes: ['contacts:read', 'crm:read'],
           redirectUrls: ['https://x/cb'],
         },
-        distribution: 'private',
       };
       (readProjectConfig as jest.Mock).mockReturnValue(config);
 
@@ -892,7 +888,6 @@ describe('app/update', () => {
           scopes: ['contacts:read', 'crm:write'],
           redirectUrls: ['https://x/cb'],
         },
-        distribution: 'private',
       };
       (readProjectConfig as jest.Mock).mockReturnValue(config);
       (appService.fetchApp as jest.Mock).mockResolvedValue({
@@ -922,7 +917,6 @@ describe('app/update', () => {
           scopes: ['contacts:read', 'crm;read'],
           redirectUrls: ['https://x/cb'],
         },
-        distribution: 'private',
       };
       (readProjectConfig as jest.Mock).mockReturnValue(config);
 
@@ -1031,7 +1025,6 @@ describe('app/update', () => {
           scopes: ['contacts:read'],
           redirectUrls: ['https://x/cb'],
         },
-        distribution: 'private',
       };
       (readProjectConfig as jest.Mock).mockReturnValue(config);
       (appService.fetchApp as jest.Mock).mockResolvedValue({

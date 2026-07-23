@@ -200,6 +200,7 @@ export const scaffoldCommand = withCommandHandler(
       '{{REDIRECT_URI}}': ctx.redirectUri,
       '{{REDIRECT_URLS_JSON}}': JSON.stringify(ctx.redirectUrls),
       '{{SCOPES_JSON}}': JSON.stringify(scopes),
+      '{{DISTRIBUTION}}': ctx.appDetails?.distribution_type ?? 'private',
       '{{LOGO_URI}}': ctx.appDetails?.logo_uri ?? '',
       '{{OAUTH_BASE}}': OAUTH_BASE,
       '{{OAUTH_REALM}}': OAUTH_REALM,

@@ -407,11 +407,11 @@ export interface ProjectConfig {
   createdAt?: string;
   updatedAt?: string;
   auth: {
+    /** Distribution type of the app: 'private' or 'public' */
     type: string;
     scopes: string[];
     redirectUrls?: string[];
   };
-  distribution: string;
   permittedUrls: {
     fetch: string[];
     img: string[];
@@ -453,12 +453,26 @@ export function readProjectConfig(): ProjectConfig | null {
     // in the update command, so unrelated commands that just happen to read
     // config aren't broken by a malformed scope.
     const rawAuth = (raw as Record<string, unknown>).auth;
-    let authOverride: object | undefined;
+    let authOverride: Record<string, unknown> | undefined;
     if (rawAuth && typeof rawAuth === 'object') {
       const scopes = (rawAuth as Record<string, unknown>).scopes;
       if (Array.isArray(scopes)) {
         authOverride = { ...rawAuth, scopes: splitScopes(scopes as string[]) };
       }
+    }
+    // Legacy configs carried the distribution type in a top-level
+    // `distribution` key; it now lives in `auth.type`. Backfill auth.type from
+    // the legacy key when missing so old scaffolded projects keep working.
+    const legacyDistribution = (raw as Record<string, unknown>).distribution;
+    const authType =
+      rawAuth && typeof rawAuth === 'object'
+        ? (rawAuth as Record<string, unknown>).type
+        : undefined;
+    if (!authType && typeof legacyDistribution === 'string' && legacyDistribution.trim()) {
+      authOverride = {
+        ...(authOverride ?? (rawAuth && typeof rawAuth === 'object' ? rawAuth : {})),
+        type: legacyDistribution.trim(),
+      };
     }
     return { ...raw, appId, ...(authOverride ? { auth: authOverride } : {}) };
   } catch {
