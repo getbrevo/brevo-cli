@@ -42,6 +42,7 @@ jest.mock('../../../commands/app/scaffold', () => ({
   resolveProjectDirectory: jest.fn(),
   promptProjectType: jest.fn(),
   reportScaffoldSuccess: jest.fn(),
+  computeCdHint: jest.fn(),
 }));
 
 jest.mock('node:fs');
@@ -63,6 +64,7 @@ import {
   resolveProjectDirectory,
   promptProjectType,
   reportScaffoldSuccess,
+  computeCdHint,
 } from '../../../commands/app/scaffold';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
@@ -281,6 +283,34 @@ describe('app/create', () => {
 
       expect(createCallOrder).toEqual(['directory', 'create']);
       expect(runScaffold).toHaveBeenCalledWith(20, expect.anything(), '/cwd/dir-app', false);
+    });
+
+    it('computes the cd hint from the cwd at command start and forwards it to reportScaffoldSuccess', async () => {
+      const originalCwd = process.cwd();
+      (resolveProjectDirectory as jest.Mock).mockResolvedValue({
+        targetDir: '/cwd/cd-hint-app',
+        mergeOnly: false,
+        chooseAgain: false,
+      });
+      (computeCdHint as jest.Mock).mockReturnValue('cd-hint-app');
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 23,
+        name: 'Cd Hint App',
+        client_id: 'cli-cd-hint',
+        client_secret: 'secret-cd-hint',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await createCommand({ name: 'Cd Hint App', distribution: 'private' });
+
+      expect(computeCdHint).toHaveBeenCalledWith(originalCwd, '/cwd/cd-hint-app');
+      expect(reportScaffoldSuccess).toHaveBeenCalledWith(
+        expect.objectContaining({ cdDir: 'cd-hint-app' }),
+      );
     });
 
     it('does not prompt for a directory under --json (non-interactive resolution)', async () => {

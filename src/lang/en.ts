@@ -161,10 +161,15 @@ export const messages = {
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
   APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
   APP_SCAFFOLD_NEXT_STEPS_TITLE: 'Next steps',
-  APP_SCAFFOLD_NEXT_STEPS_LINES: () => [
-    `1. yarn --cwd src/oauth`,
+  // `cdDir` is the path (relative to the shell the user actually typed the
+  // command in) they need to `cd` into. It's undefined when scaffolding
+  // landed in that same directory, since process.chdir() inside the CLI
+  // only moves the CLI's own process, never the user's shell.
+  APP_SCAFFOLD_NEXT_STEPS_LINES: (cdDir?: string) => [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    `${cdDir ? 2 : 1}. yarn --cwd src/oauth`,
     `   (or: npm --prefix src/oauth install)`,
-    `2. ${CLI.APP_START('oauth')}`,
+    `${cdDir ? 3 : 2}. ${CLI.APP_START('oauth')}`,
   ],
   APP_SCAFFOLD_SCOPES_TIP: `Tip: list available scopes with \`${CLI.APP_SCOPES}\`. Update scopes via \`${CLI.APP_UPDATE_SCOPE} <name>\` (repeatable), or by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPDATE}\`.`,
 

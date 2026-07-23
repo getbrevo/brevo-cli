@@ -18,6 +18,7 @@ import {
   resolveProjectDirectory,
   promptProjectType,
   reportScaffoldSuccess,
+  computeCdHint,
 } from './scaffold';
 import { appService } from '../../container';
 import { CreateAppResponse } from '../../types';
@@ -329,6 +330,7 @@ export const createCommand = withCommandHandler(
     json?: boolean;
   }): Promise<void> => {
     const jsonMode = !!options.json;
+    const originalCwd = process.cwd();
 
     guardAgainstLinkedApp();
 
@@ -404,6 +406,7 @@ export const createCommand = withCommandHandler(
       scopes,
       files,
       targetDir: dir.targetDir,
+      cdDir: computeCdHint(originalCwd, dir.targetDir),
     });
   },
 );

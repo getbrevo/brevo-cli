@@ -41,12 +41,21 @@ describe('messages (lang/en)', () => {
     expect(messages.AUTH_LOGOUT_APP_WARNING).toContain('--reveal-secret');
   });
 
-  it('should have working scaffold next-steps messages', () => {
+  it('should have working scaffold next-steps messages without a cd hint', () => {
     const lines = messages.APP_SCAFFOLD_NEXT_STEPS_LINES();
     expect(lines).toHaveLength(3);
     expect(lines[0]).toContain('yarn --cwd');
     expect(lines[1]).toContain('npm --prefix');
     expect(lines[2]).toContain('oauth');
+  });
+
+  it('should lead with a cd step when a cd hint is given', () => {
+    const lines = messages.APP_SCAFFOLD_NEXT_STEPS_LINES('my-app');
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe('1. cd my-app');
+    expect(lines[1]).toContain('yarn --cwd');
+    expect(lines[2]).toContain('npm --prefix');
+    expect(lines[3]).toContain('oauth');
   });
 
   it('should have working scaffold directory-notice messages', () => {

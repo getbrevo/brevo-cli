@@ -165,7 +165,7 @@ describe('app/scaffold', () => {
     expect(vars['{{CLIENT_ID}}']).toBe('api-client');
   });
 
-  it('does not print a redundant "cd" step in Next steps, since scaffolding already moved into the target directory', async () => {
+  it('prints a "cd" step in Next steps pointing at the target directory, since process.chdir() never moves the user\'s own shell', async () => {
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
       diffs: [],
       app: {
@@ -177,8 +177,41 @@ describe('app/scaffold', () => {
       },
     });
 
+    const targetDir = tmpPath('test-next-steps');
     mockPrompt
-      .mockResolvedValueOnce({ outputDir: tmpPath('test-next-steps') })
+      .mockResolvedValueOnce({ outputDir: targetDir })
+      .mockResolvedValueOnce({ projectType: 'oauth' });
+
+    await scaffoldCommand({ appId: '1' });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    const expectedCdDir = path.relative(process.cwd(), targetDir);
+    expect(output).toContain('Next steps');
+    expect(output).toContain(`cd ${expectedCdDir}`);
+    expect(output).toContain('yarn --cwd src/oauth');
+  });
+
+  it('omits the "cd" step in Next steps when scaffolding landed in the directory the command was run from', async () => {
+    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+      diffs: [],
+      app: {
+        app_id: '1',
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret',
+        redirect_uris: [],
+      },
+    });
+
+    const cwdAppConfig = path.join(process.cwd(), 'app-config.json');
+    // cwdConfigPath must report false so resolveScaffoldTarget falls through
+    // to resolveDirectoryOrCancel/resolveProjectDirectory instead of the
+    // "app already linked here" branch; the target dir itself (== cwd) must
+    // report true so resolveProjectDirectory shows the overwrite/merge prompt.
+    (fs.existsSync as jest.Mock).mockImplementation((p: string) => p !== cwdAppConfig);
+    mockPrompt
+      .mockResolvedValueOnce({ outputDir: process.cwd() })
+      .mockResolvedValueOnce({ action: 'overwrite' })
       .mockResolvedValueOnce({ projectType: 'oauth' });
 
     await scaffoldCommand({ appId: '1' });
