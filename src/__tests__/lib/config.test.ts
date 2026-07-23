@@ -17,6 +17,7 @@ import {
   getAppCredentials,
   getCredentialsPath,
   readProjectConfig,
+  writeProjectConfig,
   hasLocalApp,
 } from '../../lib/config';
 
@@ -470,6 +471,31 @@ describe('config', () => {
         });
         const cfg = readProjectConfig();
         expect(cfg?.auth?.type).toBe('private');
+      });
+
+      it('does not carry the legacy distribution key forward in the returned config', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+          distribution: 'public',
+        });
+        const cfg = readProjectConfig();
+        expect(cfg).not.toHaveProperty('distribution');
+      });
+
+      it('migrates a legacy config to the new shape on the next write', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+          distribution: 'public',
+        });
+        const cfg = readProjectConfig();
+        writeProjectConfig(cfg!);
+        const onDisk = JSON.parse(
+          fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'),
+        );
+        expect(onDisk).not.toHaveProperty('distribution');
+        expect(onDisk.auth.type).toBe('public');
       });
     });
   });

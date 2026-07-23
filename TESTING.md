@@ -22,6 +22,15 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### Legacy config write-back migration + `auth.type` narrowing (`BEX-255_change`)
+_Added: 2026-07-23_
+
+**`readProjectConfig()` / write-back (`config.ts`)**
+- [ ] Legacy top-level `distribution` key is absent from the object `readProjectConfig()` returns — (Automated: `config.test.ts`)
+- [ ] Reading a legacy config then writing it back (`writeProjectConfig`) drops the top-level `distribution` key from disk and persists `auth.type` — (Automated: `config.test.ts`)
+- [ ] `ProjectConfig.auth.type` is typed `'private' | 'public'`, not `string` — (Manual: `tsc`/`yarn build`)
+- [ ] Existing legacy-backfill behavior (backfill on read, `auth.type` wins when both present) still holds — (Automated: `config.test.ts`)
+
 ### OAuth callback URL hint wording (`enable-public-app`)
 _Added: 2026-07-23_
 

@@ -408,7 +408,7 @@ export interface ProjectConfig {
   updatedAt?: string;
   auth: {
     /** Distribution type of the app: 'private' or 'public' */
-    type: string;
+    type: 'private' | 'public';
     scopes: string[];
     redirectUrls?: string[];
   };
@@ -471,10 +471,23 @@ export function readProjectConfig(): ProjectConfig | null {
     if (!authType && typeof legacyDistribution === 'string' && legacyDistribution.trim()) {
       authOverride = {
         ...(authOverride ?? (rawAuth && typeof rawAuth === 'object' ? rawAuth : {})),
-        type: legacyDistribution.trim(),
+        type: legacyDistribution.trim() as 'private' | 'public',
       };
     }
-    return { ...raw, appId, ...(authOverride ? { auth: authOverride } : {}) };
+    // Drop the legacy top-level `distribution` key from the returned config —
+    // it's already folded into `auth.type` above. Callers that write this
+    // object back to disk (update.ts, start.ts) then naturally migrate old
+    // projects to the new shape on their next write, instead of round-tripping
+    // the stray key forever.
+    const { distribution: _legacyDistribution, ...rawWithoutLegacyDistribution } = raw as Record<
+      string,
+      unknown
+    >;
+    return {
+      ...rawWithoutLegacyDistribution,
+      appId,
+      ...(authOverride ? { auth: authOverride } : {}),
+    } as ProjectConfig;
   } catch {
     return null;
   }
