@@ -115,3 +115,33 @@ New unit test coverage (mirroring existing patterns in each file):
   `app-config.json` for the first time; JSON output includes `version`.
 
 A `TESTING.md` entry tracks all of the above as verification criteria for this branch.
+
+## Implementation notes (as shipped)
+
+_Added 2026-07-23 after implementation, to keep this doc in sync with the code._
+
+Shipped essentially as designed. Concrete anchors in the current code:
+
+- **Data model** — `version?: string` on `OAuthApp` and `CreateAppResponse`
+  (`src/types.ts`) and on `ProjectConfig` (`src/lib/config.ts`).
+- **`brevo app create`** — `renderCreatedApp` adds an `App version:` box line and the
+  `--json` output includes `version`, both guarded so they're omitted when the API
+  returns none (`src/commands/app/create.ts`).
+- **`brevo app scaffold`** — `{{APP_VERSION}}` is sourced from
+  `ctx.appDetails?.version` in `buildTemplateVars`, and `app-config.json.tmpl` carries
+  a `"version"` key. Note: the scaffold flow was itself restructured (see
+  `create-scaffold-directory-flow-design.md` → "Implementation notes"); version
+  threading survived that restructure via `buildTemplateVars`, shared by both
+  `runBaseScaffold` and `runFeatureScaffold`.
+- **`brevo app list`** — a `Version:` line in the human output; JSON flows through
+  automatically (`src/commands/app/list.ts`).
+- **`brevo app update`** — `ExistingAppState.version`, the config-fast-path /
+  backfill-on-legacy-config logic in `resolveExistingState`, `writeBackProjectConfig`
+  writing `version`, and `pushFullConfig`'s version-only write-back
+  (`writeVersionOnlyBack` + `fetchVersionOnly` best-effort backfill) all landed as
+  described (`src/commands/app/update.ts`). `version` also participates in the scaffold
+  config diff (`diffLocalConfig` in `scaffold.ts`).
+- **Docs** — the `version` field is documented in `agent-context/AGENTS.md` and
+  `agent-context/SKILL.md`.
+
+No deviations of note from this design.

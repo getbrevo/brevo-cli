@@ -249,3 +249,91 @@ branch, following the existing template.
   replaced with a diff-driven flow so the user is only interrupted when there's an
   actual difference to consent to; an already-up-to-date project re-scaffolds
   silently (merge-only, filling in any missing files).
+
+## Implementation notes (as shipped)
+
+_Added 2026-07-23 after implementation. The shipped flow diverged meaningfully from
+the design above; this section is the authoritative description of what actually
+landed. The body above is preserved for its rationale and rejected alternatives, but
+where it disagrees with this section, **this section wins.**_
+
+The core change beyond this design: `brevo app create` now writes a **base project
+structure** and treats the OAuth starter as a separately-prompted **feature**, and
+`brevo app scaffold` is no longer a directory-setup tool at all — it only adds a
+feature into an already-linked project.
+
+### Terminology change: "project type" → "feature"
+
+`promptProjectType` shipped as **`promptFeatureType(interactive)`** and the type is
+`FeatureType` (`'oauth'`). The prompt reads _"What feature do you want to scaffold?"_
+(`APP_SCAFFOLD_FEATURE_TYPE_PROMPT`). Read every "project-type prompt" in the design
+above as "feature-type prompt".
+
+### `create`: base scaffold vs. feature scaffold
+
+`runScaffold` was split into two exported helpers in `scaffold.ts`:
+
+- **`runBaseScaffold(appId, ctx, targetDir, mergeOnly)`** — writes the base project
+  structure only: `app-config.json` + project meta files (`.gitignore`, `AGENTS.md`,
+  `CLAUDE.md`, `README.md`). Always run by `create`.
+- **`runFeatureScaffold(feature, appId, ctx, targetDir, mergeOnly)`** — writes one
+  feature's files (the OAuth starter under `src/oauth/`). Run only when a feature is
+  chosen.
+
+`create`'s flow became: `guardAgainstLinkedApp()` → app name → distribution →
+redirect URL(s) → logo → **directory** → API call → **always `runBaseScaffold`** →
+show the created-app box + base file tree → **"Do you want to scaffold a feature?"
+(Y/n, default yes)** → on yes, `promptFeatureType` then `runFeatureScaffold`; on no,
+base-only with a Next-steps box pointing at `brevo app scaffold`. The extra
+"scaffold a feature?" prompt (`APP_CREATE_SCAFFOLD_FEATURE_PROMPT`) and the
+base-only path are both new relative to the design's single project-type prompt.
+
+**Non-interactive `create` stays base-only.** Contrary to the design's "`--json`
+mode … writes files, defaulting to `'oauth'`", `--json` and piped/non-TTY runs create
+the app and write the base files but **never scaffold a feature** — the user adds it
+afterward with `brevo app scaffold`. `--json` output carries `directory` plus either
+`scaffolded` (base file count) or `scaffoldSkipped` (when the target directory already
+existed and both directory setup and scaffolding were skipped).
+
+### `resolveProjectDirectory` shipped richer than designed
+
+Signature is **`resolveProjectDirectory(defaultDir, jsonMode = false):
+Promise<ResolveProjectDirectoryResult>`**, not `(defaultSlug) => Promise<string>`. It
+prompts (`APP_SCAFFOLD_DIR_PROMPT`), and when the target already exists it offers
+_Overwrite / Merge (keep existing, add missing) / Choose a different path_, returning
+`{ targetDir, mergeOnly, chooseAgain }`. Under `jsonMode` it never prompts: it uses the
+default, and reports `{ targetDir, unresolved: true }` rather than guessing when the
+directory already exists. `create.ts` wraps this in `resolveCreateDirectory`, which
+loops on `chooseAgain` and, in non-interactive mode, skips scaffolding when the default
+directory already exists. The `chdir` into the target does happen, as designed.
+
+### `scaffold` is feature-only — no directory setup, no Case A/C
+
+The three-case branch (A = create dir, B = same app diff, C = different app) did **not**
+ship. Instead, `scaffoldCommand`:
+
+- **Requires** an `app-config.json` in cwd. With none present it throws
+  `APP_SCAFFOLD_NO_CONFIG` (pointing at `brevo app create` or cd-ing into the right
+  folder). It never creates a directory and has no app picker and no `--app-id` flag —
+  so the design's **Case A (create+chdir) and Case C (different app) are both gone**.
+- Fetches the linked app and diffs local config vs. server (`resolveScaffoldPlan` +
+  `diffLocalConfig`). This is the design's Case B, and it's now the _only_ case:
+  - **No drift** → add the feature (merge-only), nothing to confirm.
+  - **Drift** → print each differing field and ask consent
+    (`APP_SCAFFOLD_DIFF_INTRO`/`_DIFF_LINE`/`_DIFF_CONFIRM`). On yes, `runBaseScaffold`
+    with `mergeOnly: false` (full overwrite of the base files) **then** merge the
+    feature; on no, cancel with nothing written.
+- **Under `--json` it never prompts**: a drift returns
+  `{ cancelled: true, reason, diffs }`; no drift writes the feature and returns
+  `{ scaffolded, directory }`.
+
+`diffLocalConfig` compares `appName`, `distribution_type`, `auth.redirectUrls`,
+`auth.scopes` (minus legacy `'all'`), `logoUri`, and `version` — as designed, all sorts
+now use `localeCompare` (commit `3efe883`).
+
+### Docs
+
+`agent-context/AGENTS.md` and `agent-context/SKILL.md` describe this shipped flow
+(base/feature split, the "scaffold a feature?" prompt, base-only non-interactive runs,
+scaffold-requires-config) — those are the accurate user-facing reference; this design
+doc's flow diagram is the earlier plan.

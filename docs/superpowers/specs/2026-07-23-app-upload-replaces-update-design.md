@@ -2,6 +2,15 @@
 
 _Date: 2026-07-23_
 
+> **Implementation status (as of the `add-app-version-config` branch): NOT
+> IMPLEMENTED — proposal only.** On this branch `brevo app upload` does not exist,
+> `brevo app update` is still fully registered (`src/commands/app/update.ts`,
+> `definitions.ts`), and there is no `uploadApp()` in `src/services/app.ts`. This
+> work is tracked separately under BEX-250 (its own worktree) and remains **blocked
+> on open question #1** (endpoint + payload shape) below — nothing here has been
+> synced to code yet because there is no implementation to sync to. Leaving this doc
+> as the design of record; it will be reconciled against the code once BEX-250 lands.
+
 ## Source of truth
 
 [BEX-250 — CLI: Brevo app upload command](https://mailinblue.atlassian.net/browse/BEX-250) is the
