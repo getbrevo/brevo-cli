@@ -18,6 +18,7 @@ import {
   getCredentialsPath,
   readProjectConfig,
   writeProjectConfig,
+  backfillProjectConfigFromServer,
   hasLocalApp,
 } from '../../lib/config';
 
@@ -595,6 +596,146 @@ describe('config', () => {
         expect(onDisk.auth).not.toHaveProperty('type');
         expect(onDisk.distribution_type).toBe('public');
       });
+    });
+  });
+
+  describe('backfillProjectConfigFromServer', () => {
+    const originalCwd = process.cwd();
+    let projectDir: string;
+
+    beforeEach(() => {
+      projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-project-'));
+      process.chdir(projectDir);
+    });
+
+    afterEach(() => {
+      process.chdir(originalCwd);
+      if (fs.existsSync(projectDir)) {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+    function writeConfig(config: object): void {
+      fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+    }
+
+    function readOnDisk(): Record<string, unknown> {
+      return JSON.parse(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'));
+    }
+
+    it('backfills a missing version from the server value', () => {
+      writeConfig({ appId: '42', distribution_type: 'private', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', { version: '1.4.0' });
+      expect(changed).toEqual(['version']);
+      expect(readOnDisk().version).toBe('1.4.0');
+    });
+
+    it('backfills a missing distribution_type from the server value', () => {
+      writeConfig({ appId: '42', version: '1.0.0', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', { distribution_type: 'public' });
+      expect(changed).toEqual(['distribution_type']);
+      expect(readOnDisk().distribution_type).toBe('public');
+    });
+
+    it('backfills both missing fields at once', () => {
+      writeConfig({ appId: '42', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', {
+        version: '2.0.0',
+        distribution_type: 'public',
+      });
+      expect(changed).toEqual(['version', 'distribution_type']);
+      const onDisk = readOnDisk();
+      expect(onDisk.version).toBe('2.0.0');
+      expect(onDisk.distribution_type).toBe('public');
+    });
+
+    it('defaults distribution_type to private when both file and server lack it', () => {
+      writeConfig({ appId: '42', version: '1.0.0', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', {});
+      expect(changed).toEqual(['distribution_type']);
+      expect(readOnDisk().distribution_type).toBe('private');
+    });
+
+    it('does not overwrite an existing version (fill only when missing)', () => {
+      writeConfig({
+        appId: '42',
+        version: '1.2.0',
+        distribution_type: 'private',
+        auth: { scopes: [] },
+      });
+      const changed = backfillProjectConfigFromServer('42', { version: '1.5.0' });
+      expect(changed).toEqual([]);
+      expect(readOnDisk().version).toBe('1.2.0');
+    });
+
+    it('does not overwrite an existing distribution_type (fill only when missing)', () => {
+      writeConfig({
+        appId: '42',
+        version: '1.0.0',
+        distribution_type: 'private',
+        auth: { scopes: [] },
+      });
+      const changed = backfillProjectConfigFromServer('42', { distribution_type: 'public' });
+      expect(changed).toEqual([]);
+      expect(readOnDisk().distribution_type).toBe('private');
+    });
+
+    it('treats a legacy distribution key as present and preserves its value, migrating shape only when another field triggers a write', () => {
+      writeConfig({ appId: '42', distribution: 'public', auth: { scopes: [] } });
+      // version is missing → a write is triggered; server says the app is
+      // private, but the legacy local value must win (never overwritten).
+      const changed = backfillProjectConfigFromServer('42', {
+        version: '1.0.0',
+        distribution_type: 'private',
+      });
+      expect(changed).toEqual(['version']);
+      const onDisk = readOnDisk();
+      expect(onDisk).not.toHaveProperty('distribution');
+      expect(onDisk.distribution_type).toBe('public');
+      expect(onDisk.version).toBe('1.0.0');
+    });
+
+    it('does not backfill version when the server has none', () => {
+      writeConfig({ appId: '42', distribution_type: 'private', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', {});
+      expect(changed).toEqual([]);
+      expect(readOnDisk()).not.toHaveProperty('version');
+    });
+
+    it('returns [] and writes nothing when the appId does not match', () => {
+      writeConfig({ appId: '42', auth: { scopes: [] } });
+      const before = fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8');
+      const changed = backfillProjectConfigFromServer('99', {
+        version: '1.0.0',
+        distribution_type: 'public',
+      });
+      expect(changed).toEqual([]);
+      expect(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8')).toBe(before);
+    });
+
+    it('returns [] when no app-config.json exists', () => {
+      const changed = backfillProjectConfigFromServer('42', {
+        version: '1.0.0',
+        distribution_type: 'public',
+      });
+      expect(changed).toEqual([]);
+      expect(fs.existsSync(path.join(projectDir, 'app-config.json'))).toBe(false);
+    });
+
+    it('returns [] and leaves the file untouched when nothing is missing', () => {
+      writeConfig({
+        appId: '42',
+        version: '1.0.0',
+        distribution_type: 'public',
+        auth: { scopes: [] },
+      });
+      const before = fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8');
+      const changed = backfillProjectConfigFromServer('42', {
+        version: '9.9.9',
+        distribution_type: 'private',
+      });
+      expect(changed).toEqual([]);
+      expect(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8')).toBe(before);
     });
   });
 

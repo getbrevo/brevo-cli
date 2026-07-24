@@ -6,7 +6,7 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
-import { saveAppName } from '../../lib/config';
+import { saveAppName, backfillProjectConfigFromServer } from '../../lib/config';
 
 type AppDetails = Awaited<ReturnType<typeof appService.resolveAppCredentials>>;
 
@@ -130,5 +130,17 @@ export const credentialsCommand = withCommandHandler(
     }
 
     await reconcileLocalCache(appId, app, diffs, options.json);
+
+    // Converge a legacy app-config.json toward the current shape: backfill any
+    // version/distribution_type it was scaffolded without. Only touches the
+    // file when it exists in cwd and its appId matches. Silent in every mode;
+    // a one-line note is printed in human mode when something was written.
+    const backfilled = backfillProjectConfigFromServer(appId, {
+      version: app.version,
+      distribution_type: app.distribution_type,
+    });
+    if (backfilled.length > 0 && !options.json) {
+      logInfo(`  ${messages.APP_CREDENTIALS_CONFIG_BACKFILLED(backfilled)}\n`);
+    }
   },
 );

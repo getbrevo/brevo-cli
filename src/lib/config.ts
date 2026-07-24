@@ -517,3 +517,71 @@ export function writeProjectConfig(config: ProjectConfig): void {
   const configPath = path.resolve(process.cwd(), PROJECT_CONFIG_FILE);
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 }
+
+function isNonEmptyString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
+ * Converge a legacy `app-config.json` in the current directory toward the
+ * current config shape by backfilling fields that were absent when it was
+ * scaffolded — mirroring the migration `brevo app upload` already performs, but
+ * from a read-only command (`brevo app credentials`) so projects that are never
+ * uploaded still catch up.
+ *
+ * Backfill is strictly fill-when-missing: a field the file already carries (in
+ * any historical shape) is never overwritten with the server's value, even when
+ * they differ. Guarded by an appId match so it only ever touches the config for
+ * the app the caller actually resolved.
+ *
+ * @returns the names of the fields written (`'version'`, `'distribution_type'`),
+ *          or `[]` when there is no matching local config or nothing was missing
+ *          (in which case the file is left byte-for-byte untouched).
+ */
+export function backfillProjectConfigFromServer(
+  appId: string,
+  server: { version?: string; distribution_type?: 'public' | 'private' },
+): string[] {
+  const configPath = path.resolve(process.cwd(), PROJECT_CONFIG_FILE);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    return [];
+  }
+  if (!raw || typeof raw !== 'object') return [];
+
+  const normalized = readProjectConfig();
+  if (!normalized || normalized.appId !== appId) return [];
+
+  const rawRecord = raw as Record<string, unknown>;
+  const backfilled: string[] = [];
+  const next: ProjectConfig = { ...normalized };
+
+  // `version` is optional: only backfill when the file lacks a usable value and
+  // the server actually returned one.
+  if (!isNonEmptyString(rawRecord.version) && isNonEmptyString(server.version)) {
+    next.version = server.version;
+    backfilled.push('version');
+  }
+
+  // `distribution_type` is required in the current shape. It is "missing" only
+  // when none of its historical carriers is present on disk (new top-level key,
+  // the oldest top-level `distribution`, or the interim `auth.type`). When
+  // missing, prefer the server's value, falling back to the normalized default.
+  const rawAuth = rawRecord.auth;
+  const legacyAuthType =
+    rawAuth && typeof rawAuth === 'object' ? (rawAuth as Record<string, unknown>).type : undefined;
+  const hasDistribution =
+    isNonEmptyString(rawRecord.distribution_type) ||
+    isNonEmptyString(rawRecord.distribution) ||
+    isNonEmptyString(legacyAuthType);
+  if (!hasDistribution) {
+    next.distribution_type = server.distribution_type ?? normalized.distribution_type;
+    backfilled.push('distribution_type');
+  }
+
+  if (backfilled.length === 0) return [];
+  writeProjectConfig(next);
+  return backfilled;
+}

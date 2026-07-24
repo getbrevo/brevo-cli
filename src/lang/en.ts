@@ -104,6 +104,8 @@ export const messages = {
   CLIENT_SECRET_HIDDEN_HUMAN: `[hidden — run \`${CLI.APP_CREDENTIALS_REVEAL()}\`]`,
   CLIENT_SECRET_HIDDEN_JSON: '[hidden]',
   CLIENT_SECRET_NOT_AVAILABLE: '[not available]',
+  APP_CREDENTIALS_CONFIG_BACKFILLED: (fields: string[]) =>
+    `Backfilled ${fields.join(', ')} into app-config.json.`,
 
   // App upload
   APP_UPLOAD_NO_CONFIG: `No app-config.json found in this directory. Run \`${CLI.APP_UPLOAD}\` from the project directory that has your app's app-config.json, or run \`${CLI.APP_CREATE}\` / \`${CLI.APP_SCAFFOLD}\` to set one up.`,

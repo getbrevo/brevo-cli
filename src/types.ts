@@ -78,7 +78,12 @@ export interface UploadAppResponse {
   app_id: string;
   name: string;
   logo_uri?: string;
+  // The bumped version lives in `app_version` per the locked upload contract,
+  // but tolerate `version` too: some server builds mirror the app object (which
+  // uses `version` everywhere else — see OAuthApp). Reading both means a new
+  // version is never silently dropped just because of which key the server used.
   app_version?: string;
+  version?: string;
   auth: {
     distribution_type?: 'public' | 'private';
     scopes?: string[];
