@@ -163,6 +163,20 @@ async function resolveAppId(options: SubmitOptions, config: ProjectConfig | null
   throw new CliError(messages.APP_SUBMIT_NO_APP_RESOLVED);
 }
 
+// Preflight through the canonical review-state read (`brevo app status`'s path)
+// before doing any submit work. Only a failed fetch — network, auth, or a
+// not-found app — blocks the flow; the returned state value is not a gate, so
+// it's read and discarded. A thrown error propagates to the command handler,
+// which aborts the submission.
+async function checkAppStatus(appId: string, silent: boolean | undefined): Promise<void> {
+  const spinner = createSpinner(messages.APP_SUBMIT_CHECKING_STATUS, { silent });
+  try {
+    await appService.fetchAppState(appId);
+  } finally {
+    spinner.stop();
+  }
+}
+
 async function fetchExistingApp(appId: string, silent: boolean | undefined): Promise<OAuthApp> {
   const spinner = createSpinner(messages.APP_SUBMIT_FETCHING, { silent });
   let app: OAuthApp | null;
@@ -180,6 +194,10 @@ async function fetchExistingApp(appId: string, silent: boolean | undefined): Pro
 export const submitCommand = withCommandHandler(async (options: SubmitOptions): Promise<void> => {
   const config = readProjectConfig();
   const appId = await resolveAppId(options, config);
+
+  // Run the status check first — a failed read aborts before we attempt to
+  // submit.
+  await checkAppStatus(appId, options.json);
 
   const app = await fetchExistingApp(appId, options.json);
 

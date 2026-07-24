@@ -9,6 +9,7 @@ jest.mock('../../../container', () => ({
   appService: {
     fetchAppsList: jest.fn(),
     fetchApp: jest.fn(),
+    fetchAppState: jest.fn(),
     pickApp: jest.fn(),
     createApp: jest.fn(),
     updateApp: jest.fn(),
@@ -71,6 +72,10 @@ describe('app/submit', () => {
       value: true,
     });
     jest.clearAllMocks();
+    // The status preflight must pass by default so flow tests reach the submit
+    // logic; the preflight-failure test overrides this. (clearAllMocks resets
+    // call data but not implementations, so re-establish it each test.)
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({ state: 'configured' });
     // Interactive runs now confirm before opening the form — accept by default
     // so pre-existing flow tests exercise the full path.
     (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ confirmed: true });
@@ -86,6 +91,31 @@ describe('app/submit', () => {
   });
 
   const output = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+  // ── Status preflight ──
+
+  it('runs the status check before opening the submission form', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({ state: 'configured' });
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+
+    await submitCommand({ appId: '42' });
+
+    expect(appService.fetchAppState).toHaveBeenCalledWith('42');
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+  });
+
+  it('aborts before submitting when the status check fails', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchAppState as jest.Mock).mockRejectedValue(new Error('network unreachable'));
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+
+    await expect(submitCommand({ appId: '42' })).rejects.toThrow('network unreachable');
+    // The preflight runs first, so a failed status read stops the flow before
+    // fetching the app or opening the form.
+    expect(appService.fetchApp).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
 
   // ── Happy paths ──
 

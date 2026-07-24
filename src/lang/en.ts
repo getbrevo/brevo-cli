@@ -123,6 +123,7 @@ export const messages = {
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
 
   // App submit (BEX-221)
+  APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
   APP_SUBMIT_FETCHING: 'Fetching app...',
   APP_SUBMIT_PICK_APP: 'Which app do you want to submit for review?',
   APP_SUBMIT_NO_APP_RESOLVED:
