@@ -127,6 +127,11 @@ export const messages = {
   // Reviewer feedback is delivered by email, not surfaced here (BEX-252).
   APP_STATUS_MESSAGE: (state: string): string => {
     switch (state) {
+      // Empty/missing state is normalized to the "unknown" sentinel upstream
+      // (src/commands/app/status.ts); '' is kept as a defensive fallthrough.
+      case '':
+      case 'unknown':
+        return `Status information isn't available for your app yet. Make sure your app is public and has been uploaded with \`${CLI.APP_UPLOAD}\`.`;
       case 'configured':
         return "Your app is set up but hasn't been submitted for review yet.";
       case 'submitted':

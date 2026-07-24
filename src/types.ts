@@ -36,7 +36,9 @@ export type AppState =
   | 'changes_requested';
 
 export interface AppStateResponse {
-  state: string;
+  // Optional: the read path tolerates a missing/empty state and normalizes it
+  // to an "unknown" sentinel (see src/commands/app/status.ts).
+  state?: string;
 }
 
 export interface CreateAppResponse {

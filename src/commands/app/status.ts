@@ -34,7 +34,9 @@ export const statusCommand = withCommandHandler(
       spinner.stop();
     }
 
-    const state = typeof raw.state === 'string' ? raw.state : '';
+    // Normalize a missing/empty state to a non-empty sentinel so both the
+    // header label and --json output stay meaningful.
+    const state = typeof raw.state === 'string' && raw.state ? raw.state : 'unknown';
     const message = messages.APP_STATUS_MESSAGE(state);
 
     if (options.json) {

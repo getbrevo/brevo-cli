@@ -107,13 +107,16 @@ describe('app/status', () => {
     expect(parsed.message).toContain('archived');
   });
 
-  it('should tolerate a missing state field', async () => {
+  it('should normalize a missing state field to the "unknown" sentinel', async () => {
     mockFetchAppState.mockResolvedValue({});
 
     await statusCommand({ appId: '42', json: true });
 
     const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
-    expect(parsed.state).toBe('');
+    expect(parsed.state).toBe('unknown');
+    expect(parsed.message).toContain("isn't available for your app");
+    expect(parsed.message).toContain('public');
+    expect(parsed.message).toContain('brevo app upload');
   });
 
   it('should propagate errors from the service', async () => {
