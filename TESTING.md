@@ -22,6 +22,29 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### `brevo app submit` — confirmation prompt, two-way sync remedy, Google-Form gate note (feat/app-submit-command)
+_Added: 2026-07-24_
+
+Product feedback pass on `brevo app submit`: (1) the out-of-sync error's remedy line now
+covers both directions ("update your local config with the server values, or run
+`brevo app upload`…"); (2) when local and server are in sync, interactive runs render the
+full app object (ID, name, distribution, redirect URLs, scopes, logo, version) and ask
+"Submit this app for review?" before opening the form; (3) every mode prints "The app will
+only be submitted for review once you complete and submit the Google Form."; (4) the
+private-app block requested in the same thread already existed (`APP_SUBMIT_NOT_PUBLIC`) —
+no change, verified still covered by tests.
+
+- [x] Drift error (human + `--json`) ends with the two-direction remedy line — (Automated: `submit.test.ts`)
+- [x] In-sync interactive run: full app object block + confirm prompt before `openBrowser` — (Automated: `submit.test.ts`)
+- [x] Declined confirmation → "Submission cancelled.", no browser, exit 0 — (Automated: `submit.test.ts`)
+- [x] `--json` never prompts; non-TTY skips the prompt and proceeds — (Automated: `submit.test.ts`)
+- [x] Google-Form gate note on stdout (human) and stderr (`--json`, stdout stays pure JSON) — (Automated: `submit.test.ts`)
+- [x] Private app still blocked with the create-a-public-app remedy — (Automated: `submit.test.ts`, pre-existing)
+- [x] `AGENTS.md` + `SKILL.md` describe the confirmation prompt, both-direction remedy, and form gate — (Manual)
+- [ ] Manual TTY run: confirm the summary block renders aligned and the prompt defaults to Yes — (Manual)
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
 ### `brevo app withdraw` — withdraw an app from submission (feat/app-withdraw)
 _Added: 2026-07-24_
 

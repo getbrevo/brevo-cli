@@ -1,3 +1,4 @@
+import inquirer from 'inquirer';
 import { appService } from '../../container';
 import { messages } from '../../lang/en';
 import { openBrowser } from '../../lib/browser';
@@ -111,6 +112,46 @@ function renderDriftBlock(drift: FieldDrift[]): string {
     .join('\n');
 }
 
+// Full app object as sent for review, labelled like renderDriftBlock's columns.
+// Empty/absent fields are dropped rather than shown blank.
+function renderAppSummary(app: OAuthApp): string {
+  const rows: Array<{ label: string; values: string[] }> = [
+    { label: 'App ID:        ', values: [app.app_id] },
+    { label: 'Name:          ', values: [app.name] },
+    { label: 'Distribution:  ', values: app.distribution_type ? [app.distribution_type] : [] },
+    { label: 'Redirect URLs: ', values: app.redirect_uris ?? [] },
+    { label: 'Scopes:        ', values: app.scopes ?? [] },
+    { label: 'Logo URL:      ', values: app.logo_uri ? [app.logo_uri] : [] },
+    { label: 'Version:       ', values: app.version ? [app.version] : [] },
+  ];
+  const continuation = ' '.repeat(17);
+  return rows
+    .filter((r) => r.values.length > 0)
+    .map((r) =>
+      r.values.map((v, i) => (i === 0 ? `  ${r.label}${v}` : `${continuation}${v}`)).join('\n'),
+    )
+    .join('\n');
+}
+
+// Show the exact object under review and get an explicit go-ahead before
+// opening the form. Returns true when the flow should proceed.
+async function confirmSubmission(app: OAuthApp): Promise<boolean> {
+  process.stdout.write(`\n  ${messages.APP_SUBMIT_CONFIRM_HEADER}\n${renderAppSummary(app)}\n\n`);
+  const { confirmed } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'confirmed',
+      message: messages.APP_SUBMIT_CONFIRM_PROMPT,
+      default: true,
+    },
+  ]);
+  if (!confirmed) {
+    logInfo(`\n  ${messages.APP_SUBMIT_CANCELLED}\n`);
+    return false;
+  }
+  return true;
+}
+
 // Resolve appId: flag > config; interactive picker as a last resort. Never
 // prompt in --json mode — machine output must stay deterministic.
 async function resolveAppId(options: SubmitOptions, config: ProjectConfig | null): Promise<string> {
@@ -177,20 +218,28 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
 
   if (options.json) {
     jsonOutput({ app_id: appId, form_url: formUrl });
-    // The next-steps note prints in every mode (BEX-251), but on stderr here
+    // The next-steps notes print in every mode (BEX-251), but on stderr here
     // so stdout stays parseable JSON.
+    process.stderr.write(`  ${messages.APP_SUBMIT_FORM_GATE}\n`);
     process.stderr.write(`  ${messages.APP_SUBMIT_NEXT_STEPS}\n`);
     return;
   }
 
-  // Print the URL before trying the browser so headless users always get it.
-  logInfo(messages.APP_SUBMIT_FORM_URL(formUrl));
+  // Everything is in sync at this point — show the full object being submitted
+  // and ask before opening the form. Non-TTY (piped/CI) can't answer a prompt,
+  // so it keeps the previous straight-through behavior.
+  if (process.stdin.isTTY && !(await confirmSubmission(app))) {
+    return;
+  }
+
+  // Both branches include the URL, so headless users always get it.
   try {
     openBrowser(formUrl);
-    logSuccess(messages.APP_SUBMIT_BROWSER_OPENED);
+    logSuccess(messages.APP_SUBMIT_BROWSER_OPENED(formUrl, appId));
   } catch (err) {
     logDebug('openBrowser failed', { message: (err as Error).message });
-    logInfo(messages.APP_SUBMIT_BROWSER_FAILED);
+    logInfo(messages.APP_SUBMIT_BROWSER_FAILED(formUrl, appId));
   }
+  logInfo(messages.APP_SUBMIT_FORM_GATE);
   logInfo(messages.APP_SUBMIT_NEXT_STEPS);
 });

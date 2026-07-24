@@ -30,6 +30,7 @@ jest.mock('../../../lib/browser', () => ({
   openBrowser: jest.fn(),
 }));
 
+import inquirer from 'inquirer';
 import { appService } from '../../../container';
 import { readProjectConfig } from '../../../lib/config';
 import { openBrowser } from '../../../lib/browser';
@@ -70,6 +71,9 @@ describe('app/submit', () => {
       value: true,
     });
     jest.clearAllMocks();
+    // Interactive runs now confirm before opening the form — accept by default
+    // so pre-existing flow tests exercise the full path.
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ confirmed: true });
   });
 
   afterEach(() => {
@@ -94,7 +98,7 @@ describe('app/submit', () => {
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
     expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
     expect(output()).toContain(FORM_URL);
-    expect(output()).toContain('Check status anytime with `brevo app status`');
+    expect(output()).toContain('check its status anytime with `brevo app status`');
   });
 
   it('prints JSON and does not open a browser with --json', async () => {
@@ -108,7 +112,7 @@ describe('app/submit', () => {
     // stdout must stay pure parseable JSON — the next-steps note goes to stderr.
     expect(JSON.parse(output())).toEqual({ app_id: '42', form_url: FORM_URL });
     const stderr = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
-    expect(stderr).toContain('Check status anytime with `brevo app status`');
+    expect(stderr).toContain('check its status anytime with `brevo app status`');
     stderrSpy.mockRestore();
   });
 
@@ -134,7 +138,94 @@ describe('app/submit', () => {
     await submitCommand({});
 
     expect(output()).toContain(FORM_URL);
-    expect(output()).toContain('Could not open your browser');
+    expect(output()).toContain("couldn't open a browser automatically");
+  });
+
+  // ── Confirmation prompt ──
+
+  it('shows the full app object and asks for confirmation before opening the form', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue({
+      ...MATCHING_CONFIG,
+      logoUri: 'https://example.com/logo.png',
+    });
+    (appService.fetchApp as jest.Mock).mockResolvedValue({
+      ...PUBLIC_APP,
+      logo_uri: 'https://example.com/logo.png',
+    });
+
+    await submitCommand({});
+
+    expect(inquirer.prompt).toHaveBeenCalledTimes(1);
+    const out = output();
+    expect(out).toContain('You are about to submit this app for review:');
+    expect(out).toContain('App ID:        42');
+    expect(out).toContain('Name:          My Test App');
+    expect(out).toContain('Distribution:  public');
+    expect(out).toContain('Redirect URLs: http://localhost:3009/auth/callback');
+    expect(out).toContain('Scopes:        crm:read');
+    expect(out).toContain('Logo URL:      https://example.com/logo.png');
+    expect(out).toContain('Version:       0.0.2');
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+  });
+
+  it('cancels cleanly when the confirmation is declined', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ confirmed: false });
+
+    await submitCommand({});
+
+    expect(output()).toContain('Submission cancelled.');
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('never prompts in --json mode', async () => {
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+
+    await submitCommand({ appId: '42', json: true });
+
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    stderrSpy.mockRestore();
+  });
+
+  it('skips the prompt when non-interactive and proceeds to open the form', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+
+    await submitCommand({});
+
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+  });
+
+  // ── Google-Form gate note ──
+
+  it('explains that submission only completes with the Google Form', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+
+    await submitCommand({});
+
+    expect(output()).toContain(
+      'The app will only be submitted for review once you complete and submit the Google Form.',
+    );
+  });
+
+  it('prints the Google-Form gate note on stderr in --json mode', async () => {
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+
+    await submitCommand({ appId: '42', json: true });
+
+    const stderr = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stderr).toContain('only be submitted for review once you complete and submit');
+    // stdout must stay pure parseable JSON.
+    expect(JSON.parse(output())).toEqual({ app_id: '42', form_url: FORM_URL });
+    stderrSpy.mockRestore();
   });
 
   // ── Distribution gate ──
@@ -183,6 +274,10 @@ describe('app/submit', () => {
     // Value shared by both sides prints plain; the drifted one is tagged.
     expect((error as Error).message).toContain('crm:read');
     expect((error as Error).message).toContain('contacts:read (local only)');
+    // Remedy covers both directions: pull server values locally, or upload.
+    expect((error as Error).message).toContain(
+      'Please update your local config with the server values, or run `brevo app upload`',
+    );
     expect(openBrowser).not.toHaveBeenCalled();
   });
 

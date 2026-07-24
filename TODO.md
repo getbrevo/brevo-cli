@@ -76,6 +76,13 @@ items to "Done" with the date.
   send). If it does, add it in `src/services/app.ts` and update the service test.
   — (relates to `feat/app-withdraw`; see `TESTING.md`)
 
+- [ ] **Consider a `--yes`/`--force` flag on `brevo app submit` to skip the new
+  confirmation prompt.** `withdraw`/`delete` have `--force` and `upload` has `--yes`;
+  `submit` currently only skips the prompt under `--json` or non-TTY stdin. A TTY-bound
+  script that wants the browser flow has no way to pre-confirm. Not requested in the
+  product feedback pass — add if someone asks.
+  — (relates to `feat/app-submit-command`; see `TESTING.md`)
+
 ---
 
 ## Done

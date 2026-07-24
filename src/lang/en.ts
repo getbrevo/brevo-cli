@@ -129,14 +129,19 @@ export const messages = {
   APP_SUBMIT_NOT_PUBLIC: (appId: string): string =>
     `App ${appId} was created as private and cannot be submitted for public review.\n  Distribution can't be changed after creation — create a new app with \`${CLI.APP_CREATE} --distribution public\` instead.`,
   APP_SUBMIT_OUT_OF_SYNC: (fields: string[], appId: string): string =>
-    `Your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Run \`${CLI.APP_UPLOAD}\` to push your local changes, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+    `Your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Please update your local config with the server values, or run \`${CLI.APP_UPLOAD}\` to upload your latest changes to the server — then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
-    `Your local app-config.json differs from the app on Brevo.\n${diff}\n\n  Run \`${CLI.APP_UPLOAD}\` to push your local changes, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
-  APP_SUBMIT_FORM_URL: (url: string): string => `Submission form: ${url}`,
-  APP_SUBMIT_BROWSER_OPENED: 'Opened the submission form in your browser.',
-  APP_SUBMIT_BROWSER_FAILED:
-    'Could not open your browser automatically. Copy the URL above to continue.',
-  APP_SUBMIT_NEXT_STEPS: `Please complete the submission form. You will receive an email once your app has been reviewed. Check status anytime with \`${CLI.APP_STATUS}\`.`,
+    `Your local app-config.json differs from the app on Brevo.\n${diff}\n\n  Please update your local config with the server values, or run \`${CLI.APP_UPLOAD}\` to upload your latest changes to the server — then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_CONFIRM_HEADER: 'You are about to submit this app for review:',
+  APP_SUBMIT_CONFIRM_PROMPT: 'Submit this app for review?',
+  APP_SUBMIT_CANCELLED: 'Submission cancelled.',
+  APP_SUBMIT_FORM_GATE:
+    'The app will only be submitted for review once you complete and submit the Google Form.',
+  APP_SUBMIT_BROWSER_OPENED: (url: string, appId: string): string =>
+    `We've opened a browser tab with the submission form for app ${appId}:\n  ${url}`,
+  APP_SUBMIT_BROWSER_FAILED: (url: string, appId: string): string =>
+    `We couldn't open a browser automatically. Open the submission form for app ${appId} yourself:\n  ${url}`,
+  APP_SUBMIT_NEXT_STEPS: `Please submit the form for review. You'll receive an email once your app has been reviewed — check its status anytime with \`${CLI.APP_STATUS}\`.`,
   APP_SUBMIT_NO_FORM_URL:
     'The server did not return a submission form URL. Please try again or contact Brevo support.',
 
