@@ -386,7 +386,7 @@ describe('app/submit', () => {
       google_form_link: undefined,
     });
 
-    await expect(submitCommand({})).rejects.toThrow('did not return a submission form URL');
+    await expect(submitCommand({})).rejects.toThrow('Review submission is currently unavailable');
     expect(openBrowser).not.toHaveBeenCalled();
   });
 });

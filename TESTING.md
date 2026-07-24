@@ -22,6 +22,22 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### `brevo app submit` — reworded missing-`google_form_link` message (feat/app-submit-command)
+_Added: 2026-07-24_
+
+Confirmed against production (real app fetch) that a missing `google_form_link` on an
+otherwise-valid public app is a real, reachable state — not just a defensive fallback.
+`APP_SUBMIT_NO_FORM_URL` no longer implies a server error / points at support; it now reads
+"Review submission is currently unavailable..." and explains the two likely causes (not
+uploaded yet, or already submitted and under review), pointing at `brevo app status` to
+check.
+
+- [x] Message starts with `Review submission is currently unavailable` (test match) — (Automated: `submit.test.ts`)
+- [x] Message references `brevo app status` via the `CLI.APP_STATUS` constant, not a hardcoded string — (Manual: code read)
+- [ ] `AGENTS.md`/`SKILL.md`: not updated — this is copy-only on an existing error path, no new flag/behavior/exit-code change — (Manual: confirm this call is still right before merge)
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
 ### `brevo app submit` — confirmation prompt, two-way sync remedy, Google-Form gate note (feat/app-submit-command)
 _Added: 2026-07-24_
 

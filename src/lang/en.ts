@@ -142,8 +142,7 @@ export const messages = {
   APP_SUBMIT_BROWSER_FAILED: (url: string, appId: string): string =>
     `We couldn't open a browser automatically. Open the submission form for app ${appId} yourself:\n  ${url}`,
   APP_SUBMIT_NEXT_STEPS: `Please submit the form for review. You'll receive an email once your app has been reviewed — check its status anytime with \`${CLI.APP_STATUS}\`.`,
-  APP_SUBMIT_NO_FORM_URL:
-    'The server did not return a submission form URL. Please try again or contact Brevo support.',
+  APP_SUBMIT_NO_FORM_URL: `Review submission is currently unavailable. This may happen if your app has not been uploaded yet or if it has already been submitted and is under review. You can check the current status of your app using \`${CLI.APP_STATUS}\`.`,
 
   // App status
   APP_STATUS_SELECT: 'Select an app:',

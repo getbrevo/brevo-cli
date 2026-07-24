@@ -9,3 +9,5 @@ The command targets an app via `--app-id`, the working directory's `app-config.j
 When the sync check fails, the error shows a field-by-field diff of the drifted values with `(local only)` / `(server only)` tags so you can tell which side is ahead before pushing; `--json` mode keeps the compact field-name message. The remedy line covers both directions: update the local config with the server values, or upload the local changes with `brevo app upload`.
 
 When everything is in sync, interactive runs show the full app object (ID, name, distribution, redirect URLs, scopes, logo, version) and ask for confirmation before opening the form; declining cancels cleanly with exit `0`. The prompt never fires under `--json` or when stdin is not a TTY. Every mode also prints a note that the app is only actually submitted once the Google Form is completed and submitted.
+
+If the app API doesn't return a `google_form_link`, the error now reads "Review submission is currently unavailable" and points at `brevo app status` — this can happen either because the app hasn't been uploaded yet, or because it's already been submitted and is under review.
