@@ -157,6 +157,7 @@ describe('app/submit', () => {
 
     expect(inquirer.prompt).toHaveBeenCalledTimes(1);
     const out = output();
+    expect(out).toContain('No configuration mismatch detected');
     expect(out).toContain('You are about to submit this app for review:');
     expect(out).toContain('App ID:        42');
     expect(out).toContain('Name:          My Test App');
@@ -210,7 +211,7 @@ describe('app/submit', () => {
     await submitCommand({});
 
     expect(output()).toContain(
-      'Note: your app is submitted for review only after you complete and submit the Google Form.',
+      'Note: Your app will be submitted for review only after you complete and submit the Google Form.',
     );
   });
 
@@ -239,7 +240,8 @@ describe('app/submit', () => {
 
     const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
     expect((error as Error).message).toContain('cannot be submitted for review');
-    expect((error as Error).message).toContain('only public apps are eligible');
+    expect((error as Error).message).toContain('Only public apps are eligible');
+    expect((error as Error).message).toContain('make your app public');
     // BEX-327: distribution can't be flipped after creation — never suggest
     // `app upload --distribution public` as a remedy.
     expect((error as Error).message).not.toContain('app upload --distribution');
@@ -274,7 +276,7 @@ describe('app/submit', () => {
     expect((error as Error).message).toContain('contacts:read (local only)');
     // Remedy covers both directions: pull server values locally, or upload.
     expect((error as Error).message).toContain(
-      'Update your local configuration with the latest server values, or run `brevo app upload`',
+      'Please update your local configuration with the latest server values, or run `brevo app upload`',
     );
     expect(openBrowser).not.toHaveBeenCalled();
   });

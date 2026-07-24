@@ -129,16 +129,18 @@ export const messages = {
     'Cannot determine which app to submit. Provide --app-id or run from a directory with app-config.json.',
   APP_SUBMIT_NOT_FOUND: (appId: string): string => `App ${appId} not found.`,
   APP_SUBMIT_NOT_PUBLIC: (appId: string): string =>
-    `App ${appId} is private. Private apps cannot be submitted for review — only public apps are eligible for the approval process.`,
+    `App ${appId} is private. Private apps cannot be submitted for review. Only public apps are eligible for the approval process. Please make your app public before submitting it for review.`,
   APP_SUBMIT_OUT_OF_SYNC: (fields: string[], appId: string): string =>
-    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server — then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
-    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo:\n${diff}\n\n  Update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server — then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo:\n${diff}\n\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_IN_SYNC:
+    'No configuration mismatch detected. Showing the submission confirmation prompt with the complete app configuration below.',
   APP_SUBMIT_CONFIRM_HEADER: 'You are about to submit this app for review:',
   APP_SUBMIT_CONFIRM_PROMPT: 'Submit this app for review?',
   APP_SUBMIT_CANCELLED: 'Submission cancelled.',
   APP_SUBMIT_FORM_GATE:
-    'Note: your app is submitted for review only after you complete and submit the Google Form.',
+    'Note: Your app will be submitted for review only after you complete and submit the Google Form.',
   APP_SUBMIT_BROWSER_OPENED: (url: string, appId: string): string =>
     `We've opened a browser tab with the submission form for app ${appId}:\n  ${url}`,
   APP_SUBMIT_BROWSER_FAILED: (url: string, appId: string): string =>

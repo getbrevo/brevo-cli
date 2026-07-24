@@ -193,6 +193,9 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
   // submitted; a different --app-id makes it irrelevant, not an error (submit
   // never writes locally).
   const configMatches = !!config?.appId && config.appId === appId;
+  // Tracks whether we actually ran a local-vs-server comparison and it came back
+  // clean — only then does the "no mismatch" note make sense to show.
+  let configVerified = false;
   if (configMatches) {
     const drift = computeConfigDrift(config!, app);
     if (drift.length > 0) {
@@ -207,6 +210,7 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
           : messages.APP_SUBMIT_OUT_OF_SYNC_DIFF(renderDriftBlock(drift), appId),
       );
     }
+    configVerified = true;
   }
 
   // The submission form link is part of the app payload for public apps —
@@ -228,8 +232,13 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
   // Everything is in sync at this point — show the full object being submitted
   // and ask before opening the form. Non-TTY (piped/CI) can't answer a prompt,
   // so it keeps the previous straight-through behavior.
-  if (process.stdin.isTTY && !(await confirmSubmission(app))) {
-    return;
+  if (process.stdin.isTTY) {
+    if (configVerified) {
+      logInfo(messages.APP_SUBMIT_IN_SYNC);
+    }
+    if (!(await confirmSubmission(app))) {
+      return;
+    }
   }
 
   // Both branches include the URL, so headless users always get it.
