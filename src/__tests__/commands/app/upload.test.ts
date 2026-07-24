@@ -230,6 +230,34 @@ describe('app/upload', () => {
     expect(saveAppName).toHaveBeenCalledWith('1', 'Renamed App');
   });
 
+  it('captures the new version when the upload response names it `version` (not `app_version`)', async () => {
+    // Some upload responses mirror the app object and return the bumped version
+    // under `version` (like GET/list) rather than `app_version`. The CLI must
+    // still persist and display the new value, never silently keep the old one.
+    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      app_id: '1',
+      name: 'Renamed App',
+      logo_uri: '',
+      // no app_version; new version arrives under `version`
+      version: '2.0.0',
+      auth: {
+        distribution_type: 'private',
+        scopes: ['contacts:read'],
+        redirect_urls: ['http://localhost:3009/auth/callback'],
+      },
+    });
+
+    await uploadCommand({ yes: true });
+
+    expect(writeProjectConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ appName: 'Renamed App', version: '2.0.0' }),
+    );
+    const printed = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(printed).toContain('2.0.0');
+  });
+
   it('rejects (propagates the error) when the server returns app_version_outdated', async () => {
     const changedConfig = { ...BASE_CONFIG, version: '0.5.0' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
