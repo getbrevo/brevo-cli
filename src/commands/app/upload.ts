@@ -275,12 +275,18 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   const finalName = response.name ?? config.appName;
   if (finalName) saveAppName(config.appId, finalName);
 
+  // Single source of truth for the version we persist AND print, so the two can
+  // never diverge. Prefer the upload contract's `app_version`, fall back to
+  // `version` (some server builds return the bumped value under that key), and
+  // only then to the version we sent — so a server-confirmed bump always wins.
+  const confirmedVersion = response.app_version ?? response.version ?? diff.nextVersion;
+
   writeProjectConfig({
     ...config,
     appName: finalName,
     logoUri: response.logo_uri ?? config.logoUri,
     distribution_type: response.auth.distribution_type ?? config.distribution_type,
-    version: response.app_version ?? diff.nextVersion,
+    version: confirmedVersion,
     auth: {
       scopes: response.auth.scopes ?? scopes,
       redirectUrls: response.auth.redirect_urls ?? redirectUrls,
@@ -291,13 +297,13 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     jsonOutput({
       appId: config.appId,
       name: finalName,
-      version: response.app_version ?? diff.nextVersion,
+      version: confirmedVersion,
       ...diffToJson(diff),
     });
     return;
   }
 
   logSuccess(messages.APP_UPLOAD_SUCCESS);
-  logInfo(`  Version: ${response.app_version ?? (diff.nextVersion || '(unknown)')}`);
+  logInfo(`  Version: ${confirmedVersion || '(unknown)'}`);
   process.stdout.write('\n');
 });
