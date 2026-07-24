@@ -137,6 +137,43 @@ describe('api client', () => {
       );
     });
 
+    it('should surface the `error` field when the API omits `message`', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 422,
+        headers: new Map(),
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              error: 'distribution_type cannot be changed via upload',
+              code: 'unprocessable_entity',
+            }),
+          ),
+      });
+
+      await expect(client.put('/v3/app-store/apps/1', {})).rejects.toMatchObject({
+        message: 'distribution_type cannot be changed via upload',
+        apiCode: 'unprocessable_entity',
+      });
+    });
+
+    it('should prefer `message` over `error` when both are present', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        headers: new Map(),
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              message: 'primary message',
+              error: 'secondary error',
+            }),
+          ),
+      });
+
+      await expect(client.get('/v3/app-store/apps')).rejects.toThrow('primary message');
+    });
+
     it('should fall back to API message for unknown apiCode', async () => {
       mockFetch.mockResolvedValue({
         ok: false,

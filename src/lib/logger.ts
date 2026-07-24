@@ -104,4 +104,4 @@ export function logWarn(message: string): void {
   process.stdout.write(`  ${color('33', '⚠')} ${message}\n`);
 }
 
-export { isDebug, isTTY };
+export { isDebug, isTTY, useColor, color };

@@ -438,3 +438,30 @@ _Added: 2026-07-23_
 **Flag wiring & docs**
 - [ ] `--overwrite` registered on `scaffold` in `definitions.ts`, threaded to `scaffoldCommand` — (Manual)
 - [ ] `AGENTS.md` + `SKILL.md` document the conflict prompt and `--overwrite`, and stay aligned — (Manual)
+
+### Root `--help` layout: aligned columns + public-apps grouping
+_Added: 2026-07-24_
+
+**`brevo --help` command listing (`bin/index.ts` `formatHelp`)**
+- [ ] Command signatures and descriptions are column-aligned (descriptions at a fixed column, wrapping onto their own indented line when the signature is too long) — (Manual: `node dist/bin/index.js --help`)
+- [ ] `brevo app status` and `brevo app withdraw` are grouped under a `App-review commands (public apps only):` heading — (Manual)
+- [ ] `brevo app status` appears in the listing (regression guard against it being dropped) — (Manual)
+- [ ] No command/flag/exit-code/error-message contract changed (formatting only) — so no `AGENTS.md`/`SKILL.md` edit required — (Manual)
+
+### Friendly message for empty/`unknown` app status
+_Added: 2026-07-24_
+
+**`brevo app status` empty-state copy (`status.ts` / `en.ts` `APP_STATUS_MESSAGE`)**
+- [ ] Server returns no state → `state` normalized to `unknown`, header reads `App status: Unknown` — (Automated: `status.test.ts`)
+- [ ] `unknown`/`''` message reads "Status information isn't available for your app yet…" and mentions the app must be public and uploaded via `brevo app upload` — (Automated: `status.test.ts`)
+- [ ] `--json` returns `{ state: "unknown", message }` with the friendly copy — (Automated: `status.test.ts`)
+- [ ] `message` is still canned copy (no contract change) → `AGENTS.md`/`SKILL.md` already document the `unknown` state, no further edit needed — (Manual)
+
+### Colourful, aligned status card
+_Added: 2026-07-24_
+
+**`brevo app status` human output (`status.ts` `toTone` + `ui.ts` `printStatusCard`)**
+- [ ] Output is an aligned card: bold `App status` title, a `─` rule the width of the title, then a coloured icon + bold label, then the message indented to line up under the label — (Automated: `status.test.ts`; Manual: `FORCE_COLOR=1 brevo app status --app-id <id>`)
+- [ ] Each state maps to a semantic tone/icon: approved→green ✓, rejected→red ✗, changes_requested→yellow ⚠, in_review→yellow ◐, submitted→blue ◔, configured→cyan ◇, unknown/other→gray ○ — (Automated: `status.test.ts` covers success ✓ and neutral ○)
+- [ ] Colours honour `NO_COLOR` / `FORCE_COLOR` / non-TTY via the shared `color` helper (no raw ANSI when `NO_COLOR=1`) — (Manual: `NO_COLOR=1 brevo app status --app-id <id>`)
+- [ ] `--json` output unchanged (`{ state, message }`) → no `AGENTS.md`/`SKILL.md` edit required (human formatting only, not a documented contract) — (Automated: `status.test.ts`)
