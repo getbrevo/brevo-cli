@@ -17,6 +17,8 @@ export interface OAuthApp {
   scopes?: string[];
   logo_uri?: string;
   version?: string;
+  // Review-submission form for public apps (BEX-221); absent for private apps.
+  google_form_link?: string;
   created_at: string;
   updated_at: string;
 }

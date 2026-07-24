@@ -120,6 +120,28 @@ export const messages = {
   APP_UPLOAD_SUCCESS: 'App uploaded.',
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
 
+  // App submit (BEX-221)
+  APP_SUBMIT_FETCHING: 'Fetching app...',
+  APP_SUBMIT_PICK_APP: 'Which app do you want to submit for review?',
+  APP_SUBMIT_NO_APP_RESOLVED:
+    'Cannot determine which app to submit. Provide --app-id or run from a directory with app-config.json.',
+  APP_SUBMIT_NOT_FOUND: (appId: string): string => `App ${appId} not found.`,
+  APP_SUBMIT_NOT_PUBLIC: (appId: string): string =>
+    `App ${appId} was created as private and cannot be submitted for public review.\n  Distribution can't be changed after creation — create a new app with \`${CLI.APP_CREATE} --distribution public\` instead.`,
+  APP_SUBMIT_OUT_OF_SYNC: (fields: string[], appId: string): string =>
+    `Your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Run \`${CLI.APP_UPLOAD}\` to push your local changes, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
+    `Your local app-config.json differs from the app on Brevo.\n${diff}\n\n  Run \`${CLI.APP_UPLOAD}\` to push your local changes, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_SYNC_SKIPPED:
+    'No matching app-config.json in this directory — skipping the local sync check.',
+  APP_SUBMIT_FORM_URL: (url: string): string => `Submission form: ${url}`,
+  APP_SUBMIT_BROWSER_OPENED: 'Opened the submission form in your browser.',
+  APP_SUBMIT_BROWSER_FAILED:
+    'Could not open your browser automatically. Copy the URL above to continue.',
+  APP_SUBMIT_NEXT_STEPS: `Please complete the submission form. You will receive an email once your app has been reviewed. Check status anytime with \`${CLI.APP_STATUS}\`.`,
+  APP_SUBMIT_NO_FORM_URL:
+    'The server did not return a submission form URL. Please try again or contact Brevo support.',
+
   // Legacy 'all' scope deprecation (BEX-214)
   LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses in app-config.json's \`auth.scopes\`.\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then run \`${CLI.APP_UPLOAD}\` to migrate.`,
   LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_START('oauth')}\`.`,

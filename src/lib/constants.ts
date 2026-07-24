@@ -111,6 +111,9 @@ export const CLI = {
     appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
   APP_SUBMIT: (appId?: string) =>
     appId ? `brevo app submit --app-id ${appId}` : 'brevo app submit --app-id <id>',
+  // `brevo app status` (BEX-252) ships in a separate PR; messages reference it
+  // through this constant so any syntax change lands in one place.
+  APP_STATUS: 'brevo app status',
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',

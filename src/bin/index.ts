@@ -79,6 +79,7 @@ program
         `  brevo app withdraw    [--app-id <id>] [--force] [--json]`,
         `  brevo app scaffold    [--app-id <id>] [--json]`,
         `  brevo app start       [feature] [--port <port>]`,
+        `  brevo app submit      [--app-id <id>] [--json]  Submit a public app for review`,
         ``,
         `Skill commands:`,
         `  brevo skill:cli install   [--json]             Install the brevo-cli Claude Code skill`,
@@ -181,12 +182,9 @@ warnIfPathStripped();
 // latest npm release, block the command (non-zero exit) so the user upgrades.
 // Skipped for --help/--version (so help stays reachable) and whenever the
 // update check itself is skipped (CI / non-TTY / opt-out). Fails open.
-const args = process.argv.slice(2);
+const args = new Set(process.argv.slice(2));
 const isHelpOrVersion =
-  args.includes('--help') ||
-  args.includes('-h') ||
-  args.includes('--version') ||
-  args.includes('-V');
+  args.has('--help') || args.has('-h') || args.has('--version') || args.has('-V');
 
 const forceGate = isHelpOrVersion
   ? Promise.resolve()
