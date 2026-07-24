@@ -119,8 +119,8 @@ describe('app/submit', () => {
     await submitCommand({ appId: '42' });
 
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
-    // The unrelated local config must not trigger a drift error; a skip note is shown.
-    expect(output()).toContain('skipping the local sync check');
+    // The unrelated local config must not trigger a drift error.
+    expect(output()).not.toContain('differs from the app on Brevo');
     expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
   });
 

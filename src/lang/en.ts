@@ -132,8 +132,6 @@ export const messages = {
     `Your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Run \`${CLI.APP_UPLOAD}\` to push your local changes, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
     `Your local app-config.json differs from the app on Brevo.\n${diff}\n\n  Run \`${CLI.APP_UPLOAD}\` to push your local changes, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
-  APP_SUBMIT_SYNC_SKIPPED:
-    'No matching app-config.json in this directory — skipping the local sync check.',
   APP_SUBMIT_FORM_URL: (url: string): string => `Submission form: ${url}`,
   APP_SUBMIT_BROWSER_OPENED: 'Opened the submission form in your browser.',
   APP_SUBMIT_BROWSER_FAILED:

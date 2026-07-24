@@ -166,8 +166,6 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
           : messages.APP_SUBMIT_OUT_OF_SYNC_DIFF(renderDriftBlock(drift), appId),
       );
     }
-  } else if (!options.json) {
-    logInfo(messages.APP_SUBMIT_SYNC_SKIPPED);
   }
 
   // The submission form link is part of the app payload for public apps —
