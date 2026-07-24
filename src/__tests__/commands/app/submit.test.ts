@@ -210,7 +210,7 @@ describe('app/submit', () => {
     await submitCommand({});
 
     expect(output()).toContain(
-      'The app will only be submitted for review once you complete and submit the Google Form.',
+      'Note: your app is submitted for review only after you complete and submit the Google Form.',
     );
   });
 
@@ -222,7 +222,7 @@ describe('app/submit', () => {
     await submitCommand({ appId: '42', json: true });
 
     const stderr = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
-    expect(stderr).toContain('only be submitted for review once you complete and submit');
+    expect(stderr).toContain('submitted for review only after you complete and submit');
     // stdout must stay pure parseable JSON.
     expect(JSON.parse(output())).toEqual({ app_id: '42', form_url: FORM_URL });
     stderrSpy.mockRestore();
@@ -230,7 +230,7 @@ describe('app/submit', () => {
 
   // ── Distribution gate ──
 
-  it('rejects a private app and points at creating a new public app', async () => {
+  it('rejects a private app as ineligible for review', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(null);
     (appService.fetchApp as jest.Mock).mockResolvedValue({
       ...PUBLIC_APP,
@@ -238,10 +238,10 @@ describe('app/submit', () => {
     });
 
     const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
-    expect((error as Error).message).toContain('cannot be submitted for public review');
-    // BEX-327: distribution can't be flipped after creation — the remedy is a
-    // new app, never `app upload --distribution public`.
-    expect((error as Error).message).toContain('brevo app create --distribution public');
+    expect((error as Error).message).toContain('cannot be submitted for review');
+    expect((error as Error).message).toContain('only public apps are eligible');
+    // BEX-327: distribution can't be flipped after creation — never suggest
+    // `app upload --distribution public` as a remedy.
     expect((error as Error).message).not.toContain('app upload --distribution');
     expect(openBrowser).not.toHaveBeenCalled();
   });
@@ -253,9 +253,7 @@ describe('app/submit', () => {
       distribution_type: undefined,
     });
 
-    await expect(submitCommand({ appId: '42' })).rejects.toThrow(
-      'cannot be submitted for public review',
-    );
+    await expect(submitCommand({ appId: '42' })).rejects.toThrow('cannot be submitted for review');
   });
 
   // ── Sync check ──
@@ -276,7 +274,7 @@ describe('app/submit', () => {
     expect((error as Error).message).toContain('contacts:read (local only)');
     // Remedy covers both directions: pull server values locally, or upload.
     expect((error as Error).message).toContain(
-      'Please update your local config with the server values, or run `brevo app upload`',
+      'Update your local configuration with the latest server values, or run `brevo app upload`',
     );
     expect(openBrowser).not.toHaveBeenCalled();
   });
