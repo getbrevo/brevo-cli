@@ -1,5 +1,6 @@
 import { ApiClient } from '../../api/client';
 import { createAppService } from '../../services/app';
+import { ApiError } from '../../lib/errors';
 import { CLI_VERSION } from '../../lib/cli-version';
 import { getAppCredentials, saveAppCredentials } from '../../lib/config';
 
@@ -346,6 +347,36 @@ describe('services/app', () => {
     it('should propagate API errors', async () => {
       (mockClient.delete as jest.Mock).mockRejectedValue(new Error('Not found'));
       await expect(service.deleteApp('999')).rejects.toThrow('Not found');
+    });
+  });
+
+  describe('withdrawApp', () => {
+    it('should POST to the withdraw endpoint by numeric-string ID', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.withdrawApp('42');
+
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps/42/withdraw');
+    });
+
+    it('should POST to the withdraw endpoint by UUID', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.withdrawApp(UUID);
+
+      expect(mockClient.post).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/withdraw`);
+    });
+
+    it('should rethrow a 404 as a friendly not-found error', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+
+      await expect(service.withdrawApp('999')).rejects.toThrow('App 999 not found.');
+    });
+
+    it('should propagate a 422 ApiError unchanged (handled as informational by the command)', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('not submitted', 422));
+
+      await expect(service.withdrawApp('42')).rejects.toMatchObject({ statusCode: 422 });
     });
   });
 });

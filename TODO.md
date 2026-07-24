@@ -65,6 +65,17 @@ items to "Done" with the date.
   fires. Fix by comparing case-insensitively (or normalizing `apiCode` to
   uppercase before the lookup) in both `apiCodeMessages` and `mapErrorCode`.
 
+- [ ] **De-duplicate `CLI.APP_SUBMIT` with the `brevo app submit` work.** `feat/app-withdraw`
+  added `CLI.APP_SUBMIT` in `src/lib/constants.ts` purely for the withdraw `422` "submit first"
+  hint; `brevo app submit` itself is WIP by another dev. When that branch lands, keep a single
+  declaration rather than two. — (relates to `feat/app-withdraw`; see `TESTING.md`)
+
+- [ ] **Verify the `brevo app withdraw` request body shape against the real API.**
+  `withdrawApp` currently POSTs with no body (`client.post(ENDPOINTS.APP_STORE_APP_WITHDRAW(id))`).
+  Confirm the endpoint doesn't require a payload (e.g. `cli_version`, which `create`/`upload`
+  send). If it does, add it in `src/services/app.ts` and update the service test.
+  — (relates to `feat/app-withdraw`; see `TESTING.md`)
+
 ---
 
 ## Done

@@ -46,6 +46,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 - "Add a feature (e.g. the OAuth test server) to an existing project" → `brevo app scaffold` (run **inside** the project directory; it reads the linked app from `app-config.json` — no `--app-id`). Not needed right after `app create` if you already accepted the feature prompt there. If feature files already exist it prompts Overwrite / Merge / Cancel (default Merge); pass `--overwrite` to force a full overwrite without prompting.
 - "Run the OAuth test server" → `brevo app start oauth --port 3009` (must be inside the scaffolded directory)
 - "Delete an app" → `brevo app delete --app-id <id> --force`
+- "Withdraw an app from submission" → `brevo app withdraw --app-id <id> --force` (omit `--app-id` inside a scaffolded project to use the app pinned in `app-config.json`; if the app was never submitted, it prints a hint to submit first and exits `0` — not an error)
 - "List supported OAuth scopes" → `brevo app available-scopes --json`
 - "Sign out" → `brevo logout --force`
 
@@ -59,7 +60,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 
 ## Locating the linked app
 
-If `app-config.json` exists in the working directory, it pins the app — `brevo app upload` and `brevo app start` use it automatically. Unlike most other commands, `upload` has **no** `--app-id` override — it only ever reads cwd's `app-config.json`, hard-erroring if that file is missing, invalid, or lacks `appId`.
+If `app-config.json` exists in the working directory, it pins the app — `brevo app upload`, `brevo app start`, and `brevo app withdraw` use it automatically. `brevo app start` and `brevo app withdraw` accept an `--app-id` override to target a different app; `upload` does **not** — it only ever reads cwd's `app-config.json`, hard-erroring if that file is missing, invalid, or lacks `appId`.
 
 `app-config.json` carries an optional top-level `logoUri` string. When set, `brevo app upload` pushes it as `logo_uri`; when empty / absent, the field is left untouched on the API.
 

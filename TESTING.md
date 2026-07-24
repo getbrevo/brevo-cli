@@ -22,6 +22,33 @@ Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
 
 ## Entries
 
+### `brevo app withdraw` — withdraw an app from submission (feat/app-withdraw)
+_Added: 2026-07-24_
+
+New `brevo app withdraw` command → `POST /v3/app-store/apps/{id}/withdraw`. Mirrors
+`app delete`'s UX (confirmation prompt, `--force`, `--json`). When `--app-id` is omitted it
+resolves from cwd's `app-config.json` (like `upload`/`start`), else falls back to the picker.
+A `422` from the API is treated as "app not submitted yet": prints a submit hint and **exits 0**.
+
+- [ ] `--force` + `--app-id` → POSTs to `/v3/app-store/apps/{id}/withdraw`, "withdrawn" message — (Automated: `withdraw.test.ts`, `app.test.ts`)
+- [ ] Inside a scaffolded project dir, no `--app-id` → auto-picks `appId` from `app-config.json`, no picker — (Automated: `withdraw.test.ts` | Manual)
+- [ ] Outside a project dir, no `--app-id` → interactive app picker → confirm → withdraw — (Automated: `withdraw.test.ts`)
+- [ ] Explicit `--app-id` overrides `app-config.json` — (Automated: `withdraw.test.ts`)
+- [ ] Declined confirmation → no API call, "cancelled" — (Automated: `withdraw.test.ts`)
+- [ ] HTTP `422` → "has not been submitted yet" + `brevo app submit --app-id <id>` hint, **exit 0** — (Automated: `withdraw.test.ts` | Manual: `echo $?`)
+- [ ] HTTP `422` + `--json` → `{"withdrawn":false,...,"reason":"NOT_SUBMITTED"}`, exit 0 — (Automated: `withdraw.test.ts`)
+- [ ] HTTP `404` → "App <id> not found.", exit 5 — (Automated: `app.test.ts` | Manual)
+- [ ] `--json` success → `{"withdrawn":true,"appId":"<id>"}` — (Automated: `withdraw.test.ts`)
+- [ ] Non-422 error propagates (exit 1) — (Automated: `withdraw.test.ts`)
+- [ ] Appears in `brevo --help` App-commands list and `brevo app withdraw --help` — (Manual)
+- [ ] `AGENTS.md` + `SKILL.md` document `withdraw` (decision tree, table, app-config.json note) — (Manual)
+
+Note: `CLI.APP_SUBMIT` is referenced only for the 422 hint string — `brevo app submit` is WIP
+by another dev; de-duplicate the constant when that lands. Withdraw request currently sends no
+body — verify against the real API whether the endpoint needs a payload.
+
+Run before ticking automated items: `yarn test` · `yarn lint` · `yarn build`.
+
 ### `brevo app upload` replaces `brevo app update` (BEX-250)
 _Added: 2026-07-23_
 
