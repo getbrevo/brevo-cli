@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
 import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
@@ -9,8 +11,19 @@ import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName } from '../../lib/validators';
 import { printBox, createSpinner } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
-import { scaffoldCommand } from './scaffold';
+import {
+  computeSlug,
+  fetchAppContext,
+  runBaseScaffold,
+  runFeatureScaffold,
+  resolveProjectDirectory,
+  promptFeatureType,
+  reportBaseScaffoldSuccess,
+  reportScaffoldSuccess,
+  computeCdHint,
+} from './scaffold';
 import { appService } from '../../container';
+import { FeatureType } from '../../templates';
 import { CreateAppResponse } from '../../types';
 
 function validateHttpUrl(trimmed: string, invalidMessage: string): true | string {
@@ -37,33 +50,15 @@ const validateLogoUrl = (input: string): true | string => {
   return validateHttpUrl(trimmed, messages.APP_CREATE_LOGO_INVALID);
 };
 
-// 0. Check for existing app-config.json in current directory.
-//    Returns true when it is OK to proceed with creation.
-async function confirmCreateOverLinkedApp(): Promise<boolean> {
-  if (!hasLocalApp()) return true;
-  if (!process.stdin.isTTY) {
-    throw new CliError(
-      'An app is already linked in this directory (app-config.json). Use --force or run interactively.',
-    );
-  }
+// 0. Refuse outright if an app is already linked in this directory — no
+//    confirm, no override. The user must leave the directory or run
+//    `brevo app scaffold` here instead (which knows how to refresh a linked
+//    project against the server).
+function guardAgainstLinkedApp(): void {
+  if (!hasLocalApp()) return;
   const projectConfig = readProjectConfig();
-  const linkedName = projectConfig?.appName || String(projectConfig?.appId);
-  logInfo(`  App "${linkedName}" is already linked in this directory (app-config.json).`);
-
-  const { proceed } = await inquirer.prompt([
-    {
-      type: 'confirm',
-      name: 'proceed',
-      message: 'Create a new app anyway?',
-      default: false,
-    },
-  ]);
-
-  if (!proceed) {
-    logInfo(`\n  Use \`${CLI.APP_UPDATE}\` to modify the existing app.\n`);
-    return false;
-  }
-  return true;
+  const linkedName = projectConfig?.appName || String(projectConfig?.appId ?? '');
+  throw new CliError(messages.APP_CREATE_ALREADY_LINKED(linkedName));
 }
 
 // 1. App name
@@ -88,9 +83,6 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
 async function resolveDistribution(distributionFlag: string | undefined): Promise<string> {
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
-  if (distributionFlag === 'public') {
-    throw new CliError(messages.APP_CREATE_PUBLIC_UNAVAILABLE);
-  }
   if (distributionFlag) {
     return distributionFlag;
   }
@@ -107,7 +99,6 @@ async function resolveDistribution(distributionFlag: string | undefined): Promis
         {
           name: 'Public   (Distributed to end users or marketplace listings)',
           value: 'public',
-          disabled: 'coming soon',
         },
       ],
     },
@@ -134,6 +125,22 @@ async function promptAddAnotherRedirect(): Promise<boolean> {
     },
   ]);
   return String(anotherRaw).toLowerCase().trim().startsWith('y');
+}
+
+// Whether to scaffold a feature after creating the app. Defaults to yes —
+// pressing Enter opts in.
+async function promptScaffoldFeature(): Promise<boolean> {
+  const { scaffoldRaw } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'scaffoldRaw',
+      message: messages.APP_CREATE_SCAFFOLD_FEATURE_PROMPT + ' (Y/n)',
+      default: 'y',
+      validate: validateYesNo,
+    },
+  ]);
+  const val = String(scaffoldRaw).toLowerCase().trim();
+  return val === '' || val.startsWith('y');
 }
 
 async function promptRedirectUrls(quiet: boolean): Promise<string[]> {
@@ -214,6 +221,41 @@ async function resolveLogoUri(
   return trimmed || undefined;
 }
 
+type CreateDirectoryResult =
+  | { targetDir: string; mergeOnly: boolean; skipped: false }
+  | { targetDir: string; skipped: true };
+
+async function resolveCreateDirectory(
+  appName: string,
+  interactive: boolean,
+): Promise<CreateDirectoryResult> {
+  const slug = computeSlug(appName);
+
+  if (!interactive) {
+    const targetDir = path.resolve(`./${slug}`);
+    if (fs.existsSync(targetDir)) {
+      return { targetDir, skipped: true };
+    }
+    fs.mkdirSync(targetDir, { recursive: true });
+    process.chdir(targetDir);
+    return { targetDir, mergeOnly: false, skipped: false };
+  }
+
+  let dir = await resolveProjectDirectory(`./${slug}`);
+  while (!dir.unresolved && dir.chooseAgain) {
+    dir = await resolveProjectDirectory(`./${slug}`);
+  }
+  if (dir.unresolved) {
+    // Unreachable in practice: `interactive` is only true when we're not in
+    // --json/non-TTY mode, and resolveProjectDirectory only reports
+    // `unresolved` when called with jsonMode=true (never the case here).
+    // Fail loudly instead of silently guessing a directory if this ever
+    // changes.
+    throw new CliError(messages.APP_CREATE_DIR_UNRESOLVED);
+  }
+  return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly, skipped: false };
+}
+
 interface CreateAppInputs {
   appName: string;
   distribution: string;
@@ -290,34 +332,12 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
     ...result.redirect_uris.map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
     ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
+    ...(result.version ? [`App version:    ${result.version}`] : []),
     `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_SCOPES].join(', ')}`,
     '',
     messages.APP_CREATE_BOX_SCOPE_HINT,
   ];
   printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
-}
-
-// Smart hand-off → scaffold
-async function offerScaffoldHandoff(result: CreateAppResponse, appName: string): Promise<void> {
-  const { shouldScaffold } = await inquirer.prompt([
-    {
-      type: 'confirm',
-      name: 'shouldScaffold',
-      message: messages.APP_CREATE_SCAFFOLD_PROMPT,
-      default: true,
-    },
-  ]);
-
-  if (shouldScaffold) {
-    logInfo(`  ↳ Scaffolding "${appName}"...\n`);
-    await scaffoldCommand({ appId: result.app_id });
-  } else {
-    printBox("What's next?", [
-      CLI.APP_SCAFFOLD(result.app_id),
-      CLI.APP_CREDENTIALS(result.app_id),
-      CLI.APP_LIST,
-    ]);
-  }
 }
 
 export const createCommand = withCommandHandler(
@@ -329,40 +349,99 @@ export const createCommand = withCommandHandler(
     json?: boolean;
   }): Promise<void> => {
     const jsonMode = !!options.json;
+    const originalCwd = process.cwd();
 
-    if (!(await confirmCreateOverLinkedApp())) {
-      return;
-    }
+    guardAgainstLinkedApp();
 
-    const inputs: CreateAppInputs = {
-      appName: await resolveAppName(options.name),
-      distribution: await resolveDistribution(options.distribution),
-      redirectUrls: await resolveRedirectUrls(options.redirectUri, jsonMode),
-      logoUri: await resolveLogoUri(options.logoUri, jsonMode),
-    };
+    const appName = await resolveAppName(options.name);
+    const distribution = await resolveDistribution(options.distribution);
+    const redirectUrls = await resolveRedirectUrls(options.redirectUri, jsonMode);
+    const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
 
-    const { result, appName } = await createAppWithRetry(inputs, jsonMode);
+    const interactive = !jsonMode && !!process.stdin.isTTY;
+    const dir = await resolveCreateDirectory(appName, interactive);
+
+    const inputs: CreateAppInputs = { appName, distribution, redirectUrls, logoUri };
+    const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
 
     // Store app credentials locally — client_secret may not be retrievable again
     saveAppCredentials(result.app_id, {
       clientId: result.client_id,
       clientSecret: result.client_secret,
     });
-    if (appName) saveAppName(result.app_id, appName);
+    if (finalAppName) saveAppName(result.app_id, finalAppName);
 
+    if (dir.skipped) {
+      if (jsonMode) {
+        jsonOutput({
+          appId: result.app_id,
+          appName: finalAppName,
+          clientId: result.client_id,
+          clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
+          redirectUri: result.redirect_uris,
+          ...(logoUri ? { logoUri } : {}),
+          ...(result.version ? { version: result.version } : {}),
+          directory: dir.targetDir,
+          scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(dir.targetDir),
+        });
+        return;
+      }
+      renderCreatedApp(result, finalAppName, logoUri);
+      logInfo(messages.APP_CREATE_DIR_EXISTS_SKIPPED(dir.targetDir));
+      return;
+    }
+
+    const ctx = await fetchAppContext(result.app_id, jsonMode);
+
+    // Always write the basic project structure (app-config.json + meta files).
+    const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);
+
+    // --json never scaffolds a feature — emit the base result as a single blob.
     if (jsonMode) {
       jsonOutput({
         appId: result.app_id,
-        appName,
+        appName: finalAppName,
         clientId: result.client_id,
         clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
         redirectUri: result.redirect_uris,
-        ...(inputs.logoUri ? { logoUri: inputs.logoUri } : {}),
+        ...(logoUri ? { logoUri } : {}),
+        ...(result.version ? { version: result.version } : {}),
+        directory: dir.targetDir,
+        scaffolded: base.written,
       });
       return;
     }
 
-    renderCreatedApp(result, appName, inputs.logoUri);
-    await offerScaffoldHandoff(result, appName);
+    // Show the created-app box and the base files that were just written,
+    // before asking about features.
+    renderCreatedApp(result, finalAppName, logoUri);
+    reportBaseScaffoldSuccess(base);
+
+    const cdDir = computeCdHint(originalCwd, dir.targetDir);
+
+    // Then offer to scaffold a feature (default yes → pick a type). Only the
+    // interactive prompt triggers it; a piped (non-TTY) run stays base-only.
+    let feature: FeatureType | null = null;
+    if (interactive && (await promptScaffoldFeature())) {
+      feature = await promptFeatureType(true);
+    }
+
+    if (feature) {
+      const feat = runFeatureScaffold(feature, result.app_id, ctx, dir.targetDir, dir.mergeOnly);
+      reportScaffoldSuccess({
+        written: feat.written,
+        // The legacy 'all' substitution (if any) was already surfaced by
+        // reportBaseScaffoldSuccess above — don't repeat it here.
+        legacyAllSubstituted: false,
+        scopes: base.scopes,
+        files: feat.files,
+        targetDir: dir.targetDir,
+        cdDir,
+      });
+    } else {
+      // Base project only — point the user at `brevo app scaffold` to add a feature.
+      logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
+      printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_BASE_ONLY_NEXT(cdDir));
+    }
   },
 );

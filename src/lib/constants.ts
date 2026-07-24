@@ -86,6 +86,9 @@ export const ENDPOINTS = {
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
   APP_STATE: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/state`,
+  APP_STORE_APP_UPLOAD: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/upload`,
+  APP_STORE_APP_WITHDRAW: (appId: string) =>
+    `/v3/app-store/apps/${encodeURIComponent(appId)}/withdraw`,
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -97,20 +100,22 @@ export const CLI = {
   APP_CREATE: 'brevo app create',
   APP_LIST: 'brevo app list',
   APP_STATUS: 'brevo app status',
-  APP_SCAFFOLD: (appId?: string) =>
-    appId ? `brevo app scaffold --app-id ${appId}` : 'brevo app scaffold --app-id <id>',
+  APP_SCAFFOLD: 'brevo app scaffold',
   APP_CREDENTIALS: (appId?: string) =>
     appId ? `brevo app credentials --app-id ${appId}` : 'brevo app credentials --app-id <id>',
   APP_CREDENTIALS_REVEAL: (appId?: string) =>
     appId
       ? `brevo app credentials --reveal-secret --app-id ${appId}`
       : 'brevo app credentials --reveal-secret',
-  APP_UPDATE: 'brevo app update',
+  APP_UPLOAD: 'brevo app upload',
   APP_DELETE: 'brevo app delete',
+  APP_WITHDRAW: (appId?: string) =>
+    appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
+  APP_SUBMIT: (appId?: string) =>
+    appId ? `brevo app submit --app-id ${appId}` : 'brevo app submit --app-id <id>',
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
-  APP_UPDATE_SCOPE: 'brevo app update --scope',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;

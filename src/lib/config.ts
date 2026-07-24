@@ -345,7 +345,7 @@ export function deleteAppCredentials(appId: string): void {
   writeCredentials(creds);
 }
 
-// Locally cached app names mirror values from `app update` and `app credentials`.
+// Locally cached app names mirror values from `app upload` and `app credentials`.
 // Server-side, the PUT endpoint and the GET-list endpoint are eventually consistent,
 // so `app list` can return a stale name immediately after an update. Merging this
 // cache on top of the list response masks the lag. Entries expire after
@@ -402,16 +402,17 @@ export function deleteAppName(appId: string): void {
 export interface ProjectConfig {
   appId: string;
   appName: string;
+  version?: string;
   logoUri?: string;
   cliVersion?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** Distribution type of the app: 'private' or 'public' */
+  distribution_type: 'private' | 'public';
   auth: {
-    type: string;
     scopes: string[];
     redirectUrls?: string[];
   };
-  distribution: string;
   permittedUrls: {
     fetch: string[];
     img: string[];
@@ -450,17 +451,58 @@ export function readProjectConfig(): ProjectConfig | null {
     // Normalize auth.scopes silently — split on commas/whitespace so an entry
     // like "crm:read, campaigns:read" written by a user editing the JSON by
     // hand becomes two scopes. Strict charset validation is enforced later,
-    // in the update command, so unrelated commands that just happen to read
+    // in the upload command, so unrelated commands that just happen to read
     // config aren't broken by a malformed scope.
     const rawAuth = (raw as Record<string, unknown>).auth;
-    let authOverride: object | undefined;
+    let authOverride: Record<string, unknown> | undefined;
     if (rawAuth && typeof rawAuth === 'object') {
       const scopes = (rawAuth as Record<string, unknown>).scopes;
       if (Array.isArray(scopes)) {
         authOverride = { ...rawAuth, scopes: splitScopes(scopes as string[]) };
       }
     }
-    return { ...raw, appId, ...(authOverride ? { auth: authOverride } : {}) };
+    // distribution_type has moved twice: originally a top-level `distribution`
+    // key (still the shape of every currently-published scaffold), briefly
+    // `auth.type` (an interim design that never shipped), now a top-level
+    // `distribution_type` key. Backfill from whichever legacy shape is present,
+    // preferring the new key when it already exists.
+    const rawRecord = raw as Record<string, unknown>;
+    const newDistributionType = rawRecord.distribution_type;
+    const legacyAuthType =
+      rawAuth && typeof rawAuth === 'object'
+        ? (rawAuth as Record<string, unknown>).type
+        : undefined;
+    const legacyDistribution = rawRecord.distribution;
+    let distributionType: 'private' | 'public' | undefined;
+    if (typeof newDistributionType === 'string' && newDistributionType.trim()) {
+      distributionType = newDistributionType.trim() as 'private' | 'public';
+    } else if (typeof legacyAuthType === 'string' && legacyAuthType.trim()) {
+      distributionType = legacyAuthType.trim() as 'private' | 'public';
+    } else if (typeof legacyDistribution === 'string' && legacyDistribution.trim()) {
+      distributionType = legacyDistribution.trim() as 'private' | 'public';
+    } else {
+      distributionType = 'private';
+    }
+    // Legacy auth.type is folded into distributionType above and dropped here
+    // so it doesn't leak into authOverride.
+    if (authOverride && 'type' in authOverride) {
+      delete authOverride.type;
+    } else if (rawAuth && typeof rawAuth === 'object' && 'type' in rawAuth) {
+      authOverride = { ...rawAuth };
+      delete (authOverride as Record<string, unknown>).type;
+    }
+    // Drop the legacy top-level `distribution` key from the returned config —
+    // it's already folded into distribution_type above. Callers that write
+    // this object back to disk (upload.ts, start.ts) then naturally migrate
+    // old projects to the new shape on their next write, instead of
+    // round-tripping the stray key forever.
+    const { distribution: _legacyDistribution, ...rawWithoutLegacyDistribution } = rawRecord;
+    return {
+      ...rawWithoutLegacyDistribution,
+      appId,
+      distribution_type: distributionType,
+      ...(authOverride ? { auth: authOverride } : {}),
+    } as ProjectConfig;
   } catch {
     return null;
   }

@@ -1,11 +1,5 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import {
-  parseAppId,
-  parsePositiveInt,
-  collectUrls,
-  collectScopes,
-  validateUrl,
-} from '../lib/validators';
+import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -15,8 +9,9 @@ import { createCommand } from './app/create';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
 import { statusCommand } from './app/status';
-import { updateCommand } from './app/update';
+import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
+import { withdrawCommand } from './app/withdraw';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
@@ -71,6 +66,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       examples: [
         'brevo app create',
         'brevo app create --name "My App" --distribution private',
+        'brevo app create --name "My App" --distribution public',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
@@ -152,55 +148,15 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         }),
     },
     {
-      name: 'update',
-      description: 'Update an app name, redirect URLs, scopes, or logo URL',
-      examples: [
-        'brevo app update',
-        'brevo app update --name "My New Name"',
-        'brevo app update --redirect-uri https://myapp.com/callback',
-        'brevo app update --name "My App" --redirect-uri https://myapp.com/callback',
-        'brevo app update --app-id 42 --name "My App"',
-        'brevo app update --app-id 42 --redirect-uri https://myapp.com/callback --json',
-        'brevo app update --logo-uri https://example.com/logo.png',
-        'brevo app update --scope crm:write',
-        'brevo app update --scope contacts:read --scope crm:write',
-      ],
+      name: 'upload',
+      description: 'Push app-config.json to Brevo, validated and synced with the server',
+      examples: ['brevo app upload', 'brevo app upload --yes', 'brevo app upload --json'],
       options: [
-        {
-          flags: '--app-id <id>',
-          description: 'App ID (uses app-config.json if omitted)',
-          parser: (v) => parseAppId(v),
-        },
-        { flags: '--name <name>', description: 'New app name' },
-        {
-          flags: '--redirect-uri <url>',
-          description: 'Redirect URI to append (repeatable)',
-          parser: collectUrls,
-        },
-        {
-          flags: '--scope <scope>',
-          description:
-            'OAuth scope to append (repeatable; comma- or whitespace-separated values are split)',
-          parser: collectScopes,
-        },
-        {
-          flags: '--logo-uri <url>',
-          description: 'App logo URL (http or https)',
-          parser: (v: string) => {
-            validateUrl(v, 'logo URL');
-            return v;
-          },
-        },
         { flags: '--yes', description: 'Skip confirmation prompt' },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
-        updateCommand({
-          appId: opts.appId,
-          name: opts.name,
-          redirectUri: opts.redirectUri,
-          logoUri: opts.logoUri,
-          scope: opts.scope,
+        uploadCommand({
           yes: Boolean(opts.yes),
           json: Boolean(opts.json),
         }),
@@ -226,19 +182,46 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         }),
     },
     {
-      name: 'scaffold',
-      description: 'Generate starter code for an app',
-      examples: ['brevo app scaffold', 'brevo app scaffold --app-id 42'],
+      name: 'withdraw',
+      description: 'Withdraw an app from submission',
+      examples: [
+        'brevo app withdraw --app-id 42',
+        'brevo app withdraw --app-id 42 --force',
+        'brevo app withdraw --app-id 42 --json',
+      ],
       options: [
         {
           flags: '--app-id <id>',
           description: 'App ID',
           parser: (v) => parseAppId(v),
         },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
-        scaffoldCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
+        withdrawCommand({
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'scaffold',
+      description: 'Add a feature (e.g. the OAuth test server) to the app in this directory',
+      examples: [
+        'brevo app scaffold',
+        'brevo app scaffold --overwrite',
+        'brevo app scaffold --json',
+      ],
+      options: [
+        {
+          flags: '--overwrite',
+          description: 'Overwrite existing feature files instead of merging (skips the prompt)',
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        scaffoldCommand({ json: Boolean(opts.json), overwrite: Boolean(opts.overwrite) }),
     },
     {
       name: 'available-scopes',

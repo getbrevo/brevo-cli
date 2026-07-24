@@ -30,32 +30,99 @@ jest.mock('../../../container', () => ({
 }));
 
 jest.mock('../../../commands/app/scaffold', () => ({
-  scaffoldCommand: jest.fn(),
+  computeSlug: jest.fn(
+    (name: string | undefined) =>
+      (name || 'my-app')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') || 'my-app',
+  ),
+  fetchAppContext: jest.fn(),
+  runBaseScaffold: jest.fn(),
+  runFeatureScaffold: jest.fn(),
+  resolveProjectDirectory: jest.fn(),
+  promptFeatureType: jest.fn(),
+  reportBaseScaffoldSuccess: jest.fn(),
+  reportScaffoldSuccess: jest.fn(),
+  computeCdHint: jest.fn(),
 }));
 
+jest.mock('node:fs');
+
 // Need to import after mocks
+import * as fs from 'node:fs';
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
-import { saveAppCredentials, saveAppName } from '../../../lib/config';
+import {
+  saveAppCredentials,
+  saveAppName,
+  hasLocalApp,
+  readProjectConfig,
+} from '../../../lib/config';
+import {
+  fetchAppContext,
+  runBaseScaffold,
+  runFeatureScaffold,
+  resolveProjectDirectory,
+  promptFeatureType,
+  reportBaseScaffoldSuccess,
+  reportScaffoldSuccess,
+  computeCdHint,
+} from '../../../commands/app/scaffold';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
 describe('app/create', () => {
   let stdoutSpy: jest.SpyInstance;
   const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+  let chdirSpy: jest.SpyInstance;
 
   beforeEach(() => {
     stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    chdirSpy = jest.spyOn(process, 'chdir').mockImplementation(() => undefined);
     Object.defineProperty(process.stdin, 'isTTY', {
       configurable: true,
       writable: true,
       value: true,
     });
     jest.clearAllMocks();
+    // jest.clearAllMocks() only clears mock.calls/instances/results — it does
+    // NOT reset a persistent implementation set via mockReturnValue in an
+    // earlier test (that requires mockReset/resetAllMocks, which this repo's
+    // jest.config.js doesn't enable). Re-assert the defaults from the
+    // `../../../lib/config` mock factory here so tests are isolated from
+    // whatever the previous test left behind in these two mocks.
+    (hasLocalApp as jest.Mock).mockReturnValue(false);
+    (readProjectConfig as jest.Mock).mockReturnValue(null);
+    (fs.existsSync as jest.Mock).mockReturnValue(false);
+    (fetchAppContext as jest.Mock).mockResolvedValue({
+      appDetails: null,
+      clientId: '',
+      clientSecret: '',
+      redirectUrls: [],
+      redirectUri: '',
+    });
+    (runBaseScaffold as jest.Mock).mockReturnValue({
+      written: 0,
+      legacyAllSubstituted: false,
+      scopes: [],
+      files: [],
+    });
+    (runFeatureScaffold as jest.Mock).mockReturnValue({
+      written: 0,
+      files: [],
+    });
+    (resolveProjectDirectory as jest.Mock).mockResolvedValue({
+      targetDir: '/cwd/test-app',
+      mergeOnly: false,
+      chooseAgain: false,
+    });
+    (promptFeatureType as jest.Mock).mockResolvedValue('oauth');
   });
 
   afterEach(() => {
     stdoutSpy.mockRestore();
+    chdirSpy.mockRestore();
     if (originalIsTTYDescriptor) {
       Object.defineProperty(process.stdin, 'isTTY', originalIsTTYDescriptor);
     } else {
@@ -63,7 +130,7 @@ describe('app/create', () => {
     }
   });
 
-  it('should create an app with provided options and decline scaffold', async () => {
+  it('should create an app, write base files, then scaffold the feature on consent', async () => {
     (appService.createApp as jest.Mock).mockResolvedValue({
       app_id: 1,
       name: 'Test App',
@@ -77,8 +144,8 @@ describe('app/create', () => {
     mockPrompt
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
-      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
-      .mockResolvedValueOnce({ shouldScaffold: false }); // scaffold
+      .mockResolvedValueOnce({ logoUrl: '' }) // logo
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' }); // scaffold a feature?
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
@@ -92,6 +159,323 @@ describe('app/create', () => {
       clientId: 'cli-123',
       clientSecret: 'secret-456',
     });
+    expect(runBaseScaffold).toHaveBeenCalledWith(1, expect.anything(), '/cwd/test-app', false);
+    expect(runFeatureScaffold).toHaveBeenCalledWith(
+      'oauth',
+      1,
+      expect.anything(),
+      '/cwd/test-app',
+      false,
+    );
+  });
+
+  describe('feature scaffolding', () => {
+    it('prompts to scaffold a feature (default yes) and scaffolds oauth when accepted', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 8,
+        name: 'Feature App',
+        client_id: 'cli-feat',
+        client_secret: 'secret-feat',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+      await createCommand({ name: 'Feature App', distribution: 'private' });
+
+      // The scaffold-feature prompt fires (name: 'scaffoldRaw'), then the
+      // feature type is chosen and the oauth feature is written.
+      expect(mockPrompt).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: 'scaffoldRaw' })]),
+      );
+      expect(promptFeatureType).toHaveBeenCalled();
+      expect(runBaseScaffold).toHaveBeenCalledWith(8, expect.anything(), '/cwd/test-app', false);
+      expect(runFeatureScaffold).toHaveBeenCalledWith(
+        'oauth',
+        8,
+        expect.anything(),
+        '/cwd/test-app',
+        false,
+      );
+      expect(reportScaffoldSuccess).toHaveBeenCalled();
+    });
+
+    it('renders the created-app box + base files before prompting to scaffold a feature', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 30,
+        name: 'Order App',
+        client_id: 'cli-order',
+        client_secret: 'secret-order',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+        version: '0.0.1',
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+
+      await createCommand({ name: 'Order App', distribution: 'private' });
+
+      // The base-files report (which prints right after the created-app box)
+      // must run before the "scaffold a feature?" prompt fires.
+      expect(reportBaseScaffoldSuccess).toHaveBeenCalled();
+      const baseOrder = (reportBaseScaffoldSuccess as jest.Mock).mock.invocationCallOrder[0]!;
+      const scaffoldPromptIdx = mockPrompt.mock.calls.findIndex(
+        ([q]) => Array.isArray(q) && q[0]?.name === 'scaffoldRaw',
+      );
+      expect(scaffoldPromptIdx).toBeGreaterThanOrEqual(0);
+      const scaffoldPromptOrder = mockPrompt.mock.invocationCallOrder[scaffoldPromptIdx]!;
+      expect(baseOrder).toBeLessThan(scaffoldPromptOrder);
+    });
+
+    it('writes only base files when the user declines the feature prompt', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 8,
+        name: 'Base Only App',
+        client_id: 'cli-base',
+        client_secret: 'secret-base',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+
+      await createCommand({ name: 'Base Only App', distribution: 'private' });
+
+      expect(runBaseScaffold).toHaveBeenCalledWith(8, expect.anything(), '/cwd/test-app', false);
+      expect(runFeatureScaffold).not.toHaveBeenCalled();
+      expect(promptFeatureType).not.toHaveBeenCalled();
+      expect(reportScaffoldSuccess).not.toHaveBeenCalled();
+      // Points the user at `brevo app scaffold` to add a feature later.
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('brevo app scaffold');
+    });
+
+    it('writes base files only under --json (no feature) and reports the base count', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 9,
+        name: 'JSON Scaffold App',
+        client_id: 'cli-json-scaffold',
+        client_secret: 'secret-json-scaffold',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+      (runBaseScaffold as jest.Mock).mockReturnValue({
+        written: 5,
+        legacyAllSubstituted: false,
+        scopes: [],
+        files: [],
+      });
+
+      await createCommand({
+        name: 'JSON Scaffold App',
+        distribution: 'private',
+        redirectUri: ['http://localhost:3009/auth/callback'],
+        json: true,
+      });
+
+      // --json can't prompt, so it stays base-only — oauth is added later via
+      // `brevo app scaffold`.
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(runBaseScaffold).toHaveBeenCalledWith(9, expect.anything(), expect.any(String), false);
+      expect(runFeatureScaffold).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      const parsed = JSON.parse(output);
+      expect(parsed.scaffolded).toBe(5);
+      expect(typeof parsed.directory).toBe('string');
+      expect(parsed.scaffoldSkipped).toBeUndefined();
+    });
+
+    it('writes base files only for a piped (non-TTY) non-json create', async () => {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        configurable: true,
+        writable: true,
+        value: false,
+      });
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 15,
+        name: 'Piped App',
+        client_id: 'cli-piped',
+        client_secret: 'secret-piped',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+
+      await createCommand({
+        name: 'Piped App',
+        distribution: 'private',
+        redirectUri: ['http://localhost:3009/auth/callback'],
+      });
+
+      expect(runBaseScaffold).toHaveBeenCalled();
+      expect(runFeatureScaffold).not.toHaveBeenCalled();
+    });
+
+    it('skips scaffolding under --json when the default directory already exists', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 10,
+        name: 'Existing Dir App',
+        client_id: 'cli-existing-dir',
+        client_secret: 'secret-existing-dir',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await createCommand({
+        name: 'Existing Dir App',
+        distribution: 'private',
+        redirectUri: ['http://localhost:3009/auth/callback'],
+        json: true,
+      });
+
+      expect(runBaseScaffold).not.toHaveBeenCalled();
+      expect(runFeatureScaffold).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      const parsed = JSON.parse(output);
+      expect(parsed.scaffolded).toBeUndefined();
+      expect(typeof parsed.scaffoldSkipped).toBe('string');
+      expect(parsed.scaffoldSkipped).toContain('already exists');
+    });
+  });
+
+  describe('linked-directory guard', () => {
+    it('throws immediately when app-config.json is already linked in cwd, without calling the API', async () => {
+      (hasLocalApp as jest.Mock).mockReturnValue(true);
+      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
+
+      await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
+        /already linked/i,
+      );
+
+      expect(appService.createApp).not.toHaveBeenCalled();
+      expect(mockPrompt).not.toHaveBeenCalled();
+    });
+
+    it('includes the linked app name in the error message', async () => {
+      (hasLocalApp as jest.Mock).mockReturnValue(true);
+      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
+
+      await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
+        'Existing App',
+      );
+    });
+  });
+
+  describe('directory setup', () => {
+    it('resolves the directory before the create API call, interactively', async () => {
+      const createCallOrder: string[] = [];
+      (resolveProjectDirectory as jest.Mock).mockImplementation(async () => {
+        createCallOrder.push('directory');
+        return { targetDir: '/cwd/dir-app', mergeOnly: false, chooseAgain: false };
+      });
+      (appService.createApp as jest.Mock).mockImplementation(async () => {
+        createCallOrder.push('create');
+        return {
+          app_id: 20,
+          name: 'Dir App',
+          client_id: 'cli-dir',
+          client_secret: 'secret-dir',
+          redirect_uris: ['http://localhost:3009/auth/callback'],
+        };
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+      await createCommand({ name: 'Dir App', distribution: 'private' });
+
+      expect(createCallOrder).toEqual(['directory', 'create']);
+      expect(runBaseScaffold).toHaveBeenCalledWith(20, expect.anything(), '/cwd/dir-app', false);
+      expect(runFeatureScaffold).toHaveBeenCalledWith(
+        'oauth',
+        20,
+        expect.anything(),
+        '/cwd/dir-app',
+        false,
+      );
+    });
+
+    it('computes the cd hint from the cwd at command start and forwards it to reportScaffoldSuccess', async () => {
+      const originalCwd = process.cwd();
+      (resolveProjectDirectory as jest.Mock).mockResolvedValue({
+        targetDir: '/cwd/cd-hint-app',
+        mergeOnly: false,
+        chooseAgain: false,
+      });
+      (computeCdHint as jest.Mock).mockReturnValue('cd-hint-app');
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 23,
+        name: 'Cd Hint App',
+        client_id: 'cli-cd-hint',
+        client_secret: 'secret-cd-hint',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+      await createCommand({ name: 'Cd Hint App', distribution: 'private' });
+
+      expect(computeCdHint).toHaveBeenCalledWith(originalCwd, '/cwd/cd-hint-app');
+      expect(reportScaffoldSuccess).toHaveBeenCalledWith(
+        expect.objectContaining({ cdDir: 'cd-hint-app' }),
+      );
+    });
+
+    it('does not prompt for a directory under --json (non-interactive resolution)', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 21,
+        name: 'JSON Dir App',
+        client_id: 'cli-json-dir',
+        client_secret: 'secret-json-dir',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+
+      await createCommand({
+        name: 'JSON Dir App',
+        distribution: 'private',
+        redirectUri: ['http://localhost:3009/auth/callback'],
+        json: true,
+      });
+
+      expect(resolveProjectDirectory).not.toHaveBeenCalled();
+      expect(chdirSpy).toHaveBeenCalled();
+    });
+
+    it('shows the feature-type prompt after app creation, not before', async () => {
+      const order: string[] = [];
+      (appService.createApp as jest.Mock).mockImplementation(async () => {
+        order.push('create');
+        return {
+          app_id: 22,
+          name: 'Ordered App',
+          client_id: 'cli-ordered',
+          client_secret: 'secret-ordered',
+          redirect_uris: ['http://localhost:3009/auth/callback'],
+        };
+      });
+      (promptFeatureType as jest.Mock).mockImplementation(async () => {
+        order.push('featureType');
+        return 'oauth';
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+      await createCommand({ name: 'Ordered App', distribution: 'private' });
+
+      expect(order).toEqual(['create', 'featureType']);
+    });
   });
 
   it('should output JSON when --json flag is used', async () => {
@@ -103,17 +487,83 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
 
-    mockPrompt
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false });
-
-    await createCommand({ name: 'JSON App', distribution: 'private', json: true });
+    await createCommand({
+      name: 'JSON App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      json: true,
+    });
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     const parsed = JSON.parse(output);
     expect(parsed.appId).toBe(2);
     expect(parsed.clientId).toBe('cli-abc');
     expect(parsed.clientSecret).toContain('[hidden');
+  });
+
+  it('should show the server-assigned version in the created-app box', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 3,
+      name: 'Versioned App',
+      client_id: 'cli-v',
+      client_secret: 'secret-v',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      version: '0.0.1',
+    });
+
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ another: false })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+    await createCommand({ name: 'Versioned App', distribution: 'private' });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).toContain('App version:    0.0.1');
+  });
+
+  it('should include version in --json output when the API returns one', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 6,
+      name: 'JSON Versioned App',
+      client_id: 'cli-jv',
+      client_secret: 'secret-jv',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      version: '0.0.1',
+    });
+
+    await createCommand({
+      name: 'JSON Versioned App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      json: true,
+    });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.version).toBe('0.0.1');
+  });
+
+  it('should omit version from output when the API does not return one', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 7,
+      name: 'No Version App',
+      client_id: 'cli-nv',
+      client_secret: 'secret-nv',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+
+    await createCommand({
+      name: 'No Version App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      json: true,
+    });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.version).toBeUndefined();
   });
 
   it('should print the test-flow hint above the redirect prompt in interactive mode', async () => {
@@ -129,13 +579,13 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ shouldScaffold: false });
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Hint App', distribution: 'private' });
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('brevo app start oauth');
-    expect(output).toMatch(/scaffolded example requires the default callback url/i);
+    expect(output).toMatch(/local test-server callback url/i);
   });
 
   it('should suppress the test-flow hint under --json', async () => {
@@ -147,14 +597,15 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
 
-    mockPrompt
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false });
-
-    await createCommand({ name: 'JSON Hint App', distribution: 'private', json: true });
+    await createCommand({
+      name: 'JSON Hint App',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      json: true,
+    });
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).not.toMatch(/scaffolded example requires the default callback url/i);
+    expect(output).not.toMatch(/local test-server callback url/i);
     expect(() => JSON.parse(output)).not.toThrow();
   });
 
@@ -167,9 +618,7 @@ describe('app/create', () => {
       redirect_uris: ['https://example.com/cb'],
     });
 
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ shouldScaffold: false });
+    mockPrompt.mockResolvedValueOnce({ logoUrl: '' }).mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({
       name: 'Flag App',
@@ -178,7 +627,7 @@ describe('app/create', () => {
     });
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).not.toMatch(/scaffolded example requires the default callback url/i);
+    expect(output).not.toMatch(/local test-server callback url/i);
   });
 
   it('should throw CliError on APP_LIMIT_REACHED', async () => {
@@ -213,7 +662,7 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ another: false }) // no more URLs
       .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
       .mockResolvedValueOnce({ name: 'New Name' }) // retry name prompt
-      .mockResolvedValueOnce({ shouldScaffold: false }); // scaffold prompt
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' }); // scaffold a feature?
 
     await createCommand({ name: 'Taken Name', distribution: 'private' });
 
@@ -240,12 +689,14 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
 
-    mockPrompt
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ name: 'Resolved Name' });
+    mockPrompt.mockResolvedValueOnce({ name: 'Resolved Name' });
 
-    await createCommand({ name: 'Taken Name', distribution: 'private', json: true });
+    await createCommand({
+      name: 'Taken Name',
+      distribution: 'private',
+      redirectUri: ['http://localhost:3009/auth/callback'],
+      json: true,
+    });
 
     expect(saveAppName).toHaveBeenCalledWith(99, 'Resolved Name');
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
@@ -259,8 +710,8 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ distribution: 'private' }) // distribution prompt
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
-      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
-      .mockResolvedValueOnce({ shouldScaffold: false }); // scaffold prompt
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     (appService.createApp as jest.Mock).mockResolvedValue({
       app_id: 4,
@@ -286,11 +737,29 @@ describe('app/create', () => {
     );
   });
 
-  it('should reject --distribution public with coming-soon error before calling API', async () => {
-    await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
-      'Public distribution is not yet available',
-    );
-    expect(appService.createApp).not.toHaveBeenCalled();
+  it('should create a public app when --distribution public is passed', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 7,
+      name: 'Public App',
+      client_id: 'cli-public',
+      client_secret: 'secret-public',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+
+    mockPrompt
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ another: false })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+    await createCommand({ name: 'Public App', distribution: 'public' });
+
+    expect(appService.createApp).toHaveBeenCalledWith({
+      name: 'Public App',
+      distribution_type: 'public',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+    });
   });
 
   it('should reject app name with emojis via --name flag', async () => {
@@ -325,7 +794,7 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ shouldScaffold: false });
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Café Résumé', distribution: 'private' });
 
@@ -351,8 +820,8 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ anotherRaw: 'y' }) // add another
       .mockResolvedValueOnce({ nextUrl: 'https://myapp.com/callback' }) // second URL
       .mockResolvedValueOnce({ anotherRaw: 'n' }) // no more
-      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
-      .mockResolvedValueOnce({ shouldScaffold: false });
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Multi URL App', distribution: 'private' });
 
@@ -373,9 +842,7 @@ describe('app/create', () => {
       redirect_uris: ['https://myapp.com/callback'],
     });
 
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ shouldScaffold: false });
+    mockPrompt.mockResolvedValueOnce({ logoUrl: '' }).mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({
       name: 'Flag App',
@@ -389,7 +856,7 @@ describe('app/create', () => {
       redirect_uris: ['https://myapp.com/callback'],
       scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
-    // Only logo prompt + scaffold — no redirect URL prompts
+    // Only the logo prompt and the scaffold-feature prompt — no redirect URL prompts.
     expect(mockPrompt).toHaveBeenCalledTimes(2);
   });
 
@@ -476,7 +943,7 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: 'https://example.com/prompted.png' })
-      .mockResolvedValueOnce({ shouldScaffold: false });
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Prompted Logo App', distribution: 'private' });
 
@@ -522,7 +989,7 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ anotherRaw: 'n' })
       .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ shouldScaffold: false });
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
@@ -545,14 +1012,14 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ anotherRaw: 'n' })
       .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ shouldScaffold: false });
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(stdoutCalls).toContain('Default scopes');
     expect(stdoutCalls).toContain('contacts:read');
-    expect(stdoutCalls).toContain('brevo app update --scope');
+    expect(stdoutCalls).toContain('brevo app upload');
   });
 
   it('suppresses the scope info line under --json', async () => {

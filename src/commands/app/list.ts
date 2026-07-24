@@ -19,7 +19,7 @@ export const listCommand = withCommandHandler(
     }
 
     // The app-store list endpoint can lag behind writes (eventual consistency),
-    // so a name set via `brevo app update` may not appear here for a while.
+    // so a name set via `brevo app upload` may not appear here for a while.
     // Merge locally cached names to mask the propagation delay. Once the server
     // catches up (cache equals server), drop the entry so any subsequent
     // out-of-band rename (e.g. dashboard) is visible on the next list.
@@ -64,6 +64,7 @@ export const listCommand = withCommandHandler(
         process.stdout.write(`    Redirect URLs: (none)\n`);
       }
       process.stdout.write(`    Logo URL:      ${app.logo_uri || '(none)'}\n`);
+      process.stdout.write(`    Version:       ${app.version || '(none)'}\n`);
       const scopes = app.scopes ?? [];
       const legacyTag = containsLegacyAllScope(scopes) ? messages.LEGACY_ALL_SCOPE_LIST_TAG : '';
       process.stdout.write(

@@ -1,5 +1,6 @@
 import { ApiClient } from '../../api/client';
 import { createAppService } from '../../services/app';
+import { ApiError } from '../../lib/errors';
 import { CLI_VERSION } from '../../lib/cli-version';
 import { getAppCredentials, saveAppCredentials } from '../../lib/config';
 
@@ -177,6 +178,62 @@ describe('services/app', () => {
     });
   });
 
+  describe('uploadApp', () => {
+    it('should POST to the upload endpoint with the full payload plus cli_version', async () => {
+      const response = {
+        app_id: UUID,
+        name: 'Test App',
+        logo_uri: '',
+        app_version: '0.0.2',
+        auth: {
+          distribution_type: 'private',
+          scopes: ['contacts:read'],
+          redirect_urls: ['http://localhost:3010/auth/callback'],
+        },
+      };
+      (mockClient.post as jest.Mock).mockResolvedValue(response);
+
+      const result = await service.uploadApp(UUID, {
+        app_id: UUID,
+        name: 'Test App',
+        logo_uri: '',
+        app_version: '0.0.2',
+        auth: {
+          distribution_type: 'private',
+          scopes: ['contacts:read'],
+          redirect_urls: ['http://localhost:3010/auth/callback'],
+        },
+      });
+
+      expect(mockClient.post).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/upload`, {
+        app_id: UUID,
+        name: 'Test App',
+        logo_uri: '',
+        app_version: '0.0.2',
+        auth: {
+          distribution_type: 'private',
+          scopes: ['contacts:read'],
+          redirect_urls: ['http://localhost:3010/auth/callback'],
+        },
+        cli_version: CLI_VERSION,
+      });
+      expect(result).toEqual(response);
+    });
+
+    it('should propagate API errors (e.g. app_version_outdated rejections)', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new Error('app_version_outdated'));
+      await expect(
+        service.uploadApp('42', {
+          app_id: '42',
+          name: 'X',
+          logo_uri: '',
+          app_version: '0.0.1',
+          auth: { distribution_type: 'private', scopes: [], redirect_urls: [] },
+        }),
+      ).rejects.toThrow('app_version_outdated');
+    });
+  });
+
   describe('resolveAppCredentials', () => {
     it('should merge local secret when API does not return it', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue({
@@ -316,6 +373,36 @@ describe('services/app', () => {
     it('should propagate API errors', async () => {
       (mockClient.delete as jest.Mock).mockRejectedValue(new Error('Not found'));
       await expect(service.deleteApp('999')).rejects.toThrow('Not found');
+    });
+  });
+
+  describe('withdrawApp', () => {
+    it('should POST to the withdraw endpoint by numeric-string ID', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.withdrawApp('42');
+
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps/42/withdraw');
+    });
+
+    it('should POST to the withdraw endpoint by UUID', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.withdrawApp(UUID);
+
+      expect(mockClient.post).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/withdraw`);
+    });
+
+    it('should rethrow a 404 as a friendly not-found error', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+
+      await expect(service.withdrawApp('999')).rejects.toThrow('App 999 not found.');
+    });
+
+    it('should propagate a 422 ApiError unchanged (handled as informational by the command)', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('not submitted', 422));
+
+      await expect(service.withdrawApp('42')).rejects.toMatchObject({ statusCode: 422 });
     });
   });
 });

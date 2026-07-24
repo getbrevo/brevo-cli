@@ -124,7 +124,8 @@ describe('initCommand', () => {
     await initCommand({});
 
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
-    expect(scaffoldCommand).toHaveBeenCalledWith({ appId: '42' });
+    // scaffold now reads the linked app from cwd's app-config.json itself.
+    expect(scaffoldCommand).toHaveBeenCalledWith({});
     expect(createCommand).not.toHaveBeenCalled();
   });
 
@@ -184,6 +185,6 @@ describe('initCommand', () => {
     await initCommand({});
 
     expect(appService.fetchApp).toHaveBeenCalledWith(uuid);
-    expect(scaffoldCommand).toHaveBeenCalledWith({ appId: uuid });
+    expect(scaffoldCommand).toHaveBeenCalledWith({});
   });
 });

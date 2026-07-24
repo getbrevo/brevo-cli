@@ -7,7 +7,13 @@ import { EXIT_CODES } from '../lib/exit-codes';
 import { logInfo } from '../lib/logger';
 import { createSpinner } from '../lib/ui';
 import { messages } from '../lang/en';
-import { OAuthApp, CreateAppResponse, AppStateResponse } from '../types';
+import {
+  OAuthApp,
+  CreateAppResponse,
+  AppStateResponse,
+  UploadAppPayload,
+  UploadAppResponse,
+} from '../types';
 import { getAppCredentials, saveAppCredentials } from '../lib/config';
 import { normalizeAppId } from './normalize-app-id';
 
@@ -166,10 +172,27 @@ export function createAppService(client: ApiClient) {
       });
     },
 
+    async uploadApp(appId: string, payload: UploadAppPayload): Promise<UploadAppResponse> {
+      return client.post<UploadAppResponse>(ENDPOINTS.APP_STORE_APP_UPLOAD(appId), {
+        ...payload,
+        cli_version: CLI_VERSION,
+      });
+    },
+
     async deleteApp(appId: string): Promise<void> {
       try {
         await client.delete(ENDPOINTS.APP_STORE_APP(appId));
       } catch (err) {
+        rethrowNotFound(err, appId);
+      }
+    },
+
+    async withdrawApp(appId: string): Promise<void> {
+      try {
+        await client.post(ENDPOINTS.APP_STORE_APP_WITHDRAW(appId));
+      } catch (err) {
+        // 404 becomes a friendly CliError; everything else (including 422
+        // "not submitted") propagates unchanged for the command to handle.
         rethrowNotFound(err, appId);
       }
     },

@@ -235,7 +235,7 @@ async function showNextSteps(): Promise<void> {
     printBox("What's next?", [
       CLI.APP_CREATE,
       CLI.APP_LIST,
-      CLI.APP_SCAFFOLD(),
+      CLI.APP_SCAFFOLD,
       CLI.APP_CREDENTIALS(),
     ]);
     return;

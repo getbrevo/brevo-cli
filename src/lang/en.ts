@@ -59,12 +59,11 @@ export const messages = {
   APP_CREATE_NAME_PROMPT: 'App name:',
   APP_CREATE_TYPE_PROMPT: 'Distribution type?',
   APP_CREATE_SUCCESS: 'App created.',
-  APP_CREATE_SCAFFOLD_PROMPT: 'Generate starter code now?',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   APP_CREATE_REDIRECT_PROMPT:
     'OAuth callback URL — where users are sent after authorizing your app:',
   APP_CREATE_REDIRECT_HINT: (cmd: string) =>
-    `Tip: The scaffolded example requires the default callback URL shown below — keep it to test with \`${cmd}\`.`,
+    `Tip: The default below is a local test-server callback URL, used when you run \`${cmd}\`. Keep it to test your app locally, then add your production callback URL when you go live.`,
   APP_CREATE_REDIRECT_ANOTHER: 'Add another redirect URL?',
   APP_CREATE_REDIRECT_EMPTY: 'Redirect URL cannot be empty',
   APP_CREATE_REDIRECT_INVALID: 'Invalid format. Must start with http:// or https://',
@@ -78,11 +77,22 @@ export const messages = {
     `Warning: Could not find a free port near ${port}. Defaulting to ${port} — it may conflict with a running process.`,
   APP_CREATE_LIMIT_REACHED:
     'You have reached the maximum number of OAuth apps allowed for your account. To make room, delete an existing app: brevo app delete',
-  APP_CREATE_PUBLIC_UNAVAILABLE:
-    'Public distribution is not yet available (coming soon). Use `--distribution private` for now.',
   APP_CREATE_BOX_TITLE: 'App created',
   APP_CREATE_BOX_SCOPES_LABEL: 'Default scopes:',
-  APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later with: ${CLI.APP_UPDATE_SCOPE} <scope>`,
+  APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_SCAFFOLD_FEATURE_PROMPT: 'Do you want to scaffold a feature?',
+  APP_CREATE_BASE_SUCCESS: (count: number) => `Project structure created (${count} files)`,
+  APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] => [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    `${cdDir ? 2 : 1}. ${CLI.APP_SCAFFOLD}   (add a feature — e.g. the OAuth test server)`,
+  ],
+  APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS: (dir: string) =>
+    `Skipped scaffold: directory already exists (${dir}). cd into it and run \`${CLI.APP_SCAFFOLD}\` to add a feature.`,
+  APP_CREATE_DIR_EXISTS_SKIPPED: (dir: string) =>
+    `Skipped scaffolding: directory already exists (${dir}). cd into it and run \`${CLI.APP_SCAFFOLD}\` to add a feature.`,
+  APP_CREATE_ALREADY_LINKED: (name: string) =>
+    `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD}\` here to add a feature to this project.`,
+  APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -95,27 +105,20 @@ export const messages = {
   CLIENT_SECRET_HIDDEN_JSON: '[hidden]',
   CLIENT_SECRET_NOT_AVAILABLE: '[not available]',
 
-  // App update
-  APP_UPDATE_INVALID_JSON:
-    'app-config.json contains invalid JSON. Please check the file and try again.',
-  APP_UPDATE_MISSING_APP_ID: 'app-config.json is missing "appId".',
-  APP_UPDATE_NO_REDIRECT_URLS: 'app-config.json has no redirect URLs configured.',
-  APP_UPDATE_INVALID_APP_ID: 'app-config.json has an invalid "appId". Expected a non-empty string.',
-  APP_UPDATE_INVALID_REDIRECT_URL: (url: string) =>
+  // App upload
+  APP_UPLOAD_NO_CONFIG: `No app-config.json found in this directory. Run \`${CLI.APP_UPLOAD}\` from the project directory that has your app's app-config.json, or run \`${CLI.APP_CREATE}\` / \`${CLI.APP_SCAFFOLD}\` to set one up.`,
+  APP_UPLOAD_INVALID_JSON: `app-config.json contains invalid JSON. Fix the file, or run \`${CLI.APP_SCAFFOLD}\` to regenerate it.`,
+  APP_UPLOAD_MISSING_APP_ID: `app-config.json is missing "appId". Fix the file, or run \`${CLI.APP_SCAFFOLD}\` to regenerate it.`,
+  APP_UPLOAD_NO_REDIRECT_URLS: 'app-config.json has no redirect URLs configured.',
+  APP_UPLOAD_INVALID_REDIRECT_URL: (url: string) =>
     `Invalid redirect URL "${url}". Must be a valid http:// or https:// URL.`,
-  APP_UPDATE_INVALID_REDIRECT_PROTOCOL: (url: string) =>
+  APP_UPLOAD_INVALID_REDIRECT_PROTOCOL: (url: string) =>
     `Invalid redirect URL "${url}". Must use http:// or https://.`,
-  APP_UPDATE_SUMMARY: 'Update summary:',
-  APP_UPDATE_CONFIRM: 'Proceed with update?',
-  APP_UPDATE_CANCELLED: 'Update cancelled.',
-  APP_UPDATE_SUCCESS: 'App updated.',
-  APP_UPDATE_NOTHING_TO_UPDATE:
-    'Nothing to update. Provide --app-id with --name, --redirect-uri, --scope, or --logo-uri, or run from a scaffolded project directory.',
-  APP_UPDATE_NO_APP_RESOLVED:
-    'Cannot determine which app to update. Provide --app-id or run from a directory with app-config.json.',
-  APP_UPDATE_APP_ID_MISMATCH: (flagId: string, configId: string) =>
-    `--app-id ${flagId} does not match app-config.json (${configId}). Pass --name or --redirect-uri to update app ${flagId}, or remove --app-id to update app ${configId}.`,
-  APP_UPDATE_SCOPES_APPENDED: (scopes: string[]): string => `Scopes appended: ${scopes.join(', ')}`,
+  APP_UPLOAD_SUMMARY: 'Upload summary:',
+  APP_UPLOAD_CONFIRM: 'Proceed with upload?',
+  APP_UPLOAD_CANCELLED: 'Upload cancelled.',
+  APP_UPLOAD_SUCCESS: 'App uploaded.',
+  APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
 
   // App status
   APP_STATUS_SELECT: 'Select an app:',
@@ -142,14 +145,15 @@ export const messages = {
   },
 
   // Legacy 'all' scope deprecation (BEX-214)
-  LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (if you keep an app-config.json, edit auth.scopes there too).\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then re-run \`${CLI.APP_UPDATE_SCOPE} <scope>\` (repeatable) to migrate.`,
-  LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate with \`${CLI.APP_UPDATE_SCOPE} <scope>\` (repeatable), then re-run \`${CLI.APP_START('oauth')}\`.`,
+  LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses in app-config.json's \`auth.scopes\`.\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then run \`${CLI.APP_UPLOAD}\` to migrate.`,
+  LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_START('oauth')}\`.`,
   LEGACY_ALL_SCOPE_LIST_TAG: ` (legacy 'all' — deprecated)`,
   LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED: (writtenScopes: string): string =>
-    `This app still has the legacy 'all' OAuth scope (deprecated). Wrote ${writtenScopes} to app-config.json instead of 'all'. Migrate the app with \`${CLI.APP_UPDATE_SCOPE} <scope>\`.`,
+    `This app still has the legacy 'all' OAuth scope (deprecated). Wrote ${writtenScopes} to app-config.json instead of 'all'. Migrate the app by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`.`,
   LEGACY_ALL_SCOPE_UPDATE_MIGRATING: `Migrating from legacy 'all' scope — 'all' will be removed.`,
 
   // App delete
+  APP_DELETE_SELECT: 'Select an app to delete:',
   APP_DELETE_CONFIRM: (name: string, id: string) =>
     `Delete app "${name}" (${id})? This cannot be undone.`,
   APP_DELETE_SUCCESS: (id: string) => `App ${id} deleted.`,
@@ -158,19 +162,49 @@ export const messages = {
   APP_DELETE_FOLDER_SUCCESS: (dir: string) => `Project folder deleted: ${dir}`,
   APP_DELETE_FOLDER_FAILED: (dir: string) => `Could not delete folder ${dir}. Remove it manually.`,
 
+  // App withdraw
+  APP_WITHDRAW_SELECT: 'Select an app to withdraw:',
+  APP_WITHDRAW_CONFIRM: (name: string, id: string) =>
+    `Withdraw app "${name}" (${id}) from submission?`,
+  APP_WITHDRAW_CANCELLED: 'Withdrawal cancelled.',
+  APP_WITHDRAW_SUCCESS: (id: string) => `App ${id} withdrawn from submission.`,
+  APP_WITHDRAW_NOT_SUBMITTED: (id: string) => `App ${id} has not been submitted yet.`,
+  APP_WITHDRAW_SUBMIT_HINT: (id: string) => `Submit it first: ${CLI.APP_SUBMIT(id)}`,
+
   // App scaffold
   APP_SCAFFOLD_DIR_PROMPT: 'Output directory:',
   APP_SCAFFOLD_DIR_EXISTS: 'Directory already exists. What would you like to do?',
-  APP_SCAFFOLD_ALREADY_IN_PROJECT: `Project already scaffolded in this directory (app-config.json found). Run from a different directory, or use \`${CLI.APP_UPDATE}\` to push config changes.`,
-  APP_SCAFFOLD_SUCCESS: (count: number) => `Test app scaffolded (${count} files)`,
+  APP_SCAFFOLD_FEATURE_TYPE_PROMPT: 'What feature do you want to scaffold?',
+  APP_SCAFFOLD_FEATURE_EXISTS:
+    'This feature already has files in this project. What would you like to do?',
+  APP_SCAFFOLD_FEATURE_EXISTS_OVERWRITE: 'Overwrite existing files',
+  APP_SCAFFOLD_FEATURE_EXISTS_MERGE: 'Merge (keep existing, add missing)',
+  APP_SCAFFOLD_FEATURE_EXISTS_CANCEL: 'Cancel',
+  APP_SCAFFOLD_NO_CONFIG: `No app-config.json found in this directory, so there is no app to scaffold a feature into. Run \`${CLI.APP_CREATE}\` to create an app here first, or cd into an existing project folder and try again.`,
+  APP_SCAFFOLD_DIFF_INTRO: (name: string) =>
+    `App "${name}" is linked here, but its local config differs from the server:`,
+  APP_SCAFFOLD_DIFF_LINE: (field: string, local: string, server: string) =>
+    `  ${field}: ${local} → ${server}`,
+  APP_SCAFFOLD_DIFF_CONFIRM:
+    'Scaffolding will update app-config.json to match the server. Continue?',
+  APP_SCAFFOLD_CANCELLED: 'Scaffold cancelled.',
+  APP_SCAFFOLD_JSON_DIFF_CANCELLED:
+    'app-config.json differs from the server and --json cannot prompt for confirmation. Re-run without --json to review and confirm the update.',
+  APP_SCAFFOLD_SUCCESS: (count: number) => `Feature scaffolded (${count} files)`,
+  APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
+  APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
   APP_SCAFFOLD_NEXT_STEPS_TITLE: 'Next steps',
-  APP_SCAFFOLD_NEXT_STEPS_LINES: (dir: string) => [
-    `1. cd ${dir}`,
-    `2. yarn --cwd src/oauth`,
+  // `cdDir` is the path (relative to the shell the user actually typed the
+  // command in) they need to `cd` into. It's undefined when scaffolding
+  // landed in that same directory, since process.chdir() inside the CLI
+  // only moves the CLI's own process, never the user's shell.
+  APP_SCAFFOLD_NEXT_STEPS_LINES: (cdDir?: string) => [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    `${cdDir ? 2 : 1}. yarn --cwd src/oauth`,
     `   (or: npm --prefix src/oauth install)`,
-    `3. ${CLI.APP_START('oauth')}`,
+    `${cdDir ? 3 : 2}. ${CLI.APP_START('oauth')}`,
   ],
-  APP_SCAFFOLD_SCOPES_TIP: `Tip: list available scopes with \`${CLI.APP_SCOPES}\`. Update scopes via \`${CLI.APP_UPDATE_SCOPE} <name>\` (repeatable), or by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPDATE}\`.`,
+  APP_SCAFFOLD_SCOPES_TIP: `Tip: list available scopes with \`${CLI.APP_SCOPES}\`. Update scopes by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
 
   // App start
   APP_START_FEATURE_NOT_FOUND: (entryFile: string) =>
@@ -183,9 +217,9 @@ export const messages = {
   APP_START_UNKNOWN_FEATURE: (feature: string, available: string) =>
     `Unknown feature "${feature}". Available features: ${available}`,
   APP_START_PORT_IN_USE: (port: number) =>
-    `Port ${port} is already in use.\n\n  Either stop the process using port ${port}, use a different port with \`--port <port>\`,\n  or update your redirect URL with \`${CLI.APP_UPDATE} --redirect-uri http://localhost:<port>/auth/callback\`.`,
+    `Port ${port} is already in use.\n\n  Either stop the process using port ${port}, use a different port with \`--port <port>\`,\n  or update your redirect URL by editing \`auth.redirectUrls\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
   APP_START_CUSTOM_PORT_IN_USE: (port: number) =>
-    `Port ${port} is already in use.\n\n  Stop the process using port ${port}, or pick another port with \`--port <port>\`\n  and update your redirect URL with \`${CLI.APP_UPDATE} --redirect-uri http://localhost:<port>/auth/callback\`.`,
+    `Port ${port} is already in use.\n\n  Stop the process using port ${port}, or pick another port with \`--port <port>\`\n  and update your redirect URL by editing \`auth.redirectUrls\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
   APP_START_EXITED: (feature: string, code: number) => `${feature} exited with code ${code}`,
   APP_START_FAILED: (feature: string, error: string) => `Failed to start ${feature}: ${error}`,
   APP_START_REDIRECT_NOT_REGISTERED: (port: number) =>
@@ -195,9 +229,9 @@ export const messages = {
   APP_START_REDIRECT_REGISTERING: 'Registering redirect URL...',
   APP_START_REDIRECT_REGISTERED: (url: string) => `Registered ${url}.`,
   APP_START_REDIRECT_DECLINED: (url: string) =>
-    `Continuing without registering. The OAuth callback at ${url} will fail until you register it. Run \`${CLI.APP_UPDATE} --redirect-uri ${url}\` to register later.`,
+    `Continuing without registering. The OAuth callback at ${url} will fail until you register it. Add it to \`auth.redirectUrls\` in app-config.json and run \`${CLI.APP_UPLOAD}\` to register later.`,
   APP_START_REDIRECT_NON_INTERACTIVE: (port: number, url: string) =>
-    `Port ${port} is not registered as a redirect URL for this app, and we can't prompt in non-interactive mode. Run \`${CLI.APP_UPDATE} --redirect-uri ${url}\` first, or re-run interactively.`,
+    `Port ${port} is not registered as a redirect URL for this app, and we can't prompt in non-interactive mode. Add \`${url}\` to \`auth.redirectUrls\` in app-config.json and run \`${CLI.APP_UPLOAD}\` first, or re-run interactively.`,
 
   AUTH_LOGOUT_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force to skip.',
@@ -239,7 +273,7 @@ export const messages = {
 
   // App scopes
   APP_SCOPES_EMPTY: 'The IdP returned an empty scope list.',
-  APP_SCOPES_USAGE_HINT: `Add a scope to an app with \`${CLI.APP_UPDATE_SCOPE} <scope> --app-id <id>\`.`,
+  APP_SCOPES_USAGE_HINT: `Add a scope to an app by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
   APP_SCOPES_DOCS_HINT: `Full CLI reference: ${BREVO_CLI_REFERENCE_URL}`,
   APP_SCOPES_CATALOG_DOCS_HINT: `Scope catalog docs: ${BREVO_OAUTH_SCOPES_DOCS_URL}`,
   APP_SCOPES_WEB_LISTENING: (url: string): string => `Open in browser: ${url} (Ctrl+C to stop)`,
@@ -260,7 +294,7 @@ export const messages = {
   APP_SCOPES_WEB_COPY_CATEGORY_ARIA: 'Copy {category} scopes',
   APP_SCOPES_WEB_SELECT_SCOPE_ARIA: 'Select {scope}',
   APP_SCOPES_WEB_COPY_SELECTED: 'Copy selected',
-  APP_SCOPES_WEB_SELECTED_PLACEHOLDER: `Tick scopes to build a comma-separated list for \`${CLI.APP_UPDATE_SCOPE}\` or app-config.json`,
+  APP_SCOPES_WEB_SELECTED_PLACEHOLDER: `Tick scopes to build a comma-separated list for app-config.json's \`auth.scopes\``,
   APP_SCOPES_WEB_LEGACY_BADGE: 'deprecated',
   APP_SCOPES_WEB_LEGACY_TITLE: `Legacy 'all' scope — replace with the granular scopes your integration uses.`,
   APP_SCOPES_WEB_DOCS_LINK: 'Full CLI reference',
