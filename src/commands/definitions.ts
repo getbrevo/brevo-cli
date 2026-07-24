@@ -15,6 +15,7 @@ import { withdrawCommand } from './app/withdraw';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
+import { submitCommand } from './app/submit';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
 
@@ -253,6 +254,31 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         startCommand({
           feature: feature as string | undefined,
           port: opts.port as number | undefined,
+        }),
+    },
+    {
+      name: 'submit',
+      description: 'Submit a public app for review',
+      examples: [
+        'brevo app submit',
+        'brevo app submit --app-id 42',
+        'brevo app submit --app-id 42 --json',
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        {
+          flags: '--json',
+          description: 'Print the submission form URL as JSON instead of opening a browser',
+        },
+      ],
+      handler: (opts) =>
+        submitCommand({
+          appId: opts.appId as string | undefined,
+          json: Boolean(opts.json),
         }),
     },
   ],

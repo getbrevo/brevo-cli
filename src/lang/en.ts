@@ -122,6 +122,33 @@ export const messages = {
   APP_UPLOAD_SUCCESS: 'App uploaded.',
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
 
+  // App submit (BEX-221)
+  APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
+  APP_SUBMIT_FETCHING: 'Fetching app...',
+  APP_SUBMIT_PICK_APP: 'Which app do you want to submit for review?',
+  APP_SUBMIT_NO_APP_RESOLVED:
+    'Cannot determine which app to submit. Provide --app-id or run from a directory with app-config.json.',
+  APP_SUBMIT_NOT_FOUND: (appId: string): string => `App ${appId} not found.`,
+  APP_SUBMIT_NOT_PUBLIC: (appId: string): string =>
+    `App ${appId} is private. Private apps cannot be submitted for review. Only public apps are eligible for the approval process. Please make your app public before submitting it for review.`,
+  APP_SUBMIT_OUT_OF_SYNC: (fields: string[], appId: string): string =>
+    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
+    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo:\n${diff}\n\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_IN_SYNC:
+    'No configuration mismatch detected. Showing the submission confirmation prompt with the complete app configuration below.',
+  APP_SUBMIT_CONFIRM_HEADER: 'You are about to submit this app for review:',
+  APP_SUBMIT_CONFIRM_PROMPT: 'Submit this app for review?',
+  APP_SUBMIT_CANCELLED: 'Submission cancelled.',
+  APP_SUBMIT_FORM_GATE:
+    'Note: Your app will be submitted for review only after you complete and submit the Google Form.',
+  APP_SUBMIT_BROWSER_OPENED: (url: string, appId: string): string =>
+    `We've opened a browser tab with the submission form for app ${appId}:\n  ${url}`,
+  APP_SUBMIT_BROWSER_FAILED: (url: string, appId: string): string =>
+    `We couldn't open a browser automatically. Open the submission form for app ${appId} yourself:\n  ${url}`,
+  APP_SUBMIT_NEXT_STEPS: `Please submit the form for review. You'll receive an email once your app has been reviewed — check its status anytime with \`${CLI.APP_STATUS}\`.`,
+  APP_SUBMIT_NO_FORM_URL: `Review submission is currently unavailable. This may happen if your app has not been uploaded yet or if it has already been submitted and is under review. You can check the current status of your app using \`${CLI.APP_STATUS}\`.`,
+
   // App status
   APP_STATUS_SELECT: 'Select an app:',
   APP_STATUS_TITLE: 'App status',
