@@ -85,6 +85,7 @@ export const ENDPOINTS = {
   ACCOUNT: '/v3/account/info',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
+  APP_STATE: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/state`,
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -95,6 +96,7 @@ export const CLI = {
   HELP: 'brevo --help',
   APP_CREATE: 'brevo app create',
   APP_LIST: 'brevo app list',
+  APP_STATUS: 'brevo app status',
   APP_SCAFFOLD: (appId?: string) =>
     appId ? `brevo app scaffold --app-id ${appId}` : 'brevo app scaffold --app-id <id>',
   APP_CREDENTIALS: (appId?: string) =>

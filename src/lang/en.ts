@@ -117,6 +117,30 @@ export const messages = {
     `--app-id ${flagId} does not match app-config.json (${configId}). Pass --name or --redirect-uri to update app ${flagId}, or remove --app-id to update app ${configId}.`,
   APP_UPDATE_SCOPES_APPENDED: (scopes: string[]): string => `Scopes appended: ${scopes.join(', ')}`,
 
+  // App status
+  APP_STATUS_SELECT: 'Select an app:',
+  APP_STATUS_HEADER: (label: string): string => `App status: ${label}`,
+  // Canned copy per review state (server-side `app_submission_states.state`).
+  // Reviewer feedback is delivered by email, not surfaced here (BEX-252).
+  APP_STATUS_MESSAGE: (state: string): string => {
+    switch (state) {
+      case 'configured':
+        return "Your app is set up but hasn't been submitted for review yet.";
+      case 'submitted':
+        return 'Your app has been submitted and is waiting to be reviewed.';
+      case 'in_review':
+        return 'Your app is currently being reviewed by our team.';
+      case 'approved':
+        return 'Your app has been approved.';
+      case 'rejected':
+        return 'Your app was not approved. Check your email for details.';
+      case 'changes_requested':
+        return 'Changes have been requested for your app. Check your email for details.';
+      default:
+        return `Your app is in state "${state}".`;
+    }
+  },
+
   // Legacy 'all' scope deprecation (BEX-214)
   LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (if you keep an app-config.json, edit auth.scopes there too).\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then re-run \`${CLI.APP_UPDATE_SCOPE} <scope>\` (repeatable) to migrate.`,
   LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate with \`${CLI.APP_UPDATE_SCOPE} <scope>\` (repeatable), then re-run \`${CLI.APP_START('oauth')}\`.`,

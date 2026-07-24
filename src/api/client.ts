@@ -94,10 +94,15 @@ function parseResponseData(text: string, status: number): Record<string, unknown
 
 function throwResponseError(data: Record<string, unknown>, status: number): never {
   const apiCode = typeof data.code === 'string' ? data.code : undefined;
-  const rawFallback =
-    typeof data.message === 'string' && data.message
-      ? data.message
-      : `Request failed with status ${status}`;
+  // Prefer the API's human-readable text: some endpoints return `message`,
+  // others (e.g. app upload's `distribution_type cannot be changed via upload`)
+  // return it under `error`. Surface whichever is present before falling back
+  // to the generic status line.
+  const apiText =
+    (typeof data.message === 'string' && data.message) ||
+    (typeof data.error === 'string' && data.error) ||
+    '';
+  const rawFallback = apiText || `Request failed with status ${status}`;
   const fallback = sanitizeErrorMessage(rawFallback);
   const message = resolveErrorMessage(apiCode, fallback);
   throw new ApiError(message, status, mapErrorCode(status, apiCode), apiCode);

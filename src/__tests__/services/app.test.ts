@@ -73,6 +73,32 @@ describe('services/app', () => {
     });
   });
 
+  describe('fetchAppState', () => {
+    it('should GET the state endpoint and return the state payload', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ state: 'in_review' });
+      const result = await service.fetchAppState('42');
+      expect(result).toEqual({ state: 'in_review' });
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/apps/42/state');
+    });
+
+    it('should encode the app id in the path', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ state: 'approved' });
+      await service.fetchAppState(UUID);
+      expect(mockClient.get).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/state`);
+    });
+
+    it('should map a 404 to an app-not-found CliError', async () => {
+      const { ApiError } = jest.requireActual('../../lib/errors');
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      await expect(service.fetchAppState('999')).rejects.toThrow('App 999 not found.');
+    });
+
+    it('should propagate non-404 errors unchanged', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new Error('boom'));
+      await expect(service.fetchAppState('42')).rejects.toThrow('boom');
+    });
+  });
+
   describe('createApp', () => {
     it('should POST to app-store/apps with payload and normalize app_id', async () => {
       const response = {

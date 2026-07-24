@@ -40,6 +40,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 - "Authenticate" → `brevo login` (or `BREVO_API_KEY=xkeysib-... brevo login` for CI)
 - "Who am I logged in as?" → `brevo whoami --json`
 - "Show / pick an app" → `brevo app list --json`
+- "Check an app's review status" → `brevo app status --app-id <id> --json` (read-only; returns `{ state, message }`, `state` ∈ `configured`/`submitted`/`in_review`/`approved`/`rejected`/`changes_requested`. Reviewer feedback comes by email, not here.)
 - "Create an app" → `brevo app create --name "<name>" --distribution private --redirect-uri <url> --json` (add `--logo-uri <https://…>` to set the app logo at creation time; new apps default to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`). Only `private` distribution is available today — the CLI rejects `--distribution public` with a "coming soon" error, so never suggest it.
 - "Update app metadata" → `brevo app update --app-id <id> --name "<name>"` and/or `--redirect-uri <url>` (repeatable) and/or `--scope <scope>` (repeatable, appends) and/or `--logo-uri <https://…>`
 - "Get client credentials" → `brevo app credentials --app-id <id> --json` (add `--reveal-secret` to print the secret)

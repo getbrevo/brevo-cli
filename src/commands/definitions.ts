@@ -14,6 +14,7 @@ import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
+import { statusCommand } from './app/status';
 import { updateCommand } from './app/update';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
@@ -107,6 +108,25 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       examples: ['brevo app list', 'brevo app list --json'],
       options: [{ flags: '--json', description: 'Output as JSON' }],
       handler: (opts) => listCommand({ json: Boolean(opts.json) }),
+    },
+    {
+      name: 'status',
+      description: "Show an app's review status",
+      examples: [
+        'brevo app status',
+        'brevo app status --app-id 42',
+        'brevo app status --app-id 42 --json',
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        statusCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
     },
     {
       name: 'credentials',

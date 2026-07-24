@@ -73,6 +73,7 @@ program
         `  brevo app init                                 Quick setup — login, create app, and scaffold`,
         `  brevo app create      [--name] [--distribution private|public] [--redirect-uri <url>...] [--logo-uri <url>] [--json]`,
         `  brevo app list        [--json]`,
+        `  brevo app status      [--app-id <id>] [--json]                 Show an app's review status`,
         `  brevo app credentials [--app-id <id>] [--reveal-secret] [--json]`,
         `  brevo app update      [--app-id <id>] [--name] [--redirect-uri <url>...] [--logo-uri <url>] [--json]`,
         `  brevo app delete      [--app-id <id>] [--force] [--json]`,

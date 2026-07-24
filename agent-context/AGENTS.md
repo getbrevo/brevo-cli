@@ -64,6 +64,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 | `brevo whoami` | Show the authenticated account (`--json`) |
 | `brevo app init` | Guided setup (login, create, scaffold) |
 | `brevo app list` | List OAuth apps (`--json`) |
+| `brevo app status` | Show an app's review status (`--app-id`, `--json`). Read-only. `--json` returns `{ state, message }` where `state` is one of `configured`, `submitted`, `in_review`, `approved`, `rejected`, `changes_requested`; `message` is canned copy. Reviewer feedback is sent by email, never in this output. |
 | `brevo app create` | Create an app (`--name`, `--distribution`, `--redirect-uri`, `--logo-uri`, `--json`). Only `--distribution private` is available today — `public` is rejected with a "coming soon" error. Defaults to scopes `contacts:read`, `contacts:write`, `crm:read`, `crm:write`. |
 | `brevo app update` | Update name / redirect URLs / scopes / logo (`--app-id`, `--name`, `--redirect-uri`, `--scope` repeatable appends, `--logo-uri`, `--yes`, `--json`) |
 | `brevo app credentials` | Show client ID / secret (`--app-id`, `--reveal-secret`, `--json`) |
