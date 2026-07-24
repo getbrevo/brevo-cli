@@ -7,7 +7,13 @@ import { EXIT_CODES } from '../lib/exit-codes';
 import { logInfo } from '../lib/logger';
 import { createSpinner } from '../lib/ui';
 import { messages } from '../lang/en';
-import { OAuthApp, CreateAppResponse, UploadAppPayload, UploadAppResponse } from '../types';
+import {
+  OAuthApp,
+  CreateAppResponse,
+  AppStateResponse,
+  UploadAppPayload,
+  UploadAppResponse,
+} from '../types';
 import { getAppCredentials, saveAppCredentials } from '../lib/config';
 import { normalizeAppId } from './normalize-app-id';
 
@@ -43,6 +49,22 @@ export function createAppService(client: ApiClient) {
         rethrowNotFound(err, appId);
       }
       return app ? normalizeAppId(app) : null;
+    },
+
+    /**
+     * Canonical read of an app's review lifecycle state. This is the single
+     * state-read path — `brevo app status` and, later, `submit` (BEX-251) and
+     * `withdraw` (BEX-253) all go through here rather than querying separately.
+     * Read-only; no mutation.
+     */
+    async fetchAppState(appId: string): Promise<AppStateResponse> {
+      let res: AppStateResponse;
+      try {
+        res = await client.get<AppStateResponse>(ENDPOINTS.APP_STATE(appId));
+      } catch (err) {
+        rethrowNotFound(err, appId);
+      }
+      return res;
     },
 
     async pickApp(

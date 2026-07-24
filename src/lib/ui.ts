@@ -1,3 +1,5 @@
+import { color } from './logger';
+
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 export interface Spinner {
@@ -78,4 +80,50 @@ export function printBox(title: string, lines: string[]): void {
 function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
   return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+// Visual tone for a status. Each tone maps to an ANSI colour code and a glyph
+// so a state reads at a glance (green ✓ approved, red ✗ rejected, …).
+export type StatusTone = 'neutral' | 'info' | 'pending' | 'progress' | 'success' | 'warn' | 'error';
+
+const TONE_STYLES: Record<StatusTone, { code: string; icon: string }> = {
+  neutral: { code: '90', icon: '○' }, // gray
+  info: { code: '36', icon: '◇' }, // cyan
+  pending: { code: '34', icon: '◔' }, // blue
+  progress: { code: '33', icon: '◐' }, // yellow
+  success: { code: '32', icon: '✓' }, // green
+  warn: { code: '33', icon: '⚠' }, // yellow
+  error: { code: '31', icon: '✗' }, // red
+};
+
+/**
+ * Print a colourful, aligned status card:
+ *
+ *   Title
+ *   ─────
+ *
+ *   ✓ Label
+ *     Message body, indented to line up under the label.
+ *
+ * Colours honour NO_COLOR / FORCE_COLOR / TTY via the shared `color` helper,
+ * and every line shares the same left gutter so the block stays aligned.
+ */
+export function printStatusCard(
+  title: string,
+  label: string,
+  message: string,
+  tone: StatusTone,
+): void {
+  const { code, icon } = TONE_STYLES[tone];
+  const rule = '─'.repeat(title.length);
+  // "icon + space" is 2 columns wide; indent the message to align under the label.
+  const bodyIndent = '  ' + ' '.repeat(2);
+
+  let out = `\n  ${color('1', title)}\n  ${color('90', rule)}\n\n`;
+  out += `  ${color(code, icon)} ${color(`1;${code}`, label)}\n`;
+  for (const line of message.split('\n')) {
+    out += `${bodyIndent}${color('90', line)}\n`;
+  }
+  out += '\n';
+  process.stdout.write(out);
 }

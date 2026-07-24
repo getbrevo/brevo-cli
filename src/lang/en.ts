@@ -145,6 +145,35 @@ export const messages = {
   APP_SUBMIT_NO_FORM_URL:
     'The server did not return a submission form URL. Please try again or contact Brevo support.',
 
+  // App status
+  APP_STATUS_SELECT: 'Select an app:',
+  APP_STATUS_TITLE: 'App status',
+  // Canned copy per review state (server-side `app_submission_states.state`).
+  // Reviewer feedback is delivered by email, not surfaced here (BEX-252).
+  APP_STATUS_MESSAGE: (state: string): string => {
+    switch (state) {
+      // Empty/missing state is normalized to the "unknown" sentinel upstream
+      // (src/commands/app/status.ts); '' is kept as a defensive fallthrough.
+      case '':
+      case 'unknown':
+        return `Status information isn't available for your app yet. Make sure your app is public and has been uploaded with \`${CLI.APP_UPLOAD}\`.`;
+      case 'configured':
+        return "Your app is set up but hasn't been submitted for review yet.";
+      case 'submitted':
+        return 'Your app has been submitted and is waiting to be reviewed.';
+      case 'in_review':
+        return 'Your app is currently being reviewed by our team.';
+      case 'approved':
+        return 'Your app has been approved.';
+      case 'rejected':
+        return 'Your app was not approved. Check your email for details.';
+      case 'changes_requested':
+        return 'Changes have been requested for your app. Check your email for details.';
+      default:
+        return `Your app is in state "${state}".`;
+    }
+  },
+
   // Legacy 'all' scope deprecation (BEX-214)
   LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses in app-config.json's \`auth.scopes\`.\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then run \`${CLI.APP_UPLOAD}\` to migrate.`,
   LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_START('oauth')}\`.`,
