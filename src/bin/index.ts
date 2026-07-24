@@ -76,6 +76,7 @@ program
         `  brevo app credentials [--app-id <id>] [--reveal-secret] [--json]`,
         `  brevo app upload      [--yes] [--json]                     Push app-config.json to Brevo`,
         `  brevo app delete      [--app-id <id>] [--force] [--json]`,
+        `  brevo app withdraw    [--app-id <id>] [--force] [--json]`,
         `  brevo app scaffold    [--app-id <id>] [--json]`,
         `  brevo app start       [feature] [--port <port>]`,
         ``,

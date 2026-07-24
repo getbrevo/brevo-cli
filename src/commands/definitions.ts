@@ -10,6 +10,7 @@ import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
 import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
+import { withdrawCommand } from './app/withdraw';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
@@ -155,6 +156,30 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       ],
       handler: (opts) =>
         deleteCommand({
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'withdraw',
+      description: 'Withdraw an app from submission',
+      examples: [
+        'brevo app withdraw --app-id 42',
+        'brevo app withdraw --app-id 42 --force',
+        'brevo app withdraw --app-id 42 --json',
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        withdrawCommand({
           appId: opts.appId as string | undefined,
           force: Boolean(opts.force),
           json: Boolean(opts.json),

@@ -137,6 +137,14 @@ export const messages = {
   APP_DELETE_FOLDER_SUCCESS: (dir: string) => `Project folder deleted: ${dir}`,
   APP_DELETE_FOLDER_FAILED: (dir: string) => `Could not delete folder ${dir}. Remove it manually.`,
 
+  // App withdraw
+  APP_WITHDRAW_CONFIRM: (name: string, id: string) =>
+    `Withdraw app "${name}" (${id}) from submission?`,
+  APP_WITHDRAW_CANCELLED: 'Withdrawal cancelled.',
+  APP_WITHDRAW_SUCCESS: (id: string) => `App ${id} withdrawn from submission.`,
+  APP_WITHDRAW_NOT_SUBMITTED: (id: string) => `App ${id} has not been submitted yet.`,
+  APP_WITHDRAW_SUBMIT_HINT: (id: string) => `Submit it first: ${CLI.APP_SUBMIT(id)}`,
+
   // App scaffold
   APP_SCAFFOLD_DIR_PROMPT: 'Output directory:',
   APP_SCAFFOLD_DIR_EXISTS: 'Directory already exists. What would you like to do?',

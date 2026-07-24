@@ -164,6 +164,16 @@ export function createAppService(client: ApiClient) {
         rethrowNotFound(err, appId);
       }
     },
+
+    async withdrawApp(appId: string): Promise<void> {
+      try {
+        await client.post(ENDPOINTS.APP_STORE_APP_WITHDRAW(appId));
+      } catch (err) {
+        // 404 becomes a friendly CliError; everything else (including 422
+        // "not submitted") propagates unchanged for the command to handle.
+        rethrowNotFound(err, appId);
+      }
+    },
   };
 }
 
