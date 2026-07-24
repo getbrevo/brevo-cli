@@ -438,3 +438,12 @@ _Added: 2026-07-23_
 **Flag wiring & docs**
 - [ ] `--overwrite` registered on `scaffold` in `definitions.ts`, threaded to `scaffoldCommand` — (Manual)
 - [ ] `AGENTS.md` + `SKILL.md` document the conflict prompt and `--overwrite`, and stay aligned — (Manual)
+
+### Root `--help` layout: aligned columns + public-apps grouping
+_Added: 2026-07-24_
+
+**`brevo --help` command listing (`bin/index.ts` `formatHelp`)**
+- [ ] Command signatures and descriptions are column-aligned (descriptions at a fixed column, wrapping onto their own indented line when the signature is too long) — (Manual: `node dist/bin/index.js --help`)
+- [ ] `brevo app status` and `brevo app withdraw` are grouped under a `App-review commands (public apps only):` heading — (Manual)
+- [ ] `brevo app status` appears in the listing (regression guard against it being dropped) — (Manual)
+- [ ] No command/flag/exit-code/error-message contract changed (formatting only) — so no `AGENTS.md`/`SKILL.md` edit required — (Manual)
