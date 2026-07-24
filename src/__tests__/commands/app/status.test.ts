@@ -119,6 +119,31 @@ describe('app/status', () => {
     expect(parsed.message).toContain('brevo app upload');
   });
 
+  it('should render an aligned status card with a title, label and message', async () => {
+    mockFetchAppState.mockResolvedValue({ state: 'approved' });
+
+    await statusCommand({ appId: '42' });
+
+    const out = output();
+    expect(out).toContain('App status');
+    expect(out).toContain('Approved');
+    expect(out).toContain('Your app has been approved.');
+    // The title rule underlines the title with box-drawing dashes.
+    expect(out).toContain('─'.repeat('App status'.length));
+    // The success tone renders a check glyph.
+    expect(out).toContain('✓');
+  });
+
+  it('should render the neutral glyph for a missing/unknown state', async () => {
+    mockFetchAppState.mockResolvedValue({});
+
+    await statusCommand({ appId: '42' });
+
+    const out = output();
+    expect(out).toContain('Unknown');
+    expect(out).toContain('○');
+  });
+
   it('should propagate errors from the service', async () => {
     mockFetchAppState.mockRejectedValue(new Error('App 999 not found.'));
 

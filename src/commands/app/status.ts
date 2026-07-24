@@ -1,9 +1,8 @@
-import { logInfo } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { appService } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { createSpinner } from '../../lib/ui';
+import { createSpinner, printStatusCard, StatusTone } from '../../lib/ui';
 import { readProjectConfig } from '../../lib/config';
 
 // Prettify an enum-style state ("in_review") into a human label ("In Review").
@@ -12,6 +11,27 @@ function toLabel(state: string): string {
     .split('_')
     .map((word) => (word ? word[0]!.toUpperCase() + word.slice(1) : word))
     .join(' ');
+}
+
+// Map each review state to a visual tone (colour + icon). Unrecognised states
+// fall back to a neutral tone so new server-side states still render cleanly.
+function toTone(state: string): StatusTone {
+  switch (state) {
+    case 'approved':
+      return 'success';
+    case 'rejected':
+      return 'error';
+    case 'changes_requested':
+      return 'warn';
+    case 'in_review':
+      return 'progress';
+    case 'submitted':
+      return 'pending';
+    case 'configured':
+      return 'info';
+    default:
+      return 'neutral';
+  }
 }
 
 // Resolve the app to inspect: explicit flag > linked app-config.json > picker.
@@ -44,7 +64,6 @@ export const statusCommand = withCommandHandler(
       return;
     }
 
-    logInfo(`\n  ${messages.APP_STATUS_HEADER(toLabel(state))}`);
-    logInfo(`  ${message}\n`);
+    printStatusCard(messages.APP_STATUS_TITLE, toLabel(state), message, toTone(state));
   },
 );

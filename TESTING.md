@@ -456,3 +456,12 @@ _Added: 2026-07-24_
 - [ ] `unknown`/`''` message reads "Status information isn't available for your app yet…" and mentions the app must be public and uploaded via `brevo app upload` — (Automated: `status.test.ts`)
 - [ ] `--json` returns `{ state: "unknown", message }` with the friendly copy — (Automated: `status.test.ts`)
 - [ ] `message` is still canned copy (no contract change) → `AGENTS.md`/`SKILL.md` already document the `unknown` state, no further edit needed — (Manual)
+
+### Colourful, aligned status card
+_Added: 2026-07-24_
+
+**`brevo app status` human output (`status.ts` `toTone` + `ui.ts` `printStatusCard`)**
+- [ ] Output is an aligned card: bold `App status` title, a `─` rule the width of the title, then a coloured icon + bold label, then the message indented to line up under the label — (Automated: `status.test.ts`; Manual: `FORCE_COLOR=1 brevo app status --app-id <id>`)
+- [ ] Each state maps to a semantic tone/icon: approved→green ✓, rejected→red ✗, changes_requested→yellow ⚠, in_review→yellow ◐, submitted→blue ◔, configured→cyan ◇, unknown/other→gray ○ — (Automated: `status.test.ts` covers success ✓ and neutral ○)
+- [ ] Colours honour `NO_COLOR` / `FORCE_COLOR` / non-TTY via the shared `color` helper (no raw ANSI when `NO_COLOR=1`) — (Manual: `NO_COLOR=1 brevo app status --app-id <id>`)
+- [ ] `--json` output unchanged (`{ state, message }`) → no `AGENTS.md`/`SKILL.md` edit required (human formatting only, not a documented contract) — (Automated: `status.test.ts`)

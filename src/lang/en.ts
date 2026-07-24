@@ -122,7 +122,7 @@ export const messages = {
 
   // App status
   APP_STATUS_SELECT: 'Select an app:',
-  APP_STATUS_HEADER: (label: string): string => `App status: ${label}`,
+  APP_STATUS_TITLE: 'App status',
   // Canned copy per review state (server-side `app_submission_states.state`).
   // Reviewer feedback is delivered by email, not surfaced here (BEX-252).
   APP_STATUS_MESSAGE: (state: string): string => {
