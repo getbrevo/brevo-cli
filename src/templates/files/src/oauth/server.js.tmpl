@@ -14,11 +14,21 @@ if (!fs.existsSync(envPath)) {
 
 require('dotenv').config({ path: envPath });
 
+{{#if private}}
 if (!process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
   console.error('\nError: CLIENT_ID and CLIENT_SECRET must be set in .env.local');
   console.error('Get your credentials with: brevo app credentials --reveal-secret\n');
   process.exit(1);
 }
+{{/if}}
+{{#if public}}
+// Public apps use PKCE (RFC 7636) — no client secret is involved.
+if (!process.env.CLIENT_ID) {
+  console.error('\nError: CLIENT_ID must be set in .env.local');
+  console.error('Get your credentials with: brevo app credentials\n');
+  process.exit(1);
+}
+{{/if}}
 
 if (!process.env.OAUTH_BASE || process.env.OAUTH_BASE.startsWith('{{')) {
   console.error('\nError: OAUTH_BASE is not set or contains a placeholder.');
@@ -33,24 +43,20 @@ if (!process.env.OAUTH_REALM || process.env.OAUTH_REALM.startsWith('{{')) {
 
 const express = require('express');
 const authRouter = require('./handler');
+const { buildAuthorizeUrl } = authRouter;
 
 const app = express();
 const PORT = process.env.PORT || 3009;
 
-const REDIRECT_URI = process.env.REDIRECT_URI || '{{REDIRECT_URI}}';
-let SCOPES = 'all';
-try {
-  const appConfig = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'app-config.json'), 'utf-8'));
-  if (appConfig.auth && appConfig.auth.scopes) SCOPES = appConfig.auth.scopes.join(' ');
-} catch {
-  console.warn('Warning: Could not read app-config.json — defaulting scopes to "all".');
-}
-const AUTH_URL = `${process.env.OAUTH_BASE}/realms/${process.env.OAUTH_REALM}/oauth/authorize`
-  + `?response_type=code`
-  + `&client_id=${encodeURIComponent(process.env.CLIENT_ID)}`
-  + `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`
-  + `&state=[random]`
-  + `&scope=${encodeURIComponent(SCOPES)}`;
+// Build the displayed authorization URL with the same helper /auth/login uses,
+// so what the landing page shows always matches what the redirect actually
+// sends. Placeholders (`[random]` state) stand in for the per-request values.
+{{#if private}}
+const AUTH_URL = buildAuthorizeUrl({ state: '[random]' });
+{{/if}}
+{{#if public}}
+const AUTH_URL = buildAuthorizeUrl({ state: '[random]', codeChallenge: '[generated-per-login]' });
+{{/if}}
 
 app.use('/auth', authRouter);
 

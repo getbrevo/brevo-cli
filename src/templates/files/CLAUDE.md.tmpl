@@ -47,9 +47,17 @@ brevo app start oauth        # port is read from app-config.json; override with 
 | `GET /realms/{realm}/.well-known/openid-configuration` | OIDC discovery |
 
 ## Key flows
+{{#if private}}
 - `/auth/login` — generates random CSRF state, redirects to OAuth authorize endpoint
 - `/auth/callback` — validates state, POSTs code to `/realms/{realm}/oauth/token`, stores tokens
 - `/auth/refresh` — refreshes tokens using `refresh_token` grant
+{{/if}}
+{{#if public}}
+This is a **public app**, so the flow uses **PKCE (RFC 7636)** and no client secret:
+- `/auth/login` — generates random CSRF state **and a PKCE `code_verifier`**, then redirects to the OAuth authorize endpoint sending `code_challenge` (S256 hash of the verifier) + `code_challenge_method=S256`. The verifier is stored server-side and never sent to the browser.
+- `/auth/callback` — validates state, POSTs code **plus the `code_verifier`** (no `client_secret`) to `/realms/{realm}/oauth/token`, stores tokens
+- `/auth/refresh` — refreshes tokens using the `refresh_token` grant (no `client_secret`)
+{{/if}}
 
 ## Next steps
 - Replace the in-memory token store in `src/oauth/token-store.js` with a real database (the global singleton is process-local so data is lost on restart, and it is not session-isolated, so multiple users/sessions/tabs can read or overwrite the same in-memory tokens)
