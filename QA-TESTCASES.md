@@ -6,7 +6,18 @@ branch before merge to `main`. Covers **public and private apps**, the new comma
 after upgrading the CLI).
 
 > This file is per-branch working state — delete it before merging to `main`
-> (same rule as `TESTING.md` / `TODO.md`).
+> (same rule as `TODO.md` and the `## Per-branch verification` section of
+> `RELEASE-CHECKLIST.md`).
+
+> **⚠️ Public apps are not available to end users yet**, so the shipped agent docs tell
+> AI agents not to create them (see `RELEASE-CHECKLIST.md`). **That does not apply to
+> QA.** Run the public-app cases below (create `--distribution public`, `app submit`,
+> `app status`, `app withdraw`) as written. Those docs skip the restriction for accounts
+> whose `brevo whoami` email ends in `@brevo.com` / `@sendinblue.com` — so **log in with
+> an internal account** when testing these cases. On a non-internal test account an AI
+> assistant will (correctly) push back; run the commands directly in that case. If an
+> end-to-end path isn't live in your environment yet, note it on the case rather than
+> skipping the whole section.
 
 ---
 
