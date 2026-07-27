@@ -9,6 +9,19 @@ Brevo Developer CLI (`@getbrevo/cli`) — create, manage, and test OAuth integra
 - **Package manager:** Yarn >= 1.19.1
 - **Public CLI reference:** https://developers.brevo.com/docs/cli-reference — keep behaviour, flags, and exit codes in sync with this page when changing user-facing commands.
 
+## Public app distribution is not GA — the agent-doc notice is deliberate
+
+Public app distribution is **not live on the Brevo platform**. The CLI already ships the surface for it — `brevo app create --distribution public`, `brevo app submit`, `brevo app status`, `brevo app withdraw` — but nothing behind those commands is usable yet.
+
+Because that surface is shipped and unguarded, `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a **⚠️ Public apps are not available yet** notice telling agents never to create a public app or drive the review lifecycle. Root `AGENTS.md`, this file, and `README.md` mirror it.
+
+**This does not restrict work in this repo.** Building, changing, testing, and QA-ing the public-app code paths is expected and unblocked — write the code, run the commands, create public apps against test environments, work through the public-app cases in `QA-TESTCASES.md`. The notice governs what the shipped docs tell an *end user's* agent; it is not a freeze on the feature. Never refuse or hedge on a public-app task in this repo because of it.
+
+- **Do not remove or soften that notice** as part of unrelated cleanup. It is the only thing stopping an AI agent from leading a user into creating a public app they can't do anything with.
+- **Keep the *Exception — deliberate testing* clause** in both shipped docs. Without it the notice blocks dogfooding: an agent helping a Brevo developer or QA test `app submit` would refuse.
+- **This is documentation-level only.** The CLI itself still accepts `--distribution public` without a warning or a guard, by design — a runtime guard is tracked separately (see `RELEASE-CHECKLIST.md`). If one is ever added, it needs an escape hatch for internal testing.
+- **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* to remove the notice everywhere in one pass.
+
 ## Public repository — review before committing
 
 This repo is **public** at `github.com/getbrevo/brevo-cli` and the package publishes to the **public npm registry** under `@getbrevo`. Every commit, PR title, PR description, issue, and review comment is world-readable and indexed by search engines. Treat each commit and PR as a public release.
@@ -141,19 +154,28 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - Services are tested against mocked API client responses.
 - Template tests verify variable substitution, not file I/O.
 
-## Working docs: TESTING.md and TODO.md
+## Working docs: RELEASE-CHECKLIST.md and TODO.md
 
-Two root-level scratch files track in-flight branch work: `TESTING.md` (running checklist of
-verification criteria) and `TODO.md` (running work tracker). They are **not** permanent repo
-docs — they exist only for the lifetime of a branch/PR.
+`RELEASE-CHECKLIST.md` (formerly `TESTING.md`) and `TODO.md` track in-flight work at the repo
+root. `TODO.md` is a running work tracker. `RELEASE-CHECKLIST.md` has **two sections that live
+by different rules** — read its header before editing it:
 
-- **Whenever you make a change that needs verification**, append an entry to `TESTING.md`
-  (follow its template) covering what must hold true — new criteria, not a rewrite of old ones.
+- `## Before public-apps GA` — **durable.** Survives into `main` and stays there until public
+  app distribution ships. Do not delete it as part of branch cleanup.
+- `## Per-branch verification` — **scratch.** Same role the old `TESTING.md` had; exists only
+  for the lifetime of a branch/PR.
+
+Working rules:
+
+- **Whenever you make a change that needs verification**, append an entry under
+  `## Per-branch verification` (follow its template) covering what must hold true — new
+  criteria, not a rewrite of old ones.
 - **Whenever you identify follow-up work that isn't done in the current change**, append an
   item to `TODO.md` under `## Open` rather than letting it fall through silently.
-- **Before merging the branch into `main`, delete both `TESTING.md` and `TODO.md`.** They are
-  per-branch working state, not something that belongs in `main`'s history going forward — do
-  not merge them in.
+- **Before merging the branch into `main`, delete `TODO.md` and clear the
+  `## Per-branch verification` section of `RELEASE-CHECKLIST.md`** — per-branch working state
+  doesn't belong in `main`'s history. **Keep the file itself and its
+  `## Before public-apps GA` section.**
 
 ## Adding a new command
 

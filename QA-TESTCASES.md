@@ -6,7 +6,16 @@ branch before merge to `main`. Covers **public and private apps**, the new comma
 after upgrading the CLI).
 
 > This file is per-branch working state — delete it before merging to `main`
-> (same rule as `TESTING.md` / `TODO.md`).
+> (same rule as `TODO.md` and the `## Per-branch verification` section of
+> `RELEASE-CHECKLIST.md`).
+
+> **⚠️ Public apps are not available to end users yet**, so the shipped agent docs tell
+> AI agents not to create them (see `RELEASE-CHECKLIST.md`). **That does not apply to
+> QA.** Run the public-app cases below (create `--distribution public`, `app submit`,
+> `app status`, `app withdraw`) as written — that's exactly the deliberate-testing
+> exception those docs carve out. Point at an environment where public apps are
+> enabled; if an end-to-end path isn't live there yet, note it on the case rather than
+> skipping the whole section.
 
 ---
 

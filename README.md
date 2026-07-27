@@ -93,7 +93,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an OAuth app (`--name`, `--distribution private\|public`, repeatable `--redirect-uri`, `--logo-uri`) |
+| `brevo app create` | Create an OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`) |
 | `brevo app list` | List OAuth apps in your account |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app update` | Update app name, redirect URLs, or logo (`--app-id`, `--name`, repeatable `--redirect-uri`, `--logo-uri`, `--yes`) |
@@ -102,6 +102,8 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |
 
 Most commands require a successful `brevo login` first, except authentication/help flows (`brevo login`, `brevo logout`, `brevo app init`, `--help`). Every command accepts `--json` for machine-readable output.
+
+> **⚠️ Public apps are not available yet.** Public app distribution isn't live on the Brevo platform. `brevo app create` still accepts `--distribution public`, but create your apps with `--distribution private` — a public app can't be distributed or submitted for review today.
 
 ### Browser login
 
