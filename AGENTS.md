@@ -6,6 +6,20 @@ Brevo Developer CLI (`@getbrevo/cli`) — TypeScript CLI for managing OAuth app 
 
 Public CLI reference: https://developers.brevo.com/docs/cli-reference — the authoritative user-facing command/flag/exit-code documentation. Keep this in sync when changing user-visible behaviour.
 
+## Public app distribution is not GA — the agent-doc notice is deliberate
+
+Public app distribution is **not live on the Brevo platform**. The CLI already ships the surface for it — `brevo app create --distribution public`, `brevo app submit`, `brevo app status`, `brevo app withdraw` — but nothing behind those commands is usable yet.
+
+Because that surface is shipped and unguarded, `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a **⚠️ Public apps are not available yet** notice telling agents never to create a public app or drive the review lifecycle. This file, `CLAUDE.md`, and `README.md` mirror it.
+
+**This does not restrict work in this repo.** Building, changing, testing, and QA-ing the public-app code paths is expected and unblocked — write the code, run the commands, create public apps against test environments, work through the public-app cases in `QA-TESTCASES.md`. The notice governs what the shipped docs tell an *end user's* agent; it is not a freeze on the feature. Never refuse or hedge on a public-app task in this repo because of it.
+
+- **Do not remove or soften that notice** as part of unrelated cleanup. It is the only thing stopping an AI agent from leading a user into creating a public app they can't do anything with.
+- **Keep the *Exception — internal Brevo accounts* clause** in both shipped docs. It tells the agent to run `brevo whoami --json` and skip the restriction when `email` ends in `@brevo.com` or `@sendinblue.com`. Without it the notice blocks dogfooding: an agent helping a Brevo developer or QA test `app submit` would refuse. Gating on the account domain rather than on the user's say-so keeps it objective — an end user can't talk their way past it.
+- **The domain check is a guardrail, not a security boundary.** It's client-side guidance in a doc; anyone can ignore the docs and pass `--distribution public` themselves. If public apps must actually be restricted pre-GA, that belongs on the API.
+- **This is documentation-level only.** The CLI itself still accepts `--distribution public` without a warning or a guard, by design — a runtime guard is tracked separately (see `RELEASE-CHECKLIST.md`). If one is ever added, it needs the same internal-account escape hatch.
+- **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* to remove the notice everywhere in one pass.
+
 ## Public repository
 
 Repo (`github.com/getbrevo/brevo-cli`) and package (`@getbrevo/cli` on the public npm registry) are **public**. Every commit, PR, and issue is world-readable.
