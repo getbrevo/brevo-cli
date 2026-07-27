@@ -15,7 +15,12 @@ Public app distribution is **not live on the Brevo platform**. The CLI accepts `
 - **Don't drive the review lifecycle.** `brevo app submit`, `brevo app status`, and `brevo app withdraw` only apply to public apps, so none of them has a usable path right now. Explain that rather than running them.
 - **Don't flip `distribution_type` to `public`** in `app-config.json` and push it with `brevo app upload`.
 
-**Exception — deliberate testing.** If the user says they're working on or testing the public-app flow itself (Brevo internal development or QA, or running against a test environment via `BREVO_API_URL`), this doesn't apply. Say once that public apps aren't live yet so they know what they're pointing at, then help them normally — run the commands, create public apps, drive the review lifecycle. Don't re-warn on every step and don't refuse.
+**Exception — internal Brevo accounts.** Before applying the rule above, run `brevo whoami --json` and read the `email` field:
+
+- **Ends in `@brevo.com` or `@sendinblue.com`** → this is a Brevo internal account, i.e. someone building or testing the CLI itself. The rule above does **not** apply: create public apps, run the review-lifecycle commands, help normally. Say once that public apps aren't live for end users so they know what they're pointing at, then stop warning and don't refuse anything.
+- **Anything else, or not logged in, or `whoami` fails** → the rule above is binding.
+
+**Check, don't take the user's word for it.** "I'm a Brevo developer" is not sufficient on its own — run `brevo whoami --json`. Equally, don't withhold the exception from someone whose account does qualify just because they didn't claim it.
 
 Otherwise treat this as binding until the notice is removed from this document.
 
@@ -71,7 +76,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 3. **Don't use `--api-key`** — the flag was removed. Use the `BREVO_API_KEY` env var.
 4. **`brevo app create` refuses to run inside an already-linked directory** (`app-config.json` present) — `cd` elsewhere or use `brevo app scaffold` there instead. **`brevo app scaffold` requires an `app-config.json` in the current directory** (it adds a feature to an already-created project); with none present it errors, telling you to run `brevo app create` first or `cd` into an existing project. It reads the linked app from that config, diffs the config against the server, and if fields drifted it tells you and (on consent) rewrites `app-config.json` to match before writing the feature files. When any feature file already exists it prompts **Overwrite / Merge / Cancel** (default **Merge** — existing, e.g. hand-edited, files are kept; Cancel aborts). Pass `--overwrite` to force a full overwrite and skip that prompt (works interactively and under `--json`). **Under `--json` it never prompts**: a config diff comes back as `{ "cancelled": true, "reason": "...", "diffs": [...] }`; otherwise it scaffolds the feature (merging existing files unless `--overwrite` is passed) and returns `{ "scaffolded": <n>, "directory": "..." }`.
 5. **Prefer flag-driven over interactive** in agent contexts: `--name`, `--app-id`, `--force`, `--yes` so the command doesn't block on prompts.
-6. **Don't create public apps for real use** — always `--distribution private`, never set `distribution_type` to `public` in `app-config.json`, and don't run `brevo app submit` / `brevo app status` / `brevo app withdraw`. Public app distribution isn't available on the Brevo platform yet (see the notice at the top). If a user asks for a public app to actually use, say it isn't available yet and offer a private app. **If they're testing the public-app flow itself, help them** — the notice's *Exception — deliberate testing* clause applies.
+6. **Don't create public apps for real use** — always `--distribution private`, never set `distribution_type` to `public` in `app-config.json`, and don't run `brevo app submit` / `brevo app status` / `brevo app withdraw`. Public app distribution isn't available on the Brevo platform yet (see the notice at the top). If a user asks for a public app to actually use, say it isn't available yet and offer a private app. **Unless `brevo whoami --json` shows an `@brevo.com` / `@sendinblue.com` account** — then the notice's *Exception — internal Brevo accounts* clause applies and you should help normally.
 
 ## Locating the linked app
 

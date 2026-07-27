@@ -18,8 +18,9 @@ Because that surface is shipped and unguarded, `agent-context/SKILL.md` and `age
 **This does not restrict work in this repo.** Building, changing, testing, and QA-ing the public-app code paths is expected and unblocked — write the code, run the commands, create public apps against test environments, work through the public-app cases in `QA-TESTCASES.md`. The notice governs what the shipped docs tell an *end user's* agent; it is not a freeze on the feature. Never refuse or hedge on a public-app task in this repo because of it.
 
 - **Do not remove or soften that notice** as part of unrelated cleanup. It is the only thing stopping an AI agent from leading a user into creating a public app they can't do anything with.
-- **Keep the *Exception — deliberate testing* clause** in both shipped docs. Without it the notice blocks dogfooding: an agent helping a Brevo developer or QA test `app submit` would refuse.
-- **This is documentation-level only.** The CLI itself still accepts `--distribution public` without a warning or a guard, by design — a runtime guard is tracked separately (see `RELEASE-CHECKLIST.md`). If one is ever added, it needs an escape hatch for internal testing.
+- **Keep the *Exception — internal Brevo accounts* clause** in both shipped docs. It tells the agent to run `brevo whoami --json` and skip the restriction when `email` ends in `@brevo.com` or `@sendinblue.com`. Without it the notice blocks dogfooding: an agent helping a Brevo developer or QA test `app submit` would refuse. Gating on the account domain rather than on the user's say-so keeps it objective — an end user can't talk their way past it.
+- **The domain check is a guardrail, not a security boundary.** It's client-side guidance in a doc; anyone can ignore the docs and pass `--distribution public` themselves. If public apps must actually be restricted pre-GA, that belongs on the API.
+- **This is documentation-level only.** The CLI itself still accepts `--distribution public` without a warning or a guard, by design — a runtime guard is tracked separately (see `RELEASE-CHECKLIST.md`). If one is ever added, it needs the same internal-account escape hatch.
 - **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* to remove the notice everywhere in one pass.
 
 ## Public repository — review before committing
