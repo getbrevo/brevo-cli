@@ -33,11 +33,21 @@ Implements the authorization code flow to obtain access tokens for the Brevo API
 - Other grant types supported by the Brevo OAuth server but not wired into this scaffold: `client_credentials`
 
 ## OAuth flow
+{{#if private}}
 1. `/auth/login` — generates CSRF state, redirects user to `{OAUTH_BASE}/realms/{realm}/oauth/authorize`
 2. User authorizes -> OAuth server redirects to `/auth/callback` with an auth code
-3. Server validates state, exchanges code for access + refresh tokens via `POST /realms/{realm}/oauth/token`
+3. Server validates state, exchanges code for access + refresh tokens via `POST /realms/{realm}/oauth/token` (authenticated with `client_secret`)
 4. Verifies connection via `GET /realms/{realm}/oauth/userinfo`
 5. `/auth/refresh` — refreshes tokens using `refresh_token` grant
+{{/if}}
+{{#if public}}
+This is a **public app** — the flow uses **PKCE (RFC 7636)** and sends **no `client_secret`**:
+1. `/auth/login` — generates CSRF state + a PKCE `code_verifier`, then redirects user to `{OAUTH_BASE}/realms/{realm}/oauth/authorize` with `code_challenge` (S256) + `code_challenge_method=S256`
+2. User authorizes -> OAuth server redirects to `/auth/callback` with an auth code
+3. Server validates state, exchanges code + `code_verifier` (no `client_secret`) for access + refresh tokens via `POST /realms/{realm}/oauth/token`
+4. Verifies connection via `GET /realms/{realm}/oauth/userinfo`
+5. `/auth/refresh` — refreshes tokens using `refresh_token` grant (no `client_secret`)
+{{/if}}
 
 ## Development
 ```bash

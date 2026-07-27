@@ -23,6 +23,64 @@ export function applyVars(template: string, vars: Record<string, string>): strin
   return result;
 }
 
+export type Distribution = 'public' | 'private';
+
+const IF_OPEN_RE = /^\s*\{\{#if (public|private)\}\}\s*$/;
+const IF_CLOSE_RE = /^\s*\{\{\/if\}\}\s*$/;
+
+/**
+ * Strip distribution-conditional blocks from a template.
+ *
+ * Blocks are delimited by whole-line markers:
+ *
+ *   {{#if public}}
+ *   ...lines emitted only for public apps...
+ *   {{/if}}
+ *   {{#if private}}
+ *   ...lines emitted only for private apps...
+ *   {{/if}}
+ *
+ * A block's body is kept only when its condition matches `distribution`;
+ * otherwise the whole block is dropped. Blocks may nest. The marker lines are
+ * always removed in full (including their line break), so a template whose only
+ * markers wrap the *matching* branch renders byte-for-byte identically to one
+ * written without any markers — this is what keeps private-app scaffolds
+ * unchanged from before PKCE branching was introduced.
+ *
+ * `{{DISTRIBUTION}}` and other `{{VAR}}` placeholders are left untouched here;
+ * they are resolved separately by {@link applyVars}.
+ */
+export function applyConditionals(template: string, distribution: Distribution): string {
+  const lines = template.split('\n');
+  const out: string[] = [];
+  // Stack of block states; `keep` is false once any enclosing block excludes us.
+  const stack: boolean[] = [];
+  const active = (): boolean => stack.length === 0 || stack[stack.length - 1] === true;
+
+  for (const line of lines) {
+    const open = IF_OPEN_RE.exec(line);
+    if (open) {
+      stack.push(active() && open[1] === distribution);
+      continue;
+    }
+    if (IF_CLOSE_RE.test(line)) {
+      if (stack.length === 0) {
+        throw new Error('applyConditionals: unmatched {{/if}}');
+      }
+      stack.pop();
+      continue;
+    }
+    if (active()) {
+      out.push(line);
+    }
+  }
+
+  if (stack.length > 0) {
+    throw new Error('applyConditionals: unclosed {{#if}}');
+  }
+  return out.join('\n');
+}
+
 /**
  * Scaffold file manifest — maps output file paths to their .tmpl source files.
  * Add new templates here; the scaffold command picks them up automatically.
@@ -73,9 +131,14 @@ function loadManifest(
   manifest: TemplateFile[],
   vars: Record<string, string>,
 ): Array<{ name: string; content: string }> {
+  // The scaffold branches on the app's distribution type: public apps get a
+  // PKCE (RFC 7636) OAuth flow with no client secret, private apps keep the
+  // confidential-client flow. `{{DISTRIBUTION}}` is always set by
+  // buildTemplateVars; default to the (unchanged) private flow if it's absent.
+  const distribution: Distribution = vars['{{DISTRIBUTION}}'] === 'public' ? 'public' : 'private';
   return manifest.map((entry) => ({
     name: entry.outputPath,
-    content: applyVars(loadTemplate(entry.templatePath), vars),
+    content: applyVars(applyConditionals(loadTemplate(entry.templatePath), distribution), vars),
   }));
 }
 

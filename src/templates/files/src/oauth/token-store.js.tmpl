@@ -2,6 +2,9 @@
 
 let tokens = {};
 let csrfState = null;
+{{#if public}}
+let codeVerifier = null;
+{{/if}}
 
 module.exports = {
   saveTokens({ access_token, refresh_token, expires_in }) {
@@ -31,9 +34,25 @@ module.exports = {
   getState() {
     return csrfState;
   },
+{{#if public}}
+
+  // PKCE (RFC 7636): stash the code_verifier between /auth/login and
+  // /auth/callback. Same process-local, non-session-isolated limitation as the
+  // token store above — replace with your database in production.
+  setVerifier(verifier) {
+    codeVerifier = verifier;
+  },
+
+  getVerifier() {
+    return codeVerifier;
+  },
+{{/if}}
 
   clear() {
     tokens = {};
     csrfState = null;
+{{#if public}}
+    codeVerifier = null;
+{{/if}}
   },
 };
