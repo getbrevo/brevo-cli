@@ -34,6 +34,7 @@ jest.mock('../../../lib/config', () => ({
   getAppCredentials: jest.fn(),
   saveAppCredentials: jest.fn(),
   readProjectConfig: jest.fn().mockReturnValue(null),
+  isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
 
 jest.mock('../../../templates', () => ({
@@ -619,6 +620,120 @@ describe('app/scaffold', () => {
 
       expect(mockPrompt).not.toHaveBeenCalled();
       expect(result).toBe('oauth');
+    });
+  });
+
+  // ──────────────── UI apps (BEX-290) ────────────────
+  describe('UI apps', () => {
+    const uiApp = {
+      type: 'link' as const,
+      properties: {
+        surface: 'contact' as const,
+        title: 'Invoice Manager',
+        // A value the server does not know about — the whole point of the
+        // preservation test below.
+        description: 'Hand-edited description',
+        contextProperties: ['firstname', 'email'],
+        trigger: {
+          type: 'link' as const,
+          externalUrl: 'https://example.com/brevo',
+          label: 'Invoices',
+        },
+      },
+    };
+
+    // Drifts from serverApp on appName so the refresh path (a full overwrite of
+    // app-config.json) is exercised.
+    const driftedUiConfig = {
+      appId: '1',
+      appName: 'Renamed Locally',
+      distribution_type: 'private' as const,
+      logoUri: '',
+      version: '1.0.0',
+      auth: { scopes: ['contacts:read'] },
+      ui_app: uiApp,
+    };
+
+    // This is the regression that matters: on detected drift the command
+    // rewrites app-config.json wholesale from server values, and the server does
+    // not return `ui_app`. Without the local block being carried into the
+    // template vars, a partner's hand-edited action-link config is destroyed.
+    it('preserves the local ui_app block through a confirmed config refresh', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(driftedUiConfig);
+      mockPrompt.mockResolvedValueOnce({ confirmed: true });
+
+      await scaffoldCommand({});
+
+      const { loadBaseTemplates } = require('../../../templates');
+      expect(loadBaseTemplates).toHaveBeenCalled();
+      const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{UI_APP_JSON}}']).toContain('Hand-edited description');
+      expect(JSON.parse(vars['{{UI_APP_JSON}}'].replaceAll('\n  ', '\n'))).toEqual(uiApp);
+    });
+
+    it('does not report phantom redirect-URL drift for a UI app', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...driftedUiConfig,
+        appName: 'Test App', // matches the server, so ONLY redirectUrls could differ
+      });
+
+      await scaffoldCommand({ json: true });
+
+      // No drift detected → no cancellation, and the base refresh is skipped.
+      const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
+      expect(parsed.cancelled).toBeUndefined();
+    });
+
+    it('offers no features and never scaffolds the OAuth server', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...driftedUiConfig,
+        appName: 'Test App',
+      });
+
+      await scaffoldCommand({});
+
+      const { loadFeatureTemplates } = require('../../../templates');
+      expect(loadFeatureTemplates).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toMatch(/no features to scaffold/i);
+    });
+
+    // The app type is decided locally, never by server data. If the server
+    // returned a `ui_app` for an app the local config says is OAuth, honouring it
+    // would silently reclassify the project and write a UI config over an OAuth
+    // one — so `fetchAppContext` takes the block from the caller only.
+    it('ignores a server-returned ui_app for a project whose local config is OAuth', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+        diffs: [],
+        app: { ...serverApp, ui_app: uiApp },
+      });
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...matchingLocalConfig,
+        appName: 'Renamed Locally', // force the base refresh
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ confirmed: true })
+        .mockResolvedValueOnce({ featureType: 'oauth' });
+
+      await scaffoldCommand({});
+
+      const { loadBaseTemplates, loadFeatureTemplates } = require('../../../templates');
+      const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{UI_APP_JSON}}']).toBe('');
+      // Still treated as an OAuth project: the feature scaffold runs.
+      expect(loadFeatureTemplates).toHaveBeenCalled();
+    });
+
+    it('reports an empty feature list under --json', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...driftedUiConfig,
+        appName: 'Test App',
+      });
+
+      await scaffoldCommand({ json: true });
+
+      const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
+      expect(parsed.features).toEqual([]);
     });
   });
 });

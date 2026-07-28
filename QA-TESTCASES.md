@@ -263,7 +263,7 @@ brevo app create --name "QA Flags App" --distribution private \
 **Priority:** High
 **Preconditions:** Ability to observe the request (proxy/network log) OR verify via server state.
 **Steps:** Make a change and `brevo app upload --yes`.
-**Expected:** Payload has `app_version` (top-level), `name`, `logo_uri`, and `auth: { distribution_type, scopes, redirect_urls }`. Note: **`redirect_urls`** (not `redirect_uris`) and `distribution_type` nested under `auth`. `ui_app` is never sent.
+**Expected:** Payload has `app_version` (top-level), `name`, `logo_uri`, and `auth: { distribution_type, scopes, redirect_urls }`. Note: **`redirect_urls`** (not `redirect_uris`) and `distribution_type` nested under `auth`. For an **OAuth** app `ui_app` is never sent — the key must be absent, not `null`. (UI apps do send it; see section 12.)
 
 ### TC-5.8 — Legacy `all` scope blocks upload
 **Priority:** High
@@ -579,6 +579,94 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 
 ---
 
+---
+
+## 12 — UI apps / action links (BEX-290)
+
+> **⚠️ UI apps are not available to end users yet**, so the shipped agent docs tell AI
+> agents not to create them. **That does not apply to QA** — same internal-account rule
+> as the public-app note at the top of this file. Run these cases directly.
+>
+> These cases exercise two **assumed** backend contracts: the `ui_app` field names and
+> the `deploy`/`remove` endpoints. If TC-12.4 or TC-12.7 fails with a 4xx, that is the
+> expected failure mode of an unconfirmed contract, not a CLI bug — record the exact
+> response and flag it against `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+
+### TC-12.1 — Interactive create asks for the app type first
+**Priority:** High
+**Preconditions:** Logged in; TTY; cwd has **no** `app-config.json`.
+**Steps:** Run `brevo app create`.
+**Expected:** After "App name:", the next prompt is "What type of app are you building?" with **OAuth app** and **UI app**. Choosing **OAuth app** reproduces the previous flow exactly (distribution → redirect URL → logo → scaffold prompt).
+
+### TC-12.2 — UI-app trigger prompt shows unsupported options as disabled
+**Priority:** Medium
+**Steps:** `brevo app create`, choose **UI app**.
+**Expected:** "What type of app are you integrating to Brevo?" lists **External link** as selectable, and **Modal card**, **Widget**, **Cloud function** as visibly disabled ("not yet supported"). They cannot be selected.
+
+### TC-12.3 — UI-app create writes a `ui_app` block and no redirect URLs
+**Priority:** High
+**Steps:** Complete the UI-app flow (title, description ≤60 chars, external `https://` URL, action label).
+**Expected:** A "UI app created" box shows type/record type/title/description/action label/external URL — and **no** `Redirect URL` lines. The generated `app-config.json` has a top-level `ui_app` object, `auth.scopes` of `["contacts:read","contacts:write"]`, and **no** `auth.redirectUrls`. It is valid JSON. No `src/oauth/` directory is created and no feature prompt appears.
+
+### TC-12.4 — UI-app upload sends `ui_app` and is accepted
+**Priority:** High
+**Preconditions:** TC-12.3 done; ability to observe the request.
+**Steps:** `brevo app upload` from the project directory.
+**Expected:** The summary includes a `UI app:` block listing the fields. Payload carries `ui_app` alongside `app_version`/`name`/`logo_uri`/`auth`. The server **accepts** it; `Version:` is printed and written back to `app-config.json`. No redirect-URL error despite the config having none.
+
+### TC-12.5 — Editing only `ui_app` is detected as a change
+**Priority:** High
+**Steps:** After a successful upload, change only `ui_app.properties.title` in `app-config.json`, then `brevo app upload`.
+**Expected:** The diff shows the UI-app block as `(changed)` and the upload proceeds. It must **not** say "Already up to date". Reordering keys without changing values must report up to date.
+
+### TC-12.6 — UI-app validation rejections
+**Priority:** High
+**Steps:** For each, edit `app-config.json` and run `brevo app upload`:
+1. `description` of 61 characters
+2. `trigger.externalUrl` set to `http://example.com` (plain http, non-loopback)
+3. `properties.surface` set to `invoice`
+4. `trigger.type` set to `modal`
+5. `contextProperties` set to `[]`
+**Expected:** Each fails before any network call with a specific message naming the field; exit `1`. `http://localhost:3000/...` must be **accepted** (loopback exemption).
+
+### TC-12.7 — Deploy to an account, and the action link renders
+**Priority:** High
+**Preconditions:** TC-12.4 succeeded; a test account ID.
+**Steps:** `brevo app deploy <account-id>`, confirm the prompt. Then open a contact record in that account.
+**Expected:** "App … deployed to account …". The action link appears in the record's action menu with the configured label, opens the external URL in a **new tab**, and the URL carries the declared context properties.
+
+### TC-12.8 — Deploy refuses before an upload
+**Priority:** High
+**Steps:** In a UI-app project whose `app-config.json` has no `version` (or a freshly created, never-uploaded app), run `brevo app deploy <account-id>`.
+**Expected:** Refuses with "Please first validate your configuration with `brevo app upload`"; exit `1`; nothing deployed.
+
+### TC-12.9 — Remove from an account, and idempotency
+**Priority:** High
+**Steps:** `brevo app remove <account-id>` on a deployed app; then run it again.
+**Expected:** First run: "App … removed from account …", and the action link disappears from the record. Second run: reports the app is not deployed to that account and exits **`0`** (not an error). Under `--json`: `{"removed": false, "reason": "NOT_DEPLOYED", …}`.
+
+### TC-12.10 — Account ID validation and missing argument
+**Priority:** Medium
+**Steps:** `brevo app deploy abc`; then `brevo app deploy` with no argument.
+**Expected:** First errors with "not a numeric Brevo account ID"; second errors with "Missing account ID" and the usage line. Both exit `1`, neither calls the API.
+
+### TC-12.11 — Non-interactive UI-app create
+**Priority:** Medium
+**Steps:** `brevo app create --type ui --name "QA Link" --title "QA Link" --description "QA action link" --external-url https://example.com/qa --json`; then the same without `--title`.
+**Expected:** First succeeds; JSON includes `appType: "ui"` and a `uiApp` object, and **omits** `redirectUri`. Second errors asking for `--title, --description, and --external-url`.
+
+### TC-12.12 — `app scaffold` in a UI-app project
+**Priority:** High
+**Steps:** From a UI-app project, hand-edit `ui_app.properties.description`, then rename the app on the server (or edit `appName` locally to force drift) and run `brevo app scaffold`, consenting to the refresh.
+**Expected:** No feature-type prompt and no `src/oauth/` files. Reports that there are no features to scaffold. **Critically: the hand-edited `ui_app` block survives the refresh** — it must still be in `app-config.json` afterwards, unchanged.
+
+### TC-12.13 — OAuth regression sweep
+**Priority:** High
+**Steps:** Create a private OAuth app end to end (`brevo app create` → accept the feature prompt → `yarn --cwd src/oauth` → `brevo app start oauth`), then `brevo app upload`.
+**Expected:** Byte-for-byte the same experience as before this branch: redirect-URL prompts, four default scopes, `src/oauth/` scaffold, working OAuth flow, and an upload payload with **no** `ui_app` key. A public OAuth app must still get the PKCE scaffold.
+
+---
+
 ## Sign-off
 
 | Suite | Owner | Result (Pass/Fail) | Notes |
@@ -594,5 +682,6 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 | 9 — backward compat/migration | | | |
 | 10 — help layout | | | |
 | 11 — cross-cutting/regression | | | |
+| 12 — UI apps / action links | | | |
 
 **Overall verdict:** ☐ Ready to merge  ☐ Blocked (see notes)

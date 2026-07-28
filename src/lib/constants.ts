@@ -89,6 +89,16 @@ export const ENDPOINTS = {
   APP_STORE_APP_UPLOAD: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/upload`,
   APP_STORE_APP_WITHDRAW: (appId: string) =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/withdraw`,
+  // Per-account availability for UI apps (BEX-290). Until the ManageIntegrations
+  // enable/disable surface ships, these two endpoints *are* the install
+  // mechanism for an action link.
+  //
+  // ⚠️ ASSUMED CONTRACT — pending confirmation from the app-store backend team:
+  // paths below, and `account_id` carried in the request body rather than as a
+  // path segment. If the real contract differs, this and appService.deployApp /
+  // removeApp are the only two places to change.
+  APP_STORE_APP_DEPLOY: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/deploy`,
+  APP_STORE_APP_REMOVE: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/remove`,
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -108,6 +118,10 @@ export const CLI = {
       ? `brevo app credentials --reveal-secret --app-id ${appId}`
       : 'brevo app credentials --reveal-secret',
   APP_UPLOAD: 'brevo app upload',
+  APP_DEPLOY: (accountId?: string) =>
+    accountId ? `brevo app deploy ${accountId}` : 'brevo app deploy <account-id>',
+  APP_REMOVE: (accountId?: string) =>
+    accountId ? `brevo app remove ${accountId}` : 'brevo app remove <account-id>',
   APP_DELETE: 'brevo app delete',
   APP_WITHDRAW: (appId?: string) =>
     appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
@@ -139,6 +153,35 @@ export const DEFAULT_SCOPES: readonly string[] = [
   'crm:read',
   'crm:write',
 ] as const;
+
+// ──────────────── UI app defaults (BEX-290) ────────────────
+// An action link reads record context rather than driving an OAuth flow, so it
+// starts from a narrower scope set than DEFAULT_SCOPES. Taken from the UIApp
+// Support Spec's authoring flow ("scopes default to contacts:read,
+// contacts:write"). Note the spec's own JSON examples show crm:read/crm:write
+// instead — the authoring flow is treated as authoritative since it is what the
+// prompts implement; widen via `auth.scopes` in app-config.json + `app upload`.
+export const DEFAULT_UI_APP_SCOPES: readonly string[] = [
+  'contacts:read',
+  'contacts:write',
+] as const;
+
+// Record attributes forwarded to the partner URL. Only declared properties are
+// sent — no over-fetching, no undeclared field exposure.
+export const DEFAULT_UI_APP_CONTEXT_PROPERTIES: readonly string[] = [
+  'firstname',
+  'lastname',
+  'email',
+  'phone',
+  'ext_id',
+] as const;
+
+export const UI_APP_SURFACES: readonly string[] = ['contact', 'deal', 'company', 'object'] as const;
+export const DEFAULT_UI_APP_SURFACE = 'contact';
+
+// The action-link description doubles as the action-menu tooltip, which is
+// space-constrained — hence the hard cap from the spec.
+export const UI_APP_DESCRIPTION_MAX_LENGTH = 60;
 
 export const BREVO_DASHBOARD_API_KEYS_URL = 'https://app.brevo.com/settings/keys/api';
 export const BREVO_API_KEY_DOCS_URL = 'https://developers.brevo.com/docs/api-key-authentication';

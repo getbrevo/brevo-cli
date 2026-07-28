@@ -1,11 +1,21 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
+import {
+  parseAppId,
+  parsePositiveInt,
+  collectUrls,
+  validateUrl,
+  validateUiAppUrl,
+} from '../lib/validators';
+import { CliError } from '../lib/errors';
+import { UI_APP_SURFACES } from '../lib/constants';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
 import { logoutCommand } from './logout';
 import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
+import { deployCommand } from './app/deploy';
+import { removeCommand } from './app/remove';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
 import { statusCommand } from './app/status';
@@ -63,7 +73,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'create',
-      description: 'Create a new OAuth app',
+      description: 'Create a new app (OAuth integration or UI app)',
       examples: [
         'brevo app create',
         'brevo app create --name "My App" --distribution private',
@@ -71,13 +81,17 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
+        'brevo app create --type ui',
+        'brevo app create --type ui --name "Invoice Manager" --title "Invoice Manager" --description "Review invoice history for this contact" --external-url https://example.com/brevo',
+        'brevo app create --type ui --name "Invoice Manager" --surface deal --title "Invoices" --description "Deal invoices" --external-url https://example.com/brevo --json',
       ],
       options: [
         { flags: '--name <name>', description: 'App name' },
+        { flags: '--type <type>', description: 'App type (oauth|ui) — default: oauth' },
         { flags: '--distribution <type>', description: 'Distribution type (private|public)' },
         {
           flags: '--redirect-uri <url>',
-          description: 'Redirect URI (repeatable)',
+          description: 'Redirect URI (repeatable, OAuth apps only)',
           parser: collectUrls,
         },
         {
@@ -88,14 +102,50 @@ export const appCommandGroup: SubcommandGroupDefinition = {
             return v;
           },
         },
+        // UI-app flags (BEX-290) — give every prompt in the UI-app path a
+        // scriptable equivalent so `--json` / non-TTY runs never block.
+        {
+          flags: '--surface <surface>',
+          description: `UI app: record type it triggers from (${UI_APP_SURFACES.join('|')})`,
+        },
+        { flags: '--title <title>', description: 'UI app: title shown in Brevo' },
+        {
+          flags: '--description <text>',
+          description: 'UI app: short description used as the action-menu tooltip',
+        },
+        {
+          flags: '--external-url <url>',
+          description: 'UI app: destination URL that receives record context',
+          parser: (v: string) => {
+            const check = validateUiAppUrl(v);
+            if (check !== true) throw new CliError(check);
+            return v;
+          },
+        },
+        {
+          flags: '--cta-label <label>',
+          description: 'UI app: action-menu label (defaults to the title)',
+        },
+        {
+          flags: '--context-property <name>',
+          description: 'UI app: record attribute to forward (repeatable)',
+          parser: (v: string, previous?: string[]) => [...(previous ?? []), v],
+        },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
         createCommand({
           name: opts.name as string | undefined,
+          type: opts.type as string | undefined,
           distribution: opts.distribution as string | undefined,
           redirectUri: opts.redirectUri as string[] | undefined,
           logoUri: opts.logoUri as string | undefined,
+          surface: opts.surface as string | undefined,
+          title: opts.title as string | undefined,
+          description: opts.description as string | undefined,
+          externalUrl: opts.externalUrl as string | undefined,
+          ctaLabel: opts.ctaLabel as string | undefined,
+          contextProperties: opts.contextProperty as string[] | undefined,
           json: Boolean(opts.json),
         }),
     },
@@ -159,6 +209,58 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       handler: (opts) =>
         uploadCommand({
           yes: Boolean(opts.yes),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'deploy',
+      description: 'Make an app available in a Brevo account',
+      arguments: [{ name: '<account-id>', description: 'Brevo account (tenant) ID' }],
+      examples: [
+        'brevo app deploy 99999',
+        'brevo app deploy 99999 --app-id 42',
+        'brevo app deploy 99999 --force --json',
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts, accountId) =>
+        deployCommand({
+          accountId: accountId as string | undefined,
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'remove',
+      description: 'Remove an app from a Brevo account',
+      arguments: [{ name: '<account-id>', description: 'Brevo account (tenant) ID' }],
+      examples: [
+        'brevo app remove 99999',
+        'brevo app remove 99999 --app-id 42',
+        'brevo app remove 99999 --force --json',
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts, accountId) =>
+        removeCommand({
+          accountId: accountId as string | undefined,
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
           json: Boolean(opts.json),
         }),
     },

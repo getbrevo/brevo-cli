@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { applyConditionals, applyVars, Distribution } from '../../templates';
+import { applyConditionals, applyVars, Distribution, TemplateFlag } from '../../templates';
 
 const TEMPLATES_DIR = path.resolve(__dirname, '../../templates/files');
 function loadTemplate(relativePath: string): string {
@@ -95,5 +95,87 @@ describe('.env template branching', () => {
     const pub = render('src/oauth/.env.example.tmpl', 'public');
     expect(pub).not.toContain('CLIENT_SECRET');
     expect(pub).toContain('PKCE');
+  });
+});
+
+// ──────────────── App-type flags (BEX-290) ────────────────
+describe('app-type conditionals', () => {
+  it('accepts a flag set alongside the legacy Distribution argument', () => {
+    const tmpl = [
+      '{{#if oauth}}',
+      'oauth-only',
+      '{{/if}}',
+      '{{#if ui_app}}',
+      'ui-only',
+      '{{/if}}',
+    ].join('\n');
+
+    expect(applyConditionals(tmpl, new Set<TemplateFlag>(['private', 'oauth']))).toBe('oauth-only');
+    expect(applyConditionals(tmpl, new Set<TemplateFlag>(['private', 'ui_app']))).toBe('ui-only');
+    // A bare Distribution still works and matches neither app-type branch.
+    expect(applyConditionals(tmpl, 'private')).toBe('');
+  });
+
+  it('combines distribution and app-type flags independently', () => {
+    const tmpl = ['{{#if ui_app}}', 'ui', '{{#if public}}', 'ui-public', '{{/if}}', '{{/if}}'].join(
+      '\n',
+    );
+
+    expect(applyConditionals(tmpl, new Set<TemplateFlag>(['public', 'ui_app']))).toBe(
+      'ui\nui-public',
+    );
+    expect(applyConditionals(tmpl, new Set<TemplateFlag>(['private', 'ui_app']))).toBe('ui');
+  });
+});
+
+describe('app-config.json template branching', () => {
+  const BASE_VARS = {
+    '{{APP_ID}}': '42',
+    '{{APP_NAME}}': 'Invoice Manager',
+    '{{APP_VERSION}}': '1.0.0',
+    '{{LOGO_URI}}': '',
+    '{{CLI_VERSION}}': '2.0.1',
+    '{{DISTRIBUTION}}': 'private',
+    '{{SCOPES_JSON}}': '["contacts:read","contacts:write"]',
+    '{{REDIRECT_URLS_JSON}}': '["http://localhost:3009/auth/callback"]',
+  };
+
+  const renderConfig = (extraVars: Record<string, string>, flags: Set<TemplateFlag>): string =>
+    applyVars(applyConditionals(loadTemplate('app-config.json.tmpl'), flags), {
+      ...BASE_VARS,
+      ...extraVars,
+    });
+
+  it('renders valid JSON with redirectUrls and no ui_app for an OAuth app', () => {
+    const out = renderConfig(
+      { '{{UI_APP_JSON}}': '' },
+      new Set<TemplateFlag>(['private', 'oauth']),
+    );
+    const parsed = JSON.parse(out);
+
+    expect(parsed.auth.redirectUrls).toEqual(['http://localhost:3009/auth/callback']);
+    expect(parsed).not.toHaveProperty('ui_app');
+  });
+
+  it('renders valid JSON with ui_app and no redirectUrls for a UI app', () => {
+    const uiApp = {
+      type: 'link',
+      properties: {
+        surface: 'contact',
+        title: 'Invoice Manager',
+        description: 'Review invoice history',
+        contextProperties: ['firstname', 'email'],
+        trigger: { type: 'link', externalUrl: 'https://example.com/brevo', label: 'Invoices' },
+      },
+    };
+    const out = renderConfig(
+      { '{{UI_APP_JSON}}': JSON.stringify(uiApp, null, 2).split('\n').join('\n  ') },
+      new Set<TemplateFlag>(['private', 'ui_app']),
+    );
+    const parsed = JSON.parse(out);
+
+    expect(parsed.ui_app).toEqual(uiApp);
+    expect(parsed.auth).not.toHaveProperty('redirectUrls');
+    expect(parsed.auth.scopes).toEqual(['contacts:read', 'contacts:write']);
   });
 });

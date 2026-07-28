@@ -20,6 +20,16 @@ Because that surface is shipped and unguarded, `agent-context/SKILL.md` and `age
 - **This is documentation-level only.** The CLI itself still accepts `--distribution public` without a warning or a guard, by design — a runtime guard is tracked separately (see `RELEASE-CHECKLIST.md`). If one is ever added, it needs the same internal-account escape hatch.
 - **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* to remove the notice everywhere in one pass.
 
+## UI apps are not GA either — same deal (BEX-290)
+
+UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The CLI ships the surface — `brevo app create --type ui`, `brevo app deploy <account-id>`, `brevo app remove <account-id>` — and `agent-context/SKILL.md` / `agent-context/AGENTS.md` each carry a **⚠️ UI apps are not available yet** notice reusing the same *Exception — internal Brevo accounts* clause. `README.md` mirrors it.
+
+**Every clause of the public-apps section above applies verbatim**, including that it does **not** restrict work in this repo — building, testing, and QA-ing the UI-app code paths is expected and unblocked. Never refuse or hedge on a UI-app task here.
+
+Two backend contracts are **assumed, not confirmed** (the `ui_app` field names, and the deploy/remove endpoints) — see `CLAUDE.md` → *UI apps are not GA either* and `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+
+- **When UI apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+
 ## Public repository
 
 Repo (`github.com/getbrevo/brevo-cli`) and package (`@getbrevo/cli` on the public npm registry) are **public**. Every commit, PR, and issue is world-readable.

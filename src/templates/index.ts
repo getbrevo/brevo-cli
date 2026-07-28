@@ -25,32 +25,51 @@ export function applyVars(template: string, vars: Record<string, string>): strin
 
 export type Distribution = 'public' | 'private';
 
-const IF_OPEN_RE = /^\s*\{\{#if (public|private)\}\}\s*$/;
+/**
+ * Conditional flags a template can branch on.
+ *
+ * - `public` / `private` — the app's distribution type (PKCE vs confidential
+ *   OAuth flow).
+ * - `oauth` / `ui_app` — the app *type* (BEX-290). Exactly one is always set,
+ *   so a template can carry OAuth-only and UI-app-only sections side by side.
+ */
+export type TemplateFlag = 'public' | 'private' | 'oauth' | 'ui_app';
+
+const IF_OPEN_RE = /^\s*\{\{#if (public|private|oauth|ui_app)\}\}\s*$/;
 const IF_CLOSE_RE = /^\s*\{\{\/if\}\}\s*$/;
 
 /**
- * Strip distribution-conditional blocks from a template.
+ * Strip conditional blocks from a template.
  *
  * Blocks are delimited by whole-line markers:
  *
  *   {{#if public}}
  *   ...lines emitted only for public apps...
  *   {{/if}}
- *   {{#if private}}
- *   ...lines emitted only for private apps...
+ *   {{#if ui_app}}
+ *   ...lines emitted only for UI apps...
  *   {{/if}}
  *
- * A block's body is kept only when its condition matches `distribution`;
- * otherwise the whole block is dropped. Blocks may nest. The marker lines are
- * always removed in full (including their line break), so a template whose only
- * markers wrap the *matching* branch renders byte-for-byte identically to one
- * written without any markers — this is what keeps private-app scaffolds
- * unchanged from before PKCE branching was introduced.
+ * A block's body is kept only when its flag is in `flags`; otherwise the whole
+ * block is dropped. Blocks may nest. The marker lines are always removed in full
+ * (including their line break), so a template whose only markers wrap the
+ * *matching* branch renders byte-for-byte identically to one written without any
+ * markers — this is what keeps private-app scaffolds unchanged from before PKCE
+ * branching was introduced, and what keeps OAuth scaffolds unchanged from before
+ * UI-app branching was introduced.
+ *
+ * Accepts a bare `Distribution` for backwards compatibility with existing
+ * callers and tests that predate the app-type flags.
  *
  * `{{DISTRIBUTION}}` and other `{{VAR}}` placeholders are left untouched here;
  * they are resolved separately by {@link applyVars}.
  */
-export function applyConditionals(template: string, distribution: Distribution): string {
+export function applyConditionals(
+  template: string,
+  flags: Distribution | ReadonlySet<TemplateFlag>,
+): string {
+  const activeFlags: ReadonlySet<TemplateFlag> =
+    typeof flags === 'string' ? new Set<TemplateFlag>([flags]) : flags;
   const lines = template.split('\n');
   const out: string[] = [];
   // Stack of block states; `keep` is false once any enclosing block excludes us.
@@ -60,7 +79,7 @@ export function applyConditionals(template: string, distribution: Distribution):
   for (const line of lines) {
     const open = IF_OPEN_RE.exec(line);
     if (open) {
-      stack.push(active() && open[1] === distribution);
+      stack.push(active() && activeFlags.has(open[1] as TemplateFlag));
       continue;
     }
     if (IF_CLOSE_RE.test(line)) {
@@ -127,18 +146,32 @@ export const FEATURE_TEMPLATE_MANIFESTS: Record<'oauth', TemplateFile[]> = {
 
 export type FeatureType = keyof typeof FEATURE_TEMPLATE_MANIFESTS;
 
+/**
+ * Derive the conditional flag set from the template vars.
+ *
+ * Distribution: public apps get a PKCE (RFC 7636) OAuth flow with no client
+ * secret, private apps keep the confidential-client flow. `{{DISTRIBUTION}}` is
+ * always set by buildTemplateVars; default to the (unchanged) private flow if
+ * it's absent.
+ *
+ * App type: `{{UI_APP_JSON}}` is non-empty only for UI apps, so its presence is
+ * the discriminator — mirroring how `ui_app` in app-config.json discriminates
+ * at runtime (see `isUiAppConfig`).
+ */
+function resolveTemplateFlags(vars: Record<string, string>): Set<TemplateFlag> {
+  const distribution: Distribution = vars['{{DISTRIBUTION}}'] === 'public' ? 'public' : 'private';
+  const isUiApp = !!vars['{{UI_APP_JSON}}'];
+  return new Set<TemplateFlag>([distribution, isUiApp ? 'ui_app' : 'oauth']);
+}
+
 function loadManifest(
   manifest: TemplateFile[],
   vars: Record<string, string>,
 ): Array<{ name: string; content: string }> {
-  // The scaffold branches on the app's distribution type: public apps get a
-  // PKCE (RFC 7636) OAuth flow with no client secret, private apps keep the
-  // confidential-client flow. `{{DISTRIBUTION}}` is always set by
-  // buildTemplateVars; default to the (unchanged) private flow if it's absent.
-  const distribution: Distribution = vars['{{DISTRIBUTION}}'] === 'public' ? 'public' : 'private';
+  const flags = resolveTemplateFlags(vars);
   return manifest.map((entry) => ({
     name: entry.outputPath,
-    content: applyVars(applyConditionals(loadTemplate(entry.templatePath), distribution), vars),
+    content: applyVars(applyConditionals(loadTemplate(entry.templatePath), flags), vars),
   }));
 }
 

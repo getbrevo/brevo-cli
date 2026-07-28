@@ -6,6 +6,11 @@ import {
   validateScopes,
   collectScopes,
   containsLegacyAllScope,
+  parseAccountId,
+  validateUiApp,
+  validateUiAppDescription,
+  validateUiAppTitle,
+  validateUiAppUrl,
 } from '../../lib/validators';
 import { CliError } from '../../lib/errors';
 
@@ -226,5 +231,134 @@ describe('containsLegacyAllScope', () => {
     ["near-misses ('ALL', 'all:read') do not match", ['ALL', 'all:read', 'contacts:all'], false],
   ])('returns %s → %s', (_label, scopes, expected) => {
     expect(containsLegacyAllScope(scopes)).toBe(expected);
+  });
+});
+
+// ──────────────── UI apps (BEX-290) ────────────────
+
+describe('validateUiAppUrl', () => {
+  it.each([
+    ['https URL', 'https://example.com/brevo', true],
+    ['https with path and query', 'https://example.com/a?b=c', true],
+    // Loopback http is allowed so a partner can point at a local dev server.
+    ['http on localhost', 'http://localhost:3000/card', true],
+    ['http on 127.0.0.1', 'http://127.0.0.1:3000/card', true],
+  ])('accepts a %s', (_label, url) => {
+    expect(validateUiAppUrl(url)).toBe(true);
+  });
+
+  it.each([
+    ['plain http on a public host', 'http://example.com/brevo'],
+    ['a non-HTTP scheme', 'ftp://example.com'],
+    ['javascript:', 'javascript:alert(1)'],
+    ['a non-URL', 'not a url'],
+    ['an empty value', ''],
+  ])('rejects %s', (_label, url) => {
+    expect(validateUiAppUrl(url)).not.toBe(true);
+  });
+});
+
+describe('validateUiAppDescription', () => {
+  it('accepts a description at exactly the 60-char cap', () => {
+    expect(validateUiAppDescription('x'.repeat(60))).toBe(true);
+  });
+
+  it('rejects one character over the cap', () => {
+    expect(validateUiAppDescription('x'.repeat(61))).toMatch(/at most 60 characters/);
+  });
+
+  it('rejects an empty or whitespace-only description', () => {
+    expect(validateUiAppDescription('')).not.toBe(true);
+    expect(validateUiAppDescription('   ')).not.toBe(true);
+  });
+});
+
+describe('validateUiAppTitle', () => {
+  it('accepts a non-empty title and rejects whitespace-only', () => {
+    expect(validateUiAppTitle('Invoice Manager')).toBe(true);
+    expect(validateUiAppTitle('  ')).not.toBe(true);
+  });
+});
+
+describe('parseAccountId', () => {
+  it('accepts and trims a numeric account ID', () => {
+    expect(parseAccountId(' 99999 ')).toBe('99999');
+  });
+
+  it.each([
+    ['empty', ''],
+    ['non-numeric', 'abc'],
+    ['mixed', '99a'],
+    ['negative', '-1'],
+  ])('rejects a %s account ID', (_label, value) => {
+    expect(() => parseAccountId(value)).toThrow(CliError);
+  });
+});
+
+describe('validateUiApp', () => {
+  const VALID = {
+    type: 'link',
+    properties: {
+      surface: 'contact',
+      title: 'Invoice Manager',
+      description: 'Review invoice history for this contact',
+      contextProperties: ['firstname', 'email'],
+      trigger: {
+        type: 'link',
+        externalUrl: 'https://example.com/brevo',
+        label: 'Invoice Manager',
+      },
+    },
+  };
+
+  it('accepts a well-formed action link', () => {
+    expect(() => validateUiApp(VALID)).not.toThrow();
+  });
+
+  it.each([
+    ['not an object', 'nope'],
+    ['null', null],
+    ['a missing properties block', { type: 'link' }],
+    [
+      'a missing trigger',
+      { type: 'link', properties: { ...VALID.properties, trigger: undefined } },
+    ],
+    ['an unknown surface', { ...VALID, properties: { ...VALID.properties, surface: 'invoice' } }],
+    ['an empty title', { ...VALID, properties: { ...VALID.properties, title: '  ' } }],
+    [
+      'empty contextProperties',
+      { ...VALID, properties: { ...VALID.properties, contextProperties: [] } },
+    ],
+    [
+      'non-string contextProperties',
+      { ...VALID, properties: { ...VALID.properties, contextProperties: [1] } },
+    ],
+    [
+      'an empty trigger label',
+      {
+        ...VALID,
+        properties: { ...VALID.properties, trigger: { ...VALID.properties.trigger, label: '' } },
+      },
+    ],
+  ])('rejects %s', (_label, block) => {
+    expect(() => validateUiApp(block)).toThrow(CliError);
+  });
+
+  // Types beyond the action link are typed for round-tripping and future scope,
+  // but must not be pushable while the platform can't render them.
+  it.each([['card'], ['widget'], ['function']])('rejects the not-yet-supported %s type', (type) => {
+    expect(() => validateUiApp({ ...VALID, type })).toThrow(/not available yet/i);
+  });
+
+  it('rejects the modal trigger as not yet supported', () => {
+    expect(() =>
+      validateUiApp({
+        ...VALID,
+        properties: {
+          ...VALID.properties,
+          trigger: { ...VALID.properties.trigger, type: 'modal' },
+        },
+      }),
+    ).toThrow(/not supported yet/i);
   });
 });

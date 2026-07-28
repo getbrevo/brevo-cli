@@ -23,6 +23,19 @@ Because that surface is shipped and unguarded, `agent-context/SKILL.md` and `age
 - **This is documentation-level only.** The CLI itself still accepts `--distribution public` without a warning or a guard, by design — a runtime guard is tracked separately (see `RELEASE-CHECKLIST.md`). If one is ever added, it needs the same internal-account escape hatch.
 - **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* to remove the notice everywhere in one pass.
 
+## UI apps are not GA either — same deal (BEX-290)
+
+UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The CLI ships the surface — `brevo app create --type ui`, `brevo app deploy <account-id>`, `brevo app remove <account-id>` — and, exactly as with public apps, `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a **⚠️ UI apps are not available yet** notice reusing the same *Exception — internal Brevo accounts* clause. `README.md` mirrors it.
+
+**Every clause of the public-apps section above applies verbatim** — it does not restrict work in this repo, don't remove or soften the notice during unrelated cleanup, keep the internal-account escape hatch, and it's documentation-level only (no runtime guard, by design).
+
+**Two contracts here are assumed, not confirmed.** Both are marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*:
+
+- **Field names.** `app-config.json`'s `ui_app` block uses the UIApp Support Spec's names (`type: "link"`, `properties.surface`, `trigger.externalUrl`, `contextProperties`). The Extension Points ADR names the same concepts differently (`action_link`, `location`/`section`, `redirectLink`) and the app-store backend validates against its own registry. `src/types.ts` (`UiApp`) is the single definition point — remap there if the backend disagrees.
+- **Endpoints.** `deploy`/`remove` assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the body, and HTTP 422 for "not uploaded" / "not deployed". `ENDPOINTS` in `src/lib/constants.ts` plus `appService.deployApp`/`removeApp` are the only places to change.
+
+**The presence of `ui_app` is the app-type discriminator** — there is no `appType` key in `app-config.json`. Every branch that needs to tell the two types apart goes through `isUiAppConfig()` in `src/lib/config.ts`; use it rather than testing for the key inline, so the discriminator can change in one place.
+
 ## Public repository — review before committing
 
 This repo is **public** at `github.com/getbrevo/brevo-cli` and the package publishes to the **public npm registry** under `@getbrevo`. Every commit, PR title, PR description, issue, and review comment is world-readable and indexed by search engines. Treat each commit and PR as a public release.

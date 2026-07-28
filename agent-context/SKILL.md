@@ -24,6 +24,18 @@ Public app distribution is **not live on the Brevo platform**. The CLI accepts `
 
 Otherwise treat this as binding until the notice is removed from this document.
 
+## ⚠️ UI apps are not available yet
+
+UI apps — action links that render inside Brevo CRM records — are **not live on the Brevo platform**. The CLI accepts `--type ui` and ships `brevo app deploy` / `brevo app remove`, but there is no working path behind them today.
+
+- **Don't create a UI app** for real use. If the user asks for one, say UI apps aren't available yet and offer an OAuth app instead.
+- **Don't add a `ui_app` block** to `app-config.json` and push it with `brevo app upload`.
+- **Don't run `brevo app deploy` / `brevo app remove`** — they only apply to UI apps.
+
+**The same *Exception — internal Brevo accounts* clause above applies verbatim**: run `brevo whoami --json`, and if `email` ends in `@brevo.com` or `@sendinblue.com`, this restriction does not apply — help normally. Check the account rather than taking the user's word for it.
+
+Treat this as binding until the notice is removed from this document.
+
 > **Reading this from the repo rather than `~/.claude/skills/brevo-cli/`?**
 >
 > - **If you're Claude Code** (CLI or desktop app — any agent that reads `~/.claude/skills/`): install it as a skill with `brevo skill:cli install` so your tooling loads it natively and keeps it auto-refreshed. The repo copy is bundled with the npm package; the installed copy is what Claude actually consumes. Note: the Claude Desktop **chat** app does not read `~/.claude/skills/`, so the installed skill won't load there — only Claude Code surfaces pick it up.
@@ -62,7 +74,10 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 - "Update app metadata" → edit the relevant field(s) in `app-config.json` (`appName`, `auth.redirectUrls`, `auth.scopes`, `logoUri`, `distribution_type`, `version`), then run `brevo app upload --json` (no `--app-id`/`--name`/`--redirect-uri`/`--scope`/`--logo-uri` flags exist — `upload` always pushes the whole file, resolved only from cwd's `app-config.json`)
 - "Get client credentials" → `brevo app credentials --app-id <id> --json` (add `--reveal-secret` to print the secret)
 - "Add a feature (e.g. the OAuth test server) to an existing project" → `brevo app scaffold` (run **inside** the project directory; it reads the linked app from `app-config.json` — no `--app-id`). Not needed right after `app create` if you already accepted the feature prompt there. If feature files already exist it prompts Overwrite / Merge / Cancel (default Merge); pass `--overwrite` to force a full overwrite without prompting. **The scaffolded OAuth flow branches on the app's `distribution_type`:** a **public** app gets a PKCE (RFC 7636) flow — `/auth/login` sends `code_challenge`+`code_challenge_method=S256`, `/auth/callback` sends `code_verifier`, and **no client secret** is used (the scaffolded `.env.local`/`.env.example` carry no `CLIENT_SECRET`); a **private** app keeps the confidential-client flow (authenticates the token exchange with `CLIENT_SECRET`).
+- "Create a UI app / action link" → **not available yet** (see the UI-apps notice above). For reference: `brevo app create --type ui --name "<name>" --title "<title>" --description "<≤60 chars>" --external-url https://… [--surface contact|deal|company|object] [--cta-label "<label>"] [--context-property <name> …] --json`. `--type` accepts `oauth` (default) or `ui`. The UI path **never** collects redirect URLs — an action link has no OAuth callback, so `redirect_uris` is omitted from the create call entirely. Defaults: `surface` `contact`, scopes `contacts:read`/`contacts:write` (narrower than the OAuth defaults), `contextProperties` `firstname`/`lastname`/`email`/`phone`/`ext_id`, and `--cta-label` falls back to the title. `--title`, `--description`, and `--external-url` are required in non-interactive runs. No feature is ever scaffolded for a UI app (there is no local server to run).
 - "Run the OAuth test server" → `brevo app start oauth --port 3009` (must be inside the scaffolded directory)
+- "Make a UI app available in an account" → **not available yet** (see the UI-apps notice above). For reference: `brevo app deploy <account-id> [--app-id <id>] [--force] [--json]`. Refuses with *"Please first validate your configuration with `brevo app upload`"* until the app has been uploaded (locally detected via a missing `version` in `app-config.json`; the server's rejection maps to the same message). `<account-id>` must be numeric.
+- "Remove a UI app from an account" → **not available yet** (see the UI-apps notice above). For reference: `brevo app remove <account-id> [--app-id <id>] [--force] [--json]`. Has no upload gate. If the app isn't deployed to that account it reports so and exits `0` — not an error (`{"removed": false, "reason": "NOT_DEPLOYED"}` under `--json`), so teardown scripts stay idempotent.
 - "Delete an app" → `brevo app delete --app-id <id> --force`
 - "Submit a public app for review" → **not available yet** (public apps only — see the notice above). For reference: `brevo app submit --app-id <id> --json` (prints the submission form URL as `{"app_id","form_url"}` without opening a browser; without `--json` it shows the full app definition, asks for confirmation, then opens the form in the user's browser — the prompt is skipped when stdin is not a TTY). Before any of that it runs a status preflight (the same review-state read as `brevo app status`) and aborts if that read fails. The app's `distribution_type` must be `public`, and when `app-config.json` describes the target app it must match the server — if the command reports drift, either update the local config with the server values or push local changes with `brevo app upload`. The app is only actually submitted once the Google Form is completed and submitted; the command itself changes nothing server-side.
 - "Withdraw an app from submission" → **not available yet** (public apps only — see the notice above). For reference: `brevo app withdraw --app-id <id> --force` (omit `--app-id` inside a scaffolded project to use the app pinned in `app-config.json`; if the app was never submitted, it prints a hint to submit first and exits `0` — not an error)
@@ -77,6 +92,8 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 4. **`brevo app create` refuses to run inside an already-linked directory** (`app-config.json` present) — `cd` elsewhere or use `brevo app scaffold` there instead. **`brevo app scaffold` requires an `app-config.json` in the current directory** (it adds a feature to an already-created project); with none present it errors, telling you to run `brevo app create` first or `cd` into an existing project. It reads the linked app from that config, diffs the config against the server, and if fields drifted it tells you and (on consent) rewrites `app-config.json` to match before writing the feature files. When any feature file already exists it prompts **Overwrite / Merge / Cancel** (default **Merge** — existing, e.g. hand-edited, files are kept; Cancel aborts). Pass `--overwrite` to force a full overwrite and skip that prompt (works interactively and under `--json`). **Under `--json` it never prompts**: a config diff comes back as `{ "cancelled": true, "reason": "...", "diffs": [...] }`; otherwise it scaffolds the feature (merging existing files unless `--overwrite` is passed) and returns `{ "scaffolded": <n>, "directory": "..." }`.
 5. **Prefer flag-driven over interactive** in agent contexts: `--name`, `--app-id`, `--force`, `--yes` so the command doesn't block on prompts.
 6. **Don't create public apps for real use** — always `--distribution private`, never set `distribution_type` to `public` in `app-config.json`, and don't run `brevo app submit` / `brevo app status` / `brevo app withdraw`. Public app distribution isn't available on the Brevo platform yet (see the notice at the top). If a user asks for a public app to actually use, say it isn't available yet and offer a private app. **Unless `brevo whoami --json` shows an `@brevo.com` / `@sendinblue.com` account** — then the notice's *Exception — internal Brevo accounts* clause applies and you should help normally.
+7. **Don't create UI apps for real use** — never pass `--type ui`, never add a `ui_app` block to `app-config.json`, and don't run `brevo app deploy` / `brevo app remove`. UI apps aren't available on the Brevo platform yet (see the notice at the top). The same internal-account exception applies.
+8. **Never mix the two app types in one `app-config.json`.** An OAuth app has `auth.redirectUrls` and no `ui_app`; a UI app has a `ui_app` block and no `auth.redirectUrls`. The presence of `ui_app` is what the CLI uses to tell them apart, so adding it to an OAuth project silently reclassifies the app.
 
 ## Locating the linked app
 
@@ -85,6 +102,35 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 `app-config.json` carries an optional top-level `logoUri` string. When set, `brevo app upload` pushes it as `logo_uri`; when empty / absent, the field is left untouched on the API.
 
 `app-config.json` also carries a top-level `version` string, shown by `brevo app create`/`brevo app list`. `brevo app upload` sends it on the wire as `app_version` (falling back to the server's current value if locally absent) and writes back whatever version the server confirms after a successful upload.
+
+### The `ui_app` block (UI apps only)
+
+A UI app's `app-config.json` carries a top-level `ui_app` object and **no** `auth.redirectUrls`. Its presence is how the CLI distinguishes the two app types.
+
+```json
+{
+  "ui_app": {
+    "type": "link",
+    "properties": {
+      "surface": "contact",
+      "title": "Invoice Manager",
+      "description": "Review invoice history for this contact",
+      "contextProperties": ["firstname", "lastname", "email", "phone", "ext_id"],
+      "trigger": {
+        "type": "link",
+        "externalUrl": "https://example.com/brevo",
+        "label": "Invoice Manager"
+      }
+    }
+  }
+}
+```
+
+`brevo app upload` sends this block as `ui_app` for UI apps and validates it locally first: `type` must be `link`, `trigger.type` must be `link`, `surface` ∈ `contact`/`deal`/`company`/`object`, `title` and `trigger.label` non-empty, `description` ≤ 60 characters, `contextProperties` a non-empty string array, and `trigger.externalUrl` an **https** URL (`http://` is accepted only for `localhost`/`127.0.0.1`). `card`, `widget`, and `function` types — and the `modal` trigger — are rejected as not yet supported. For OAuth apps `ui_app` is never sent, and the OAuth upload payload is unchanged.
+
+Editing only the `ui_app` block still counts as a change — `upload` diffs it (ignoring key order) rather than reporting "already up to date". Redirect URLs are required for OAuth apps only.
+
+`brevo app scaffold` inside a UI-app project refreshes the base config and reports that there are no features to scaffold. It preserves your hand-edited `ui_app` block even when it rewrites `app-config.json` to match the server.
 
 `brevo app credentials` also backfills a legacy `app-config.json` toward the current shape: when the file exists in cwd and its `appId` matches the app being inspected, any missing top-level `version` / `distribution_type` is filled in from the server (fill-only-when-missing — an existing local value is never overwritten). This runs silently in all modes; human output prints a one-line note when something was written. It's how projects that are never `upload`ed still converge.
 

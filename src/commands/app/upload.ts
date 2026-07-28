@@ -12,10 +12,11 @@ import {
   readProjectConfig,
   writeProjectConfig,
   saveAppName,
+  isUiAppConfig,
   ProjectConfig,
 } from '../../lib/config';
-import { validateScopes, containsLegacyAllScope } from '../../lib/validators';
-import { OAuthApp, UploadAppResponse } from '../../types';
+import { validateScopes, containsLegacyAllScope, validateUiApp } from '../../lib/validators';
+import { OAuthApp, UiApp, UploadAppResponse } from '../../types';
 
 interface UploadOptions {
   yes?: boolean;
@@ -114,6 +115,12 @@ interface UploadDiff {
   currentVersion?: string;
   nextVersion: string;
   migratingLegacyScopes: boolean;
+  // UI apps only (BEX-290). `currentUiApp` stays undefined on server builds that
+  // accept `ui_app` on write but don't echo it back on reads — in that case the
+  // block always reads as new, which is safe: re-sending an identical block is
+  // idempotent, whereas skipping it could strand a local edit.
+  currentUiApp?: UiApp;
+  nextUiApp?: UiApp;
 }
 
 function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): UploadDiff {
@@ -133,7 +140,28 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
     currentVersion: remote.version,
     nextVersion: config.version || remote.version || '',
     migratingLegacyScopes: containsLegacyAllScope(remote.scopes ?? []),
+    currentUiApp: remote.ui_app,
+    nextUiApp: config.ui_app,
   };
+}
+
+// Stable serialization for equality checks: key order in app-config.json depends
+// on how the file was edited, so a raw JSON.stringify comparison would report
+// drift for a semantically identical block.
+function canonicalizeUiApp(uiApp: UiApp | undefined): string {
+  if (!uiApp) return '';
+  const sortDeep = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(sortDeep);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([k, v]) => [k, sortDeep(v)]),
+      );
+    }
+    return value;
+  };
+  return JSON.stringify(sortDeep(uiApp));
 }
 
 function renderUploadDiff(diff: UploadDiff): void {
@@ -148,7 +176,11 @@ function renderUploadDiff(diff: UploadDiff): void {
   } else {
     logInfo(`  Distribution:  ${diff.nextDistribution}`);
   }
-  logAligned('  Redirect URLs: ', diffLines(diff.currentUrls, diff.nextUrls));
+  // Only OAuth apps have callbacks — printing an empty "Redirect URLs:" row for a
+  // UI app would imply something is missing.
+  if (!diff.nextUiApp) {
+    logAligned('  Redirect URLs: ', diffLines(diff.currentUrls, diff.nextUrls));
+  }
   if (diff.migratingLegacyScopes) {
     logInfo(`  ${messages.LEGACY_ALL_SCOPE_UPDATE_MIGRATING}`);
   }
@@ -163,7 +195,26 @@ function renderUploadDiff(diff: UploadDiff): void {
   } else if (diff.nextVersion) {
     logInfo(`  Version:       ${diff.nextVersion}`);
   }
+  if (diff.nextUiApp) {
+    renderUiAppDiff(diff.nextUiApp, diff.currentUiApp);
+  }
   logInfo('');
+}
+
+// Field-by-field so the partner can see exactly what the platform will store —
+// this block drives what renders inside Brevo, so a bare "changed" would be
+// useless. Values that differ from the server are tagged.
+function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
+  const changed = canonicalizeUiApp(next) !== canonicalizeUiApp(current);
+  logInfo(`  ${messages.APP_UPLOAD_UI_APP_SUMMARY}${changed ? ' (changed)' : ''}`);
+  const p = next.properties;
+  logInfo(`    Type:         ${next.type} (${p.trigger.type})`);
+  logInfo(`    Record type:  ${p.surface}`);
+  logInfo(`    Title:        ${p.title}`);
+  logInfo(`    Description:  ${p.description}`);
+  logInfo(`    Action label: ${p.trigger.label}`);
+  logInfo(`    External URL: ${p.trigger.externalUrl}`);
+  logInfo(`    Context:      ${p.contextProperties.join(', ')}`);
 }
 
 function diffToJson(diff: UploadDiff) {
@@ -175,6 +226,7 @@ function diffToJson(diff: UploadDiff) {
       logo_uri: diff.currentLogoUri,
       distribution_type: diff.currentDistribution,
       version: diff.currentVersion,
+      ...(diff.currentUiApp ? { ui_app: diff.currentUiApp } : {}),
     },
     next: {
       name: diff.nextName,
@@ -183,6 +235,7 @@ function diffToJson(diff: UploadDiff) {
       logo_uri: diff.nextLogoUri,
       distribution_type: diff.nextDistribution,
       version: diff.nextVersion,
+      ...(diff.nextUiApp ? { ui_app: diff.nextUiApp } : {}),
     },
   };
 }
@@ -195,18 +248,31 @@ function hasNoChanges(diff: UploadDiff): boolean {
     JSON.stringify([...diff.currentScopes].sort()) ===
       JSON.stringify([...diff.nextScopes].sort()) &&
     (diff.currentLogoUri || '') === (diff.nextLogoUri || '') &&
-    (diff.currentVersion || '') === (diff.nextVersion || '')
+    (diff.currentVersion || '') === (diff.nextVersion || '') &&
+    // Without this, editing only the `ui_app` block reports "Already up to date"
+    // and the change is never pushed.
+    canonicalizeUiApp(diff.currentUiApp) === canonicalizeUiApp(diff.nextUiApp)
   );
 }
 
 export const uploadCommand = withCommandHandler(async (options: UploadOptions): Promise<void> => {
   const config = loadUsableConfig();
+  const isUiApp = isUiAppConfig(config);
 
+  // A UI app has no OAuth callback, so the redirect requirement is OAuth-only.
+  // Any URLs a UI-app config happens to carry are still format-checked rather
+  // than silently forwarded.
   const redirectUrls = config.auth?.redirectUrls ?? [];
-  if (redirectUrls.length === 0) {
-    throw new CliError(messages.APP_UPLOAD_NO_REDIRECT_URLS);
+  if (!isUiApp && redirectUrls.length === 0) {
+    throw new CliError(messages.APP_UPLOAD_NO_REDIRECT_URLS_OAUTH);
   }
   validateRedirectUrls(redirectUrls);
+
+  // Local pre-flight so a malformed block fails with a precise message before a
+  // round-trip. The app-store backend remains the validation authority.
+  if (isUiApp) {
+    validateUiApp(config.ui_app);
+  }
 
   const scopes = config.auth?.scopes ?? [];
   validateScopes(scopes);
@@ -267,6 +333,9 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
         scopes,
         redirect_urls: redirectUrls,
       },
+      // Spread rather than a fixed key so OAuth uploads keep their exact
+      // historical payload shape — `ui_app` is absent, not `undefined`.
+      ...(isUiApp && config.ui_app ? { ui_app: config.ui_app } : {}),
     });
   } finally {
     spinner.stop();
@@ -289,8 +358,16 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     version: confirmedVersion,
     auth: {
       scopes: response.auth.scopes ?? scopes,
-      redirectUrls: response.auth.redirect_urls ?? redirectUrls,
+      // Preserved as-is for UI apps: `redirectUrls` is absent from their config
+      // by design, and writing back an empty array would add a key the app type
+      // doesn't use.
+      ...(isUiApp && !config.auth?.redirectUrls
+        ? {}
+        : { redirectUrls: response.auth.redirect_urls ?? redirectUrls }),
     },
+    // Prefer the server's normalized block when it echoes one back, otherwise
+    // keep what we just sent.
+    ...(isUiApp ? { ui_app: response.ui_app ?? config.ui_app } : {}),
   });
 
   if (options.json) {

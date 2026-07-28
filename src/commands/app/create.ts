@@ -1,14 +1,31 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import inquirer from 'inquirer';
-import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
+import {
+  CLI,
+  DEFAULT_PORT,
+  DEFAULT_REDIRECT_URI,
+  DEFAULT_SCOPES,
+  DEFAULT_UI_APP_CONTEXT_PROPERTIES,
+  DEFAULT_UI_APP_SCOPES,
+  DEFAULT_UI_APP_SURFACE,
+  UI_APP_DESCRIPTION_MAX_LENGTH,
+  UI_APP_SURFACES,
+} from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
 import { logInfo, logError } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { ApiError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { validateEnum, validateAppName } from '../../lib/validators';
+import {
+  validateEnum,
+  validateAppName,
+  validateUiApp,
+  validateUiAppDescription,
+  validateUiAppTitle,
+  validateUiAppUrl,
+} from '../../lib/validators';
 import { printBox, createSpinner } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
 import {
@@ -24,7 +41,7 @@ import {
 } from './scaffold';
 import { appService } from '../../container';
 import { FeatureType } from '../../templates';
-import { CreateAppResponse } from '../../types';
+import { CreateAppResponse, UiApp } from '../../types';
 
 function validateHttpUrl(trimmed: string, invalidMessage: string): true | string {
   try {
@@ -79,7 +96,37 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
   return answer.name;
 }
 
-// 2. Distribution type
+// 2. App type — OAuth integration vs UI app (BEX-290).
+//    Asked before distribution because it decides which of the two remaining
+//    prompt paths runs (OAuth callback URLs vs UI-app placement).
+export type AppType = 'oauth' | 'ui';
+
+async function resolveAppType(typeFlag: string | undefined): Promise<AppType> {
+  const VALID_APP_TYPES = ['oauth', 'ui'] as const;
+  validateEnum(typeFlag, VALID_APP_TYPES, '--type');
+  if (typeFlag) {
+    return typeFlag as AppType;
+  }
+  // Non-TTY with no flag keeps the historical behaviour: an OAuth app. UI apps
+  // are strictly opt-in so existing scripted `app create` calls are unaffected.
+  if (!process.stdin.isTTY) {
+    return 'oauth';
+  }
+  const answer = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'appType',
+      message: messages.APP_CREATE_APP_TYPE_PROMPT,
+      choices: [
+        { name: messages.APP_CREATE_APP_TYPE_OAUTH, value: 'oauth' },
+        { name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' },
+      ],
+    },
+  ]);
+  return answer.appType as AppType;
+}
+
+// 3. Distribution type
 async function resolveDistribution(distributionFlag: string | undefined): Promise<string> {
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
@@ -221,6 +268,168 @@ async function resolveLogoUri(
   return trimmed || undefined;
 }
 
+// 4b. UI-app configuration (BEX-290) — replaces the redirect-URL step for UI
+//     apps. Only the "External link" trigger is buildable today; the other three
+//     appear as disabled choices so the roadmap is visible where the decision is
+//     made, mirroring the spec's own greyed-out options.
+interface UiAppFlags {
+  surface?: string;
+  title?: string;
+  description?: string;
+  externalUrl?: string;
+  ctaLabel?: string;
+  contextProperties?: string[];
+}
+
+async function promptUiTriggerType(): Promise<void> {
+  const { trigger } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'trigger',
+      message: messages.APP_CREATE_UI_TRIGGER_PROMPT,
+      choices: [
+        { name: messages.APP_CREATE_UI_TRIGGER_LINK, value: 'link' },
+        new inquirer.Separator(),
+        {
+          name: messages.APP_CREATE_UI_TRIGGER_MODAL,
+          value: 'modal',
+          disabled: 'not yet supported',
+        },
+        {
+          name: messages.APP_CREATE_UI_TRIGGER_WIDGET,
+          value: 'widget',
+          disabled: 'not yet supported',
+        },
+        {
+          name: messages.APP_CREATE_UI_TRIGGER_FUNCTION,
+          value: 'function',
+          disabled: 'not yet supported',
+        },
+      ],
+    },
+  ]);
+  // Defensive: inquirer won't return a disabled choice, but a future edit that
+  // enables one before the rest of the pipeline supports it should fail loudly
+  // rather than push an unrenderable config.
+  if (trigger !== 'link') {
+    throw new CliError(messages.APP_CREATE_UI_TRIGGER_UNSUPPORTED(String(trigger)));
+  }
+}
+
+async function resolveUiApp(flags: UiAppFlags, interactive: boolean): Promise<UiApp> {
+  // Three flags fully specify an action link; everything else has a spec-defined
+  // default. When they're all present we take the flag path even on a TTY, so
+  // `brevo app create --type ui --title ... --description ... --external-url ...`
+  // behaves identically whether or not a terminal is attached.
+  const fullySpecifiedByFlags = !!(flags.title && flags.description && flags.externalUrl);
+  const shouldPrompt = interactive && !fullySpecifiedByFlags;
+  if (!shouldPrompt && !fullySpecifiedByFlags) {
+    throw new CliError(messages.APP_CREATE_UI_NON_INTERACTIVE);
+  }
+
+  if (shouldPrompt) {
+    await promptUiTriggerType();
+  }
+
+  // Ask a single question when prompting is appropriate, otherwise take the
+  // spec-defined default. Keeps the flag path and the prompt path from drifting.
+  const ask = async (question: { name: string } & Record<string, unknown>, fallback: string) => {
+    if (!shouldPrompt) return fallback;
+    const answers = (await inquirer.prompt([question])) as Record<string, unknown>;
+    const answer = answers[question.name];
+    return answer == null ? fallback : String(answer);
+  };
+
+  const surface =
+    flags.surface ??
+    (await ask(
+      {
+        type: 'list',
+        name: 'surface',
+        message: messages.APP_CREATE_UI_SURFACE_PROMPT,
+        default: DEFAULT_UI_APP_SURFACE,
+        choices: [...UI_APP_SURFACES],
+      },
+      DEFAULT_UI_APP_SURFACE,
+    ));
+
+  const title =
+    flags.title ??
+    (await ask(
+      {
+        type: 'input',
+        name: 'title',
+        message: messages.APP_CREATE_UI_TITLE_PROMPT,
+        validate: validateUiAppTitle,
+      },
+      '',
+    ));
+
+  const description =
+    flags.description ??
+    (await ask(
+      {
+        type: 'input',
+        name: 'description',
+        message: messages.APP_CREATE_UI_DESCRIPTION_PROMPT(UI_APP_DESCRIPTION_MAX_LENGTH),
+        validate: validateUiAppDescription,
+      },
+      '',
+    ));
+
+  const externalUrl =
+    flags.externalUrl ??
+    (await ask(
+      {
+        type: 'input',
+        name: 'externalUrl',
+        message: messages.APP_CREATE_UI_EXTERNAL_URL_PROMPT,
+        validate: validateUiAppUrl,
+      },
+      '',
+    ));
+
+  // The action-menu label defaults to the title — the spec's external-link flow
+  // doesn't ask for it separately (only the modal-card flow has a distinct CTA),
+  // but the stored config carries it, so keep it overridable.
+  const label =
+    flags.ctaLabel ??
+    (await ask(
+      {
+        type: 'input',
+        name: 'label',
+        message: messages.APP_CREATE_UI_CTA_LABEL_PROMPT,
+        default: String(title).trim(),
+        validate: validateUiAppTitle,
+      },
+      String(title).trim(),
+    ));
+
+  const uiApp: UiApp = {
+    type: 'link',
+    properties: {
+      surface: String(surface).trim() as UiApp['properties']['surface'],
+      title: String(title).trim(),
+      description: String(description).trim(),
+      contextProperties:
+        flags.contextProperties && flags.contextProperties.length > 0
+          ? flags.contextProperties
+          : [...DEFAULT_UI_APP_CONTEXT_PROPERTIES],
+      trigger: {
+        type: 'link',
+        externalUrl: String(externalUrl).trim(),
+        label: String(label).trim(),
+      },
+    },
+  };
+
+  // Re-run the full server-facing validation on the assembled block: the
+  // per-prompt validators cover interactive input, but flag-supplied values
+  // reach here unchecked.
+  validateUiApp(uiApp);
+  return uiApp;
+}
+
 type CreateDirectoryResult =
   | { targetDir: string; mergeOnly: boolean; skipped: false }
   | { targetDir: string; skipped: true };
@@ -261,6 +470,8 @@ interface CreateAppInputs {
   distribution: string;
   redirectUrls: string[];
   logoUri?: string;
+  /** Present for UI apps only; drives scope defaults and omits redirect URIs. */
+  uiApp?: UiApp;
 }
 
 interface CreatedApp {
@@ -269,11 +480,18 @@ interface CreatedApp {
 }
 
 function buildCreatePayload(inputs: CreateAppInputs) {
+  // The `ui_app` block is deliberately NOT sent here. `POST /apps` registers the
+  // app record and issues credentials; the extension configuration is validated
+  // and stored by `app upload`, which is the platform's single validation
+  // authority for it. Create only writes it to app-config.json.
+  const isUiApp = !!inputs.uiApp;
   return {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
-    redirect_uris: inputs.redirectUrls,
-    scopes: [...DEFAULT_SCOPES],
+    // A UI app has no OAuth callback — sending an empty array (or worse, the
+    // default localhost URI) would register a redirect URL it never uses.
+    ...(isUiApp ? {} : { redirect_uris: inputs.redirectUrls }),
+    scopes: isUiApp ? [...DEFAULT_UI_APP_SCOPES] : [...DEFAULT_SCOPES],
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
 }
@@ -330,7 +548,7 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
     `App ID:         ${result.app_id}`,
     `Client ID:      ${result.client_id}`,
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
-    ...result.redirect_uris.map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
+    ...(result.redirect_uris ?? []).map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
     ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
     `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_SCOPES].join(', ')}`,
@@ -340,12 +558,49 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
   printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 }
 
+// UI apps get their own summary box: there is no OAuth callback to list, and the
+// placement/trigger fields are what the partner actually needs to verify.
+function renderCreatedUiApp(
+  result: CreateAppResponse,
+  appName: string,
+  uiApp: UiApp,
+  logoUri?: string,
+): void {
+  const { properties } = uiApp;
+  const boxLines = [
+    `App name:       ${appName}`,
+    `App ID:         ${result.app_id}`,
+    `Client ID:      ${result.client_id}`,
+    `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
+    `Type:           ${uiApp.type} (${properties.trigger.type})`,
+    `Record type:    ${properties.surface}`,
+    `Title:          ${properties.title}`,
+    `Description:    ${properties.description}`,
+    `Action label:   ${properties.trigger.label}`,
+    `External URL:   ${properties.trigger.externalUrl}`,
+    ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
+    ...(result.version ? [`App version:    ${result.version}`] : []),
+    `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_UI_APP_SCOPES].join(', ')}`,
+    `${messages.APP_CREATE_UI_BOX_CONTEXT_LABEL} ${properties.contextProperties.join(', ')}`,
+    '',
+    messages.APP_CREATE_UI_BOX_HINT,
+  ];
+  printBox(messages.APP_CREATE_UI_BOX_TITLE, boxLines);
+}
+
 export const createCommand = withCommandHandler(
   async (options: {
     name?: string;
+    type?: string;
     distribution?: string;
     redirectUri?: string[];
     logoUri?: string;
+    surface?: string;
+    title?: string;
+    description?: string;
+    externalUrl?: string;
+    ctaLabel?: string;
+    contextProperties?: string[];
     json?: boolean;
   }): Promise<void> => {
     const jsonMode = !!options.json;
@@ -354,14 +609,36 @@ export const createCommand = withCommandHandler(
     guardAgainstLinkedApp();
 
     const appName = await resolveAppName(options.name);
+    const appType = await resolveAppType(options.type);
     const distribution = await resolveDistribution(options.distribution);
-    const redirectUrls = await resolveRedirectUrls(options.redirectUri, jsonMode);
-    const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
 
     const interactive = !jsonMode && !!process.stdin.isTTY;
+
+    // The two app types diverge here: OAuth apps collect callback URLs, UI apps
+    // collect placement + destination. Neither path runs the other's prompts.
+    let redirectUrls: string[] = [];
+    let uiApp: UiApp | undefined;
+    if (appType === 'ui') {
+      uiApp = await resolveUiApp(
+        {
+          surface: options.surface,
+          title: options.title,
+          description: options.description,
+          externalUrl: options.externalUrl,
+          ctaLabel: options.ctaLabel,
+          contextProperties: options.contextProperties,
+        },
+        interactive,
+      );
+    } else {
+      redirectUrls = await resolveRedirectUrls(options.redirectUri, jsonMode);
+    }
+
+    const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
+
     const dir = await resolveCreateDirectory(appName, interactive);
 
-    const inputs: CreateAppInputs = { appName, distribution, redirectUrls, logoUri };
+    const inputs: CreateAppInputs = { appName, distribution, redirectUrls, logoUri, uiApp };
     const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
 
     // Store app credentials locally — client_secret may not be retrievable again
@@ -371,27 +648,43 @@ export const createCommand = withCommandHandler(
     });
     if (finalAppName) saveAppName(result.app_id, finalAppName);
 
+    // Shared JSON shape for both exits below. `redirectUri` is omitted for UI
+    // apps rather than emitted as an empty array, so a consumer can distinguish
+    // "no callbacks by design" from "callbacks not returned".
+    const jsonBase = {
+      appId: result.app_id,
+      appName: finalAppName,
+      clientId: result.client_id,
+      clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
+      appType,
+      ...(uiApp ? { uiApp } : { redirectUri: result.redirect_uris }),
+      ...(logoUri ? { logoUri } : {}),
+      ...(result.version ? { version: result.version } : {}),
+    };
+
+    const renderBox = (): void =>
+      uiApp
+        ? renderCreatedUiApp(result, finalAppName, uiApp, logoUri)
+        : renderCreatedApp(result, finalAppName, logoUri);
+
     if (dir.skipped) {
       if (jsonMode) {
         jsonOutput({
-          appId: result.app_id,
-          appName: finalAppName,
-          clientId: result.client_id,
-          clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
-          redirectUri: result.redirect_uris,
-          ...(logoUri ? { logoUri } : {}),
-          ...(result.version ? { version: result.version } : {}),
+          ...jsonBase,
           directory: dir.targetDir,
           scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(dir.targetDir),
         });
         return;
       }
-      renderCreatedApp(result, finalAppName, logoUri);
+      renderBox();
       logInfo(messages.APP_CREATE_DIR_EXISTS_SKIPPED(dir.targetDir));
       return;
     }
 
-    const ctx = await fetchAppContext(result.app_id, jsonMode);
+    // Pass the freshly collected `ui_app` block explicitly: the server doesn't
+    // have it yet (it only learns about it on `app upload`), so the scaffold
+    // can't read it back from `fetchAppContext`'s server response.
+    const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp);
 
     // Always write the basic project structure (app-config.json + meta files).
     const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);
@@ -399,13 +692,7 @@ export const createCommand = withCommandHandler(
     // --json never scaffolds a feature — emit the base result as a single blob.
     if (jsonMode) {
       jsonOutput({
-        appId: result.app_id,
-        appName: finalAppName,
-        clientId: result.client_id,
-        clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
-        redirectUri: result.redirect_uris,
-        ...(logoUri ? { logoUri } : {}),
-        ...(result.version ? { version: result.version } : {}),
+        ...jsonBase,
         directory: dir.targetDir,
         scaffolded: base.written,
       });
@@ -414,10 +701,18 @@ export const createCommand = withCommandHandler(
 
     // Show the created-app box and the base files that were just written,
     // before asking about features.
-    renderCreatedApp(result, finalAppName, logoUri);
+    renderBox();
     reportBaseScaffoldSuccess(base);
 
     const cdDir = computeCdHint(originalCwd, dir.targetDir);
+
+    // UI apps have no scaffoldable feature — an action link runs on the partner's
+    // own infrastructure, so there is no local server to generate. Point at the
+    // upload → deploy path instead of offering the OAuth test server.
+    if (uiApp) {
+      printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_UI_NEXT(cdDir));
+      return;
+    }
 
     // Then offer to scaffold a feature (default yes → pick a type). Only the
     // interactive prompt triggers it; a piped (non-TTY) run stays base-only.

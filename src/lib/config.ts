@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { splitScopes } from './validators';
+import { UiApp } from '../types';
 
 // ──────────────── Directory ────────────────
 
@@ -411,8 +412,17 @@ export interface ProjectConfig {
   distribution_type: 'private' | 'public';
   auth: {
     scopes: string[];
+    // Absent for UI apps: an action link has no OAuth callback to register.
+    // OAuth apps still require at least one (enforced in `app upload`).
     redirectUrls?: string[];
   };
+  /**
+   * Present only for UI apps (BEX-290). Its presence is the discriminator
+   * between the two app types — there is no separate `appType` key, matching
+   * the UIApp Support Spec's config examples. Use {@link isUiAppConfig}
+   * rather than testing for the key directly.
+   */
+  ui_app?: UiApp;
   permittedUrls: {
     fetch: string[];
     img: string[];
@@ -497,6 +507,16 @@ export function readProjectConfig(): ProjectConfig | null {
     // old projects to the new shape on their next write, instead of
     // round-tripping the stray key forever.
     const { distribution: _legacyDistribution, ...rawWithoutLegacyDistribution } = rawRecord;
+    // `ui_app` (BEX-290) is passed through structurally intact — the spread
+    // above already carries it — but a non-object value is dropped so callers
+    // can trust `config.ui_app` is an object whenever it is present. Field-level
+    // validation is deliberately *not* done here: unrelated commands that merely
+    // read the config must not fail because the block is half-written. `app
+    // upload` is the enforcement point (see validateUiApp).
+    const rawUiApp = rawWithoutLegacyDistribution.ui_app;
+    if ('ui_app' in rawWithoutLegacyDistribution && (!rawUiApp || typeof rawUiApp !== 'object')) {
+      delete rawWithoutLegacyDistribution.ui_app;
+    }
     return {
       ...rawWithoutLegacyDistribution,
       appId,
@@ -511,6 +531,18 @@ export function readProjectConfig(): ProjectConfig | null {
 export function hasLocalApp(): boolean {
   const cfg = readProjectConfig();
   return cfg?.appId != null && cfg.appId !== '';
+}
+
+/**
+ * Whether a project config describes a UI app rather than an OAuth app.
+ *
+ * The presence of the `ui_app` block is the discriminator — there is no separate
+ * `appType` key. Every branch that needs to distinguish the two app types goes
+ * through this helper so the discriminator can change in one place if the
+ * backend later requires an explicit type field.
+ */
+export function isUiAppConfig(config: Pick<ProjectConfig, 'ui_app'> | null | undefined): boolean {
+  return !!config?.ui_app;
 }
 
 export function writeProjectConfig(config: ProjectConfig): void {

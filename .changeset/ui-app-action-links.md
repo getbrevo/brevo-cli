@@ -1,0 +1,17 @@
+---
+'@getbrevo/cli': minor
+---
+
+Add UI app support: author action links and manage their per-account availability (BEX-290).
+
+A UI app is a new *type* of app rather than a separate entity — it shares the app record, credentials, and version lifecycle with OAuth apps, and adds a `ui_app` block to `app-config.json` describing where and how it renders inside Brevo. The first shippable variant is the **action link**: a partner-authored entry point that appears in a CRM record's action menu and opens an external URL in a new tab with record context.
+
+`brevo app create` gained a `--type <oauth|ui>` flag and, interactively, a leading "What type of app are you building?" prompt. `oauth` is the default, and non-interactive runs without the flag keep creating OAuth apps, so existing scripted invocations are unaffected. The UI path collects placement and destination instead of OAuth callbacks — `--surface`, `--title`, `--description`, `--external-url`, `--cta-label`, and repeatable `--context-property`, each with a prompt equivalent — and never asks for or defaults a redirect URL, since an action link has no OAuth callback. `redirect_uris` is omitted from the create call entirely for UI apps, which also start from narrower default scopes (`contacts:read`, `contacts:write`). No feature is scaffolded for a UI app; there is no local server to run.
+
+`brevo app upload` now sends the `ui_app` block for UI apps and validates it locally before the request: `type` and `trigger.type` must be `link`, `surface` must be one of `contact`/`deal`/`company`/`object`, `title` and `trigger.label` must be non-empty, `description` is capped at 60 characters (it doubles as the action-menu tooltip), `contextProperties` must be a non-empty string array, and `trigger.externalUrl` must be https — `http://` is accepted only for `localhost`/`127.0.0.1` so a partner can point at a local dev server. The `card`/`widget`/`function` types and the `modal` trigger are rejected as not yet supported. The redirect-URL requirement is now OAuth-only. The upload diff covers `ui_app` (ignoring key order), so editing only that block is correctly detected as a change instead of reporting "already up to date". For OAuth apps `ui_app` is never sent and the payload is unchanged.
+
+New `brevo app deploy <account-id>` and `brevo app remove <account-id>` manage a UI app's availability in a single Brevo account. Both resolve the target app from `--app-id`, the linked `app-config.json`, or an interactive picker, and support `--force` and `--json`. `deploy` refuses until the configuration has been validated by an upload, pointing at `brevo app upload` — detected locally from a missing `version` and mapped from the server's own rejection. `remove` has no such gate and treats "not deployed to this account" as informational, exiting `0`, so teardown scripts stay idempotent.
+
+`brevo app scaffold` inside a UI-app project now refreshes the base config and reports that there are no features to scaffold. It preserves a hand-edited `ui_app` block through a confirmed config refresh, which would otherwise have overwritten `app-config.json` wholesale from server values that don't include it, and no longer reports phantom redirect-URL drift for an app type that has none.
+
+UI apps are **not live on the Brevo platform yet**. As with public apps, `agent-context/SKILL.md` and `agent-context/AGENTS.md` carry a notice telling AI agents not to create one or drive the deploy lifecycle, with the same internal-Brevo-account exception so dogfooding still works.

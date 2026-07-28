@@ -58,6 +58,10 @@ export const messages = {
   // App create
   APP_CREATE_NAME_PROMPT: 'App name:',
   APP_CREATE_TYPE_PROMPT: 'Distribution type?',
+  APP_CREATE_APP_TYPE_PROMPT: 'What type of app are you building?',
+  APP_CREATE_APP_TYPE_OAUTH:
+    'OAuth app  (Authorize against Brevo and call the API on a user’s behalf)',
+  APP_CREATE_APP_TYPE_UI: 'UI app     (Render inside Brevo — opens your app from a record)',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   APP_CREATE_REDIRECT_PROMPT:
@@ -94,6 +98,35 @@ export const messages = {
     `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD}\` here to add a feature to this project.`,
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
 
+  // App create — UI app (BEX-290)
+  APP_CREATE_UI_TRIGGER_PROMPT: 'What type of app are you integrating to Brevo?',
+  APP_CREATE_UI_TRIGGER_LINK: 'External link  (Pass record context to a separate browser tab)',
+  // Kept visible but unselectable so the roadmap is discoverable from the prompt
+  // itself, matching how the spec greys out widgets and cloud functions.
+  APP_CREATE_UI_TRIGGER_MODAL:
+    'Modal card     (Pass record context to an iframe modal — not yet supported)',
+  APP_CREATE_UI_TRIGGER_WIDGET: 'Widget         (Display inline record data — not yet supported)',
+  APP_CREATE_UI_TRIGGER_FUNCTION:
+    'Cloud function (Run an action on the active record — not yet supported)',
+  APP_CREATE_UI_TRIGGER_UNSUPPORTED: (choice: string) =>
+    `"${choice}" is not available yet. Only "External link" can be created today.`,
+  APP_CREATE_UI_SURFACE_PROMPT: 'Which record type is your app triggered from?',
+  APP_CREATE_UI_TITLE_PROMPT: 'Title:',
+  APP_CREATE_UI_DESCRIPTION_PROMPT: (max: number) =>
+    `Description (max ${max} chars — shown as the action-menu tooltip):`,
+  APP_CREATE_UI_EXTERNAL_URL_PROMPT: 'External URL (where record context is passed):',
+  APP_CREATE_UI_CTA_LABEL_PROMPT: 'Action label (text shown in the record action menu):',
+  APP_CREATE_UI_BOX_TITLE: 'UI app created',
+  APP_CREATE_UI_BOX_CONTEXT_LABEL: 'Context properties:',
+  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this, then run \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_UI_NEXT: (cdDir?: string): string[] => [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    `${cdDir ? 2 : 1}. ${CLI.APP_UPLOAD}              (validate and save your configuration)`,
+    `${cdDir ? 3 : 2}. ${CLI.APP_DEPLOY()}   (make it available in an account)`,
+  ],
+  APP_CREATE_UI_NON_INTERACTIVE:
+    'Creating a UI app needs either an interactive terminal or the --title, --description, and --external-url flags.',
+
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
   APP_LIST_HEADER: 'Your OAuth apps:',
@@ -121,6 +154,35 @@ export const messages = {
   APP_UPLOAD_CANCELLED: 'Upload cancelled.',
   APP_UPLOAD_SUCCESS: 'App uploaded.',
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
+  // UI apps have no OAuth callback, so the redirect-URL requirement is
+  // OAuth-only — this message names the app type to make that explicit.
+  APP_UPLOAD_NO_REDIRECT_URLS_OAUTH:
+    'app-config.json has no redirect URLs configured. OAuth apps need at least one — add it to `auth.redirectUrls`.',
+  APP_UPLOAD_UI_APP_SUMMARY: 'UI app:',
+
+  // App deploy / remove — per-account availability for UI apps (BEX-290)
+  APP_DEPLOY_SELECT: 'Select an app to deploy:',
+  APP_DEPLOY_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Deploy app "${name}" (${appId}) to account ${accountId}?`,
+  APP_DEPLOY_CANCELLED: 'Deploy cancelled.',
+  APP_DEPLOY_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} deployed to account ${accountId}.`,
+  APP_DEPLOY_MISSING_ACCOUNT_ID: `Missing account ID.\n\n  Usage: ${CLI.APP_DEPLOY()}`,
+  // The spec's installation flow requires deploy to refuse until the config has
+  // been validated by an upload. `version` is only ever written by a successful
+  // upload, so its absence is a reliable local signal.
+  APP_DEPLOY_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
+  APP_REMOVE_SELECT: 'Select an app to remove:',
+  APP_REMOVE_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Remove app "${name}" (${appId}) from account ${accountId}?`,
+  APP_REMOVE_CANCELLED: 'Remove cancelled.',
+  APP_REMOVE_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} removed from account ${accountId}.`,
+  APP_REMOVE_MISSING_ACCOUNT_ID: `Missing account ID.\n\n  Usage: ${CLI.APP_REMOVE()}`,
+  APP_REMOVE_NOT_DEPLOYED: (appId: string, accountId: string) =>
+    `App ${appId} is not deployed to account ${accountId}.`,
+  APP_DEPLOY_NON_INTERACTIVE:
+    'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
 
   // App submit (BEX-221)
   APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
@@ -225,6 +287,7 @@ export const messages = {
   APP_SCAFFOLD_JSON_DIFF_CANCELLED:
     'app-config.json differs from the server and --json cannot prompt for confirmation. Re-run without --json to review and confirm the update.',
   APP_SCAFFOLD_SUCCESS: (count: number) => `Feature scaffolded (${count} files)`,
+  APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_DEPLOY()}\`.`,
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
   APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
   APP_SCAFFOLD_NEXT_STEPS_TITLE: 'Next steps',
@@ -285,7 +348,7 @@ export const messages = {
   INIT_WELCOME: 'Brevo CLI — Quick Setup',
   INIT_ALREADY_LOGGED_IN: 'Already authenticated.',
   INIT_STEP_LOGIN: '  Step 1: Authenticate with your Brevo account',
-  INIT_STEP_CREATE: '  Step 2: Create your first OAuth app',
+  INIT_STEP_CREATE: '  Step 2: Create your first app',
   INIT_APPS_EXIST: (count: number) => `You have ${count} app${count === 1 ? '' : 's'} already.`,
   INIT_APP_LINKED: (name: string) => `App "${name}" is linked to this project (app-config.json).`,
   INIT_APP_ACTION: 'What would you like to do?',

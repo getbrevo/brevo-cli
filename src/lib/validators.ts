@@ -1,5 +1,5 @@
 import { CliError } from './errors';
-import { LEGACY_ALL_SCOPE } from './constants';
+import { LEGACY_ALL_SCOPE, UI_APP_DESCRIPTION_MAX_LENGTH, UI_APP_SURFACES } from './constants';
 
 const APP_NAME_MAX_LENGTH = 48;
 const APP_NAME_REGEX = /^[a-zA-Z0-9 ._\-\u00C0-\u024F]+$/;
@@ -138,6 +138,159 @@ export function collectScopes(value: string, previous: string[] = []): string[] 
  */
 export function containsLegacyAllScope(scopes: string[] | undefined): boolean {
   return scopes?.includes(LEGACY_ALL_SCOPE) ?? false;
+}
+
+// ──────────────── UI apps (BEX-290) ────────────────
+
+/**
+ * Whether an HTTP(S) URL is safe as a UI-app destination.
+ *
+ * Brevo opens this URL from an authenticated CRM page, so plain http would
+ * downgrade the user's session over the wire. https is required, with the same
+ * loopback exemption the rest of the CLI grants (see `isLocalHttpAllowed` in
+ * lib/constants) so partners can point a UI app at a local dev server while
+ * building it.
+ */
+function isSafeUiAppUrl(parsed: URL): boolean {
+  if (parsed.protocol === 'https:') return true;
+  return (
+    parsed.protocol === 'http:' &&
+    (parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '::1')
+  );
+}
+
+/**
+ * Validate a UI-app destination URL. Returns `true` or an error string, so it
+ * can back an inquirer `validate` directly as well as the upload-time check.
+ */
+export function validateUiAppUrl(value: string): true | string {
+  const trimmed = value.trim();
+  if (!trimmed) return 'URL cannot be empty.';
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return `Invalid URL: "${trimmed}" is not a valid URL.`;
+  }
+  if (!isSafeUiAppUrl(parsed)) {
+    return `Invalid URL: "${trimmed}" must use https:// (http:// is allowed only for localhost).`;
+  }
+  return true;
+}
+
+/**
+ * Validate a UI-app title. Returns `true` or an error string.
+ */
+export function validateUiAppTitle(value: string): true | string {
+  return value.trim() ? true : 'Title cannot be empty.';
+}
+
+/**
+ * Validate a UI-app description against the spec's tooltip length cap.
+ * Returns `true` or an error string.
+ */
+export function validateUiAppDescription(value: string): true | string {
+  const trimmed = value.trim();
+  if (!trimmed) return 'Description cannot be empty.';
+  if (trimmed.length > UI_APP_DESCRIPTION_MAX_LENGTH) {
+    return `Description must be at most ${UI_APP_DESCRIPTION_MAX_LENGTH} characters (got ${trimmed.length}).`;
+  }
+  return true;
+}
+
+/**
+ * Fully validate a `ui_app` block before it is sent to the server.
+ *
+ * The app-store backend is the validation authority; this is a local pre-flight
+ * so a partner gets a precise, offline error instead of an opaque 4xx. Throws
+ * CliError on the first problem found.
+ *
+ * Only the action-link shape (`type: 'link'`, `trigger.type: 'link'`) is
+ * accepted: the other union members are typed for round-tripping and future
+ * scope, but the CLI must not push a config the platform cannot render yet.
+ */
+export function validateUiApp(uiApp: unknown): void {
+  if (!uiApp || typeof uiApp !== 'object') {
+    throw new CliError(
+      'app-config.json has an invalid "ui_app" block — expected an object. Fix the file, or recreate the app with `brevo app create --type ui`.',
+    );
+  }
+  const block = uiApp as Record<string, unknown>;
+
+  if (block.type !== 'link') {
+    throw new CliError(
+      `Unsupported ui_app.type "${String(block.type)}". Only "link" (action link) can be uploaded today — modal cards, widgets, and cloud functions are not available yet.`,
+    );
+  }
+
+  const props = block.properties;
+  if (!props || typeof props !== 'object') {
+    throw new CliError('app-config.json is missing "ui_app.properties".');
+  }
+  const properties = props as Record<string, unknown>;
+
+  if (typeof properties.surface !== 'string' || !UI_APP_SURFACES.includes(properties.surface)) {
+    throw new CliError(
+      `Invalid ui_app.properties.surface "${String(properties.surface)}". Must be one of: ${UI_APP_SURFACES.join(', ')}.`,
+    );
+  }
+
+  const titleCheck = validateUiAppTitle(String(properties.title ?? ''));
+  if (titleCheck !== true) throw new CliError(`ui_app.properties.title: ${titleCheck}`);
+
+  const descCheck = validateUiAppDescription(String(properties.description ?? ''));
+  if (descCheck !== true) throw new CliError(`ui_app.properties.description: ${descCheck}`);
+
+  const contextProperties = properties.contextProperties;
+  if (
+    !Array.isArray(contextProperties) ||
+    contextProperties.length === 0 ||
+    contextProperties.some((p) => typeof p !== 'string' || !p.trim())
+  ) {
+    throw new CliError(
+      'ui_app.properties.contextProperties must be a non-empty array of record attribute names (e.g. ["firstname", "email"]).',
+    );
+  }
+
+  const trig = properties.trigger;
+  if (!trig || typeof trig !== 'object') {
+    throw new CliError('app-config.json is missing "ui_app.properties.trigger".');
+  }
+  const trigger = trig as Record<string, unknown>;
+
+  if (trigger.type !== 'link') {
+    throw new CliError(
+      `Unsupported ui_app.properties.trigger.type "${String(trigger.type)}". Only "link" is available today — the "modal" trigger is not supported yet.`,
+    );
+  }
+
+  const urlCheck = validateUiAppUrl(String(trigger.externalUrl ?? ''));
+  if (urlCheck !== true) {
+    throw new CliError(`ui_app.properties.trigger.externalUrl: ${urlCheck}`);
+  }
+
+  if (typeof trigger.label !== 'string' || !trigger.label.trim()) {
+    throw new CliError(
+      'ui_app.properties.trigger.label cannot be empty — it is the text shown in the record action menu.',
+    );
+  }
+}
+
+/**
+ * Parse and validate an `<account-id>` argument for `app deploy` / `app remove`.
+ * Brevo account IDs are numeric; accept a trimmed digit string.
+ */
+export function parseAccountId(value: string): string {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) {
+    throw new CliError('Invalid account ID: value cannot be empty.');
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    throw new CliError(`Invalid account ID: "${trimmed}" is not a numeric Brevo account ID.`);
+  }
+  return trimmed;
 }
 
 /**

@@ -7,6 +7,50 @@ export interface AccountResponse {
   user_id: number;
 }
 
+// ──────────────── UI apps (BEX-290) ────────────────
+// A UI app is a *type* of app, not a separate entity: it shares the app record,
+// credentials, and version lifecycle with OAuth apps, and adds a `ui_app` block
+// describing where and how it renders inside Brevo.
+//
+// Field names follow the UIApp Support Spec verbatim (`type: 'link'`,
+// `properties.surface`, `trigger.externalUrl`, `contextProperties`). The
+// Extension Points ADR names the same concepts differently (`action_link`,
+// `location`/`section`, `redirectLink`) — the app-store backend is the
+// validation authority, so if it rejects these names this is the single place
+// to remap them.
+//
+// Only `type: 'link'` with `trigger.type: 'link'` — the "action link" — is
+// authorable by the CLI today. The rest of the union is typed so future variants
+// (modal cards, widgets, cloud functions) don't need a reshape, and so a
+// hand-edited config carrying them round-trips instead of being dropped.
+export type UiAppType = 'link' | 'card' | 'widget' | 'function';
+export type UiAppSurface = 'contact' | 'deal' | 'company' | 'object';
+export type UiAppTriggerType = 'link' | 'modal';
+export type UiAppPlacement = 'sidebar' | 'center';
+
+export interface UiAppTrigger {
+  type: UiAppTriggerType;
+  externalUrl: string;
+  label: string;
+}
+
+export interface UiAppProperties {
+  surface: UiAppSurface;
+  title: string;
+  description: string;
+  /** Card/widget only — absent for action links, which render in an action menu. */
+  placement?: UiAppPlacement;
+  contextProperties: string[];
+  trigger: UiAppTrigger;
+}
+
+export interface UiApp {
+  type: UiAppType;
+  properties: UiAppProperties;
+  /** Modal cards only (future scope). */
+  modal?: { width: number; height: number };
+}
+
 export interface OAuthApp {
   app_id: string;
   name: string;
@@ -19,6 +63,9 @@ export interface OAuthApp {
   version?: string;
   // Review-submission form for public apps (BEX-221); absent for private apps.
   google_form_link?: string;
+  // Present only for UI apps, and only once the server echoes the block back on
+  // reads. Absent for OAuth apps and on server builds that don't return it yet.
+  ui_app?: UiApp;
   created_at: string;
   updated_at: string;
 }
@@ -72,6 +119,10 @@ export interface UploadAppPayload {
     scopes: string[];
     redirect_urls: string[];
   };
+  // Sent only for UI apps (BEX-290). OAuth apps must never carry this key —
+  // earlier CLI versions guaranteed it was never sent at all, and the OAuth
+  // payload shape is unchanged from that contract.
+  ui_app?: UiApp;
 }
 
 export interface UploadAppResponse {
@@ -89,4 +140,8 @@ export interface UploadAppResponse {
     scopes?: string[];
     redirect_urls?: string[];
   };
+  // Echoed back for UI apps so the local config can be reconciled with whatever
+  // the server normalized. Tolerated as absent: server builds that accept
+  // `ui_app` on write but don't return it leave the locally-sent block in place.
+  ui_app?: UiApp;
 }

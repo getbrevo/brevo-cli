@@ -15,6 +15,9 @@ jest.mock('../../../lib/config', () => ({
   readProjectConfig: jest.fn(),
   writeProjectConfig: jest.fn(),
   saveAppName: jest.fn(),
+  // Pure predicate over the config object — use the real logic rather than a
+  // jest.fn() so every test doesn't have to stub the app-type branch.
+  isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
 
 jest.mock('node:fs');
@@ -193,7 +196,10 @@ describe('app/upload', () => {
     });
   });
 
-  it('never sends a ui_app field', async () => {
+  // Earlier CLI versions guaranteed `ui_app` was never sent at all. That
+  // guarantee now applies to OAuth apps only (BEX-290) — the UI-app half of the
+  // contract is covered in the 'UI apps' block below.
+  it('never sends a ui_app field for an OAuth app', async () => {
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -341,5 +347,211 @@ describe('app/upload', () => {
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     const parsed = JSON.parse(output);
     expect(parsed.upToDate).toBe(true);
+  });
+
+  // ──────────────── UI apps (BEX-290) ────────────────
+  describe('UI apps', () => {
+    const UI_APP = {
+      type: 'link' as const,
+      properties: {
+        surface: 'contact' as const,
+        title: 'Invoice Manager',
+        description: 'Review invoice history for this contact',
+        contextProperties: ['firstname', 'lastname', 'email', 'phone', 'ext_id'],
+        trigger: {
+          type: 'link' as const,
+          externalUrl: 'https://example.com/brevo',
+          label: 'Invoice Manager',
+        },
+      },
+    };
+
+    // A UI app's config carries no redirectUrls at all — that absence is the
+    // point of the OAuth-only redirect check.
+    const UI_CONFIG = {
+      appId: '1',
+      appName: 'Invoice Manager',
+      distribution_type: 'private' as const,
+      logoUri: '',
+      version: '1.0.0',
+      auth: { scopes: ['contacts:read', 'contacts:write'] },
+      ui_app: UI_APP,
+    };
+
+    // Must match UI_CONFIG on every non-ui_app field, so the tests below isolate
+    // ui_app as the only thing that can differ.
+    const UI_REMOTE = {
+      ...BASE_REMOTE,
+      name: 'Invoice Manager',
+      redirect_uris: [],
+      scopes: ['contacts:read', 'contacts:write'],
+    };
+
+    beforeEach(() => {
+      (readProjectConfig as jest.Mock).mockReturnValue(UI_CONFIG);
+      (appService.fetchApp as jest.Mock).mockResolvedValue(UI_REMOTE);
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Invoice Manager',
+        auth: {
+          distribution_type: 'private' as const,
+          scopes: ['contacts:read', 'contacts:write'],
+        },
+      });
+    });
+
+    it('sends the ui_app block in the upload payload', async () => {
+      await uploadCommand({ yes: true });
+
+      const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+      expect(payload.ui_app).toEqual(UI_APP);
+    });
+
+    it('does not require redirect URLs', async () => {
+      await expect(uploadCommand({ yes: true })).resolves.toBeUndefined();
+      expect(appService.uploadApp).toHaveBeenCalled();
+    });
+
+    it('still requires redirect URLs for an OAuth app', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        auth: { scopes: ['contacts:read'] },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/OAuth apps need at least one/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    // The regression this guards: `hasNoChanges` compared every field *except*
+    // ui_app, so a ui_app-only edit reported "Already up to date" and silently
+    // never reached the server.
+    it('uploads when only the ui_app block changed', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        ...UI_REMOTE,
+        ui_app: {
+          ...UI_APP,
+          properties: { ...UI_APP.properties, title: 'Old Title' },
+        },
+      });
+
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
+      const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+      expect(payload.ui_app.properties.title).toBe('Invoice Manager');
+    });
+
+    it('reports up to date when the ui_app block matches the server', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ ...UI_REMOTE, ui_app: UI_APP });
+
+      await uploadCommand({ json: true });
+
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+      const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
+      expect(parsed.upToDate).toBe(true);
+    });
+
+    // Key order in app-config.json varies with how it was edited; a raw
+    // stringify comparison would report phantom drift.
+    it('treats a reordered ui_app block as unchanged', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        ...UI_REMOTE,
+        ui_app: {
+          properties: {
+            trigger: {
+              label: 'Invoice Manager',
+              externalUrl: 'https://example.com/brevo',
+              type: 'link' as const,
+            },
+            contextProperties: ['firstname', 'lastname', 'email', 'phone', 'ext_id'],
+            description: 'Review invoice history for this contact',
+            title: 'Invoice Manager',
+            surface: 'contact' as const,
+          },
+          type: 'link' as const,
+        },
+      });
+
+      await uploadCommand({ json: true });
+
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('rejects a ui_app block whose description exceeds the length cap', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: {
+          ...UI_APP,
+          properties: { ...UI_APP.properties, description: 'x'.repeat(61) },
+        },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/at most 60 characters/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('rejects an insecure external URL', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: {
+          ...UI_APP,
+          properties: {
+            ...UI_APP.properties,
+            trigger: { ...UI_APP.properties.trigger, externalUrl: 'http://example.com/brevo' },
+          },
+        },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/must use https/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('rejects a trigger type that is not yet supported', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: {
+          ...UI_APP,
+          properties: {
+            ...UI_APP.properties,
+            trigger: { ...UI_APP.properties.trigger, type: 'modal' },
+          },
+        },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/not supported yet/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('writes the ui_app block back into app-config.json, preferring the server copy', async () => {
+      const serverNormalized = {
+        ...UI_APP,
+        properties: { ...UI_APP.properties, title: 'Invoice Manager (normalized)' },
+      };
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Invoice Manager',
+        auth: { distribution_type: 'private' as const, scopes: ['contacts:read'] },
+        ui_app: serverNormalized,
+      });
+
+      await uploadCommand({ yes: true });
+
+      expect(writeProjectConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ ui_app: serverNormalized }),
+      );
+    });
+
+    it('keeps the locally sent ui_app block when the server does not echo one', async () => {
+      await uploadCommand({ yes: true });
+
+      expect(writeProjectConfig).toHaveBeenCalledWith(expect.objectContaining({ ui_app: UI_APP }));
+    });
+
+    it('does not add a redirectUrls key back into a UI app config', async () => {
+      await uploadCommand({ yes: true });
+
+      const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+      expect(written.auth).not.toHaveProperty('redirectUrls');
+    });
   });
 });
