@@ -116,8 +116,8 @@ interface UploadDiff {
   nextVersion: string;
   migratingLegacyScopes: boolean;
   // UI apps only (BEX-290). `currentUiApp` stays undefined on server builds that
-  // accept `ui_app` on write but don't echo it back on reads — in that case the
-  // block always reads as new, which is safe: re-sending an identical block is
+  // accept the snapshot on write but don't echo it back on reads — in that case
+  // the block always reads as new, which is safe: re-sending an identical block is
   // idempotent, whereas skipping it could strand a local edit.
   currentUiApp?: UiApp;
   nextUiApp?: UiApp;
@@ -140,7 +140,7 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
     currentVersion: remote.version,
     nextVersion: config.version || remote.version || '',
     migratingLegacyScopes: containsLegacyAllScope(remote.scopes ?? []),
-    currentUiApp: remote.ui_app,
+    currentUiApp: remote.snapshot,
     nextUiApp: config.ui_app,
   };
 }
@@ -207,14 +207,14 @@ function renderUploadDiff(diff: UploadDiff): void {
 function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   const changed = canonicalizeUiApp(next) !== canonicalizeUiApp(current);
   logInfo(`  ${messages.APP_UPLOAD_UI_APP_SUMMARY}${changed ? ' (changed)' : ''}`);
-  const p = next.properties;
-  logInfo(`    Type:         ${next.type} (${p.trigger.type})`);
-  logInfo(`    Record type:  ${p.surface}`);
-  logInfo(`    Title:        ${p.title}`);
-  logInfo(`    Description:  ${p.description}`);
-  logInfo(`    Action label: ${p.trigger.label}`);
-  logInfo(`    External URL: ${p.trigger.externalUrl}`);
-  logInfo(`    Context:      ${p.contextProperties.join(', ')}`);
+  logInfo(`    Extension type: ${next.extensionType}`);
+  next.surfacePointList.forEach((point, i) => {
+    logInfo(`    ${i === 0 ? 'Extension point:' : '                '} ${point}`);
+  });
+  logInfo(`    Heading:        ${next.heading ?? ''}`);
+  if (next.subheading) logInfo(`    Subheading:     ${next.subheading}`);
+  logInfo(`    Redirect link:  ${next.redirectLink ?? ''}`);
+  logInfo(`    Link target:    ${next.linkTarget ?? ''}`);
 }
 
 function diffToJson(diff: UploadDiff) {
@@ -335,7 +335,7 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
       },
       // Spread rather than a fixed key so OAuth uploads keep their exact
       // historical payload shape — `ui_app` is absent, not `undefined`.
-      ...(isUiApp && config.ui_app ? { ui_app: config.ui_app } : {}),
+      ...(isUiApp && config.ui_app ? { snapshot: config.ui_app } : {}),
     });
   } finally {
     spinner.stop();
@@ -367,7 +367,7 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     },
     // Prefer the server's normalized block when it echoes one back, otherwise
     // keep what we just sent.
-    ...(isUiApp ? { ui_app: response.ui_app ?? config.ui_app } : {}),
+    ...(isUiApp ? { ui_app: response.snapshot ?? config.ui_app } : {}),
   });
 
   if (options.json) {

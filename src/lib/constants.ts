@@ -154,34 +154,95 @@ export const DEFAULT_SCOPES: readonly string[] = [
   'crm:write',
 ] as const;
 
-// ──────────────── UI app defaults (BEX-290) ────────────────
+// ──────────────── UI apps (BEX-290) ────────────────
 // An action link reads record context rather than driving an OAuth flow, so it
-// starts from a narrower scope set than DEFAULT_SCOPES. Taken from the UIApp
-// Support Spec's authoring flow ("scopes default to contacts:read,
-// contacts:write"). Note the spec's own JSON examples show crm:read/crm:write
-// instead — the authoring flow is treated as authoritative since it is what the
-// prompts implement; widen via `auth.scopes` in app-config.json + `app upload`.
+// starts from a narrower scope set than DEFAULT_SCOPES. Widen via `auth.scopes`
+// in app-config.json + `app upload`.
 export const DEFAULT_UI_APP_SCOPES: readonly string[] = [
   'contacts:read',
   'contacts:write',
 ] as const;
 
-// Record attributes forwarded to the partner URL. Only declared properties are
-// sent — no over-fetching, no undeclared field exposure.
-export const DEFAULT_UI_APP_CONTEXT_PROPERTIES: readonly string[] = [
-  'firstname',
-  'lastname',
-  'email',
-  'phone',
-  'ext_id',
+/**
+ * Extension-point slot grammar: `<location>.<place>.<kind>` (BEX-350).
+ *
+ * These values are a hard contract with two consumers. The extensibility UI kit
+ * matches an item's `extensionPoint` against a slot name by **exact string
+ * equality**, and the app-store backend **drops** an authored name that has no
+ * `extension_points` registry row. Both failures are silent — the slot renders
+ * nothing, with a 200 and no error — so a typo here is invisible in production.
+ * That is why the CLI validates authored names locally against the registry
+ * below rather than trusting the server to complain.
+ *
+ * Sources of truth:
+ *   - integrations-common-frontend `bex-350-app-configs-link-target`
+ *     (`widgets/extension-slot/slots.ts`)
+ *   - app-store-backend `feature/BEX-308-extensibility-app-configs`
+ *     (`http_get_apps_extensibility.go` + its twelve-point test registry)
+ */
+export const EXTENSION_LOCATIONS: readonly string[] = [
+  'contactDetails',
+  'companyDetails',
+  'dealDetails',
 ] as const;
 
-export const UI_APP_SURFACES: readonly string[] = ['contact', 'deal', 'company', 'object'] as const;
+// `place` is a ROLE within the page, not a layout coordinate — columns stack on
+// mobile, so encoding left/center/right would invalidate every registration on a
+// redesign. The owning tab is folded in as a prefix.
+export const EXTENSION_WIDGET_PLACES: readonly string[] = [
+  'overviewAttributes',
+  'overviewMain',
+  'overviewSidebar',
+] as const;
+
+// The only action place in the current registry: the record page's header "More"
+// (•••) overflow menu. An action link mounts here.
+export const EXTENSION_ACTION_PLACE = 'headerMenu';
+
+/** Build an action slot name for a record page. */
+export function actionPointForLocation(location: string): string {
+  return `${location}.${EXTENSION_ACTION_PLACE}.action`;
+}
+
+/**
+ * The full twelve-point registry — three record pages x (three widget places +
+ * one action place). Mirrors the backend's seeded `extension_points` table.
+ */
+export const EXTENSION_POINTS: readonly string[] = EXTENSION_LOCATIONS.flatMap((location) => [
+  ...EXTENSION_WIDGET_PLACES.map((place) => `${location}.${place}.widget`),
+  actionPointForLocation(location),
+]);
+
+/** Action slots only — the subset an action link can target. */
+export const EXTENSION_ACTION_POINTS: readonly string[] =
+  EXTENSION_LOCATIONS.map(actionPointForLocation);
+
+/**
+ * Friendly `--surface` values mapped to their `location` segment. Partners think
+ * in record types; the wire wants the page name.
+ */
+export const UI_APP_SURFACE_TO_LOCATION: Readonly<Record<string, string>> = {
+  contact: 'contactDetails',
+  company: 'companyDetails',
+  deal: 'dealDetails',
+} as const;
+
+export const UI_APP_SURFACES: readonly string[] = Object.keys(UI_APP_SURFACE_TO_LOCATION);
 export const DEFAULT_UI_APP_SURFACE = 'contact';
 
-// The action-link description doubles as the action-menu tooltip, which is
-// space-constrained — hence the hard cap from the spec.
-export const UI_APP_DESCRIPTION_MAX_LENGTH = 60;
+export const EXTENSION_TYPE_ACTION_LINK = 'action_link';
+export const EXTENSION_TYPE_IFRAME = 'iframe_extension';
+export const EXTENSION_TYPE_LEGACY = 'legacy_component';
+export const EXTENSION_TYPES: readonly string[] = [
+  EXTENSION_TYPE_ACTION_LINK,
+  EXTENSION_TYPE_IFRAME,
+  EXTENSION_TYPE_LEGACY,
+] as const;
+
+export const LINK_TARGETS: readonly string[] = ['_blank', '_self'] as const;
+// The backend defaults an action_link's linkTarget to `_blank` when the snapshot
+// leaves it unset; the CLI writes it explicitly so the authored file is complete.
+export const DEFAULT_LINK_TARGET = '_blank';
 
 export const BREVO_DASHBOARD_API_KEYS_URL = 'https://app.brevo.com/settings/keys/api';
 export const BREVO_API_KEY_DOCS_URL = 'https://developers.brevo.com/docs/api-key-authentication';

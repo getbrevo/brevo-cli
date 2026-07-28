@@ -29,10 +29,15 @@ UI apps (action links that render inside Brevo CRM records) are **not live on th
 
 **Every clause of the public-apps section above applies verbatim** — it does not restrict work in this repo, don't remove or soften the notice during unrelated cleanup, keep the internal-account escape hatch, and it's documentation-level only (no runtime guard, by design).
 
-**Two contracts here are assumed, not confirmed.** Both are marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*:
+**The `ui_app` block IS the platform's `app_versions.snapshot` payload, field for field.** Field names are confirmed against both consumers — app-store-backend `feature/BEX-308-extensibility-app-configs` (`appSnapshot` in `cmd/app-store-backend/http_get_apps_extensibility.go`) and integrations-common-frontend `bex-350-app-configs-link-target` (`ActionLinkConfig`, `getExtensionActions`). Do **not** reintroduce the UIApp Support Spec's `properties`/`trigger` vocabulary: nothing on the platform reads those names.
 
-- **Field names.** `app-config.json`'s `ui_app` block uses the UIApp Support Spec's names (`type: "link"`, `properties.surface`, `trigger.externalUrl`, `contextProperties`). The Extension Points ADR names the same concepts differently (`action_link`, `location`/`section`, `redirectLink`) and the app-store backend validates against its own registry. `src/types.ts` (`UiApp`) is the single definition point — remap there if the backend disagrees.
-- **Endpoints.** `deploy`/`remove` assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the body, and HTTP 422 for "not uploaded" / "not deployed". `ENDPOINTS` in `src/lib/constants.ts` plus `appService.deployApp`/`removeApp` are the only places to change.
+Three consequences worth knowing before touching this code:
+
+- **Extension-point names fail silently.** `surfacePointList` entries use the BEX-350 grammar `<location>.<place>.<kind>`. The UI kit matches by exact string equality and the backend *drops* a name with no `extension_points` registry row — an empty slot, a 200, no error. That is why `validateExtensionPointName` checks against the twelve-point registry in `src/lib/constants.ts`: the CLI is the only layer that will ever tell a partner.
+- **Two spec'd fields don't exist.** There is no per-action label (the menu entry uses the *app name*), and no partner-declared `contextProperties` (record context is an allow-list on the registry row, chosen by the platform). Don't add them back.
+- **`modalIframeUrl` is gated on `extensionType`.** The UI kit keeps it only for `iframe_extension`, so the CLI rejects it on an `action_link` rather than letting a partner ship a URL that never opens.
+
+**What is still assumed: the transport, not the shape.** Nothing writes `app_versions.snapshot` yet — on the BEX-308 branch only the read path exists, and app-store-bo-be's `POST /apps/{appId}/build` writes the *separate* `config` column via a multipart `config` field. The CLI sends the block under a `snapshot` key on `POST /v3/app-store/apps/{id}/upload`; `deploy`/`remove` likewise assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the body and HTTP 422 for "not uploaded" / "not deployed". All marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
 
 **The presence of `ui_app` is the app-type discriminator** — there is no `appType` key in `app-config.json`. Every branch that needs to tell the two types apart goes through `isUiAppConfig()` in `src/lib/config.ts`; use it rather than testing for the key inline, so the discriminator can change in one place.
 

@@ -93,7 +93,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an app — OAuth by default, or a UI app with `--type ui` (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`) |
+| `brevo app create` | Create an app — OAuth by default, or a UI app with `--type ui` (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`; UI apps: repeatable `--surface`, `--heading`, `--subheading`, `--redirect-link`, `--link-target`) |
 | `brevo app list` | List apps in your account |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff (`--yes`) |

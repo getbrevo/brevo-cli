@@ -1065,9 +1065,8 @@ describe('app/create', () => {
       type: 'ui',
       name: 'Invoice Manager',
       distribution: 'private',
-      title: 'Invoice Manager',
-      description: 'Review invoice history for this contact',
-      externalUrl: 'https://example.com/brevo',
+      heading: 'Invoice Manager',
+      redirectLink: 'https://example.com/brevo',
     };
 
     beforeEach(() => {
@@ -1079,11 +1078,11 @@ describe('app/create', () => {
         redirect_uris: [],
       });
       // The logo prompt is app-type agnostic and still runs on a TTY. With the
-      // three required UI flags supplied it is the *only* remaining prompt, so a
-      // catch-all answer is enough — and any UI prompt that unexpectedly fired
-      // would show up as a wrong value rather than a crash.
+      // required UI flags supplied it is the only remaining prompt.
       mockPrompt.mockResolvedValue({ logoUrl: '' });
     });
+
+    const collectedUiApp = () => (fetchAppContext as jest.Mock).mock.calls[0][2];
 
     it('omits redirect_uris from the create payload', async () => {
       await createCommand(UI_FLAGS);
@@ -1099,9 +1098,9 @@ describe('app/create', () => {
       expect(payload.scopes).toEqual(['contacts:read', 'contacts:write']);
     });
 
-    // The regression this guards: resolveRedirectUrls falls back to the default
-    // localhost callback in non-TTY runs, which would silently register an OAuth
-    // redirect URL on an app that has no OAuth flow.
+    // The regression this guards: resolveRedirectUrls falls back to
+    // http://localhost:3009/auth/callback in non-TTY runs, which would silently
+    // register an OAuth redirect URL on an app that has no OAuth flow.
     it('never prompts for or defaults a redirect URL', async () => {
       await createCommand(UI_FLAGS);
 
@@ -1109,59 +1108,71 @@ describe('app/create', () => {
       expect(JSON.stringify(payload)).not.toContain('localhost:3009');
     });
 
-    it('does not send the ui_app block to POST /apps', async () => {
+    it('does not send the snapshot to POST /apps', async () => {
       await createCommand(UI_FLAGS);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload).not.toHaveProperty('snapshot');
       expect(payload).not.toHaveProperty('ui_app');
     });
 
-    it('passes the collected ui_app block to the scaffold context', async () => {
+    // Field names must match app-store-backend's appSnapshot exactly.
+    it('builds the snapshot shape the platform consumes', async () => {
       await createCommand(UI_FLAGS);
 
-      expect(fetchAppContext).toHaveBeenCalledWith(
-        42,
-        false,
-        expect.objectContaining({
-          type: 'link',
-          properties: expect.objectContaining({
-            surface: 'contact',
-            title: 'Invoice Manager',
-            trigger: expect.objectContaining({
-              type: 'link',
-              externalUrl: 'https://example.com/brevo',
-              label: 'Invoice Manager',
-            }),
-          }),
-        }),
-      );
+      expect(collectedUiApp()).toEqual({
+        extensionType: 'action_link',
+        surfacePointList: ['contactDetails.headerMenu.action'],
+        heading: 'Invoice Manager',
+        redirectLink: 'https://example.com/brevo',
+        linkTarget: '_blank',
+      });
     });
 
-    it('defaults contextProperties to the spec set', async () => {
-      await createCommand(UI_FLAGS);
+    it('maps friendly --surface values onto action slot names', async () => {
+      await createCommand({ ...UI_FLAGS, surfaces: ['deal', 'company'] });
 
-      const uiApp = (fetchAppContext as jest.Mock).mock.calls[0][2];
-      expect(uiApp.properties.contextProperties).toEqual([
-        'firstname',
-        'lastname',
-        'email',
-        'phone',
-        'ext_id',
+      expect(collectedUiApp().surfacePointList).toEqual([
+        'dealDetails.headerMenu.action',
+        'companyDetails.headerMenu.action',
       ]);
     });
 
-    it('honours --surface, --cta-label and --context-property', async () => {
-      await createCommand({
-        ...UI_FLAGS,
-        surface: 'deal',
-        ctaLabel: 'Open invoices',
-        contextProperties: ['email'],
-      });
+    it('deduplicates repeated surfaces', async () => {
+      await createCommand({ ...UI_FLAGS, surfaces: ['contact', 'contact'] });
 
-      const uiApp = (fetchAppContext as jest.Mock).mock.calls[0][2];
-      expect(uiApp.properties.surface).toBe('deal');
-      expect(uiApp.properties.trigger.label).toBe('Open invoices');
-      expect(uiApp.properties.contextProperties).toEqual(['email']);
+      expect(collectedUiApp().surfacePointList).toEqual(['contactDetails.headerMenu.action']);
+    });
+
+    it('rejects an unknown --surface', async () => {
+      await expect(createCommand({ ...UI_FLAGS, surfaces: ['invoice'] })).rejects.toThrow(
+        /Invalid --surface/i,
+      );
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    it('omits subheading when not supplied rather than writing an empty string', async () => {
+      await createCommand(UI_FLAGS);
+
+      expect(collectedUiApp()).not.toHaveProperty('subheading');
+    });
+
+    it('includes subheading when supplied', async () => {
+      await createCommand({ ...UI_FLAGS, subheading: 'Review invoice history' });
+
+      expect(collectedUiApp().subheading).toBe('Review invoice history');
+    });
+
+    it('honours --link-target', async () => {
+      await createCommand({ ...UI_FLAGS, linkTarget: '_self' });
+
+      expect(collectedUiApp().linkTarget).toBe('_self');
+    });
+
+    it('rejects an invalid --link-target', async () => {
+      await expect(createCommand({ ...UI_FLAGS, linkTarget: '_top' })).rejects.toThrow(
+        /Invalid ui_app.linkTarget/i,
+      );
     });
 
     it('rejects an invalid --type', async () => {
@@ -1169,16 +1180,9 @@ describe('app/create', () => {
       expect(appService.createApp).not.toHaveBeenCalled();
     });
 
-    it('rejects a description over the 60-char cap', async () => {
-      await expect(createCommand({ ...UI_FLAGS, description: 'x'.repeat(61) })).rejects.toThrow(
-        /at most 60 characters/i,
-      );
-      expect(appService.createApp).not.toHaveBeenCalled();
-    });
-
-    it('rejects an insecure external URL', async () => {
+    it('rejects an insecure redirect link', async () => {
       await expect(
-        createCommand({ ...UI_FLAGS, externalUrl: 'http://example.com/brevo' }),
+        createCommand({ ...UI_FLAGS, redirectLink: 'http://example.com/brevo' }),
       ).rejects.toThrow(/must use https/i);
       expect(appService.createApp).not.toHaveBeenCalled();
     });
@@ -1192,7 +1196,7 @@ describe('app/create', () => {
 
       await expect(
         createCommand({ type: 'ui', name: 'Invoice Manager', distribution: 'private' }),
-      ).rejects.toThrow(/--title, --description, and --external-url/i);
+      ).rejects.toThrow(/--heading and --redirect-link/i);
       expect(appService.createApp).not.toHaveBeenCalled();
     });
 
@@ -1203,13 +1207,23 @@ describe('app/create', () => {
       expect(runFeatureScaffold).not.toHaveBeenCalled();
     });
 
-    it('renders the UI-app box instead of redirect URLs', async () => {
+    it('renders the UI-app box with the extension point, not redirect URLs', async () => {
       await createCommand(UI_FLAGS);
 
       const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
       expect(output).toContain('UI app created');
+      expect(output).toContain('contactDetails.headerMenu.action');
       expect(output).toContain('https://example.com/brevo');
       expect(output).not.toContain('Redirect URL');
+    });
+
+    // There is no per-action label on the platform — the menu entry uses the app
+    // name — so the box says so explicitly.
+    it('explains that the menu label comes from the app name', async () => {
+      await createCommand(UI_FLAGS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).toMatch(/labelled with the app name/i);
     });
 
     it('includes appType and uiApp in --json output, without redirectUri', async () => {
@@ -1217,7 +1231,7 @@ describe('app/create', () => {
 
       const parsed = JSON.parse(stdoutSpy.mock.calls.map((c) => String(c[0])).join(''));
       expect(parsed.appType).toBe('ui');
-      expect(parsed.uiApp.properties.title).toBe('Invoice Manager');
+      expect(parsed.uiApp.extensionType).toBe('action_link');
       expect(parsed).not.toHaveProperty('redirectUri');
     });
   });

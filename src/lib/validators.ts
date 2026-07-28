@@ -1,5 +1,12 @@
 import { CliError } from './errors';
-import { LEGACY_ALL_SCOPE, UI_APP_DESCRIPTION_MAX_LENGTH, UI_APP_SURFACES } from './constants';
+import {
+  LEGACY_ALL_SCOPE,
+  EXTENSION_POINTS,
+  EXTENSION_ACTION_POINTS,
+  EXTENSION_TYPE_ACTION_LINK,
+  EXTENSION_TYPE_IFRAME,
+  LINK_TARGETS,
+} from './constants';
 
 const APP_NAME_MAX_LENGTH = 48;
 const APP_NAME_REGEX = /^[a-zA-Z0-9 ._\-\u00C0-\u024F]+$/;
@@ -145,11 +152,12 @@ export function containsLegacyAllScope(scopes: string[] | undefined): boolean {
 /**
  * Whether an HTTP(S) URL is safe as a UI-app destination.
  *
- * Brevo opens this URL from an authenticated CRM page, so plain http would
- * downgrade the user's session over the wire. https is required, with the same
- * loopback exemption the rest of the CLI grants (see `isLocalHttpAllowed` in
- * lib/constants) so partners can point a UI app at a local dev server while
- * building it.
+ * The extensibility UI kit drops any non-http(s) `redirectLink` outright
+ * (`isHttpUrl` in its shared utils), so anything else would be authored and then
+ * silently ignored. On top of that, Brevo opens this URL from an authenticated
+ * CRM page, so plain http would downgrade the session — https is required, with
+ * the loopback exemption the rest of the CLI grants so partners can point at a
+ * local dev server while building.
  */
 function isSafeUiAppUrl(parsed: URL): boolean {
   if (parsed.protocol === 'https:') return true;
@@ -162,8 +170,8 @@ function isSafeUiAppUrl(parsed: URL): boolean {
 }
 
 /**
- * Validate a UI-app destination URL. Returns `true` or an error string, so it
- * can back an inquirer `validate` directly as well as the upload-time check.
+ * Validate a UI-app destination URL. Returns `true` or an error string, so it can
+ * back an inquirer `validate` directly as well as the upload-time check.
  */
 export function validateUiAppUrl(value: string): true | string {
   const trimmed = value.trim();
@@ -180,36 +188,39 @@ export function validateUiAppUrl(value: string): true | string {
   return true;
 }
 
-/**
- * Validate a UI-app title. Returns `true` or an error string.
- */
-export function validateUiAppTitle(value: string): true | string {
-  return value.trim() ? true : 'Title cannot be empty.';
+/** Validate a UI-app heading. Returns `true` or an error string. */
+export function validateUiAppHeading(value: string): true | string {
+  return value.trim() ? true : 'Heading cannot be empty.';
 }
 
 /**
- * Validate a UI-app description against the spec's tooltip length cap.
- * Returns `true` or an error string.
+ * Validate an extension-point slot name against the known registry.
+ *
+ * This is the highest-value local check in the UI-app flow. The backend silently
+ * DROPS an authored name with no `extension_points` row, and the UI kit matches
+ * names by exact string equality — so a near-miss like `contact.headerMenu.action`
+ * or `contactDetails.headerMenu.widget` produces an empty slot, a 200, and no
+ * error anywhere. Catching it here is the only place a partner gets told.
  */
-export function validateUiAppDescription(value: string): true | string {
-  const trimmed = value.trim();
-  if (!trimmed) return 'Description cannot be empty.';
-  if (trimmed.length > UI_APP_DESCRIPTION_MAX_LENGTH) {
-    return `Description must be at most ${UI_APP_DESCRIPTION_MAX_LENGTH} characters (got ${trimmed.length}).`;
-  }
-  return true;
+export function validateExtensionPointName(name: string): true | string {
+  const trimmed = String(name ?? '').trim();
+  if (!trimmed) return 'Extension point cannot be empty.';
+  if (EXTENSION_POINTS.includes(trimmed)) return true;
+  return `Unknown extension point "${trimmed}". Must be one of: ${EXTENSION_POINTS.join(', ')}.`;
 }
 
 /**
  * Fully validate a `ui_app` block before it is sent to the server.
  *
- * The app-store backend is the validation authority; this is a local pre-flight
- * so a partner gets a precise, offline error instead of an opaque 4xx. Throws
- * CliError on the first problem found.
+ * The block is the app-store backend's `app_versions.snapshot` payload verbatim.
+ * Every field below is optional on the wire — the backend degrades a malformed or
+ * absent snapshot to "not yet migrated" rather than erroring — which means the
+ * server will NOT tell a partner their action link is unrenderable. This
+ * pre-flight is therefore the only enforcement point, so it is deliberately
+ * stricter than the wire: it requires the fields an action link actually needs to
+ * render, and rejects combinations the consumers silently discard.
  *
- * Only the action-link shape (`type: 'link'`, `trigger.type: 'link'`) is
- * accepted: the other union members are typed for round-tripping and future
- * scope, but the CLI must not push a config the platform cannot render yet.
+ * Throws CliError on the first problem found.
  */
 export function validateUiApp(uiApp: unknown): void {
   if (!uiApp || typeof uiApp !== 'object') {
@@ -219,61 +230,54 @@ export function validateUiApp(uiApp: unknown): void {
   }
   const block = uiApp as Record<string, unknown>;
 
-  if (block.type !== 'link') {
+  // Only action links are authorable. `legacy_component` is the PandaDoc
+  // interpreter path (never CLI-authored) and `iframe_extension` needs the modal
+  // surface that isn't built yet.
+  if (block.extensionType !== EXTENSION_TYPE_ACTION_LINK) {
     throw new CliError(
-      `Unsupported ui_app.type "${String(block.type)}". Only "link" (action link) can be uploaded today — modal cards, widgets, and cloud functions are not available yet.`,
+      `Unsupported ui_app.extensionType "${String(block.extensionType)}". Only "${EXTENSION_TYPE_ACTION_LINK}" can be uploaded today.`,
     );
   }
 
-  const props = block.properties;
-  if (!props || typeof props !== 'object') {
-    throw new CliError('app-config.json is missing "ui_app.properties".');
-  }
-  const properties = props as Record<string, unknown>;
-
-  if (typeof properties.surface !== 'string' || !UI_APP_SURFACES.includes(properties.surface)) {
+  const points = block.surfacePointList;
+  if (!Array.isArray(points) || points.length === 0) {
     throw new CliError(
-      `Invalid ui_app.properties.surface "${String(properties.surface)}". Must be one of: ${UI_APP_SURFACES.join(', ')}.`,
+      'ui_app.surfacePointList must list at least one extension point (e.g. ["contactDetails.headerMenu.action"]). An empty list makes the platform fall back to default widget slots, which an action link cannot render in.',
+    );
+  }
+  for (const point of points) {
+    const check = validateExtensionPointName(String(point));
+    if (check !== true) throw new CliError(`ui_app.surfacePointList: ${check}`);
+    // An action link yields a menu descriptor, so it can only occupy an action
+    // slot; targeting a `.widget` slot registers it somewhere it never renders.
+    if (!EXTENSION_ACTION_POINTS.includes(String(point).trim())) {
+      throw new CliError(
+        `ui_app.surfacePointList: "${String(point)}" is a widget slot, but an ${EXTENSION_TYPE_ACTION_LINK} renders as a menu action. Use one of: ${EXTENSION_ACTION_POINTS.join(', ')}.`,
+      );
+    }
+  }
+  if (new Set(points.map((p) => String(p).trim())).size !== points.length) {
+    throw new CliError('ui_app.surfacePointList contains duplicate extension points.');
+  }
+
+  const headingCheck = validateUiAppHeading(String(block.heading ?? ''));
+  if (headingCheck !== true) throw new CliError(`ui_app.heading: ${headingCheck}`);
+
+  const urlCheck = validateUiAppUrl(String(block.redirectLink ?? ''));
+  if (urlCheck !== true) throw new CliError(`ui_app.redirectLink: ${urlCheck}`);
+
+  if (block.linkTarget !== undefined && !LINK_TARGETS.includes(String(block.linkTarget))) {
+    throw new CliError(
+      `Invalid ui_app.linkTarget "${String(block.linkTarget)}". Must be one of: ${LINK_TARGETS.join(', ')}.`,
     );
   }
 
-  const titleCheck = validateUiAppTitle(String(properties.title ?? ''));
-  if (titleCheck !== true) throw new CliError(`ui_app.properties.title: ${titleCheck}`);
-
-  const descCheck = validateUiAppDescription(String(properties.description ?? ''));
-  if (descCheck !== true) throw new CliError(`ui_app.properties.description: ${descCheck}`);
-
-  const contextProperties = properties.contextProperties;
-  if (
-    !Array.isArray(contextProperties) ||
-    contextProperties.length === 0 ||
-    contextProperties.some((p) => typeof p !== 'string' || !p.trim())
-  ) {
+  // The UI kit keeps `modalIframeUrl` only for an `iframe_extension` item, so one
+  // carried by an action_link is dropped without a word. Reject rather than let a
+  // partner ship a URL that will never open.
+  if (block.modalIframeUrl !== undefined && String(block.modalIframeUrl).trim()) {
     throw new CliError(
-      'ui_app.properties.contextProperties must be a non-empty array of record attribute names (e.g. ["firstname", "email"]).',
-    );
-  }
-
-  const trig = properties.trigger;
-  if (!trig || typeof trig !== 'object') {
-    throw new CliError('app-config.json is missing "ui_app.properties.trigger".');
-  }
-  const trigger = trig as Record<string, unknown>;
-
-  if (trigger.type !== 'link') {
-    throw new CliError(
-      `Unsupported ui_app.properties.trigger.type "${String(trigger.type)}". Only "link" is available today — the "modal" trigger is not supported yet.`,
-    );
-  }
-
-  const urlCheck = validateUiAppUrl(String(trigger.externalUrl ?? ''));
-  if (urlCheck !== true) {
-    throw new CliError(`ui_app.properties.trigger.externalUrl: ${urlCheck}`);
-  }
-
-  if (typeof trigger.label !== 'string' || !trigger.label.trim()) {
-    throw new CliError(
-      'ui_app.properties.trigger.label cannot be empty — it is the text shown in the record action menu.',
+      `ui_app.modalIframeUrl is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirectLink instead.`,
     );
   }
 }

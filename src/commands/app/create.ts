@@ -6,11 +6,15 @@ import {
   DEFAULT_PORT,
   DEFAULT_REDIRECT_URI,
   DEFAULT_SCOPES,
-  DEFAULT_UI_APP_CONTEXT_PROPERTIES,
+  DEFAULT_LINK_TARGET,
   DEFAULT_UI_APP_SCOPES,
   DEFAULT_UI_APP_SURFACE,
-  UI_APP_DESCRIPTION_MAX_LENGTH,
+  EXTENSION_TYPE_ACTION_LINK,
+  EXTENSION_TYPE_IFRAME,
+  LINK_TARGETS,
+  UI_APP_SURFACE_TO_LOCATION,
   UI_APP_SURFACES,
+  actionPointForLocation,
 } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
 import { logInfo, logError } from '../../lib/logger';
@@ -22,8 +26,7 @@ import {
   validateEnum,
   validateAppName,
   validateUiApp,
-  validateUiAppDescription,
-  validateUiAppTitle,
+  validateUiAppHeading,
   validateUiAppUrl,
 } from '../../lib/validators';
 import { printBox, createSpinner } from '../../lib/ui';
@@ -269,30 +272,34 @@ async function resolveLogoUri(
 }
 
 // 4b. UI-app configuration (BEX-290) — replaces the redirect-URL step for UI
-//     apps. Only the "External link" trigger is buildable today; the other three
+//     apps. Only the action link is buildable today; the other delivery paths
 //     appear as disabled choices so the roadmap is visible where the decision is
-//     made, mirroring the spec's own greyed-out options.
+//     made.
+//
+//     The collected block is the app-store backend's `app_versions.snapshot`
+//     payload verbatim, so there is no vocabulary translation between what a
+//     partner authors and what the platform renders.
 interface UiAppFlags {
-  surface?: string;
-  title?: string;
-  description?: string;
-  externalUrl?: string;
-  ctaLabel?: string;
-  contextProperties?: string[];
+  /** Repeatable friendly record type(s): contact | company | deal. */
+  surfaces?: string[];
+  heading?: string;
+  subheading?: string;
+  redirectLink?: string;
+  linkTarget?: string;
 }
 
-async function promptUiTriggerType(): Promise<void> {
-  const { trigger } = await inquirer.prompt([
+async function promptUiExtensionType(): Promise<void> {
+  const { extensionType } = await inquirer.prompt([
     {
       type: 'list',
-      name: 'trigger',
+      name: 'extensionType',
       message: messages.APP_CREATE_UI_TRIGGER_PROMPT,
       choices: [
-        { name: messages.APP_CREATE_UI_TRIGGER_LINK, value: 'link' },
+        { name: messages.APP_CREATE_UI_TRIGGER_LINK, value: EXTENSION_TYPE_ACTION_LINK },
         new inquirer.Separator(),
         {
           name: messages.APP_CREATE_UI_TRIGGER_MODAL,
-          value: 'modal',
+          value: EXTENSION_TYPE_IFRAME,
           disabled: 'not yet supported',
         },
         {
@@ -300,39 +307,51 @@ async function promptUiTriggerType(): Promise<void> {
           value: 'widget',
           disabled: 'not yet supported',
         },
-        {
-          name: messages.APP_CREATE_UI_TRIGGER_FUNCTION,
-          value: 'function',
-          disabled: 'not yet supported',
-        },
       ],
     },
   ]);
   // Defensive: inquirer won't return a disabled choice, but a future edit that
   // enables one before the rest of the pipeline supports it should fail loudly
-  // rather than push an unrenderable config.
-  if (trigger !== 'link') {
-    throw new CliError(messages.APP_CREATE_UI_TRIGGER_UNSUPPORTED(String(trigger)));
+  // rather than push a config the platform silently drops.
+  if (extensionType !== EXTENSION_TYPE_ACTION_LINK) {
+    throw new CliError(messages.APP_CREATE_UI_TRIGGER_UNSUPPORTED(String(extensionType)));
   }
 }
 
+// Map friendly `--surface` values onto action slot names. Unknown values fail
+// here rather than being written and then silently dropped by the platform.
+function toActionPoints(surfaces: string[]): string[] {
+  const points: string[] = [];
+  for (const surface of surfaces) {
+    const key = String(surface).trim().toLowerCase();
+    const location = UI_APP_SURFACE_TO_LOCATION[key];
+    if (!location) {
+      throw new CliError(
+        `Invalid --surface "${surface}". Must be one of: ${UI_APP_SURFACES.join(', ')}.`,
+      );
+    }
+    const point = actionPointForLocation(location);
+    if (!points.includes(point)) points.push(point);
+  }
+  return points;
+}
+
 async function resolveUiApp(flags: UiAppFlags, interactive: boolean): Promise<UiApp> {
-  // Three flags fully specify an action link; everything else has a spec-defined
-  // default. When they're all present we take the flag path even on a TTY, so
-  // `brevo app create --type ui --title ... --description ... --external-url ...`
+  // Two flags fully specify an action link; everything else has a default. When
+  // both are present we take the flag path even on a TTY, so a scripted run
   // behaves identically whether or not a terminal is attached.
-  const fullySpecifiedByFlags = !!(flags.title && flags.description && flags.externalUrl);
+  const fullySpecifiedByFlags = !!(flags.heading && flags.redirectLink);
   const shouldPrompt = interactive && !fullySpecifiedByFlags;
   if (!shouldPrompt && !fullySpecifiedByFlags) {
     throw new CliError(messages.APP_CREATE_UI_NON_INTERACTIVE);
   }
 
   if (shouldPrompt) {
-    await promptUiTriggerType();
+    await promptUiExtensionType();
   }
 
   // Ask a single question when prompting is appropriate, otherwise take the
-  // spec-defined default. Keeps the flag path and the prompt path from drifting.
+  // default. Keeps the flag path and the prompt path from drifting.
   const ask = async (question: { name: string } & Record<string, unknown>, fallback: string) => {
     if (!shouldPrompt) return fallback;
     const answers = (await inquirer.prompt([question])) as Record<string, unknown>;
@@ -340,92 +359,87 @@ async function resolveUiApp(flags: UiAppFlags, interactive: boolean): Promise<Ui
     return answer == null ? fallback : String(answer);
   };
 
-  const surface =
-    flags.surface ??
-    (await ask(
-      {
-        type: 'list',
-        name: 'surface',
-        message: messages.APP_CREATE_UI_SURFACE_PROMPT,
-        default: DEFAULT_UI_APP_SURFACE,
-        choices: [...UI_APP_SURFACES],
-      },
-      DEFAULT_UI_APP_SURFACE,
-    ));
+  const surfaces =
+    flags.surfaces && flags.surfaces.length > 0
+      ? flags.surfaces
+      : shouldPrompt
+        ? ((
+            await inquirer.prompt([
+              {
+                type: 'checkbox',
+                name: 'surfaces',
+                message: messages.APP_CREATE_UI_SURFACE_PROMPT,
+                choices: [...UI_APP_SURFACES],
+                default: [DEFAULT_UI_APP_SURFACE],
+                validate: (picked: unknown[]) =>
+                  picked.length > 0 || messages.APP_CREATE_UI_SURFACE_REQUIRED,
+              },
+            ])
+          ).surfaces as string[])
+        : [DEFAULT_UI_APP_SURFACE];
 
-  const title =
-    flags.title ??
+  const heading =
+    flags.heading ??
     (await ask(
       {
         type: 'input',
-        name: 'title',
-        message: messages.APP_CREATE_UI_TITLE_PROMPT,
-        validate: validateUiAppTitle,
-      },
-      '',
-    ));
-
-  const description =
-    flags.description ??
-    (await ask(
-      {
-        type: 'input',
-        name: 'description',
-        message: messages.APP_CREATE_UI_DESCRIPTION_PROMPT(UI_APP_DESCRIPTION_MAX_LENGTH),
-        validate: validateUiAppDescription,
+        name: 'heading',
+        message: messages.APP_CREATE_UI_HEADING_PROMPT,
+        validate: validateUiAppHeading,
       },
       '',
     ));
 
-  const externalUrl =
-    flags.externalUrl ??
+  const subheading =
+    flags.subheading ??
     (await ask(
       {
         type: 'input',
-        name: 'externalUrl',
-        message: messages.APP_CREATE_UI_EXTERNAL_URL_PROMPT,
+        name: 'subheading',
+        message: messages.APP_CREATE_UI_SUBHEADING_PROMPT,
+      },
+      '',
+    ));
+
+  const redirectLink =
+    flags.redirectLink ??
+    (await ask(
+      {
+        type: 'input',
+        name: 'redirectLink',
+        message: messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
         validate: validateUiAppUrl,
       },
       '',
     ));
 
-  // The action-menu label defaults to the title — the spec's external-link flow
-  // doesn't ask for it separately (only the modal-card flow has a distinct CTA),
-  // but the stored config carries it, so keep it overridable.
-  const label =
-    flags.ctaLabel ??
+  const linkTarget =
+    flags.linkTarget ??
     (await ask(
       {
-        type: 'input',
-        name: 'label',
-        message: messages.APP_CREATE_UI_CTA_LABEL_PROMPT,
-        default: String(title).trim(),
-        validate: validateUiAppTitle,
+        type: 'list',
+        name: 'linkTarget',
+        message: messages.APP_CREATE_UI_LINK_TARGET_PROMPT,
+        choices: [...LINK_TARGETS],
+        default: DEFAULT_LINK_TARGET,
       },
-      String(title).trim(),
+      DEFAULT_LINK_TARGET,
     ));
 
   const uiApp: UiApp = {
-    type: 'link',
-    properties: {
-      surface: String(surface).trim() as UiApp['properties']['surface'],
-      title: String(title).trim(),
-      description: String(description).trim(),
-      contextProperties:
-        flags.contextProperties && flags.contextProperties.length > 0
-          ? flags.contextProperties
-          : [...DEFAULT_UI_APP_CONTEXT_PROPERTIES],
-      trigger: {
-        type: 'link',
-        externalUrl: String(externalUrl).trim(),
-        label: String(label).trim(),
-      },
-    },
+    extensionType: EXTENSION_TYPE_ACTION_LINK,
+    surfacePointList: toActionPoints(surfaces ?? []),
+    heading: String(heading).trim(),
+    // Omitted rather than written empty: the kit only renders it when set, and an
+    // empty string would show up as a spurious diff on every upload.
+    ...(String(subheading).trim() ? { subheading: String(subheading).trim() } : {}),
+    redirectLink: String(redirectLink).trim(),
+    linkTarget: String(linkTarget).trim() as UiApp['linkTarget'],
   };
 
   // Re-run the full server-facing validation on the assembled block: the
-  // per-prompt validators cover interactive input, but flag-supplied values
-  // reach here unchecked.
+  // per-prompt validators cover interactive input, but flag-supplied values reach
+  // here unchecked.
   validateUiApp(uiApp);
   return uiApp;
 }
@@ -566,23 +580,26 @@ function renderCreatedUiApp(
   uiApp: UiApp,
   logoUri?: string,
 ): void {
-  const { properties } = uiApp;
   const boxLines = [
     `App name:       ${appName}`,
     `App ID:         ${result.app_id}`,
     `Client ID:      ${result.client_id}`,
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
-    `Type:           ${uiApp.type} (${properties.trigger.type})`,
-    `Record type:    ${properties.surface}`,
-    `Title:          ${properties.title}`,
-    `Description:    ${properties.description}`,
-    `Action label:   ${properties.trigger.label}`,
-    `External URL:   ${properties.trigger.externalUrl}`,
+    `Extension type: ${uiApp.extensionType}`,
+    ...uiApp.surfacePointList.map(
+      (point, i) => `${i === 0 ? 'Extension point:' : '                '} ${point}`,
+    ),
+    `Heading:        ${uiApp.heading ?? ''}`,
+    ...(uiApp.subheading ? [`Subheading:     ${uiApp.subheading}`] : []),
+    `Redirect link:  ${uiApp.redirectLink ?? ''}`,
+    `Link target:    ${uiApp.linkTarget ?? DEFAULT_LINK_TARGET}`,
     ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
     `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_UI_APP_SCOPES].join(', ')}`,
-    `${messages.APP_CREATE_UI_BOX_CONTEXT_LABEL} ${properties.contextProperties.join(', ')}`,
     '',
+    // The menu entry is labelled with the app name, not a per-action label —
+    // worth stating, since it's the one place a partner might expect a field.
+    messages.APP_CREATE_UI_BOX_LABEL_NOTE(appName),
     messages.APP_CREATE_UI_BOX_HINT,
   ];
   printBox(messages.APP_CREATE_UI_BOX_TITLE, boxLines);
@@ -595,12 +612,11 @@ export const createCommand = withCommandHandler(
     distribution?: string;
     redirectUri?: string[];
     logoUri?: string;
-    surface?: string;
-    title?: string;
-    description?: string;
-    externalUrl?: string;
-    ctaLabel?: string;
-    contextProperties?: string[];
+    surfaces?: string[];
+    heading?: string;
+    subheading?: string;
+    redirectLink?: string;
+    linkTarget?: string;
     json?: boolean;
   }): Promise<void> => {
     const jsonMode = !!options.json;
@@ -621,12 +637,11 @@ export const createCommand = withCommandHandler(
     if (appType === 'ui') {
       uiApp = await resolveUiApp(
         {
-          surface: options.surface,
-          title: options.title,
-          description: options.description,
-          externalUrl: options.externalUrl,
-          ctaLabel: options.ctaLabel,
-          contextProperties: options.contextProperties,
+          surfaces: options.surfaces,
+          heading: options.heading,
+          subheading: options.subheading,
+          redirectLink: options.redirectLink,
+          linkTarget: options.linkTarget,
         },
         interactive,
       );

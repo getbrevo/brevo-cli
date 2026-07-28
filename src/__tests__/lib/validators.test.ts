@@ -8,9 +8,9 @@ import {
   containsLegacyAllScope,
   parseAccountId,
   validateUiApp,
-  validateUiAppDescription,
-  validateUiAppTitle,
+  validateUiAppHeading,
   validateUiAppUrl,
+  validateExtensionPointName,
 } from '../../lib/validators';
 import { CliError } from '../../lib/errors';
 
@@ -238,11 +238,11 @@ describe('containsLegacyAllScope', () => {
 
 describe('validateUiAppUrl', () => {
   it.each([
-    ['https URL', 'https://example.com/brevo', true],
-    ['https with path and query', 'https://example.com/a?b=c', true],
+    ['https URL', 'https://example.com/brevo'],
+    ['https with path and query', 'https://example.com/a?b=c'],
     // Loopback http is allowed so a partner can point at a local dev server.
-    ['http on localhost', 'http://localhost:3000/card', true],
-    ['http on 127.0.0.1', 'http://127.0.0.1:3000/card', true],
+    ['http on localhost', 'http://localhost:3000/card'],
+    ['http on 127.0.0.1', 'http://127.0.0.1:3000/card'],
   ])('accepts a %s', (_label, url) => {
     expect(validateUiAppUrl(url)).toBe(true);
   });
@@ -258,25 +258,38 @@ describe('validateUiAppUrl', () => {
   });
 });
 
-describe('validateUiAppDescription', () => {
-  it('accepts a description at exactly the 60-char cap', () => {
-    expect(validateUiAppDescription('x'.repeat(60))).toBe(true);
-  });
-
-  it('rejects one character over the cap', () => {
-    expect(validateUiAppDescription('x'.repeat(61))).toMatch(/at most 60 characters/);
-  });
-
-  it('rejects an empty or whitespace-only description', () => {
-    expect(validateUiAppDescription('')).not.toBe(true);
-    expect(validateUiAppDescription('   ')).not.toBe(true);
+describe('validateUiAppHeading', () => {
+  it('accepts a non-empty heading and rejects whitespace-only', () => {
+    expect(validateUiAppHeading('Invoice Manager')).toBe(true);
+    expect(validateUiAppHeading('  ')).not.toBe(true);
   });
 });
 
-describe('validateUiAppTitle', () => {
-  it('accepts a non-empty title and rejects whitespace-only', () => {
-    expect(validateUiAppTitle('Invoice Manager')).toBe(true);
-    expect(validateUiAppTitle('  ')).not.toBe(true);
+// Slot names are matched by exact string equality by the UI kit, and an authored
+// name with no registry row is silently dropped by the backend — so this is the
+// only place a typo ever surfaces.
+describe('validateExtensionPointName', () => {
+  it.each([
+    ['contactDetails.headerMenu.action'],
+    ['dealDetails.headerMenu.action'],
+    ['companyDetails.headerMenu.action'],
+    ['contactDetails.overviewMain.widget'],
+    ['dealDetails.overviewAttributes.widget'],
+    ['companyDetails.overviewSidebar.widget'],
+  ])('accepts the registered point %s', (name) => {
+    expect(validateExtensionPointName(name)).toBe(true);
+  });
+
+  it.each([
+    ['the pre-BEX-350 region grammar', 'contact.center.region'],
+    ['the pre-BEX-350 action grammar', 'contact.header.action'],
+    ['a bare record type instead of the page', 'contact.headerMenu.action'],
+    ['a wrong kind for the place', 'contactDetails.headerMenu.widget'],
+    ['a location not in the registry', 'quoteDetails.headerMenu.action'],
+    ['wrong casing', 'contactdetails.headerMenu.action'],
+    ['an empty value', ''],
+  ])('rejects %s', (_label, name) => {
+    expect(validateExtensionPointName(name)).not.toBe(true);
   });
 });
 
@@ -297,68 +310,69 @@ describe('parseAccountId', () => {
 
 describe('validateUiApp', () => {
   const VALID = {
-    type: 'link',
-    properties: {
-      surface: 'contact',
-      title: 'Invoice Manager',
-      description: 'Review invoice history for this contact',
-      contextProperties: ['firstname', 'email'],
-      trigger: {
-        type: 'link',
-        externalUrl: 'https://example.com/brevo',
-        label: 'Invoice Manager',
-      },
-    },
+    extensionType: 'action_link',
+    surfacePointList: ['contactDetails.headerMenu.action'],
+    heading: 'Invoice Manager',
+    subheading: 'Review invoice history for this contact',
+    redirectLink: 'https://example.com/brevo',
+    linkTarget: '_blank',
   };
 
   it('accepts a well-formed action link', () => {
     expect(() => validateUiApp(VALID)).not.toThrow();
   });
 
+  it('accepts one without a subheading or linkTarget', () => {
+    const { subheading: _s, linkTarget: _l, ...rest } = VALID;
+    expect(() => validateUiApp(rest)).not.toThrow();
+  });
+
+  it('accepts several action slots', () => {
+    expect(() =>
+      validateUiApp({
+        ...VALID,
+        surfacePointList: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+      }),
+    ).not.toThrow();
+  });
+
   it.each([
     ['not an object', 'nope'],
     ['null', null],
-    ['a missing properties block', { type: 'link' }],
+    ['a missing extensionType', { ...VALID, extensionType: undefined }],
+    ['an empty surfacePointList', { ...VALID, surfacePointList: [] }],
+    ['a missing surfacePointList', { ...VALID, surfacePointList: undefined }],
+    ['an unregistered point', { ...VALID, surfacePointList: ['contact.header.action'] }],
     [
-      'a missing trigger',
-      { type: 'link', properties: { ...VALID.properties, trigger: undefined } },
-    ],
-    ['an unknown surface', { ...VALID, properties: { ...VALID.properties, surface: 'invoice' } }],
-    ['an empty title', { ...VALID, properties: { ...VALID.properties, title: '  ' } }],
-    [
-      'empty contextProperties',
-      { ...VALID, properties: { ...VALID.properties, contextProperties: [] } },
+      'a widget slot for an action link',
+      { ...VALID, surfacePointList: ['contactDetails.overviewMain.widget'] },
     ],
     [
-      'non-string contextProperties',
-      { ...VALID, properties: { ...VALID.properties, contextProperties: [1] } },
-    ],
-    [
-      'an empty trigger label',
+      'duplicate points',
       {
         ...VALID,
-        properties: { ...VALID.properties, trigger: { ...VALID.properties.trigger, label: '' } },
+        surfacePointList: ['contactDetails.headerMenu.action', 'contactDetails.headerMenu.action'],
       },
     ],
+    ['an empty heading', { ...VALID, heading: '  ' }],
+    ['a missing redirectLink', { ...VALID, redirectLink: undefined }],
+    ['an insecure redirectLink', { ...VALID, redirectLink: 'http://example.com' }],
+    ['an unknown linkTarget', { ...VALID, linkTarget: '_top' }],
   ])('rejects %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(CliError);
   });
 
-  // Types beyond the action link are typed for round-tripping and future scope,
-  // but must not be pushable while the platform can't render them.
-  it.each([['card'], ['widget'], ['function']])('rejects the not-yet-supported %s type', (type) => {
-    expect(() => validateUiApp({ ...VALID, type })).toThrow(/not available yet/i);
+  // Types beyond the action link exist on the platform but the CLI can't author
+  // them yet — pushing one would produce a config nothing renders.
+  it.each([['iframe_extension'], ['legacy_component']])('rejects the %s type', (extensionType) => {
+    expect(() => validateUiApp({ ...VALID, extensionType })).toThrow(/Unsupported/i);
   });
 
-  it('rejects the modal trigger as not yet supported', () => {
-    expect(() =>
-      validateUiApp({
-        ...VALID,
-        properties: {
-          ...VALID.properties,
-          trigger: { ...VALID.properties.trigger, type: 'modal' },
-        },
-      }),
-    ).toThrow(/not supported yet/i);
+  // The UI kit keeps modalIframeUrl only for iframe_extension, so one on an
+  // action link is silently discarded.
+  it('rejects modalIframeUrl on an action link', () => {
+    expect(() => validateUiApp({ ...VALID, modalIframeUrl: 'https://example.com/modal' })).toThrow(
+      /only used by/i,
+    );
   });
 });

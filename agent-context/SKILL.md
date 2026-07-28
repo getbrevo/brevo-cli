@@ -74,7 +74,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 - "Update app metadata" → edit the relevant field(s) in `app-config.json` (`appName`, `auth.redirectUrls`, `auth.scopes`, `logoUri`, `distribution_type`, `version`), then run `brevo app upload --json` (no `--app-id`/`--name`/`--redirect-uri`/`--scope`/`--logo-uri` flags exist — `upload` always pushes the whole file, resolved only from cwd's `app-config.json`)
 - "Get client credentials" → `brevo app credentials --app-id <id> --json` (add `--reveal-secret` to print the secret)
 - "Add a feature (e.g. the OAuth test server) to an existing project" → `brevo app scaffold` (run **inside** the project directory; it reads the linked app from `app-config.json` — no `--app-id`). Not needed right after `app create` if you already accepted the feature prompt there. If feature files already exist it prompts Overwrite / Merge / Cancel (default Merge); pass `--overwrite` to force a full overwrite without prompting. **The scaffolded OAuth flow branches on the app's `distribution_type`:** a **public** app gets a PKCE (RFC 7636) flow — `/auth/login` sends `code_challenge`+`code_challenge_method=S256`, `/auth/callback` sends `code_verifier`, and **no client secret** is used (the scaffolded `.env.local`/`.env.example` carry no `CLIENT_SECRET`); a **private** app keeps the confidential-client flow (authenticates the token exchange with `CLIENT_SECRET`).
-- "Create a UI app / action link" → **not available yet** (see the UI-apps notice above). For reference: `brevo app create --type ui --name "<name>" --title "<title>" --description "<≤60 chars>" --external-url https://… [--surface contact|deal|company|object] [--cta-label "<label>"] [--context-property <name> …] --json`. `--type` accepts `oauth` (default) or `ui`. The UI path **never** collects redirect URLs — an action link has no OAuth callback, so `redirect_uris` is omitted from the create call entirely. Defaults: `surface` `contact`, scopes `contacts:read`/`contacts:write` (narrower than the OAuth defaults), `contextProperties` `firstname`/`lastname`/`email`/`phone`/`ext_id`, and `--cta-label` falls back to the title. `--title`, `--description`, and `--external-url` are required in non-interactive runs. No feature is ever scaffolded for a UI app (there is no local server to run).
+- "Create a UI app / action link" → **not available yet** (see the UI-apps notice above). For reference: `brevo app create --type ui --name "<name>" --heading "<text>" --redirect-link https://… [--surface contact|company|deal …] [--subheading "<text>"] [--link-target _blank|_self] --json`. `--type` accepts `oauth` (default) or `ui`. `--surface` is **repeatable** — one action link can appear on several record pages. The UI path **never** collects redirect URLs — an action link has no OAuth callback, so `redirect_uris` is omitted from the create call entirely. Defaults: `surface` `contact`, `linkTarget` `_blank`, scopes `contacts:read`/`contacts:write` (narrower than the OAuth defaults). `--heading` and `--redirect-link` are required in non-interactive runs. No feature is ever scaffolded for a UI app (there is no local server to run). **There is no per-action label** — the menu entry is labelled with the *app name*, so rename the app to change it.
 - "Run the OAuth test server" → `brevo app start oauth --port 3009` (must be inside the scaffolded directory)
 - "Make a UI app available in an account" → **not available yet** (see the UI-apps notice above). For reference: `brevo app deploy <account-id> [--app-id <id>] [--force] [--json]`. Refuses with *"Please first validate your configuration with `brevo app upload`"* until the app has been uploaded (locally detected via a missing `version` in `app-config.json`; the server's rejection maps to the same message). `<account-id>` must be numeric.
 - "Remove a UI app from an account" → **not available yet** (see the UI-apps notice above). For reference: `brevo app remove <account-id> [--app-id <id>] [--force] [--json]`. Has no upload gate. If the app isn't deployed to that account it reports so and exits `0` — not an error (`{"removed": false, "reason": "NOT_DEPLOYED"}` under `--json`), so teardown scripts stay idempotent.
@@ -107,26 +107,28 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 
 A UI app's `app-config.json` carries a top-level `ui_app` object and **no** `auth.redirectUrls`. Its presence is how the CLI distinguishes the two app types.
 
+The block is the app-store backend's `app_versions.snapshot` payload **field for field** — the same names the platform stores, serves and renders. Do not invent alternatives:
+
 ```json
 {
   "ui_app": {
-    "type": "link",
-    "properties": {
-      "surface": "contact",
-      "title": "Invoice Manager",
-      "description": "Review invoice history for this contact",
-      "contextProperties": ["firstname", "lastname", "email", "phone", "ext_id"],
-      "trigger": {
-        "type": "link",
-        "externalUrl": "https://example.com/brevo",
-        "label": "Invoice Manager"
-      }
-    }
+    "extensionType": "action_link",
+    "surfacePointList": ["contactDetails.headerMenu.action"],
+    "heading": "Invoice Manager",
+    "subheading": "Review invoice history for this contact",
+    "redirectLink": "https://example.com/brevo",
+    "linkTarget": "_blank"
   }
 }
 ```
 
-`brevo app upload` sends this block as `ui_app` for UI apps and validates it locally first: `type` must be `link`, `trigger.type` must be `link`, `surface` ∈ `contact`/`deal`/`company`/`object`, `title` and `trigger.label` non-empty, `description` ≤ 60 characters, `contextProperties` a non-empty string array, and `trigger.externalUrl` an **https** URL (`http://` is accepted only for `localhost`/`127.0.0.1`). `card`, `widget`, and `function` types — and the `modal` trigger — are rejected as not yet supported. For OAuth apps `ui_app` is never sent, and the OAuth upload payload is unchanged.
+**`surfacePointList` entries follow the grammar `<location>.<place>.<kind>`.** The valid registry is twelve names — three record pages (`contactDetails`, `companyDetails`, `dealDetails`) × three widget places (`overviewAttributes`, `overviewMain`, `overviewSidebar`, kind `widget`) plus one action place (`headerMenu`, kind `action`).
+
+**An action link may only target `<location>.headerMenu.action`** — it renders as a menu entry, so a `.widget` slot would register it somewhere it never appears. **Get a name even slightly wrong and it fails silently**: the platform drops an unregistered name and the UI kit matches by exact string equality, so you get an empty slot, a 200, and no error anywhere. The CLI validates names locally for exactly this reason — trust its error rather than assuming the server would have complained.
+
+`brevo app upload` sends the block as `snapshot` and validates it locally first: `extensionType` must be `action_link` (`iframe_extension` and `legacy_component` are not CLI-authorable); `surfacePointList` non-empty, registered, action-only, no duplicates; `heading` non-empty; `redirectLink` an **https** URL (`http://` only for `localhost`/`127.0.0.1`, since the UI kit drops non-http(s) URLs outright); `linkTarget` one of `_blank`/`_self`; and `modalIframeUrl` rejected outright, because the UI kit keeps it only for an `iframe_extension` item and would silently discard it here. For OAuth apps nothing is sent and the OAuth upload payload is unchanged.
+
+Fields that do **not** exist — don't add them: a per-action label (the app name is the label), `contextProperties` (the record context an action receives is an allow-list on the platform's extension-point registry, not partner-declared), and any `surface`/`placement`/`trigger` keys (superseded by `surfacePointList`).
 
 Editing only the `ui_app` block still counts as a change — `upload` diffs it (ignoring key order) rather than reporting "already up to date". Redirect URLs are required for OAuth apps only.
 

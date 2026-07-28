@@ -158,15 +158,15 @@ describe('app-config.json template branching', () => {
   });
 
   it('renders valid JSON with ui_app and no redirectUrls for a UI app', () => {
+    // The platform's app_versions.snapshot shape — nested one level deep, which is
+    // what the template's indent handling has to survive.
     const uiApp = {
-      type: 'link',
-      properties: {
-        surface: 'contact',
-        title: 'Invoice Manager',
-        description: 'Review invoice history',
-        contextProperties: ['firstname', 'email'],
-        trigger: { type: 'link', externalUrl: 'https://example.com/brevo', label: 'Invoices' },
-      },
+      extensionType: 'action_link',
+      surfacePointList: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+      heading: 'Invoice Manager',
+      subheading: 'Review invoice history',
+      redirectLink: 'https://example.com/brevo',
+      linkTarget: '_blank',
     };
     const out = renderConfig(
       { '{{UI_APP_JSON}}': JSON.stringify(uiApp, null, 2).split('\n').join('\n  ') },

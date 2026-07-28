@@ -12,43 +12,94 @@ export interface AccountResponse {
 // credentials, and version lifecycle with OAuth apps, and adds a `ui_app` block
 // describing where and how it renders inside Brevo.
 //
-// Field names follow the UIApp Support Spec verbatim (`type: 'link'`,
-// `properties.surface`, `trigger.externalUrl`, `contextProperties`). The
-// Extension Points ADR names the same concepts differently (`action_link`,
-// `location`/`section`, `redirectLink`) — the app-store backend is the
-// validation authority, so if it rejects these names this is the single place
-// to remap them.
+// This block IS the app-store backend's `app_versions.snapshot` payload, field
+// for field — the manifest endpoint parses exactly this shape (see `appSnapshot`
+// in app-store-backend `cmd/app-store-backend/http_get_apps_extensibility.go`,
+// branch `feature/BEX-308-extensibility-app-configs`) and projects a subset of it
+// into each manifest item's `app_configs`, which the extensibility UI kit renders
+// (integrations-common-frontend, branch `bex-350-app-configs-link-target`).
 //
-// Only `type: 'link'` with `trigger.type: 'link'` — the "action link" — is
-// authorable by the CLI today. The rest of the union is typed so future variants
-// (modal cards, widgets, cloud functions) don't need a reshape, and so a
-// hand-edited config carrying them round-trips instead of being dropped.
-export type UiAppType = 'link' | 'card' | 'widget' | 'function';
-export type UiAppSurface = 'contact' | 'deal' | 'company' | 'object';
-export type UiAppTriggerType = 'link' | 'modal';
-export type UiAppPlacement = 'sidebar' | 'center';
+// Deliberately NOT the UIApp Support Spec's `properties`/`trigger` shape: nothing
+// on either side of the platform reads those names. Keeping the CLI's authored
+// file 1:1 with the consumed shape means there is no mapping layer to drift.
+//
+// Two fields the spec described have no counterpart in the implementation and are
+// therefore not authorable:
+//   - a per-action label — the menu entry is labelled with the *app name*
+//     (`getExtensionActions` uses `app.appName`), so there is nothing to author.
+//   - `contextProperties` — the record context an action receives is an allow-list
+//     on the extension_points registry row (`AllowedContextField`), i.e. a
+//     property of the slot, chosen by the platform, not declared by the partner.
 
-export interface UiAppTrigger {
-  type: UiAppTriggerType;
-  externalUrl: string;
-  label: string;
-}
+/**
+ * The delivery path an extension renders through.
+ *
+ * - `action_link` — a redirect-only CTA driven by `redirectLink`. The only type
+ *   the CLI authors today.
+ * - `iframe_extension` — opens `modalIframeUrl` in a modal iframe. The UI kit
+ *   keeps `modalIframeUrl` *only* for this type, so authoring one on any other
+ *   type is silently dropped.
+ * - `legacy_component` — the pre-extensibility interpreter path (PandaDoc). Never
+ *   CLI-authored; listed so a hand-edited config round-trips.
+ */
+export type ExtensionType = 'action_link' | 'iframe_extension' | 'legacy_component';
 
-export interface UiAppProperties {
-  surface: UiAppSurface;
-  title: string;
-  description: string;
-  /** Card/widget only — absent for action links, which render in an action menu. */
-  placement?: UiAppPlacement;
-  contextProperties: string[];
-  trigger: UiAppTrigger;
-}
+/** Where an `action_link` redirect opens. The backend defaults this to `_blank`. */
+export type LinkTarget = '_blank' | '_self';
+
+/**
+ * A CRM record page an extension can mount on — the `location` segment of a slot
+ * name, and the same value a host fetches its manifest with.
+ */
+export type ExtensionLocation = 'contactDetails' | 'companyDetails' | 'dealDetails';
+
+/**
+ * The `place` segment of a slot name: the slot's ROLE within a location, not a
+ * layout coordinate (columns stack on mobile, so a redesign that moved one would
+ * otherwise invalidate every registration).
+ */
+export type ExtensionPlace =
+  | 'overviewAttributes'
+  | 'overviewMain'
+  | 'overviewSidebar'
+  | 'headerMenu';
+
+/** The `kind` segment: `widget` mounts a widget, `action` yields a menu entry. */
+export type ExtensionKind = 'widget' | 'action';
+
+/**
+ * A slot name in the BEX-350 grammar `<location>.<place>.<kind>` — e.g.
+ * `contactDetails.headerMenu.action`.
+ *
+ * Casing and spelling are part of the contract: the UI kit matches
+ * `extensionPoint` by exact string equality against the `extension_points`
+ * registry, and the backend *drops* an authored name with no registry row. Both
+ * failures are silent — an empty slot, no error, still a 200 — which is why the
+ * CLI validates names locally against the known registry.
+ */
+export type ExtensionPointName = string;
 
 export interface UiApp {
-  type: UiAppType;
-  properties: UiAppProperties;
-  /** Modal cards only (future scope). */
-  modal?: { width: number; height: number };
+  extensionType: ExtensionType;
+  /**
+   * The slots this app mounts on. An app may target several (e.g. the same action
+   * link on contact, company and deal pages). An empty/absent list makes the
+   * backend fall back to a default widget slot list, which is not what an
+   * action-link author wants — so the CLI always writes at least one.
+   */
+  surfacePointList: ExtensionPointName[];
+  /** Primary CTA text rendered by the kit. */
+  heading?: string;
+  /** Secondary CTA text rendered beneath the heading. */
+  subheading?: string;
+  /** Destination for an `action_link`. Non-http(s) values are dropped by the kit. */
+  redirectLink?: string;
+  /** `action_link` only. Written explicitly rather than relying on the server default. */
+  linkTarget?: LinkTarget;
+  /** `iframe_extension` only — dropped by the kit for any other type. Not authorable yet. */
+  modalIframeUrl?: string;
+  /** Snapshot version, surfaced at the manifest item root. Server-managed. */
+  version?: string;
 }
 
 export interface OAuthApp {
@@ -63,9 +114,9 @@ export interface OAuthApp {
   version?: string;
   // Review-submission form for public apps (BEX-221); absent for private apps.
   google_form_link?: string;
-  // Present only for UI apps, and only once the server echoes the block back on
-  // reads. Absent for OAuth apps and on server builds that don't return it yet.
-  ui_app?: UiApp;
+  // Present only for UI apps, and only once the server echoes the snapshot back
+  // on reads. Absent for OAuth apps and on server builds that don't return it.
+  snapshot?: UiApp;
   created_at: string;
   updated_at: string;
 }
@@ -122,7 +173,14 @@ export interface UploadAppPayload {
   // Sent only for UI apps (BEX-290). OAuth apps must never carry this key —
   // earlier CLI versions guaranteed it was never sent at all, and the OAuth
   // payload shape is unchanged from that contract.
-  ui_app?: UiApp;
+  //
+  // Named `snapshot` because that is the app_versions column the manifest read
+  // path parses. ⚠️ The write path is the one part of this contract that does not
+  // exist yet: on `feature/BEX-308-extensibility-app-configs` nothing writes
+  // app_versions.snapshot, and app-store-bo-be's `POST /apps/{appId}/build`
+  // writes the *separate* `config` column via a multipart `config` field. So the
+  // shape below is confirmed against its consumer; only the transport is assumed.
+  snapshot?: UiApp;
 }
 
 export interface UploadAppResponse {
@@ -141,7 +199,8 @@ export interface UploadAppResponse {
     redirect_urls?: string[];
   };
   // Echoed back for UI apps so the local config can be reconciled with whatever
-  // the server normalized. Tolerated as absent: server builds that accept
-  // `ui_app` on write but don't return it leave the locally-sent block in place.
-  ui_app?: UiApp;
+  // the server normalized (notably `linkTarget`, which it defaults to `_blank`).
+  // Tolerated as absent: server builds that accept the snapshot on write but
+  // don't return it leave the locally-sent block in place.
+  snapshot?: UiApp;
 }

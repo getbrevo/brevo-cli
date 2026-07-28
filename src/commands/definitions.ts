@@ -7,7 +7,7 @@ import {
   validateUiAppUrl,
 } from '../lib/validators';
 import { CliError } from '../lib/errors';
-import { UI_APP_SURFACES } from '../lib/constants';
+import { DEFAULT_LINK_TARGET, LINK_TARGETS, UI_APP_SURFACES } from '../lib/constants';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -82,8 +82,8 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
         'brevo app create --type ui',
-        'brevo app create --type ui --name "Invoice Manager" --title "Invoice Manager" --description "Review invoice history for this contact" --external-url https://example.com/brevo',
-        'brevo app create --type ui --name "Invoice Manager" --surface deal --title "Invoices" --description "Deal invoices" --external-url https://example.com/brevo --json',
+        'brevo app create --type ui --name "Invoice Manager" --heading "Invoice Manager" --redirect-link https://example.com/brevo',
+        'brevo app create --type ui --name "Invoice Manager" --surface contact --surface deal --heading "Invoices" --subheading "Review invoice history" --redirect-link https://example.com/brevo --link-target _blank --json',
       ],
       options: [
         { flags: '--name <name>', description: 'App name' },
@@ -103,18 +103,18 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           },
         },
         // UI-app flags (BEX-290) — give every prompt in the UI-app path a
-        // scriptable equivalent so `--json` / non-TTY runs never block.
+        // scriptable equivalent so `--json` / non-TTY runs never block. Names
+        // mirror the platform's own field names (heading / subheading /
+        // redirectLink / linkTarget) so there is no vocabulary to translate.
         {
           flags: '--surface <surface>',
-          description: `UI app: record type it triggers from (${UI_APP_SURFACES.join('|')})`,
+          description: `UI app: record page to appear on, repeatable (${UI_APP_SURFACES.join('|')})`,
+          parser: (v: string, previous?: string[]) => [...(previous ?? []), v],
         },
-        { flags: '--title <title>', description: 'UI app: title shown in Brevo' },
+        { flags: '--heading <text>', description: 'UI app: primary text shown on the action' },
+        { flags: '--subheading <text>', description: 'UI app: optional secondary text' },
         {
-          flags: '--description <text>',
-          description: 'UI app: short description used as the action-menu tooltip',
-        },
-        {
-          flags: '--external-url <url>',
+          flags: '--redirect-link <url>',
           description: 'UI app: destination URL that receives record context',
           parser: (v: string) => {
             const check = validateUiAppUrl(v);
@@ -123,13 +123,8 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           },
         },
         {
-          flags: '--cta-label <label>',
-          description: 'UI app: action-menu label (defaults to the title)',
-        },
-        {
-          flags: '--context-property <name>',
-          description: 'UI app: record attribute to forward (repeatable)',
-          parser: (v: string, previous?: string[]) => [...(previous ?? []), v],
+          flags: '--link-target <target>',
+          description: `UI app: where the link opens (${LINK_TARGETS.join('|')}) — default: ${DEFAULT_LINK_TARGET}`,
         },
         { flags: '--json', description: 'Output as JSON' },
       ],
@@ -140,12 +135,11 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           distribution: opts.distribution as string | undefined,
           redirectUri: opts.redirectUri as string[] | undefined,
           logoUri: opts.logoUri as string | undefined,
-          surface: opts.surface as string | undefined,
-          title: opts.title as string | undefined,
-          description: opts.description as string | undefined,
-          externalUrl: opts.externalUrl as string | undefined,
-          ctaLabel: opts.ctaLabel as string | undefined,
-          contextProperties: opts.contextProperty as string[] | undefined,
+          surfaces: opts.surface as string[] | undefined,
+          heading: opts.heading as string | undefined,
+          subheading: opts.subheading as string | undefined,
+          redirectLink: opts.redirectLink as string | undefined,
+          linkTarget: opts.linkTarget as string | undefined,
           json: Boolean(opts.json),
         }),
     },

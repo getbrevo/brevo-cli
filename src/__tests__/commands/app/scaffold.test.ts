@@ -626,20 +626,14 @@ describe('app/scaffold', () => {
   // ──────────────── UI apps (BEX-290) ────────────────
   describe('UI apps', () => {
     const uiApp = {
-      type: 'link' as const,
-      properties: {
-        surface: 'contact' as const,
-        title: 'Invoice Manager',
-        // A value the server does not know about — the whole point of the
-        // preservation test below.
-        description: 'Hand-edited description',
-        contextProperties: ['firstname', 'email'],
-        trigger: {
-          type: 'link' as const,
-          externalUrl: 'https://example.com/brevo',
-          label: 'Invoices',
-        },
-      },
+      extensionType: 'action_link' as const,
+      surfacePointList: ['contactDetails.headerMenu.action'],
+      heading: 'Invoice Manager',
+      // A value the server does not know about — the whole point of the
+      // preservation test below.
+      subheading: 'Hand-edited subheading',
+      redirectLink: 'https://example.com/brevo',
+      linkTarget: '_blank' as const,
     };
 
     // Drifts from serverApp on appName so the refresh path (a full overwrite of
@@ -667,7 +661,7 @@ describe('app/scaffold', () => {
       const { loadBaseTemplates } = require('../../../templates');
       expect(loadBaseTemplates).toHaveBeenCalled();
       const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
-      expect(vars['{{UI_APP_JSON}}']).toContain('Hand-edited description');
+      expect(vars['{{UI_APP_JSON}}']).toContain('Hand-edited subheading');
       expect(JSON.parse(vars['{{UI_APP_JSON}}'].replaceAll('\n  ', '\n'))).toEqual(uiApp);
     });
 
@@ -702,10 +696,10 @@ describe('app/scaffold', () => {
     // returned a `ui_app` for an app the local config says is OAuth, honouring it
     // would silently reclassify the project and write a UI config over an OAuth
     // one — so `fetchAppContext` takes the block from the caller only.
-    it('ignores a server-returned ui_app for a project whose local config is OAuth', async () => {
+    it('ignores a server-returned snapshot for a project whose local config is OAuth', async () => {
       (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
         diffs: [],
-        app: { ...serverApp, ui_app: uiApp },
+        app: { ...serverApp, snapshot: uiApp },
       });
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,

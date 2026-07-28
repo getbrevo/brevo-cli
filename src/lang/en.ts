@@ -99,25 +99,28 @@ export const messages = {
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
 
   // App create — UI app (BEX-290)
-  APP_CREATE_UI_TRIGGER_PROMPT: 'What type of app are you integrating to Brevo?',
-  APP_CREATE_UI_TRIGGER_LINK: 'External link  (Pass record context to a separate browser tab)',
+  APP_CREATE_UI_TRIGGER_PROMPT: 'How should your app be delivered?',
+  APP_CREATE_UI_TRIGGER_LINK:
+    'Action link     (Adds a menu entry that opens your URL in a new tab)',
   // Kept visible but unselectable so the roadmap is discoverable from the prompt
-  // itself, matching how the spec greys out widgets and cloud functions.
-  APP_CREATE_UI_TRIGGER_MODAL:
-    'Modal card     (Pass record context to an iframe modal — not yet supported)',
-  APP_CREATE_UI_TRIGGER_WIDGET: 'Widget         (Display inline record data — not yet supported)',
-  APP_CREATE_UI_TRIGGER_FUNCTION:
-    'Cloud function (Run an action on the active record — not yet supported)',
+  // itself. `iframe_extension` exists on the platform but the CLI can't author it
+  // yet; widgets have no CLI authoring path at all.
+  APP_CREATE_UI_TRIGGER_MODAL: 'Iframe modal    (Opens your URL in a modal — not yet supported)',
+  APP_CREATE_UI_TRIGGER_WIDGET:
+    'Inline widget   (Renders inside the record page — not yet supported)',
   APP_CREATE_UI_TRIGGER_UNSUPPORTED: (choice: string) =>
-    `"${choice}" is not available yet. Only "External link" can be created today.`,
-  APP_CREATE_UI_SURFACE_PROMPT: 'Which record type is your app triggered from?',
-  APP_CREATE_UI_TITLE_PROMPT: 'Title:',
-  APP_CREATE_UI_DESCRIPTION_PROMPT: (max: number) =>
-    `Description (max ${max} chars — shown as the action-menu tooltip):`,
-  APP_CREATE_UI_EXTERNAL_URL_PROMPT: 'External URL (where record context is passed):',
-  APP_CREATE_UI_CTA_LABEL_PROMPT: 'Action label (text shown in the record action menu):',
+    `"${choice}" is not available yet. Only an action link can be created today.`,
+  APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
+  APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
+  APP_CREATE_UI_HEADING_PROMPT: 'Heading (primary text shown on the action):',
+  APP_CREATE_UI_SUBHEADING_PROMPT: 'Subheading (optional secondary text):',
+  APP_CREATE_UI_REDIRECT_LINK_PROMPT: 'Redirect link (where record context is passed):',
+  APP_CREATE_UI_LINK_TARGET_PROMPT: 'Where should the link open?',
   APP_CREATE_UI_BOX_TITLE: 'UI app created',
-  APP_CREATE_UI_BOX_CONTEXT_LABEL: 'Context properties:',
+  // The action-menu entry is labelled with the app name — there is no per-action
+  // label field on the platform, so say so rather than let a partner hunt for one.
+  APP_CREATE_UI_BOX_LABEL_NOTE: (appName: string) =>
+    `The menu entry is labelled with the app name ("${appName}") — rename the app to change it.`,
   APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this, then run \`${CLI.APP_UPLOAD}\`.`,
   APP_CREATE_UI_NEXT: (cdDir?: string): string[] => [
     ...(cdDir ? [`1. cd ${cdDir}`] : []),
@@ -125,7 +128,7 @@ export const messages = {
     `${cdDir ? 3 : 2}. ${CLI.APP_DEPLOY()}   (make it available in an account)`,
   ],
   APP_CREATE_UI_NON_INTERACTIVE:
-    'Creating a UI app needs either an interactive terminal or the --title, --description, and --external-url flags.',
+    'Creating a UI app needs either an interactive terminal or the --heading and --redirect-link flags.',
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,

@@ -350,20 +350,15 @@ describe('app/upload', () => {
   });
 
   // ──────────────── UI apps (BEX-290) ────────────────
+  // The block mirrors app-store-backend's `appSnapshot` field for field.
   describe('UI apps', () => {
     const UI_APP = {
-      type: 'link' as const,
-      properties: {
-        surface: 'contact' as const,
-        title: 'Invoice Manager',
-        description: 'Review invoice history for this contact',
-        contextProperties: ['firstname', 'lastname', 'email', 'phone', 'ext_id'],
-        trigger: {
-          type: 'link' as const,
-          externalUrl: 'https://example.com/brevo',
-          label: 'Invoice Manager',
-        },
-      },
+      extensionType: 'action_link' as const,
+      surfacePointList: ['contactDetails.headerMenu.action'],
+      heading: 'Invoice Manager',
+      subheading: 'Review invoice history for this contact',
+      redirectLink: 'https://example.com/brevo',
+      linkTarget: '_blank' as const,
     };
 
     // A UI app's config carries no redirectUrls at all — that absence is the
@@ -378,8 +373,8 @@ describe('app/upload', () => {
       ui_app: UI_APP,
     };
 
-    // Must match UI_CONFIG on every non-ui_app field, so the tests below isolate
-    // ui_app as the only thing that can differ.
+    // Must match UI_CONFIG on every non-snapshot field, so the tests below
+    // isolate the snapshot as the only thing that can differ.
     const UI_REMOTE = {
       ...BASE_REMOTE,
       name: 'Invoice Manager',
@@ -400,11 +395,13 @@ describe('app/upload', () => {
       });
     });
 
-    it('sends the ui_app block in the upload payload', async () => {
+    // The destination is app_versions.snapshot, so the payload key is `snapshot`.
+    it('sends the block under the snapshot key', async () => {
       await uploadCommand({ yes: true });
 
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
-      expect(payload.ui_app).toEqual(UI_APP);
+      expect(payload.snapshot).toEqual(UI_APP);
+      expect(payload).not.toHaveProperty('ui_app');
     });
 
     it('does not require redirect URLs', async () => {
@@ -423,26 +420,23 @@ describe('app/upload', () => {
     });
 
     // The regression this guards: `hasNoChanges` compared every field *except*
-    // ui_app, so a ui_app-only edit reported "Already up to date" and silently
-    // never reached the server.
+    // the snapshot, so a snapshot-only edit reported "Already up to date" and
+    // silently never reached the server.
     it('uploads when only the ui_app block changed', async () => {
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         ...UI_REMOTE,
-        ui_app: {
-          ...UI_APP,
-          properties: { ...UI_APP.properties, title: 'Old Title' },
-        },
+        snapshot: { ...UI_APP, heading: 'Old Heading' },
       });
 
       await uploadCommand({ yes: true });
 
       expect(appService.uploadApp).toHaveBeenCalled();
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
-      expect(payload.ui_app.properties.title).toBe('Invoice Manager');
+      expect(payload.snapshot.heading).toBe('Invoice Manager');
     });
 
-    it('reports up to date when the ui_app block matches the server', async () => {
-      (appService.fetchApp as jest.Mock).mockResolvedValue({ ...UI_REMOTE, ui_app: UI_APP });
+    it('reports up to date when the snapshot matches the server', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ ...UI_REMOTE, snapshot: UI_APP });
 
       await uploadCommand({ json: true });
 
@@ -453,22 +447,16 @@ describe('app/upload', () => {
 
     // Key order in app-config.json varies with how it was edited; a raw
     // stringify comparison would report phantom drift.
-    it('treats a reordered ui_app block as unchanged', async () => {
+    it('treats a reordered snapshot as unchanged', async () => {
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         ...UI_REMOTE,
-        ui_app: {
-          properties: {
-            trigger: {
-              label: 'Invoice Manager',
-              externalUrl: 'https://example.com/brevo',
-              type: 'link' as const,
-            },
-            contextProperties: ['firstname', 'lastname', 'email', 'phone', 'ext_id'],
-            description: 'Review invoice history for this contact',
-            title: 'Invoice Manager',
-            surface: 'contact' as const,
-          },
-          type: 'link' as const,
+        snapshot: {
+          linkTarget: '_blank' as const,
+          redirectLink: 'https://example.com/brevo',
+          subheading: 'Review invoice history for this contact',
+          heading: 'Invoice Manager',
+          surfacePointList: ['contactDetails.headerMenu.action'],
+          extensionType: 'action_link' as const,
         },
       });
 
@@ -477,61 +465,135 @@ describe('app/upload', () => {
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    it('rejects a ui_app block whose description exceeds the length cap', async () => {
+    // Slot names are matched by exact string equality and an unregistered name is
+    // silently DROPPED by the backend, so these two are the highest-value checks
+    // in the whole UI-app flow — nothing downstream would ever report them.
+    it('rejects an extension point that is not in the registry', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: {
-          ...UI_APP,
-          properties: { ...UI_APP.properties, description: 'x'.repeat(61) },
-        },
+        ui_app: { ...UI_APP, surfacePointList: ['contact.headerMenu.action'] },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/at most 60 characters/i);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Unknown extension point/i);
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    it('rejects an insecure external URL', async () => {
+    it('rejects a widget slot for an action link', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, surfacePointList: ['contactDetails.overviewMain.widget'] },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/renders as a menu action/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('rejects an empty surfacePointList', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, surfacePointList: [] },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/at least one extension point/i);
+    });
+
+    it('accepts multiple record pages', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          properties: {
-            ...UI_APP.properties,
-            trigger: { ...UI_APP.properties.trigger, externalUrl: 'http://example.com/brevo' },
-          },
+          surfacePointList: [
+            'contactDetails.headerMenu.action',
+            'dealDetails.headerMenu.action',
+            'companyDetails.headerMenu.action',
+          ],
         },
+      });
+
+      await uploadCommand({ yes: true });
+
+      const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+      expect(payload.snapshot.surfacePointList).toHaveLength(3);
+    });
+
+    it('rejects duplicate extension points', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: {
+          ...UI_APP,
+          surfacePointList: [
+            'contactDetails.headerMenu.action',
+            'contactDetails.headerMenu.action',
+          ],
+        },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/duplicate/i);
+    });
+
+    it('rejects an insecure redirect link', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, redirectLink: 'http://example.com/brevo' },
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/must use https/i);
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    it('rejects a trigger type that is not yet supported', async () => {
+    it('rejects an empty heading', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: {
-          ...UI_APP,
-          properties: {
-            ...UI_APP.properties,
-            trigger: { ...UI_APP.properties.trigger, type: 'modal' },
-          },
-        },
+        ui_app: { ...UI_APP, heading: '  ' },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/not supported yet/i);
-      expect(appService.uploadApp).not.toHaveBeenCalled();
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Heading cannot be empty/i);
     });
 
-    it('writes the ui_app block back into app-config.json, preferring the server copy', async () => {
-      const serverNormalized = {
-        ...UI_APP,
-        properties: { ...UI_APP.properties, title: 'Invoice Manager (normalized)' },
-      };
+    it('rejects an invalid linkTarget', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, linkTarget: '_top' },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Invalid ui_app.linkTarget/i);
+    });
+
+    it.each([['iframe_extension'], ['legacy_component']])(
+      'rejects the not-yet-authorable %s type',
+      async (extensionType) => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: { ...UI_APP, extensionType },
+        });
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          /Unsupported ui_app.extensionType/i,
+        );
+      },
+    );
+
+    // The UI kit drops modalIframeUrl for anything that isn't an
+    // iframe_extension, so authoring one on an action link is a silent no-op.
+    it('rejects modalIframeUrl on an action link', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, modalIframeUrl: 'https://example.com/modal' },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(
+        /only used by "iframe_extension"/i,
+      );
+    });
+
+    it('writes the snapshot back into app-config.json, preferring the server copy', async () => {
+      // The server defaults linkTarget, so its copy is the authority.
+      const serverNormalized = { ...UI_APP, linkTarget: '_self' as const };
       (appService.uploadApp as jest.Mock).mockResolvedValue({
         ...BASE_UPLOAD_RESPONSE,
         name: 'Invoice Manager',
         auth: { distribution_type: 'private' as const, scopes: ['contacts:read'] },
-        ui_app: serverNormalized,
+        snapshot: serverNormalized,
       });
 
       await uploadCommand({ yes: true });
@@ -541,7 +603,7 @@ describe('app/upload', () => {
       );
     });
 
-    it('keeps the locally sent ui_app block when the server does not echo one', async () => {
+    it('keeps the locally sent snapshot when the server does not echo one', async () => {
       await uploadCommand({ yes: true });
 
       expect(writeProjectConfig).toHaveBeenCalledWith(expect.objectContaining({ ui_app: UI_APP }));
@@ -552,6 +614,22 @@ describe('app/upload', () => {
 
       const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
       expect(written.auth).not.toHaveProperty('redirectUrls');
+    });
+
+    it('renders the snapshot fields in the diff, without a Redirect URLs row', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, appName: 'Renamed' });
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed',
+        auth: { distribution_type: 'private' as const, scopes: ['contacts:read'] },
+      });
+
+      await uploadCommand({ yes: true });
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('contactDetails.headerMenu.action');
+      expect(output).toContain('Link target');
+      expect(output).not.toContain('Redirect URLs');
     });
   });
 });

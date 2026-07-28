@@ -102,22 +102,39 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 
 **Related follow-ups (not blockers for GA removal):**
 
-- [ ] **Confirm the `ui_app` wire contract with the app-store backend team.** The CLI
-      writes the UIApp Support Spec's field names verbatim (`type: "link"`,
-      `properties.surface`, `properties.placement`, `trigger.externalUrl`,
-      `contextProperties`). The Extension Points ADR names the same concepts
-      differently (`action_link`, `location` / `section`, `redirectLink`), and the
-      backend validates against its own registry. If it rejects the spec names, remap
-      in `src/types.ts` (`UiApp`) — that is the single definition point.
+- [x] **`ui_app` field names — RESOLVED.** Confirmed against app-store-backend
+      `feature/BEX-308-extensibility-app-configs` (`appSnapshot`) and
+      integrations-common-frontend `bex-350-app-configs-link-target`
+      (`ActionLinkConfig` / `getExtensionActions`). The block is the
+      `app_versions.snapshot` payload verbatim: `extensionType`,
+      `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget`.
+      The UIApp Support Spec's `properties`/`trigger` vocabulary is not read
+      anywhere and has been dropped.
+- [ ] **Coordinate the BEX-350 registry reseed.** The twelve-point
+      `extension_points` registry (three record pages x three widget places + one
+      action place, `.widget`/`.action` kinds) has to be seeded before a
+      CLI-authored slot name resolves. An unregistered name is dropped silently, so
+      a CLI release ahead of the reseed produces action links that render nothing.
+      The CLI's local registry copy lives in `src/lib/constants.ts`
+      (`EXTENSION_POINTS`) and must be updated in lockstep if the registry changes.
+- [ ] **Build the snapshot write path — still missing.** On
+      `feature/BEX-308-extensibility-app-configs` nothing writes
+      `app_versions.snapshot`; only the manifest read path parses it. app-store-bo-be's
+      `POST /apps/{appId}/build` writes the *separate* `config` column, via a
+      multipart `config` form field. The CLI currently sends the block under a
+      `snapshot` key on `POST /v3/app-store/apps/{id}/upload` — confirm or correct
+      that once the write endpoint exists (`src/types.ts` `UploadAppPayload` and
+      `upload.ts` are the only places to change).
 - [ ] **Confirm the deploy/remove endpoint contract.** `ENDPOINTS.APP_STORE_APP_DEPLOY`
       / `APP_STORE_APP_REMOVE` and `appService.deployApp` / `removeApp` currently
       assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the
       body, and that the "not yet uploaded" / "not deployed" rejections are HTTP 422.
       All four assumptions are marked in code comments.
-- [ ] Confirm whether `GET /v3/app-store/apps/{id}` returns `ui_app`. The upload diff
-      and the scaffold-refresh path both read it opportunistically and degrade safely
-      when absent (the block reads as new / is carried forward locally), but the diff
-      is only fully accurate once the server echoes it.
+- [ ] Confirm whether `GET /v3/app-store/apps/{id}` returns the snapshot. The upload
+      diff and the scaffold-refresh path both read `snapshot` opportunistically and
+      degrade safely when absent (the block reads as new / is carried forward
+      locally), but the diff is only fully accurate once the server echoes it —
+      notably `linkTarget`, which the backend defaults to `_blank` server-side.
 - [ ] Decide whether the CLI should guard `--type ui` at runtime, the same open
       question as `--distribution public` above. Today the flag is accepted silently.
 
@@ -219,11 +236,20 @@ distribution value to a flag set.
 - [x] `app deploy` refuses before an upload, and maps the server's 422 to the same
       message. `app remove` has no gate and exits `0` when not deployed. Covered by
       `deploy.test.ts` / `remove.test.ts`.
-- [ ] Manual, **against a real test account** — the whole point of the assumed
-      contracts below. Run `brevo app create --type ui` interactively, inspect the
-      generated `app-config.json`, then `brevo app upload` and confirm the backend
-      **accepts** the `ui_app` block with the spec's field names. If it 4xx's, the
-      naming question in *Before UI-apps GA* is the cause.
+- [x] The `ui_app` block matches the platform's `app_versions.snapshot` shape field for
+      field (`extensionType`, `surfacePointList`, `heading`, `subheading`,
+      `redirectLink`, `linkTarget`), verified against app-store-backend
+      `feature/BEX-308-extensibility-app-configs` and integrations-common-frontend
+      `bex-350-app-configs-link-target`. Covered by
+      `builds the snapshot shape the platform consumes` and
+      `sends the block under the snapshot key`.
+- [x] An unregistered, mis-cased, stale-grammar, or widget-slot extension point is
+      rejected locally — the platform would drop it silently. Covered by
+      `validateExtensionPointName` cases and the upload-level rejections.
+- [ ] Manual, **against a real test account**: run `brevo app create --type ui`
+      interactively, inspect the generated `app-config.json`, then `brevo app upload`
+      and confirm the backend **accepts** the snapshot. A 4xx here means the write path
+      isn't built yet (expected — see the follow-ups above), not a shape mismatch.
 - [ ] Manual: `brevo app deploy <account-id>` against a real account, then confirm the
       action link actually renders in that account's contact record action menu, opens
       the external URL in a new tab, and carries the declared context properties.
@@ -235,12 +261,19 @@ distribution value to a flag set.
 - [ ] Manual: `brevo app create` interactively on an existing OAuth project directory
       and confirm the new app-type prompt appears first and that choosing *OAuth app*
       reproduces the previous flow exactly.
-- [ ] Manual: confirm the disabled *Inline card* / *Widget* / *Cloud function* choices
-      in the trigger prompt are visible but unselectable.
+- [ ] Manual: confirm the disabled *Iframe modal* / *Inline widget* choices in the
+      delivery prompt are visible but unselectable.
+- [ ] Manual: confirm the created-app box states that the menu entry is labelled with
+      the app name — partners will otherwise look for a label field that doesn't exist.
 - [ ] Reviewer: `agent-context/SKILL.md` and `agent-context/AGENTS.md` both document
       the new commands, `--type` and the UI flags, the `ui_app` block, and both carry
       the UI-apps-not-available notice with equivalent wording (CLAUDE.md requires
       those two stay in sync).
-- [ ] Reviewer: confirm the four assumed-contract items in *Before UI-apps GA* are
-      resolved with the app-store backend team before this ships to users. The code
-      is correct given the assumptions; the assumptions are unverified.
+- [ ] Reviewer: the **field names are now verified** against both platform consumers,
+      but the **snapshot write path does not exist yet** — confirm with the app-store
+      backend team how the CLI should submit it (the CLI currently sends a `snapshot`
+      key on the existing upload endpoint) before this ships to users. Same for the
+      deploy/remove endpoints. See *Before UI-apps GA* → related follow-ups.
+- [ ] Reviewer: BEX-350 needs a coordinated release (kit + reseeded `extension_points`
+      registry + backend). A CLI release ahead of the reseed authors names that resolve
+      to nothing, silently. Confirm the sequencing.
