@@ -276,9 +276,9 @@ async function resolveLogoUri(
 //     appear as disabled choices so the roadmap is visible where the decision is
 //     made.
 //
-//     The collected block is the app-store backend's `app_versions.snapshot`
-//     payload verbatim, so there is no vocabulary translation between what a
-//     partner authors and what the platform renders.
+//     The collected block is the app snapshot the platform stores, verbatim, so
+//     there is no vocabulary translation between what a partner authors and what
+//     the platform renders.
 interface UiAppFlags {
   /** Repeatable friendly record type(s): contact | company | deal. */
   surfaces?: string[];

@@ -22,7 +22,7 @@ interface DeployOptions {
 /**
  * `brevo app deploy <account-id>` — make an app available in one Brevo account.
  *
- * Until the ManageIntegrations enable/disable surface ships, this (with
+ * Until an in-product enable/disable surface ships, this (with
  * `app remove`) is the only way a UI app becomes visible in an account.
  */
 export const deployCommand = withCommandHandler(async (options: DeployOptions): Promise<void> => {

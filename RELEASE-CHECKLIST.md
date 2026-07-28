@@ -102,26 +102,23 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 
 **Related follow-ups (not blockers for GA removal):**
 
-- [x] **`ui_app` field names — RESOLVED.** Confirmed against app-store-backend
-      `feature/BEX-308-extensibility-app-configs` (`appSnapshot`) and
-      integrations-common-frontend `bex-350-app-configs-link-target`
-      (`ActionLinkConfig` / `getExtensionActions`). The block is the
-      `app_versions.snapshot` payload verbatim: `extensionType`,
+- [x] **`ui_app` field names — RESOLVED.** Confirmed against both of the platform's
+      consumers — the manifest read path and the extensibility UI kit
+      (BEX-308 / BEX-350). The block is the stored app snapshot verbatim: `extensionType`,
       `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget`.
       The UIApp Support Spec's `properties`/`trigger` vocabulary is not read
       anywhere and has been dropped.
 - [ ] **Coordinate the BEX-350 registry reseed.** The twelve-point
-      `extension_points` registry (three record pages x three widget places + one
+      extension-point registry (three record pages x three widget places + one
       action place, `.widget`/`.action` kinds) has to be seeded before a
       CLI-authored slot name resolves. An unregistered name is dropped silently, so
       a CLI release ahead of the reseed produces action links that render nothing.
       The CLI's local registry copy lives in `src/lib/constants.ts`
       (`EXTENSION_POINTS`) and must be updated in lockstep if the registry changes.
 - [ ] **Build the snapshot write path — still missing.** On
-      `feature/BEX-308-extensibility-app-configs` nothing writes
-      `app_versions.snapshot`; only the manifest read path parses it. app-store-bo-be's
-      `POST /apps/{appId}/build` writes the *separate* `config` column, via a
-      multipart `config` form field. The CLI currently sends the block under a
+      the platform nothing writes the app snapshot; only the
+      manifest read path parses it, and the existing build endpoint writes a
+      *separate* config field. The CLI currently sends the block under a
       `snapshot` key on `POST /v3/app-store/apps/{id}/upload` — confirm or correct
       that once the write endpoint exists (`src/types.ts` `UploadAppPayload` and
       `upload.ts` are the only places to change).
@@ -236,11 +233,10 @@ distribution value to a flag set.
 - [x] `app deploy` refuses before an upload, and maps the server's 422 to the same
       message. `app remove` has no gate and exits `0` when not deployed. Covered by
       `deploy.test.ts` / `remove.test.ts`.
-- [x] The `ui_app` block matches the platform's `app_versions.snapshot` shape field for
+- [x] The `ui_app` block matches the platform's stored app-snapshot shape field for
       field (`extensionType`, `surfacePointList`, `heading`, `subheading`,
-      `redirectLink`, `linkTarget`), verified against app-store-backend
-      `feature/BEX-308-extensibility-app-configs` and integrations-common-frontend
-      `bex-350-app-configs-link-target`. Covered by
+      `redirectLink`, `linkTarget`), verified against both of the platform's
+      consumers (BEX-308 / BEX-350). Covered by
       `builds the snapshot shape the platform consumes` and
       `sends the block under the snapshot key`.
 - [x] An unregistered, mis-cased, stale-grammar, or widget-slot extension point is
@@ -274,6 +270,6 @@ distribution value to a flag set.
       backend team how the CLI should submit it (the CLI currently sends a `snapshot`
       key on the existing upload endpoint) before this ships to users. Same for the
       deploy/remove endpoints. See *Before UI-apps GA* → related follow-ups.
-- [ ] Reviewer: BEX-350 needs a coordinated release (kit + reseeded `extension_points`
+- [ ] Reviewer: BEX-350 needs a coordinated release (kit + reseeded extension-point
       registry + backend). A CLI release ahead of the reseed authors names that resolve
       to nothing, silently. Confirm the sequencing.

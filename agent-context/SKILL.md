@@ -107,7 +107,7 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 
 A UI app's `app-config.json` carries a top-level `ui_app` object and **no** `auth.redirectUrls`. Its presence is how the CLI distinguishes the two app types.
 
-The block is the app-store backend's `app_versions.snapshot` payload **field for field** — the same names the platform stores, serves and renders. Do not invent alternatives:
+The block is the app snapshot the platform stores **field for field** — the same names it stores, serves and renders. Do not invent alternatives:
 
 ```json
 {

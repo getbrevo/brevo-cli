@@ -197,7 +197,7 @@ export function validateUiAppHeading(value: string): true | string {
  * Validate an extension-point slot name against the known registry.
  *
  * This is the highest-value local check in the UI-app flow. The backend silently
- * DROPS an authored name with no `extension_points` row, and the UI kit matches
+ * DROPS an authored name with no registry entry, and the UI kit matches
  * names by exact string equality — so a near-miss like `contact.headerMenu.action`
  * or `contactDetails.headerMenu.widget` produces an empty slot, a 200, and no
  * error anywhere. Catching it here is the only place a partner gets told.
@@ -212,7 +212,7 @@ export function validateExtensionPointName(name: string): true | string {
 /**
  * Fully validate a `ui_app` block before it is sent to the server.
  *
- * The block is the app-store backend's `app_versions.snapshot` payload verbatim.
+ * The block is the app snapshot the platform stores, verbatim.
  * Every field below is optional on the wire — the backend degrades a malformed or
  * absent snapshot to "not yet migrated" rather than erroring — which means the
  * server will NOT tell a partner their action link is unrenderable. This
@@ -230,7 +230,7 @@ export function validateUiApp(uiApp: unknown): void {
   }
   const block = uiApp as Record<string, unknown>;
 
-  // Only action links are authorable. `legacy_component` is the PandaDoc
+  // Only action links are authorable. `legacy_component` is the pre-extensibility
   // interpreter path (never CLI-authored) and `iframe_extension` needs the modal
   // surface that isn't built yet.
   if (block.extensionType !== EXTENSION_TYPE_ACTION_LINK) {

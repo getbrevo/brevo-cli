@@ -158,7 +158,7 @@ describe('app-config.json template branching', () => {
   });
 
   it('renders valid JSON with ui_app and no redirectUrls for a UI app', () => {
-    // The platform's app_versions.snapshot shape — nested one level deep, which is
+    // The platform's app-snapshot shape — nested one level deep, which is
     // what the template's indent handling has to survive.
     const uiApp = {
       extensionType: 'action_link',

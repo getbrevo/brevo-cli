@@ -588,15 +588,14 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 > as the public-app note at the top. Run these cases directly.
 >
 > **Field names in the `ui_app` block are confirmed** against the platform
-> (app-store-backend `feature/BEX-308-extensibility-app-configs`,
-> integrations-common-frontend `bex-350-app-configs-link-target`). What is **not** yet
-> built is the write path: nothing on the platform writes `app_versions.snapshot` today.
+> (its manifest read path and its extensibility UI kit — BEX-308 / BEX-350). What is
+> **not** yet built is the write path: nothing on the platform stores that snapshot today.
 > So if TC-12.4 or TC-12.7 fails with a 4xx, that is the expected failure mode of an
 > unbuilt endpoint, not a CLI bug — record the exact response and flag it against
 > `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
 >
-> **TC-12.7 also depends on the BEX-350 registry reseed.** Until `extension_points`
-> carries the twelve `.widget`/`.action` rows, an authored slot name resolves to nothing
+> **TC-12.7 also depends on the BEX-350 registry reseed.** Until the platform's
+> extension-point registry carries the twelve `.widget`/`.action` entries, an authored slot name resolves to nothing
 > and the action link won't render — silently, with a 200. Confirm the reseed has run in
 > your environment before treating a non-rendering link as a CLI defect.
 

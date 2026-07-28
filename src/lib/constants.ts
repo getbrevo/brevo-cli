@@ -89,7 +89,7 @@ export const ENDPOINTS = {
   APP_STORE_APP_UPLOAD: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/upload`,
   APP_STORE_APP_WITHDRAW: (appId: string) =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/withdraw`,
-  // Per-account availability for UI apps (BEX-290). Until the ManageIntegrations
+  // Per-account availability for UI apps (BEX-290). Until an in-product
   // enable/disable surface ships, these two endpoints *are* the install
   // mechanism for an action link.
   //
@@ -168,17 +168,14 @@ export const DEFAULT_UI_APP_SCOPES: readonly string[] = [
  *
  * These values are a hard contract with two consumers. The extensibility UI kit
  * matches an item's `extensionPoint` against a slot name by **exact string
- * equality**, and the app-store backend **drops** an authored name that has no
- * `extension_points` registry row. Both failures are silent — the slot renders
+ * equality**, and the platform **drops** an authored name that has no entry in
+ * its extension-point registry. Both failures are silent — the slot renders
  * nothing, with a 200 and no error — so a typo here is invisible in production.
  * That is why the CLI validates authored names locally against the registry
  * below rather than trusting the server to complain.
  *
- * Sources of truth:
- *   - integrations-common-frontend `bex-350-app-configs-link-target`
- *     (`widgets/extension-slot/slots.ts`)
- *   - app-store-backend `feature/BEX-308-extensibility-app-configs`
- *     (`http_get_apps_extensibility.go` + its twelve-point test registry)
+ * Mirrored from the platform's registry and its UI kit's slot helpers
+ * (BEX-350). Keep in lockstep: see RELEASE-CHECKLIST.md.
  */
 export const EXTENSION_LOCATIONS: readonly string[] = [
   'contactDetails',
@@ -206,7 +203,7 @@ export function actionPointForLocation(location: string): string {
 
 /**
  * The full twelve-point registry — three record pages x (three widget places +
- * one action place). Mirrors the backend's seeded `extension_points` table.
+ * one action place). Mirrors the platform's seeded extension-point registry.
  */
 export const EXTENSION_POINTS: readonly string[] = EXTENSION_LOCATIONS.flatMap((location) => [
   ...EXTENSION_WIDGET_PLACES.map((place) => `${location}.${place}.widget`),

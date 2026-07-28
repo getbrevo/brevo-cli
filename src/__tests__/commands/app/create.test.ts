@@ -1116,7 +1116,7 @@ describe('app/create', () => {
       expect(payload).not.toHaveProperty('ui_app');
     });
 
-    // Field names must match app-store-backend's appSnapshot exactly.
+    // Field names must match the platform's stored app snapshot exactly.
     it('builds the snapshot shape the platform consumes', async () => {
       await createCommand(UI_FLAGS);
 

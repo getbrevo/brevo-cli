@@ -8,18 +8,17 @@ into `main` — anything that must outlive the branch belongs in
 
 ### BEX-290 follow-ups
 
-- [x] **`ui_app` field names — resolved.** Aligned with app-store-backend
-      `feature/BEX-308-extensibility-app-configs` and integrations-common-frontend
-      `bex-350-app-configs-link-target`. The block is `app_versions.snapshot` verbatim.
+- [x] **`ui_app` field names — resolved.** Aligned with the platform's manifest read path and its
+      extensibility UI kit (BEX-308 / BEX-350). The block is the stored app snapshot
+      verbatim.
 - [ ] **Blocking before this reaches users:** the snapshot **write path** doesn't exist
-      yet — on BEX-308 only the manifest read path parses `app_versions.snapshot`, and
-      app-store-bo-be's `POST /apps/{appId}/build` writes the separate `config` column
-      via a multipart `config` field. So the upload transport is still a guess (the CLI
+      yet — only the manifest read path that consumes it exists, and the existing
+      build endpoint writes a separate config field. So the upload transport is still a guess (the CLI
       sends the block as `snapshot` on `POST /v3/app-store/apps/{id}/upload`), as are
       the deploy/remove endpoints. See `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
 - [ ] **Keep `EXTENSION_POINTS` in lockstep with the registry.** `src/lib/constants.ts`
       hard-codes the twelve-point registry so slot names can be validated offline. If
-      the `extension_points` table gains or renames a row (e.g. a `quoteDetails`
+      the platform's registry gains or renames an entry (e.g. a `quoteDetails`
       location, or a second action place), the CLI will reject a legitimate name until
       it is updated. Worth revisiting if the registry becomes fetchable.
 - [ ] **BEX-350 requires a coordinated release.** The kit, the reseeded registry and
@@ -51,7 +50,7 @@ into `main` — anything that must outlive the branch belongs in
 - [ ] Consider whether `brevo app list` should show the app type. Right now an OAuth
       app and a UI app are indistinguishable in the list output.
 - [ ] Record context is an allow-list on the extension-point registry row
-      (`AllowedContextField`) and surfaces on the manifest as `app_configs.context`,
+      and surfaces on the manifest as `app_configs.context`,
       i.e. the platform decides it per slot. Nothing for the CLI to author — but worth
       surfacing read-only (e.g. in the create summary) so a partner knows which
       params their URL will actually receive.

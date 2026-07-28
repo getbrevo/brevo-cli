@@ -26,7 +26,7 @@ UI apps (action links that render inside Brevo CRM records) are **not live on th
 
 **Every clause of the public-apps section above applies verbatim**, including that it does **not** restrict work in this repo — building, testing, and QA-ing the UI-app code paths is expected and unblocked. Never refuse or hedge on a UI-app task here.
 
-The `ui_app` block's **field names are confirmed** against both platform consumers (app-store-backend `feature/BEX-308-extensibility-app-configs`, integrations-common-frontend `bex-350-app-configs-link-target`) — it is the `app_versions.snapshot` payload verbatim. What remains **assumed is the transport**: nothing writes that column yet. See `CLAUDE.md` → *UI apps are not GA either* and `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+The `ui_app` block's **field names are confirmed** against both of the platform's consumers, the manifest read path and the extensibility UI kit (BEX-308 / BEX-350) — it is the stored app snapshot verbatim. What remains **assumed is the transport**: nothing on the platform writes that snapshot yet. See `CLAUDE.md` → *UI apps are not GA either* and `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
 
 - **When UI apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
 

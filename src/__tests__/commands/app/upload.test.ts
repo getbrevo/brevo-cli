@@ -350,7 +350,7 @@ describe('app/upload', () => {
   });
 
   // ──────────────── UI apps (BEX-290) ────────────────
-  // The block mirrors app-store-backend's `appSnapshot` field for field.
+  // The block mirrors the platform's stored app snapshot field for field.
   describe('UI apps', () => {
     const UI_APP = {
       extensionType: 'action_link' as const,
@@ -395,7 +395,7 @@ describe('app/upload', () => {
       });
     });
 
-    // The destination is app_versions.snapshot, so the payload key is `snapshot`.
+    // The destination is the platform's app snapshot, so the payload key is `snapshot`.
     it('sends the block under the snapshot key', async () => {
       await uploadCommand({ yes: true });
 

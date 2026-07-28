@@ -12,12 +12,10 @@ export interface AccountResponse {
 // credentials, and version lifecycle with OAuth apps, and adds a `ui_app` block
 // describing where and how it renders inside Brevo.
 //
-// This block IS the app-store backend's `app_versions.snapshot` payload, field
-// for field — the manifest endpoint parses exactly this shape (see `appSnapshot`
-// in app-store-backend `cmd/app-store-backend/http_get_apps_extensibility.go`,
-// branch `feature/BEX-308-extensibility-app-configs`) and projects a subset of it
-// into each manifest item's `app_configs`, which the extensibility UI kit renders
-// (integrations-common-frontend, branch `bex-350-app-configs-link-target`).
+// This block IS the app snapshot the platform stores, field for field: the
+// manifest endpoint parses exactly this shape and projects a subset of it into
+// each manifest item's `app_configs`, which the extensibility UI kit renders.
+// Verified against both of those consumers (BEX-308 / BEX-350).
 //
 // Deliberately NOT the UIApp Support Spec's `properties`/`trigger` shape: nothing
 // on either side of the platform reads those names. Keeping the CLI's authored
@@ -25,11 +23,11 @@ export interface AccountResponse {
 //
 // Two fields the spec described have no counterpart in the implementation and are
 // therefore not authorable:
-//   - a per-action label — the menu entry is labelled with the *app name*
-//     (`getExtensionActions` uses `app.appName`), so there is nothing to author.
+//   - a per-action label — the menu entry is labelled with the *app name*, so
+//     there is nothing to author.
 //   - `contextProperties` — the record context an action receives is an allow-list
-//     on the extension_points registry row (`AllowedContextField`), i.e. a
-//     property of the slot, chosen by the platform, not declared by the partner.
+//     on the extension-point registry entry, i.e. a property of the slot, chosen
+//     by the platform, not declared by the partner.
 
 /**
  * The delivery path an extension renders through.
@@ -39,8 +37,8 @@ export interface AccountResponse {
  * - `iframe_extension` — opens `modalIframeUrl` in a modal iframe. The UI kit
  *   keeps `modalIframeUrl` *only* for this type, so authoring one on any other
  *   type is silently dropped.
- * - `legacy_component` — the pre-extensibility interpreter path (PandaDoc). Never
- *   CLI-authored; listed so a hand-edited config round-trips.
+ * - `legacy_component` — the pre-extensibility interpreter path used by earlier
+ *   integrations. Never CLI-authored; listed so a hand-edited config round-trips.
  */
 export type ExtensionType = 'action_link' | 'iframe_extension' | 'legacy_component';
 
@@ -72,8 +70,9 @@ export type ExtensionKind = 'widget' | 'action';
  * `contactDetails.headerMenu.action`.
  *
  * Casing and spelling are part of the contract: the UI kit matches
- * `extensionPoint` by exact string equality against the `extension_points`
- * registry, and the backend *drops* an authored name with no registry row. Both
+ * `extensionPoint` by exact string equality against the platform's
+ * extension-point registry, and the backend *drops* an authored name with no
+ * registry entry. Both
  * failures are silent — an empty slot, no error, still a 200 — which is why the
  * CLI validates names locally against the known registry.
  */
@@ -174,12 +173,10 @@ export interface UploadAppPayload {
   // earlier CLI versions guaranteed it was never sent at all, and the OAuth
   // payload shape is unchanged from that contract.
   //
-  // Named `snapshot` because that is the app_versions column the manifest read
-  // path parses. ⚠️ The write path is the one part of this contract that does not
-  // exist yet: on `feature/BEX-308-extensibility-app-configs` nothing writes
-  // app_versions.snapshot, and app-store-bo-be's `POST /apps/{appId}/build`
-  // writes the *separate* `config` column via a multipart `config` field. So the
-  // shape below is confirmed against its consumer; only the transport is assumed.
+  // Named `snapshot` after the app snapshot the manifest read path parses.
+  // ⚠️ The write path is the one part of this contract that does not exist on the
+  // platform yet, so this key is an assumption — the shape is confirmed against
+  // its consumers, only the transport is not. Tracked in RELEASE-CHECKLIST.md.
   snapshot?: UiApp;
 }
 
