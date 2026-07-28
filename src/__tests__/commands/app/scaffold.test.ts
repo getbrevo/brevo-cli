@@ -626,7 +626,7 @@ describe('app/scaffold', () => {
   // ──────────────── UI apps (BEX-290) ────────────────
   describe('UI apps', () => {
     const uiApp = {
-      extensionType: 'action_link' as const,
+      extensionType: 'actionLink' as const,
       surfacePointList: ['contactDetails.headerMenu.action'],
       heading: 'Invoice Manager',
       // A value the server does not know about — the whole point of the

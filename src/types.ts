@@ -30,19 +30,24 @@ export interface AccountResponse {
 //     by the platform, not declared by the partner.
 
 /**
- * The delivery path an extension renders through.
+ * The delivery path an extension renders through. camelCase per BEX-350, matching
+ * the extension-point grammar; the pre-BEX-350 snake_case spellings are not
+ * accepted (see the note on the constants in `lib/constants.ts`).
  *
- * - `action_link` — a redirect-only CTA driven by `redirectLink`. The only type
+ * - `actionLink` — a redirect-only CTA driven by `redirectLink`. The only type
  *   the CLI authors today.
- * - `iframe_extension` — opens `modalIframeUrl` in a modal iframe. The UI kit
+ * - `iframeExtension` — opens `modalIframeUrl` in a modal iframe. The UI kit
  *   keeps `modalIframeUrl` *only* for this type, so authoring one on any other
  *   type is silently dropped.
- * - `legacy_component` — the pre-extensibility interpreter path used by earlier
+ * - `legacyComponent` — the pre-extensibility interpreter path used by earlier
  *   integrations. Never CLI-authored; listed so a hand-edited config round-trips.
  */
-export type ExtensionType = 'action_link' | 'iframe_extension' | 'legacy_component';
+export type ExtensionType = 'actionLink' | 'iframeExtension' | 'legacyComponent';
 
-/** Where an `action_link` redirect opens. The backend defaults this to `_blank`. */
+/**
+ * Where an `actionLink` redirect opens. The UI kit falls back to `_blank` for an
+ * absent or unrecognised value, but the CLI always writes one explicitly.
+ */
 export type LinkTarget = '_blank' | '_self';
 
 /**
@@ -91,11 +96,11 @@ export interface UiApp {
   heading?: string;
   /** Secondary CTA text rendered beneath the heading. */
   subheading?: string;
-  /** Destination for an `action_link`. Non-http(s) values are dropped by the kit. */
+  /** Destination for an `actionLink`. Non-http(s) values are dropped by the kit. */
   redirectLink?: string;
-  /** `action_link` only. Written explicitly rather than relying on the server default. */
+  /** `actionLink` only. Written explicitly rather than relying on any default. */
   linkTarget?: LinkTarget;
-  /** `iframe_extension` only — dropped by the kit for any other type. Not authorable yet. */
+  /** `iframeExtension` only — dropped by the kit for any other type. Not authorable yet. */
   modalIframeUrl?: string;
   /** Snapshot version, surfaced at the manifest item root. Server-managed. */
   version?: string;

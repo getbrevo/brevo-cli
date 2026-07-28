@@ -310,7 +310,7 @@ describe('parseAccountId', () => {
 
 describe('validateUiApp', () => {
   const VALID = {
-    extensionType: 'action_link',
+    extensionType: 'actionLink',
     surfacePointList: ['contactDetails.headerMenu.action'],
     heading: 'Invoice Manager',
     subheading: 'Review invoice history for this contact',
@@ -364,11 +364,11 @@ describe('validateUiApp', () => {
 
   // Types beyond the action link exist on the platform but the CLI can't author
   // them yet — pushing one would produce a config nothing renders.
-  it.each([['iframe_extension'], ['legacy_component']])('rejects the %s type', (extensionType) => {
+  it.each([['iframeExtension'], ['legacyComponent']])('rejects the %s type', (extensionType) => {
     expect(() => validateUiApp({ ...VALID, extensionType })).toThrow(/Unsupported/i);
   });
 
-  // The UI kit keeps modalIframeUrl only for iframe_extension, so one on an
+  // The UI kit keeps modalIframeUrl only for iframeExtension, so one on an
   // action link is silently discarded.
   it('rejects modalIframeUrl on an action link', () => {
     expect(() => validateUiApp({ ...VALID, modalIframeUrl: 'https://example.com/modal' })).toThrow(

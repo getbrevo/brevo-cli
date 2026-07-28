@@ -102,17 +102,17 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
 // 2. App type — OAuth integration vs UI app (BEX-290).
 //    Asked before distribution because it decides which of the two remaining
 //    prompt paths runs (OAuth callback URLs vs UI-app placement).
+//
+//    Prompt-only, deliberately: there is no `--type` flag, so a UI app can only
+//    be authored from an interactive terminal. UI apps aren't live on the
+//    platform yet, and a scriptable create surface would invite pipelines to pin
+//    to a shape that can still change. Any non-interactive run — piped stdin or
+//    `--json` — creates an OAuth app, exactly as it did before BEX-290, so
+//    existing scripted `app create` calls are unaffected.
 export type AppType = 'oauth' | 'ui';
 
-async function resolveAppType(typeFlag: string | undefined): Promise<AppType> {
-  const VALID_APP_TYPES = ['oauth', 'ui'] as const;
-  validateEnum(typeFlag, VALID_APP_TYPES, '--type');
-  if (typeFlag) {
-    return typeFlag as AppType;
-  }
-  // Non-TTY with no flag keeps the historical behaviour: an OAuth app. UI apps
-  // are strictly opt-in so existing scripted `app create` calls are unaffected.
-  if (!process.stdin.isTTY) {
+async function resolveAppType(interactive: boolean): Promise<AppType> {
+  if (!interactive) {
     return 'oauth';
   }
   const answer = await inquirer.prompt([
@@ -279,15 +279,6 @@ async function resolveLogoUri(
 //     The collected block is the app snapshot the platform stores, verbatim, so
 //     there is no vocabulary translation between what a partner authors and what
 //     the platform renders.
-interface UiAppFlags {
-  /** Repeatable friendly record type(s): contact | company | deal. */
-  surfaces?: string[];
-  heading?: string;
-  subheading?: string;
-  redirectLink?: string;
-  linkTarget?: string;
-}
-
 async function promptUiExtensionType(): Promise<void> {
   const { extensionType } = await inquirer.prompt([
     {
@@ -318,8 +309,11 @@ async function promptUiExtensionType(): Promise<void> {
   }
 }
 
-// Map friendly `--surface` values onto action slot names. Unknown values fail
-// here rather than being written and then silently dropped by the platform.
+// Map the friendly record-type answers onto action slot names. The prompt's
+// choices come from UI_APP_SURFACES, so an unmapped value is unreachable today —
+// the throw exists so a future edit that adds a choice without adding its
+// location mapping fails loudly instead of writing a slot name the platform
+// silently drops.
 function toActionPoints(surfaces: string[]): string[] {
   const points: string[] = [];
   for (const surface of surfaces) {
@@ -327,7 +321,7 @@ function toActionPoints(surfaces: string[]): string[] {
     const location = UI_APP_SURFACE_TO_LOCATION[key];
     if (!location) {
       throw new CliError(
-        `Invalid --surface "${surface}". Must be one of: ${UI_APP_SURFACES.join(', ')}.`,
+        `Invalid record page "${surface}". Must be one of: ${UI_APP_SURFACES.join(', ')}.`,
       );
     }
     const point = actionPointForLocation(location);
@@ -336,110 +330,75 @@ function toActionPoints(surfaces: string[]): string[] {
   return points;
 }
 
-async function resolveUiApp(flags: UiAppFlags, interactive: boolean): Promise<UiApp> {
-  // Two flags fully specify an action link; everything else has a default. When
-  // both are present we take the flag path even on a TTY, so a scripted run
-  // behaves identically whether or not a terminal is attached.
-  const fullySpecifiedByFlags = !!(flags.heading && flags.redirectLink);
-  const shouldPrompt = interactive && !fullySpecifiedByFlags;
-  if (!shouldPrompt && !fullySpecifiedByFlags) {
-    throw new CliError(messages.APP_CREATE_UI_NON_INTERACTIVE);
-  }
+/**
+ * Collect the `ui_app` block interactively. Only reachable when the app-type
+ * prompt returned `ui`, which already implies an interactive terminal — so every
+ * field is asked for, with no flag or default fallback path.
+ */
+async function resolveUiApp(): Promise<UiApp> {
+  await promptUiExtensionType();
 
-  if (shouldPrompt) {
-    await promptUiExtensionType();
-  }
+  const { surfaces } = await inquirer.prompt([
+    {
+      type: 'checkbox',
+      name: 'surfaces',
+      message: messages.APP_CREATE_UI_SURFACE_PROMPT,
+      choices: [...UI_APP_SURFACES],
+      default: [DEFAULT_UI_APP_SURFACE],
+      validate: (picked: unknown[]) => picked.length > 0 || messages.APP_CREATE_UI_SURFACE_REQUIRED,
+    },
+  ]);
 
-  // Ask a single question when prompting is appropriate, otherwise take the
-  // default. Keeps the flag path and the prompt path from drifting.
-  const ask = async (question: { name: string } & Record<string, unknown>, fallback: string) => {
-    if (!shouldPrompt) return fallback;
-    const answers = (await inquirer.prompt([question])) as Record<string, unknown>;
-    const answer = answers[question.name];
-    return answer == null ? fallback : String(answer);
-  };
+  const { heading } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'heading',
+      message: messages.APP_CREATE_UI_HEADING_PROMPT,
+      validate: validateUiAppHeading,
+    },
+  ]);
 
-  const surfaces =
-    flags.surfaces && flags.surfaces.length > 0
-      ? flags.surfaces
-      : shouldPrompt
-        ? ((
-            await inquirer.prompt([
-              {
-                type: 'checkbox',
-                name: 'surfaces',
-                message: messages.APP_CREATE_UI_SURFACE_PROMPT,
-                choices: [...UI_APP_SURFACES],
-                default: [DEFAULT_UI_APP_SURFACE],
-                validate: (picked: unknown[]) =>
-                  picked.length > 0 || messages.APP_CREATE_UI_SURFACE_REQUIRED,
-              },
-            ])
-          ).surfaces as string[])
-        : [DEFAULT_UI_APP_SURFACE];
+  const { subheading } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'subheading',
+      message: messages.APP_CREATE_UI_SUBHEADING_PROMPT,
+    },
+  ]);
 
-  const heading =
-    flags.heading ??
-    (await ask(
-      {
-        type: 'input',
-        name: 'heading',
-        message: messages.APP_CREATE_UI_HEADING_PROMPT,
-        validate: validateUiAppHeading,
-      },
-      '',
-    ));
+  const { redirectLink } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'redirectLink',
+      message: messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
+      validate: validateUiAppUrl,
+    },
+  ]);
 
-  const subheading =
-    flags.subheading ??
-    (await ask(
-      {
-        type: 'input',
-        name: 'subheading',
-        message: messages.APP_CREATE_UI_SUBHEADING_PROMPT,
-      },
-      '',
-    ));
-
-  const redirectLink =
-    flags.redirectLink ??
-    (await ask(
-      {
-        type: 'input',
-        name: 'redirectLink',
-        message: messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
-        validate: validateUiAppUrl,
-      },
-      '',
-    ));
-
-  const linkTarget =
-    flags.linkTarget ??
-    (await ask(
-      {
-        type: 'list',
-        name: 'linkTarget',
-        message: messages.APP_CREATE_UI_LINK_TARGET_PROMPT,
-        choices: [...LINK_TARGETS],
-        default: DEFAULT_LINK_TARGET,
-      },
-      DEFAULT_LINK_TARGET,
-    ));
+  const { linkTarget } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'linkTarget',
+      message: messages.APP_CREATE_UI_LINK_TARGET_PROMPT,
+      choices: [...LINK_TARGETS],
+      default: DEFAULT_LINK_TARGET,
+    },
+  ]);
 
   const uiApp: UiApp = {
     extensionType: EXTENSION_TYPE_ACTION_LINK,
-    surfacePointList: toActionPoints(surfaces ?? []),
-    heading: String(heading).trim(),
+    surfacePointList: toActionPoints((surfaces as string[]) ?? []),
+    heading: String(heading ?? '').trim(),
     // Omitted rather than written empty: the kit only renders it when set, and an
     // empty string would show up as a spurious diff on every upload.
-    ...(String(subheading).trim() ? { subheading: String(subheading).trim() } : {}),
-    redirectLink: String(redirectLink).trim(),
-    linkTarget: String(linkTarget).trim() as UiApp['linkTarget'],
+    ...(String(subheading ?? '').trim() ? { subheading: String(subheading).trim() } : {}),
+    redirectLink: String(redirectLink ?? '').trim(),
+    linkTarget: String(linkTarget ?? DEFAULT_LINK_TARGET).trim() as UiApp['linkTarget'],
   };
 
-  // Re-run the full server-facing validation on the assembled block: the
-  // per-prompt validators cover interactive input, but flag-supplied values reach
-  // here unchecked.
+  // Belt and braces: the per-prompt validators cover each answer in isolation,
+  // but nothing else checks the assembled block — in particular the surface →
+  // slot-name mapping, which is where a silent platform-side drop would come from.
   validateUiApp(uiApp);
   return uiApp;
 }
@@ -608,15 +567,9 @@ function renderCreatedUiApp(
 export const createCommand = withCommandHandler(
   async (options: {
     name?: string;
-    type?: string;
     distribution?: string;
     redirectUri?: string[];
     logoUri?: string;
-    surfaces?: string[];
-    heading?: string;
-    subheading?: string;
-    redirectLink?: string;
-    linkTarget?: string;
     json?: boolean;
   }): Promise<void> => {
     const jsonMode = !!options.json;
@@ -624,27 +577,18 @@ export const createCommand = withCommandHandler(
 
     guardAgainstLinkedApp();
 
-    const appName = await resolveAppName(options.name);
-    const appType = await resolveAppType(options.type);
-    const distribution = await resolveDistribution(options.distribution);
-
     const interactive = !jsonMode && !!process.stdin.isTTY;
+
+    const appName = await resolveAppName(options.name);
+    const appType = await resolveAppType(interactive);
+    const distribution = await resolveDistribution(options.distribution);
 
     // The two app types diverge here: OAuth apps collect callback URLs, UI apps
     // collect placement + destination. Neither path runs the other's prompts.
     let redirectUrls: string[] = [];
     let uiApp: UiApp | undefined;
     if (appType === 'ui') {
-      uiApp = await resolveUiApp(
-        {
-          surfaces: options.surfaces,
-          heading: options.heading,
-          subheading: options.subheading,
-          redirectLink: options.redirectLink,
-          linkTarget: options.linkTarget,
-        },
-        interactive,
-      );
+      uiApp = await resolveUiApp();
     } else {
       redirectUrls = await resolveRedirectUrls(options.redirectUri, jsonMode);
     }
@@ -666,6 +610,11 @@ export const createCommand = withCommandHandler(
     // Shared JSON shape for both exits below. `redirectUri` is omitted for UI
     // apps rather than emitted as an empty array, so a consumer can distinguish
     // "no callbacks by design" from "callbacks not returned".
+    //
+    // `--json` implies non-interactive, which implies OAuth, so `appType` is
+    // always `oauth` here today and the `uiApp` branch is unreachable. Both are
+    // kept so the field stays meaningful to a consumer, and so this shape doesn't
+    // have to be rediscovered if UI apps ever gain a non-interactive path.
     const jsonBase = {
       appId: result.app_id,
       appName: finalAppName,

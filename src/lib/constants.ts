@@ -215,8 +215,9 @@ export const EXTENSION_ACTION_POINTS: readonly string[] =
   EXTENSION_LOCATIONS.map(actionPointForLocation);
 
 /**
- * Friendly `--surface` values mapped to their `location` segment. Partners think
- * in record types; the wire wants the page name.
+ * Friendly record-type choices (the values offered at the UI-app record-page
+ * prompt) mapped to their `location` segment. Partners think in record types; the
+ * wire wants the page name.
  */
 export const UI_APP_SURFACE_TO_LOCATION: Readonly<Record<string, string>> = {
   contact: 'contactDetails',
@@ -227,18 +228,26 @@ export const UI_APP_SURFACE_TO_LOCATION: Readonly<Record<string, string>> = {
 export const UI_APP_SURFACES: readonly string[] = Object.keys(UI_APP_SURFACE_TO_LOCATION);
 export const DEFAULT_UI_APP_SURFACE = 'contact';
 
-export const EXTENSION_TYPE_ACTION_LINK = 'action_link';
-export const EXTENSION_TYPE_IFRAME = 'iframe_extension';
-export const EXTENSION_TYPE_LEGACY = 'legacy_component';
-export const EXTENSION_TYPES: readonly string[] = [
-  EXTENSION_TYPE_ACTION_LINK,
-  EXTENSION_TYPE_IFRAME,
-  EXTENSION_TYPE_LEGACY,
-] as const;
+/**
+ * `extensionType` values, camelCase per BEX-350 — the same casing as the
+ * extension-point grammar. Source of truth is `FEATURE_TYPES` in the
+ * extensibility UI kit (integrations-common-frontend
+ * `shared/constants/global.ts`); the kit routes on an exact match against these
+ * strings.
+ *
+ * The pre-BEX-350 snake_case spellings (`action_link`, `iframe_extension`,
+ * `legacy_component`) are deliberately NOT accepted. The kit still maps them for
+ * backward compatibility, but that map is slated for removal once every producer
+ * emits camelCase — and the CLI is a producer, so it only ever writes canonical
+ * values. UI apps aren't live yet, so there is no authored config to migrate.
+ */
+export const EXTENSION_TYPE_ACTION_LINK = 'actionLink';
+export const EXTENSION_TYPE_IFRAME = 'iframeExtension';
+export const EXTENSION_TYPE_LEGACY = 'legacyComponent';
 
 export const LINK_TARGETS: readonly string[] = ['_blank', '_self'] as const;
-// The backend defaults an action_link's linkTarget to `_blank` when the snapshot
-// leaves it unset; the CLI writes it explicitly so the authored file is complete.
+// The CLI always writes linkTarget explicitly, so the authored file is complete
+// and never depends on a server- or client-side default being applied.
 export const DEFAULT_LINK_TARGET = '_blank';
 
 export const BREVO_DASHBOARD_API_KEYS_URL = 'https://app.brevo.com/settings/keys/api';

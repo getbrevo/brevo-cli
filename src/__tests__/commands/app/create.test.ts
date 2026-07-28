@@ -3,6 +3,9 @@ import { ApiError, ErrorCode } from '../../../lib/errors';
 
 jest.mock('inquirer', () => ({
   prompt: jest.fn(),
+  // The UI-app delivery-path prompt renders a separator between the action link
+  // and the not-yet-supported choices.
+  Separator: class {},
 }));
 
 jest.mock('../../../lib/config', () => ({
@@ -143,12 +146,13 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
       .mockResolvedValueOnce({ logoUrl: '' }) // logo
       .mockResolvedValueOnce({ scaffoldRaw: 'y' }); // scaffold a feature?
 
-    await createCommand({ type: 'oauth', name: 'Test App', distribution: 'private' });
+    await createCommand({ name: 'Test App', distribution: 'private' });
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Test App',
@@ -180,12 +184,13 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-      await createCommand({ type: 'oauth', name: 'Feature App', distribution: 'private' });
+      await createCommand({ name: 'Feature App', distribution: 'private' });
 
       // The scaffold-feature prompt fires (name: 'scaffoldRaw'), then the
       // feature type is chosen and the oauth feature is written.
@@ -214,12 +219,13 @@ describe('app/create', () => {
         version: '0.0.1',
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'n' });
 
-      await createCommand({ type: 'oauth', name: 'Order App', distribution: 'private' });
+      await createCommand({ name: 'Order App', distribution: 'private' });
 
       // The base-files report (which prints right after the created-app box)
       // must run before the "scaffold a feature?" prompt fires.
@@ -242,12 +248,13 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'n' });
 
-      await createCommand({ type: 'oauth', name: 'Base Only App', distribution: 'private' });
+      await createCommand({ name: 'Base Only App', distribution: 'private' });
 
       expect(runBaseScaffold).toHaveBeenCalledWith(8, expect.anything(), '/cwd/test-app', false);
       expect(runFeatureScaffold).not.toHaveBeenCalled();
@@ -274,7 +281,6 @@ describe('app/create', () => {
       });
 
       await createCommand({
-        type: 'oauth',
         name: 'JSON Scaffold App',
         distribution: 'private',
         redirectUri: ['http://localhost:3009/auth/callback'],
@@ -308,7 +314,6 @@ describe('app/create', () => {
       });
 
       await createCommand({
-        type: 'oauth',
         name: 'Piped App',
         distribution: 'private',
         redirectUri: ['http://localhost:3009/auth/callback'],
@@ -329,7 +334,6 @@ describe('app/create', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
 
       await createCommand({
-        type: 'oauth',
         name: 'Existing Dir App',
         distribution: 'private',
         redirectUri: ['http://localhost:3009/auth/callback'],
@@ -351,9 +355,9 @@ describe('app/create', () => {
       (hasLocalApp as jest.Mock).mockReturnValue(true);
       (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
 
-      await expect(
-        createCommand({ type: 'oauth', name: 'New App', distribution: 'private' }),
-      ).rejects.toThrow(/already linked/i);
+      await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
+        /already linked/i,
+      );
 
       expect(appService.createApp).not.toHaveBeenCalled();
       expect(mockPrompt).not.toHaveBeenCalled();
@@ -363,9 +367,9 @@ describe('app/create', () => {
       (hasLocalApp as jest.Mock).mockReturnValue(true);
       (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
 
-      await expect(
-        createCommand({ type: 'oauth', name: 'New App', distribution: 'private' }),
-      ).rejects.toThrow('Existing App');
+      await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
+        'Existing App',
+      );
     });
   });
 
@@ -387,12 +391,13 @@ describe('app/create', () => {
         };
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-      await createCommand({ type: 'oauth', name: 'Dir App', distribution: 'private' });
+      await createCommand({ name: 'Dir App', distribution: 'private' });
 
       expect(createCallOrder).toEqual(['directory', 'create']);
       expect(runBaseScaffold).toHaveBeenCalledWith(20, expect.anything(), '/cwd/dir-app', false);
@@ -421,12 +426,13 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-      await createCommand({ type: 'oauth', name: 'Cd Hint App', distribution: 'private' });
+      await createCommand({ name: 'Cd Hint App', distribution: 'private' });
 
       expect(computeCdHint).toHaveBeenCalledWith(originalCwd, '/cwd/cd-hint-app');
       expect(reportScaffoldSuccess).toHaveBeenCalledWith(
@@ -444,7 +450,6 @@ describe('app/create', () => {
       });
 
       await createCommand({
-        type: 'oauth',
         name: 'JSON Dir App',
         distribution: 'private',
         redirectUri: ['http://localhost:3009/auth/callback'],
@@ -472,12 +477,13 @@ describe('app/create', () => {
         return 'oauth';
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-      await createCommand({ type: 'oauth', name: 'Ordered App', distribution: 'private' });
+      await createCommand({ name: 'Ordered App', distribution: 'private' });
 
       expect(order).toEqual(['create', 'featureType']);
     });
@@ -493,7 +499,6 @@ describe('app/create', () => {
     });
 
     await createCommand({
-      type: 'oauth',
       name: 'JSON App',
       distribution: 'private',
       redirectUri: ['http://localhost:3009/auth/callback'],
@@ -518,12 +523,13 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-    await createCommand({ type: 'oauth', name: 'Versioned App', distribution: 'private' });
+    await createCommand({ name: 'Versioned App', distribution: 'private' });
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('App version:    0.0.1');
@@ -540,7 +546,6 @@ describe('app/create', () => {
     });
 
     await createCommand({
-      type: 'oauth',
       name: 'JSON Versioned App',
       distribution: 'private',
       redirectUri: ['http://localhost:3009/auth/callback'],
@@ -562,7 +567,6 @@ describe('app/create', () => {
     });
 
     await createCommand({
-      type: 'oauth',
       name: 'No Version App',
       distribution: 'private',
       redirectUri: ['http://localhost:3009/auth/callback'],
@@ -584,12 +588,13 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-    await createCommand({ type: 'oauth', name: 'Hint App', distribution: 'private' });
+    await createCommand({ name: 'Hint App', distribution: 'private' });
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('brevo app start oauth');
@@ -606,7 +611,6 @@ describe('app/create', () => {
     });
 
     await createCommand({
-      type: 'oauth',
       name: 'JSON Hint App',
       distribution: 'private',
       redirectUri: ['http://localhost:3009/auth/callback'],
@@ -627,10 +631,12 @@ describe('app/create', () => {
       redirect_uris: ['https://example.com/cb'],
     });
 
-    mockPrompt.mockResolvedValueOnce({ logoUrl: '' }).mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({
-      type: 'oauth',
       name: 'Flag App',
       distribution: 'private',
       redirectUri: ['https://example.com/cb'],
@@ -647,13 +653,14 @@ describe('app/create', () => {
     );
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' });
 
-    await expect(
-      createCommand({ type: 'oauth', name: 'Test', distribution: 'private' }),
-    ).rejects.toThrow('maximum number of OAuth apps');
+    await expect(createCommand({ name: 'Test', distribution: 'private' })).rejects.toThrow(
+      'maximum number of OAuth apps',
+    );
   });
 
   it('should handle 409 conflict and retry with new name', async () => {
@@ -668,13 +675,14 @@ describe('app/create', () => {
       });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
       .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
       .mockResolvedValueOnce({ name: 'New Name' }) // retry name prompt
       .mockResolvedValueOnce({ scaffoldRaw: 'y' }); // scaffold a feature?
 
-    await createCommand({ type: 'oauth', name: 'Taken Name', distribution: 'private' });
+    await createCommand({ name: 'Taken Name', distribution: 'private' });
 
     expect(appService.createApp).toHaveBeenCalledTimes(2);
     expect(appService.createApp).toHaveBeenLastCalledWith({
@@ -702,7 +710,6 @@ describe('app/create', () => {
     mockPrompt.mockResolvedValueOnce({ name: 'Resolved Name' });
 
     await createCommand({
-      type: 'oauth',
       name: 'Taken Name',
       distribution: 'private',
       redirectUri: ['http://localhost:3009/auth/callback'],
@@ -718,6 +725,7 @@ describe('app/create', () => {
   it('should prompt for name when not provided', async () => {
     mockPrompt
       .mockResolvedValueOnce({ name: 'Prompted App' }) // name prompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ distribution: 'private' }) // distribution prompt
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
@@ -732,7 +740,7 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
 
-    await createCommand({ type: 'oauth' });
+    await createCommand({});
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Prompted App',
@@ -743,9 +751,12 @@ describe('app/create', () => {
   });
 
   it('should throw on invalid distribution', async () => {
-    await expect(
-      createCommand({ type: 'oauth', name: 'Test', distribution: 'invalid' }),
-    ).rejects.toThrow('Invalid --distribution');
+    // The app-type prompt runs before distribution is validated.
+    mockPrompt.mockResolvedValueOnce({ appType: 'oauth' });
+
+    await expect(createCommand({ name: 'Test', distribution: 'invalid' })).rejects.toThrow(
+      'Invalid --distribution',
+    );
   });
 
   it('should create a public app when --distribution public is passed', async () => {
@@ -758,12 +769,13 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-    await createCommand({ type: 'oauth', name: 'Public App', distribution: 'public' });
+    await createCommand({ name: 'Public App', distribution: 'public' });
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Public App',
@@ -774,22 +786,22 @@ describe('app/create', () => {
   });
 
   it('should reject app name with emojis via --name flag', async () => {
-    await expect(
-      createCommand({ type: 'oauth', name: 'My App 🚀', distribution: 'private' }),
-    ).rejects.toThrow('can only contain');
+    await expect(createCommand({ name: 'My App 🚀', distribution: 'private' })).rejects.toThrow(
+      'can only contain',
+    );
   });
 
   it('should reject app name exceeding 48 characters via --name flag', async () => {
     const longName = 'a'.repeat(49);
-    await expect(
-      createCommand({ type: 'oauth', name: longName, distribution: 'private' }),
-    ).rejects.toThrow('at most 48 characters');
+    await expect(createCommand({ name: longName, distribution: 'private' })).rejects.toThrow(
+      'at most 48 characters',
+    );
   });
 
   it('should reject app name with non-Latin scripts via --name flag', async () => {
-    await expect(
-      createCommand({ type: 'oauth', name: 'アプリ名', distribution: 'private' }),
-    ).rejects.toThrow('can only contain');
+    await expect(createCommand({ name: 'アプリ名', distribution: 'private' })).rejects.toThrow(
+      'can only contain',
+    );
   });
 
   it('should accept app name with accented characters via --name flag', async () => {
@@ -802,12 +814,13 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-    await createCommand({ type: 'oauth', name: 'Café Résumé', distribution: 'private' });
+    await createCommand({ name: 'Café Résumé', distribution: 'private' });
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Café Résumé',
@@ -827,6 +840,7 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // first URL
       .mockResolvedValueOnce({ anotherRaw: 'y' }) // add another
       .mockResolvedValueOnce({ nextUrl: 'https://myapp.com/callback' }) // second URL
@@ -834,7 +848,7 @@ describe('app/create', () => {
       .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-    await createCommand({ type: 'oauth', name: 'Multi URL App', distribution: 'private' });
+    await createCommand({ name: 'Multi URL App', distribution: 'private' });
 
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Multi URL App',
@@ -853,10 +867,12 @@ describe('app/create', () => {
       redirect_uris: ['https://myapp.com/callback'],
     });
 
-    mockPrompt.mockResolvedValueOnce({ logoUrl: '' }).mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({
-      type: 'oauth',
       name: 'Flag App',
       distribution: 'private',
       redirectUri: ['https://myapp.com/callback'],
@@ -868,8 +884,8 @@ describe('app/create', () => {
       redirect_uris: ['https://myapp.com/callback'],
       scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
     });
-    // Only the logo prompt and the scaffold-feature prompt — no redirect URL prompts.
-    expect(mockPrompt).toHaveBeenCalledTimes(2);
+    // Only the app-type, logo and scaffold-feature prompts — no redirect URL prompts.
+    expect(mockPrompt).toHaveBeenCalledTimes(3);
   });
 
   it('should pass multiple --redirect-uri flags to the API', async () => {
@@ -882,7 +898,6 @@ describe('app/create', () => {
     });
 
     await createCommand({
-      type: 'oauth',
       name: 'Multi Flag App',
       distribution: 'private',
       redirectUri: ['http://localhost:3000/cb', 'https://prod.example.com/cb'],
@@ -910,7 +925,6 @@ describe('app/create', () => {
     });
 
     await createCommand({
-      type: 'oauth',
       name: 'Logo App',
       distribution: 'private',
       redirectUri: ['http://localhost:3009/auth/callback'],
@@ -933,7 +947,6 @@ describe('app/create', () => {
     });
 
     await createCommand({
-      type: 'oauth',
       name: 'No Logo App',
       distribution: 'private',
       redirectUri: ['http://localhost:3009/auth/callback'],
@@ -955,12 +968,13 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: 'https://example.com/prompted.png' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-    await createCommand({ type: 'oauth', name: 'Prompted Logo App', distribution: 'private' });
+    await createCommand({ name: 'Prompted Logo App', distribution: 'private' });
 
     expect(appService.createApp).toHaveBeenCalledWith(
       expect.objectContaining({ logo_uri: 'https://example.com/prompted.png' }),
@@ -978,7 +992,6 @@ describe('app/create', () => {
     });
 
     await createCommand({
-      type: 'oauth',
       name: 'Logo JSON App',
       distribution: 'private',
       redirectUri: ['http://localhost:3009/auth/callback'],
@@ -1002,12 +1015,13 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ anotherRaw: 'n' })
       .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-    await createCommand({ type: 'oauth', name: 'Test App', distribution: 'private' });
+    await createCommand({ name: 'Test App', distribution: 'private' });
 
     expect(appService.createApp).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1025,12 +1039,13 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ anotherRaw: 'n' })
       .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
-    await createCommand({ type: 'oauth', name: 'Test App', distribution: 'private' });
+    await createCommand({ name: 'Test App', distribution: 'private' });
 
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(stdoutCalls).toContain('Default scopes');
@@ -1048,7 +1063,6 @@ describe('app/create', () => {
     });
 
     await createCommand({
-      type: 'oauth',
       name: 'Test App',
       distribution: 'private',
       redirectUri: ['http://localhost:3009/auth/callback'],
@@ -1060,16 +1074,48 @@ describe('app/create', () => {
   });
 
   // ──────────────── UI apps (BEX-290) ────────────────
+  // A UI app is authored entirely through the prompts — there is no `--type` or
+  // per-field flag — so every test here drives inquirer.
   describe('UI apps', () => {
-    const UI_FLAGS = {
-      type: 'ui',
-      name: 'Invoice Manager',
-      distribution: 'private',
-      heading: 'Invoice Manager',
-      redirectLink: 'https://example.com/brevo',
+    const CLI_OPTIONS = { name: 'Invoice Manager', distribution: 'private' };
+
+    /** Every question inquirer was asked, in order. */
+    let askedQuestions: Array<Record<string, unknown>>;
+
+    /**
+     * Answer the create prompts by question *name* rather than by call order, so
+     * that adding or reordering a prompt can't silently shift an answer onto the
+     * wrong field.
+     */
+    const answerPrompts = (overrides: Record<string, unknown> = {}) => {
+      const answers: Record<string, unknown> = {
+        appType: 'ui',
+        extensionType: 'actionLink',
+        surfaces: ['contact'],
+        heading: 'Invoice Manager',
+        subheading: '',
+        redirectLink: 'https://example.com/brevo',
+        linkTarget: '_blank',
+        logoUrl: '',
+        // Only reached when a test forces the OAuth path (non-TTY / --json), but
+        // kept here so those tests don't need their own mock wiring.
+        redirectUrl: 'http://localhost:3009/auth/callback',
+        another: false,
+        scaffoldRaw: 'n',
+        ...overrides,
+      };
+      mockPrompt.mockImplementation((questions: Array<Record<string, unknown>>) => {
+        const question = questions[0] ?? {};
+        askedQuestions.push(question);
+        const name = String(question.name ?? '');
+        return Promise.resolve(name in answers ? { [name]: answers[name] } : {});
+      });
     };
 
+    const questionNamed = (name: string) => askedQuestions.find((q) => q.name === name);
+
     beforeEach(() => {
+      askedQuestions = [];
       (appService.createApp as jest.Mock).mockResolvedValue({
         app_id: 42,
         name: 'Invoice Manager',
@@ -1077,51 +1123,51 @@ describe('app/create', () => {
         client_secret: 'secret-456',
         redirect_uris: [],
       });
-      // The logo prompt is app-type agnostic and still runs on a TTY. With the
-      // required UI flags supplied it is the only remaining prompt.
-      mockPrompt.mockResolvedValue({ logoUrl: '' });
+      answerPrompts();
     });
 
     const collectedUiApp = () => (fetchAppContext as jest.Mock).mock.calls[0][2];
 
     it('omits redirect_uris from the create payload', async () => {
-      await createCommand(UI_FLAGS);
+      await createCommand(CLI_OPTIONS);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(payload).not.toHaveProperty('redirect_uris');
     });
 
     it('sends the narrower UI-app scope defaults', async () => {
-      await createCommand(UI_FLAGS);
+      await createCommand(CLI_OPTIONS);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(payload.scopes).toEqual(['contacts:read', 'contacts:write']);
     });
 
     // The regression this guards: resolveRedirectUrls falls back to
-    // http://localhost:3009/auth/callback in non-TTY runs, which would silently
-    // register an OAuth redirect URL on an app that has no OAuth flow.
+    // http://localhost:3009/auth/callback, which would silently register an OAuth
+    // redirect URL on an app that has no OAuth flow.
     it('never prompts for or defaults a redirect URL', async () => {
-      await createCommand(UI_FLAGS);
+      await createCommand(CLI_OPTIONS);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(JSON.stringify(payload)).not.toContain('localhost:3009');
+      expect(questionNamed('redirectUrl')).toBeUndefined();
     });
 
     it('does not send the snapshot to POST /apps', async () => {
-      await createCommand(UI_FLAGS);
+      await createCommand(CLI_OPTIONS);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(payload).not.toHaveProperty('snapshot');
       expect(payload).not.toHaveProperty('ui_app');
     });
 
-    // Field names must match the platform's stored app snapshot exactly.
+    // Field names and casing must match the platform's stored app snapshot
+    // exactly — `extensionType` is camelCase since BEX-350.
     it('builds the snapshot shape the platform consumes', async () => {
-      await createCommand(UI_FLAGS);
+      await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp()).toEqual({
-        extensionType: 'action_link',
+        extensionType: 'actionLink',
         surfacePointList: ['contactDetails.headerMenu.action'],
         heading: 'Invoice Manager',
         redirectLink: 'https://example.com/brevo',
@@ -1129,8 +1175,10 @@ describe('app/create', () => {
       });
     });
 
-    it('maps friendly --surface values onto action slot names', async () => {
-      await createCommand({ ...UI_FLAGS, surfaces: ['deal', 'company'] });
+    it('maps the picked record pages onto action slot names', async () => {
+      answerPrompts({ surfaces: ['deal', 'company'] });
+
+      await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp().surfacePointList).toEqual([
         'dealDetails.headerMenu.action',
@@ -1138,77 +1186,81 @@ describe('app/create', () => {
       ]);
     });
 
-    it('deduplicates repeated surfaces', async () => {
-      await createCommand({ ...UI_FLAGS, surfaces: ['contact', 'contact'] });
+    it('deduplicates repeated record pages', async () => {
+      answerPrompts({ surfaces: ['contact', 'contact'] });
+
+      await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp().surfacePointList).toEqual(['contactDetails.headerMenu.action']);
     });
 
-    it('rejects an unknown --surface', async () => {
-      await expect(createCommand({ ...UI_FLAGS, surfaces: ['invoice'] })).rejects.toThrow(
-        /Invalid --surface/i,
-      );
-      expect(appService.createApp).not.toHaveBeenCalled();
-    });
-
-    it('omits subheading when not supplied rather than writing an empty string', async () => {
-      await createCommand(UI_FLAGS);
+    it('omits subheading when left blank rather than writing an empty string', async () => {
+      await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp()).not.toHaveProperty('subheading');
     });
 
-    it('includes subheading when supplied', async () => {
-      await createCommand({ ...UI_FLAGS, subheading: 'Review invoice history' });
+    it('includes subheading when entered', async () => {
+      answerPrompts({ subheading: 'Review invoice history' });
+
+      await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp().subheading).toBe('Review invoice history');
     });
 
-    it('honours --link-target', async () => {
-      await createCommand({ ...UI_FLAGS, linkTarget: '_self' });
+    it('honours the link-target answer', async () => {
+      answerPrompts({ linkTarget: '_self' });
+
+      await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp().linkTarget).toBe('_self');
     });
 
-    it('rejects an invalid --link-target', async () => {
-      await expect(createCommand({ ...UI_FLAGS, linkTarget: '_top' })).rejects.toThrow(
-        /Invalid ui_app.linkTarget/i,
+    // The per-field flags are gone, so these prompt `validate` callbacks are now
+    // the only thing standing between a typo and a silently unrenderable action
+    // link. Assert they're still wired up.
+    it('validates the heading and redirect-link answers at the prompt', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const heading = questionNamed('heading');
+      expect(typeof heading?.validate).toBe('function');
+      expect((heading?.validate as (v: string) => unknown)('  ')).toMatch(/cannot be empty/i);
+
+      const redirectLink = questionNamed('redirectLink');
+      expect(typeof redirectLink?.validate).toBe('function');
+      expect((redirectLink?.validate as (v: string) => unknown)('http://example.com')).toMatch(
+        /must use https/i,
       );
     });
 
-    it('rejects an invalid --type', async () => {
-      await expect(createCommand({ ...UI_FLAGS, type: 'widget' })).rejects.toThrow(/--type/i);
-      expect(appService.createApp).not.toHaveBeenCalled();
+    it('requires at least one record page', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const surfaces = questionNamed('surfaces');
+      expect((surfaces?.validate as (v: unknown[]) => unknown)([])).toMatch(/at least one/i);
+      expect((surfaces?.validate as (v: unknown[]) => unknown)(['contact'])).toBe(true);
     });
 
-    it('rejects an insecure redirect link', async () => {
-      await expect(
-        createCommand({ ...UI_FLAGS, redirectLink: 'http://example.com/brevo' }),
-      ).rejects.toThrow(/must use https/i);
-      expect(appService.createApp).not.toHaveBeenCalled();
-    });
+    it('offers only the action link as a selectable delivery path', async () => {
+      await createCommand(CLI_OPTIONS);
 
-    it('errors in a non-TTY run when the required flags are absent', async () => {
-      Object.defineProperty(process.stdin, 'isTTY', {
-        configurable: true,
-        writable: true,
-        value: false,
-      });
-
-      await expect(
-        createCommand({ type: 'ui', name: 'Invoice Manager', distribution: 'private' }),
-      ).rejects.toThrow(/--heading and --redirect-link/i);
-      expect(appService.createApp).not.toHaveBeenCalled();
+      const choices = (questionNamed('extensionType')?.choices ?? []) as Array<{
+        value?: string;
+        disabled?: string;
+      }>;
+      const selectable = choices.filter((c) => c.value && !c.disabled).map((c) => c.value);
+      expect(selectable).toEqual(['actionLink']);
     });
 
     it('never offers the OAuth feature scaffold', async () => {
-      await createCommand(UI_FLAGS);
+      await createCommand(CLI_OPTIONS);
 
       expect(promptFeatureType).not.toHaveBeenCalled();
       expect(runFeatureScaffold).not.toHaveBeenCalled();
     });
 
     it('renders the UI-app box with the extension point, not redirect URLs', async () => {
-      await createCommand(UI_FLAGS);
+      await createCommand(CLI_OPTIONS);
 
       const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
       expect(output).toContain('UI app created');
@@ -1220,19 +1272,39 @@ describe('app/create', () => {
     // There is no per-action label on the platform — the menu entry uses the app
     // name — so the box says so explicitly.
     it('explains that the menu label comes from the app name', async () => {
-      await createCommand(UI_FLAGS);
+      await createCommand(CLI_OPTIONS);
 
       const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
       expect(output).toMatch(/labelled with the app name/i);
     });
 
-    it('includes appType and uiApp in --json output, without redirectUri', async () => {
-      await createCommand({ ...UI_FLAGS, json: true });
+    // ──────── A UI app needs an interactive terminal ────────
+    // Both of these keep pre-BEX-290 behaviour for scripted callers: without the
+    // app-type prompt there is no way to ask for a UI app, so they get an OAuth
+    // app rather than an error.
+    it('creates an OAuth app in a non-TTY run, without prompting for the app type', async () => {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        configurable: true,
+        writable: true,
+        value: false,
+      });
 
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('appType')).toBeUndefined();
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload).toHaveProperty('redirect_uris');
+      expect(collectedUiApp()).toBeUndefined();
+    });
+
+    it('creates an OAuth app under --json even on a TTY', async () => {
+      await createCommand({ ...CLI_OPTIONS, json: true });
+
+      expect(questionNamed('appType')).toBeUndefined();
       const parsed = JSON.parse(stdoutSpy.mock.calls.map((c) => String(c[0])).join(''));
-      expect(parsed.appType).toBe('ui');
-      expect(parsed.uiApp.extensionType).toBe('action_link');
-      expect(parsed).not.toHaveProperty('redirectUri');
+      expect(parsed.appType).toBe('oauth');
+      expect(parsed).toHaveProperty('redirectUri');
+      expect(parsed).not.toHaveProperty('uiApp');
     });
   });
 });

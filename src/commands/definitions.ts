@@ -1,13 +1,5 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import {
-  parseAppId,
-  parsePositiveInt,
-  collectUrls,
-  validateUrl,
-  validateUiAppUrl,
-} from '../lib/validators';
-import { CliError } from '../lib/errors';
-import { DEFAULT_LINK_TARGET, LINK_TARGETS, UI_APP_SURFACES } from '../lib/constants';
+import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -81,13 +73,13 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
-        'brevo app create --type ui',
-        'brevo app create --type ui --name "Invoice Manager" --heading "Invoice Manager" --redirect-link https://example.com/brevo',
-        'brevo app create --type ui --name "Invoice Manager" --surface contact --surface deal --heading "Invoices" --subheading "Review invoice history" --redirect-link https://example.com/brevo --link-target _blank --json',
       ],
+      // A UI app is authored entirely through the interactive prompts (BEX-290) —
+      // there is deliberately no `--type` or per-field flag. Every flag below
+      // applies to an OAuth app, which is what a non-interactive run always
+      // creates.
       options: [
         { flags: '--name <name>', description: 'App name' },
-        { flags: '--type <type>', description: 'App type (oauth|ui) — default: oauth' },
         { flags: '--distribution <type>', description: 'Distribution type (private|public)' },
         {
           flags: '--redirect-uri <url>',
@@ -102,44 +94,14 @@ export const appCommandGroup: SubcommandGroupDefinition = {
             return v;
           },
         },
-        // UI-app flags (BEX-290) — give every prompt in the UI-app path a
-        // scriptable equivalent so `--json` / non-TTY runs never block. Names
-        // mirror the platform's own field names (heading / subheading /
-        // redirectLink / linkTarget) so there is no vocabulary to translate.
-        {
-          flags: '--surface <surface>',
-          description: `UI app: record page to appear on, repeatable (${UI_APP_SURFACES.join('|')})`,
-          parser: (v: string, previous?: string[]) => [...(previous ?? []), v],
-        },
-        { flags: '--heading <text>', description: 'UI app: primary text shown on the action' },
-        { flags: '--subheading <text>', description: 'UI app: optional secondary text' },
-        {
-          flags: '--redirect-link <url>',
-          description: 'UI app: destination URL that receives record context',
-          parser: (v: string) => {
-            const check = validateUiAppUrl(v);
-            if (check !== true) throw new CliError(check);
-            return v;
-          },
-        },
-        {
-          flags: '--link-target <target>',
-          description: `UI app: where the link opens (${LINK_TARGETS.join('|')}) — default: ${DEFAULT_LINK_TARGET}`,
-        },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
         createCommand({
           name: opts.name as string | undefined,
-          type: opts.type as string | undefined,
           distribution: opts.distribution as string | undefined,
           redirectUri: opts.redirectUri as string[] | undefined,
           logoUri: opts.logoUri as string | undefined,
-          surfaces: opts.surface as string[] | undefined,
-          heading: opts.heading as string | undefined,
-          subheading: opts.subheading as string | undefined,
-          redirectLink: opts.redirectLink as string | undefined,
-          linkTarget: opts.linkTarget as string | undefined,
           json: Boolean(opts.json),
         }),
     },

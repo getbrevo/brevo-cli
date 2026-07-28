@@ -161,7 +161,7 @@ describe('app-config.json template branching', () => {
     // The platform's app-snapshot shape — nested one level deep, which is
     // what the template's indent handling has to survive.
     const uiApp = {
-      extensionType: 'action_link',
+      extensionType: 'actionLink',
       surfacePointList: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
       heading: 'Invoice Manager',
       subheading: 'Review invoice history',

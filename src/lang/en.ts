@@ -103,7 +103,7 @@ export const messages = {
   APP_CREATE_UI_TRIGGER_LINK:
     'Action link     (Adds a menu entry that opens your URL in a new tab)',
   // Kept visible but unselectable so the roadmap is discoverable from the prompt
-  // itself. `iframe_extension` exists on the platform but the CLI can't author it
+  // itself. `iframeExtension` exists on the platform but the CLI can't author it
   // yet; widgets have no CLI authoring path at all.
   APP_CREATE_UI_TRIGGER_MODAL: 'Iframe modal    (Opens your URL in a modal — not yet supported)',
   APP_CREATE_UI_TRIGGER_WIDGET:
@@ -127,8 +127,6 @@ export const messages = {
     `${cdDir ? 2 : 1}. ${CLI.APP_UPLOAD}              (validate and save your configuration)`,
     `${cdDir ? 3 : 2}. ${CLI.APP_DEPLOY()}   (make it available in an account)`,
   ],
-  APP_CREATE_UI_NON_INTERACTIVE:
-    'Creating a UI app needs either an interactive terminal or the --heading and --redirect-link flags.',
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,

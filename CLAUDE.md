@@ -25,7 +25,7 @@ Because that surface is shipped and unguarded, `agent-context/SKILL.md` and `age
 
 ## UI apps are not GA either — same deal (BEX-290)
 
-UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The CLI ships the surface — `brevo app create --type ui`, `brevo app deploy <account-id>`, `brevo app remove <account-id>` — and, exactly as with public apps, `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a **⚠️ UI apps are not available yet** notice reusing the same *Exception — internal Brevo accounts* clause. `README.md` mirrors it.
+UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The CLI ships the surface — the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app deploy <account-id>`, `brevo app remove <account-id>` — and, exactly as with public apps, `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a **⚠️ UI apps are not available yet** notice reusing the same *Exception — internal Brevo accounts* clause. `README.md` mirrors it.
 
 **Every clause of the public-apps section above applies verbatim** — it does not restrict work in this repo, don't remove or soften the notice during unrelated cleanup, keep the internal-account escape hatch, and it's documentation-level only (no runtime guard, by design).
 
@@ -35,7 +35,11 @@ Three consequences worth knowing before touching this code:
 
 - **Extension-point names fail silently.** `surfacePointList` entries use the BEX-350 grammar `<location>.<place>.<kind>`. The UI kit matches by exact string equality and the platform *drops* a name with no registry entry — an empty slot, a 200, no error. That is why `validateExtensionPointName` checks against the twelve-point registry mirrored in `src/lib/constants.ts`: the CLI is the only layer that will ever tell a partner.
 - **Two spec'd fields don't exist.** There is no per-action label (the menu entry uses the *app name*), and no partner-declared `contextProperties` (record context is an allow-list on the registry row, chosen by the platform). Don't add them back.
-- **`modalIframeUrl` is gated on `extensionType`.** The UI kit keeps it only for `iframe_extension`, so the CLI rejects it on an `action_link` rather than letting a partner ship a URL that never opens.
+- **`modalIframeUrl` is gated on `extensionType`.** The UI kit keeps it only for `iframeExtension`, so the CLI rejects it on an `actionLink` rather than letting a partner ship a URL that never opens.
+
+**`extensionType` values are camelCase (BEX-350): `actionLink`, `iframeExtension`, `legacyComponent`.** The source of truth is `FEATURE_TYPES` in the extensibility UI kit. The pre-BEX-350 snake_case spellings are **deliberately not accepted** — the kit still maps them for consumers, but that map is slated for removal once every producer emits camelCase, and the CLI is a producer. There's no config in the wild to migrate while the feature is in development, so there is no alias map and no normalize-on-read; `validateUiApp` simply rejects `action_link`. Note the platform's *own* `linkTarget` default is still gated on the literal `"action_link"`, so it no longer fires for CLI-authored apps — harmless, because the CLI always writes `linkTarget` explicitly and the kit defaults it client-side too.
+
+**A UI app is prompt-only — there is no `--type` flag and no per-field flags.** `brevo app create` asks the app type first; a UI app can only be authored from an interactive terminal, so every non-interactive run (`--json` or piped stdin) creates an OAuth app, exactly as before BEX-290. This is deliberate: UI apps aren't live, and a scriptable create surface would invite pipelines to pin to a shape that can still change. Don't add flags back without revisiting that.
 
 **What is still assumed: the transport, not the shape.** Nothing on the platform writes the app snapshot yet — only the read path that consumes it exists. The CLI sends the block under a `snapshot` key on `POST /v3/app-store/apps/{id}/upload`; `deploy`/`remove` likewise assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the body and HTTP 422 for "not uploaded" / "not deployed". All marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
 

@@ -353,7 +353,7 @@ describe('app/upload', () => {
   // The block mirrors the platform's stored app snapshot field for field.
   describe('UI apps', () => {
     const UI_APP = {
-      extensionType: 'action_link' as const,
+      extensionType: 'actionLink' as const,
       surfacePointList: ['contactDetails.headerMenu.action'],
       heading: 'Invoice Manager',
       subheading: 'Review invoice history for this contact',
@@ -456,7 +456,7 @@ describe('app/upload', () => {
           subheading: 'Review invoice history for this contact',
           heading: 'Invoice Manager',
           surfacePointList: ['contactDetails.headerMenu.action'],
-          extensionType: 'action_link' as const,
+          extensionType: 'actionLink' as const,
         },
       });
 
@@ -559,7 +559,7 @@ describe('app/upload', () => {
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/Invalid ui_app.linkTarget/i);
     });
 
-    it.each([['iframe_extension'], ['legacy_component']])(
+    it.each([['iframeExtension'], ['legacyComponent']])(
       'rejects the not-yet-authorable %s type',
       async (extensionType) => {
         (readProjectConfig as jest.Mock).mockReturnValue({
@@ -574,16 +574,14 @@ describe('app/upload', () => {
     );
 
     // The UI kit drops modalIframeUrl for anything that isn't an
-    // iframe_extension, so authoring one on an action link is a silent no-op.
+    // iframeExtension, so authoring one on an action link is a silent no-op.
     it('rejects modalIframeUrl on an action link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: { ...UI_APP, modalIframeUrl: 'https://example.com/modal' },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(
-        /only used by "iframe_extension"/i,
-      );
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/only used by "iframeExtension"/i);
     });
 
     it('writes the snapshot back into app-config.json, preferring the server copy', async () => {

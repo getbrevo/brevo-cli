@@ -30,7 +30,7 @@ names it stores, serves and renders. There is no mapping layer, so nothing can d
 ```json
 {
   "ui_app": {
-    "extensionType": "action_link",
+    "extensionType": "actionLink",
     "surfacePointList": ["contactDetails.headerMenu.action"],
     "heading": "Invoice Manager",
     "subheading": "Review invoice history for this contact",
@@ -55,7 +55,7 @@ contributor) will look for:
   platform's extension-point registry entry — a property of the *slot*, chosen by the
   platform, not declared by the partner.
 
-`modalIframeUrl` also exists on the wire but only applies to the `iframe_extension` type;
+`modalIframeUrl` also exists on the wire but only applies to the `iframeExtension` type;
 the UI kit discards it for anything else, so the CLI rejects it on an action link rather
 than let a partner ship a URL that never opens.
 
@@ -97,7 +97,7 @@ and are the ones most worth reviewing — they're marked **Non-obvious**.
 `ProjectConfig` gains an optional `ui_app` typed as the snapshot shape:
 
 ```ts
-export type ExtensionType = 'action_link' | 'iframe_extension' | 'legacy_component';
+export type ExtensionType = 'actionLink' | 'iframeExtension' | 'legacyComponent';
 export type LinkTarget = '_blank' | '_self';
 
 export interface UiApp {
@@ -107,7 +107,7 @@ export interface UiApp {
   subheading?: string;
   redirectLink?: string;
   linkTarget?: LinkTarget;
-  modalIframeUrl?: string; // iframe_extension only — not authorable
+  modalIframeUrl?: string; // iframeExtension only — not authorable
   version?: string; // server-managed
 }
 ```
@@ -124,24 +124,28 @@ Every branch goes through `isUiAppConfig()` so the discriminator can change in o
 ### 2. `app create` / `app init` prompts — `src/commands/app/create.ts`
 
 `init` delegates to `createCommand`, so all prompts live in `create.ts`. A new
-`resolveAppType` step runs between name and distribution, backed by `--type <oauth|ui>`
-(default `oauth`; non-TTY without the flag stays `oauth`, so existing scripted calls are
-unaffected).
+`resolveAppType` step runs between name and distribution. It is **prompt-only — there is no
+`--type` flag** — so any non-interactive run (piped stdin or `--json`) stays `oauth` and
+existing scripted calls are unaffected. UI apps aren't live on the platform, and a
+scriptable create surface would invite pipelines to pin to a shape that can still change.
 
 Then the paths diverge:
 
 - **`oauth`** → the existing redirect-URL + logo path, byte-for-byte unchanged.
-- **`ui`** → `resolveUiApp()` collects heading, subheading, redirect link, link target, and
-  one or more record pages. `--surface` is repeatable and maps `contact|company|deal` onto
-  `<location>.headerMenu.action`. Defaults: surface `contact`, `linkTarget` `_blank`, scopes
-  `contacts:read`/`contacts:write` (narrower than the OAuth defaults). No description length
-  cap — the platform enforces none, and inventing one would reject valid configs.
+- **`ui`** → `resolveUiApp()` prompts for one or more record pages, then heading,
+  subheading, redirect link and link target. The multi-select maps `contact|company|deal`
+  onto `<location>.headerMenu.action`. Defaults: record page `contact`, `linkTarget`
+  `_blank`, scopes `contacts:read`/`contacts:write` (narrower than the OAuth defaults). No
+  description length cap — the platform enforces none, and inventing one would reject valid
+  configs.
   - **Non-obvious:** `resolveRedirectUrls` falls back to the default localhost callback in
     non-TTY runs. Without an explicit skip, a UI app silently acquires an OAuth callback it
     has no flow for. The UI path never calls it, and `redirect_uris` is omitted from the
     create call entirely.
 
-Every prompt has a flag equivalent so `--json` / non-TTY never blocks. The created-app box
+Only reachable interactively, so each field is asked for unconditionally with no flag or
+default fallback path; the prompts' own `validate` callbacks are the input check, and
+`validateUiApp` re-checks the assembled block. The created-app box
 gets a UI-app variant listing extension type, point(s), heading, subheading, redirect link
 and link target — and stating that the menu entry is labelled with the app name.
 

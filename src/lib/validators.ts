@@ -225,14 +225,15 @@ export function validateExtensionPointName(name: string): true | string {
 export function validateUiApp(uiApp: unknown): void {
   if (!uiApp || typeof uiApp !== 'object') {
     throw new CliError(
-      'app-config.json has an invalid "ui_app" block — expected an object. Fix the file, or recreate the app with `brevo app create --type ui`.',
+      'app-config.json has an invalid "ui_app" block — expected an object. Fix the file, or recreate the app with `brevo app create` and choose "UI app".',
     );
   }
   const block = uiApp as Record<string, unknown>;
 
-  // Only action links are authorable. `legacy_component` is the pre-extensibility
-  // interpreter path (never CLI-authored) and `iframe_extension` needs the modal
-  // surface that isn't built yet.
+  // Only action links are authorable. `legacyComponent` is the pre-extensibility
+  // interpreter path (never CLI-authored) and `iframeExtension` needs the modal
+  // surface that isn't built yet. The pre-BEX-350 snake_case spellings fail here
+  // too, by design — the CLI only ever writes canonical camelCase.
   if (block.extensionType !== EXTENSION_TYPE_ACTION_LINK) {
     throw new CliError(
       `Unsupported ui_app.extensionType "${String(block.extensionType)}". Only "${EXTENSION_TYPE_ACTION_LINK}" can be uploaded today.`,
@@ -272,8 +273,8 @@ export function validateUiApp(uiApp: unknown): void {
     );
   }
 
-  // The UI kit keeps `modalIframeUrl` only for an `iframe_extension` item, so one
-  // carried by an action_link is dropped without a word. Reject rather than let a
+  // The UI kit keeps `modalIframeUrl` only for an `iframeExtension` item, so one
+  // carried by an actionLink is dropped without a word. Reject rather than let a
   // partner ship a URL that will never open.
   if (block.modalIframeUrl !== undefined && String(block.modalIframeUrl).trim()) {
     throw new CliError(

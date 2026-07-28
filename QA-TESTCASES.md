@@ -613,7 +613,7 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 ### TC-12.3 — UI-app create writes the snapshot shape and no redirect URLs
 **Priority:** High
 **Steps:** Complete the UI-app flow — pick one or more record pages, then heading, subheading, redirect link (`https://…`), link target.
-**Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extensionType: "action_link"`, `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth.scopes` is `["contacts:read","contacts:write"]` and there is **no** `auth.redirectUrls`. No `src/oauth/` directory, no feature prompt.
+**Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extensionType: "actionLink"`, `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth.scopes` is `["contacts:read","contacts:write"]` and there is **no** `auth.redirectUrls`. No `src/oauth/` directory, no feature prompt.
 
 ### TC-12.4 — Upload sends the snapshot and is accepted
 **Priority:** High
@@ -646,7 +646,7 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 
 ### TC-12.8 — Multiple record pages from one app
 **Priority:** Medium
-**Steps:** `brevo app create --type ui … --surface contact --surface deal --surface company`, upload, deploy.
+**Steps:** `brevo app create`, choose **UI app**, tick **all three** record pages at the multi-select, finish the prompts, then upload and deploy.
 **Expected:** `surfacePointList` has all three `<location>.headerMenu.action` names; the entry appears in the More menu on contact, deal **and** company records.
 
 ### TC-12.9 — Deploy refuses before an upload
@@ -662,12 +662,12 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 ### TC-12.11 — Field validation and account-ID validation
 **Priority:** Medium
 **Steps:** (a) set `ui_app.redirectLink` to `http://example.com/x` and upload; (b) set it to `http://localhost:3000/x` and upload; (c) blank `ui_app.heading` and upload; (d) set `ui_app.linkTarget` to `_top` and upload; (e) add `ui_app.modalIframeUrl` and upload; (f) `brevo app deploy abc`; (g) `brevo app deploy` with no argument.
-**Expected:** (a) rejected — must use https; (b) **accepted** (loopback exemption); (c) rejected — heading cannot be empty; (d) rejected — invalid linkTarget; (e) rejected — only used by `iframe_extension`; (f) "not a numeric Brevo account ID"; (g) "Missing account ID" + usage. All rejections exit `1` with no API call.
+**Expected:** (a) rejected — must use https; (b) **accepted** (loopback exemption); (c) rejected — heading cannot be empty; (d) rejected — invalid linkTarget; (e) rejected — only used by `iframeExtension`; (f) "not a numeric Brevo account ID"; (g) "Missing account ID" + usage. All rejections exit `1` with no API call.
 
-### TC-12.12 — Non-interactive UI-app create
-**Priority:** Medium
-**Steps:** `brevo app create --type ui --name "QA Link" --heading "QA Link" --redirect-link https://example.com/qa --json`; then the same without `--heading`.
-**Expected:** First succeeds; JSON includes `appType: "ui"` and a `uiApp` object in the snapshot shape, and **omits** `redirectUri`. Second errors asking for `--heading and --redirect-link`.
+### TC-12.12 — A UI app cannot be created non-interactively
+**Priority:** High
+**Steps:** (a) `brevo app create --name "QA Link" --distribution private --json`; (b) the same command piped from `/dev/null` (non-TTY); (c) `brevo app create --type ui`; (d) `brevo app create --surface contact`.
+**Expected:** (a) and (b) create an **OAuth** app without ever showing the app-type prompt — JSON reports `appType: "oauth"`, includes `redirectUri`, and has **no** `uiApp` key; no `ui_app` block is written to `app-config.json`. (c) and (d) fail with commander's `unknown option` and exit non-zero — neither flag exists. `brevo app create --help` lists neither, nor `--heading`/`--subheading`/`--redirect-link`/`--link-target`.
 
 ### TC-12.13 — `app scaffold` in a UI-app project
 **Priority:** High

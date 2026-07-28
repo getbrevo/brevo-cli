@@ -93,7 +93,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an app — OAuth by default, or a UI app with `--type ui` (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`; UI apps: repeatable `--surface`, `--heading`, `--subheading`, `--redirect-link`, `--link-target`) |
+| `brevo app create` | Create an app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`). Interactively it asks the app type first — an OAuth integration or a UI app; a UI app is prompt-only, so non-interactive runs always create an OAuth app |
 | `brevo app list` | List apps in your account |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff (`--yes`) |
@@ -107,7 +107,7 @@ Most commands require a successful `brevo login` first, except authentication/he
 
 > **⚠️ Public apps are not available yet.** Public app distribution isn't live on the Brevo platform. `brevo app create` still accepts `--distribution public`, but create your apps with `--distribution private` — a public app can't be distributed or submitted for review today.
 
-> **⚠️ UI apps are not available yet.** UI apps — action links that render inside Brevo CRM records — aren't live on the Brevo platform. `brevo app create` accepts `--type ui`, and `brevo app deploy` / `brevo app remove` ship, but there is no working path behind them today.
+> **⚠️ UI apps are not available yet.** UI apps — action links that render inside Brevo CRM records — aren't live on the Brevo platform. `brevo app create` offers one at its app-type prompt, and `brevo app deploy` / `brevo app remove` ship, but there is no working path behind any of it today.
 
 ### Browser login
 

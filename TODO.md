@@ -25,10 +25,10 @@ into `main` — anything that must outlive the branch belongs in
       the backend have to land together; a CLI authoring `.widget`/`.action` names
       against a `.region`-era registry produces extensions that render nothing, with no
       error anywhere.
-- [ ] `iframe_extension` support (the platform's name for a modal card). The type
+- [ ] `iframeExtension` support (the platform's name for a modal card). The type
       round-trips today but `validateUiApp` rejects it on upload, and `modalIframeUrl`
-      is rejected on an `action_link` because the UI kit only honours it for an
-      `iframe_extension`. Needs: authoring for `modalIframeUrl`, `permittedUrls.iframe`
+      is rejected on an `actionLink` because the UI kit only honours it for an
+      `iframeExtension`. Needs: authoring for `modalIframeUrl`, `permittedUrls.iframe`
       handling (the postMessage origin allowlist is what makes the modal secure), and
       the corresponding create prompts.
 - [ ] Widget slots (`<location>.overviewAttributes|overviewMain|overviewSidebar.widget`).
@@ -38,15 +38,15 @@ into `main` — anything that must outlive the branch belongs in
       widget-type extension yet. The delivery prompt shows it as a disabled choice.
 - [ ] `place` selection is currently implicit: an action link always targets
       `headerMenu`, the only action place in the registry. If a second action place
-      lands (a sidebar toolbar, an inline header bar), `--surface` needs a companion
-      flag rather than deriving the slot name.
+      lands (a sidebar toolbar, an inline header bar), the record-page prompt needs a
+      companion prompt rather than deriving the slot name.
 - [ ] No local dev story for a UI app. `brevo app start` has no UI-app equivalent, so
       a partner can't preview an action link without deploying to a real account.
       Worth considering a local harness that renders the action menu and forwards
       context params to the external URL.
 - [ ] `permittedUrls` is scaffolded empty and never validated or populated from
       `ui_app.redirectLink`. Harmless for action links (they open a new tab), but it
-      becomes load-bearing for `iframe_extension` modals.
+      becomes load-bearing for `iframeExtension` modals.
 - [ ] Consider whether `brevo app list` should show the app type. Right now an OAuth
       app and a UI app are indistinguishable in the list output.
 - [ ] Record context is an allow-list on the extension-point registry row

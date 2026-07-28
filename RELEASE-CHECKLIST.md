@@ -132,8 +132,11 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       degrade safely when absent (the block reads as new / is carried forward
       locally), but the diff is only fully accurate once the server echoes it —
       notably `linkTarget`, which the backend defaults to `_blank` server-side.
-- [ ] Decide whether the CLI should guard `--type ui` at runtime, the same open
-      question as `--distribution public` above. Today the flag is accepted silently.
+- [ ] Decide whether the CLI should guard the UI-app path at runtime, the same open
+      question as `--distribution public` above. There is no `--type ui` flag to guard —
+      a UI app can only be chosen at the interactive app-type prompt, which is itself a
+      soft limit on reaching it accidentally — but the prompt choice is offered without
+      a warning.
 
 ---
 
@@ -242,8 +245,8 @@ distribution value to a flag set.
 - [x] An unregistered, mis-cased, stale-grammar, or widget-slot extension point is
       rejected locally — the platform would drop it silently. Covered by
       `validateExtensionPointName` cases and the upload-level rejections.
-- [ ] Manual, **against a real test account**: run `brevo app create --type ui`
-      interactively, inspect the generated `app-config.json`, then `brevo app upload`
+- [ ] Manual, **against a real test account**: run `brevo app create`, choose **UI app**
+      at the prompt, inspect the generated `app-config.json`, then `brevo app upload`
       and confirm the backend **accepts** the snapshot. A 4xx here means the write path
       isn't built yet (expected — see the follow-ups above), not a shape mismatch.
 - [ ] Manual: `brevo app deploy <account-id>` against a real account, then confirm the
@@ -262,9 +265,10 @@ distribution value to a flag set.
 - [ ] Manual: confirm the created-app box states that the menu entry is labelled with
       the app name — partners will otherwise look for a label field that doesn't exist.
 - [ ] Reviewer: `agent-context/SKILL.md` and `agent-context/AGENTS.md` both document
-      the new commands, `--type` and the UI flags, the `ui_app` block, and both carry
-      the UI-apps-not-available notice with equivalent wording (CLAUDE.md requires
-      those two stay in sync).
+      the new commands, the prompt-only UI-app create path (and that no `--type` or
+      UI-field flags exist), the `ui_app` block, and both carry the
+      UI-apps-not-available notice with equivalent wording (CLAUDE.md requires those
+      two stay in sync).
 - [ ] Reviewer: the **field names are now verified** against both platform consumers,
       but the **snapshot write path does not exist yet** — confirm with the app-store
       backend team how the CLI should submit it (the CLI currently sends a `snapshot`
@@ -273,3 +277,31 @@ distribution value to a flag set.
 - [ ] Reviewer: BEX-350 needs a coordinated release (kit + reseeded extension-point
       registry + backend). A CLI release ahead of the reseed authors names that resolve
       to nothing, silently. Confirm the sequencing.
+
+### UI-app create is prompt-only; `extensionType` is camelCase
+
+- [x] `brevo app create` exposes **no** `--type`, `--surface`, `--heading`,
+      `--subheading`, `--redirect-link` or `--link-target`. Covered by lint (the dead
+      imports in `definitions.ts` would fail it) and by TC-12.12 manually; commander
+      rejects each with `unknown option`.
+- [x] Every non-interactive run creates an OAuth app: piped stdin **and** `--json` on a
+      TTY, neither showing the app-type prompt. Covered by
+      `creates an OAuth app in a non-TTY run, without prompting for the app type` and
+      `creates an OAuth app under --json even on a TTY`.
+- [x] The prompt `validate` callbacks are still wired now that the flag parsers are
+      gone — they are the only remaining input check. Covered by
+      `validates the heading and redirect-link answers at the prompt` and
+      `requires at least one record page`.
+- [x] Only the action link is selectable at the delivery prompt. Covered by
+      `offers only the action link as a selectable delivery path`.
+- [x] The authored `extensionType` is `actionLink`, and `action_link` is rejected on
+      upload. Covered by `builds the snapshot shape the platform consumes` and the
+      `validateUiApp` type cases.
+- [ ] Manual: with a UI project created via the prompts, confirm `brevo app upload`
+      renders `Extension type: actionLink` in the diff and sends that value under
+      `snapshot`. Then hand-edit the file to `action_link` and confirm the upload is
+      rejected locally with exit `1` and no API call.
+- [ ] Reviewer: the platform's server-side `linkTarget` default is gated on the literal
+      `"action_link"`, so it no longer fires for CLI-authored apps. Confirm this stays
+      harmless — the CLI always writes `linkTarget` explicitly, and the UI kit defaults
+      an absent/unrecognised value to `_blank` client-side.
