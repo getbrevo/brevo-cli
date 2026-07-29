@@ -316,24 +316,40 @@ function execOnce(cmd: string, args: string[], state: State, opts: ExecOptions):
   };
 }
 
-function exec(cmd: string, args: string[], state: State, opts: ExecOptions = {}): ExecResult {
-  const pretty = `$ ${cmd} ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`;
-  logToFile(state, pretty);
-  if (state.opts.verbose) process.stdout.write(`  ${pretty}\n`);
+// `inherit` leaves no captured output to classify, so such a call is never
+// treated as rate-limited.
+function looksRateLimited(r: ExecResult, opts: ExecOptions): boolean {
+  if (r.exitCode === 0 || opts.inherit) return false;
+  return RATE_LIMIT_RE.test(r.stderr + r.stdout);
+}
 
+function execWithRateLimitRetry(
+  cmd: string,
+  args: string[],
+  state: State,
+  opts: ExecOptions,
+): ExecResult {
   let r = execOnce(cmd, args, state, opts);
   for (let attempt = 0; attempt < RATE_LIMIT_BACKOFF_MS.length; attempt++) {
-    // `inherit` gives us no output to inspect, so it can't be classified.
-    if (r.exitCode === 0 || opts.inherit) break;
-    if (!RATE_LIMIT_RE.test(r.stderr + r.stdout)) break;
+    if (!looksRateLimited(r, opts)) break;
     const wait = RATE_LIMIT_BACKOFF_MS[attempt] ?? 30_000;
+    const of = RATE_LIMIT_BACKOFF_MS.length + 1;
     state.rateLimitWaits++;
-    const note = `rate limited — waiting ${formatMs(wait)} and retrying (attempt ${attempt + 2}/${RATE_LIMIT_BACKOFF_MS.length + 1})`;
+    const note = `rate limited — waiting ${formatMs(wait)} and retrying (attempt ${attempt + 2}/${of})`;
     logToFile(state, note);
     process.stdout.write(`  ${COLOR.yellow}⏳ ${note}${COLOR.reset}\n`);
     sleepSync(wait);
     r = execOnce(cmd, args, state, opts);
   }
+  return r;
+}
+
+function exec(cmd: string, args: string[], state: State, opts: ExecOptions = {}): ExecResult {
+  const pretty = `$ ${cmd} ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`;
+  logToFile(state, pretty);
+  if (state.opts.verbose) process.stdout.write(`  ${pretty}\n`);
+
+  const r = execWithRateLimitRetry(cmd, args, state, opts);
 
   if (!opts.inherit) {
     if (r.stdout) logToFile(state, r.stdout.trimEnd());
@@ -1748,9 +1764,8 @@ function stepDeleteLeftoverApps(state: State): string {
 
   if (failed.length > 0) {
     // Leave the ids on State so the trap reports them as orphans too.
-    throw new Error(
-      `could not delete ${failed.join(', ')}${deleted.length > 0 ? `; deleted ${deleted.join(', ')}` : ''}`,
-    );
+    const alsoDeleted = deleted.length > 0 ? `; deleted ${deleted.join(', ')}` : '';
+    throw new Error(`could not delete ${failed.join(', ')}${alsoDeleted}`);
   }
   return `recovered leftover app(s): ${deleted.join(', ')}`;
 }
