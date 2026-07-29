@@ -244,7 +244,7 @@ distribution value to a flag set.
       `sends the block under the snapshot key`.
 - [x] An unregistered, mis-cased, stale-grammar, or widget-slot extension point is
       rejected locally — the platform would drop it silently. Covered by
-      `validateExtensionPointName` cases and the upload-level rejections.
+      `validateSurfacePoint` cases and the upload-level rejections.
 - [ ] Manual, **against a real test account**: run `brevo app create`, choose **UI app**
       at the prompt, inspect the generated `app-config.json`, then `brevo app upload`
       and confirm the backend **accepts** the snapshot. A 4xx here means the write path

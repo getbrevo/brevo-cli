@@ -71,17 +71,18 @@ export type ExtensionPlace =
 export type ExtensionKind = 'widget' | 'action';
 
 /**
- * A slot name in the BEX-350 grammar `<location>.<place>.<kind>` — e.g.
- * `contactDetails.headerMenu.action`.
+ * A slot in the BEX-350 grammar `<location>.<place>.<kind>` — e.g.
+ * `contactDetails.headerMenu.action`. Named for the field it types
+ * (`surfacePointList`); the platform calls the same value `extensionPoint` when
+ * it serves it back on the manifest.
  *
  * Casing and spelling are part of the contract: the UI kit matches
  * `extensionPoint` by exact string equality against the platform's
- * extension-point registry, and the backend *drops* an authored name with no
- * registry entry. Both
- * failures are silent — an empty slot, no error, still a 200 — which is why the
- * CLI validates names locally against the known registry.
+ * extension-point registry, and the backend *drops* an authored value with no
+ * registry entry. Both failures are silent — an empty slot, no error, still a
+ * 200 — which is why the CLI validates locally against the known registry.
  */
-export type ExtensionPointName = string;
+export type SurfacePoint = string;
 
 export interface UiApp {
   extensionType: ExtensionType;
@@ -91,7 +92,7 @@ export interface UiApp {
    * backend fall back to a default widget slot list, which is not what an
    * action-link author wants — so the CLI always writes at least one.
    */
-  surfacePointList: ExtensionPointName[];
+  surfacePointList: SurfacePoint[];
   /** Primary CTA text rendered by the kit. */
   heading?: string;
   /** Secondary CTA text rendered beneath the heading. */

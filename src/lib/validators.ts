@@ -194,16 +194,16 @@ export function validateUiAppHeading(value: string): true | string {
 }
 
 /**
- * Validate an extension-point slot name against the known registry.
+ * Validate a `surfacePointList` entry against the known registry.
  *
  * This is the highest-value local check in the UI-app flow. The backend silently
- * DROPS an authored name with no registry entry, and the UI kit matches
- * names by exact string equality — so a near-miss like `contact.headerMenu.action`
- * or `contactDetails.headerMenu.widget` produces an empty slot, a 200, and no
- * error anywhere. Catching it here is the only place a partner gets told.
+ * DROPS an authored value with no registry entry, and the UI kit matches by exact
+ * string equality — so a near-miss like `contact.headerMenu.action` or
+ * `contactDetails.headerMenu.widget` produces an empty slot, a 200, and no error
+ * anywhere. Catching it here is the only place a partner gets told.
  */
-export function validateExtensionPointName(name: string): true | string {
-  const trimmed = String(name ?? '').trim();
+export function validateSurfacePoint(point: string): true | string {
+  const trimmed = String(point ?? '').trim();
   if (!trimmed) return 'Extension point cannot be empty.';
   if (EXTENSION_POINTS.includes(trimmed)) return true;
   return `Unknown extension point "${trimmed}". Must be one of: ${EXTENSION_POINTS.join(', ')}.`;
@@ -247,7 +247,7 @@ export function validateUiApp(uiApp: unknown): void {
     );
   }
   for (const point of points) {
-    const check = validateExtensionPointName(String(point));
+    const check = validateSurfacePoint(String(point));
     if (check !== true) throw new CliError(`ui_app.surfacePointList: ${check}`);
     // An action link yields a menu descriptor, so it can only occupy an action
     // slot; targeting a `.widget` slot registers it somewhere it never renders.

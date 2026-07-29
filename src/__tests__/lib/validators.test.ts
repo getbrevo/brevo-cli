@@ -10,7 +10,7 @@ import {
   validateUiApp,
   validateUiAppHeading,
   validateUiAppUrl,
-  validateExtensionPointName,
+  validateSurfacePoint,
 } from '../../lib/validators';
 import { CliError } from '../../lib/errors';
 
@@ -268,7 +268,7 @@ describe('validateUiAppHeading', () => {
 // Slot names are matched by exact string equality by the UI kit, and an authored
 // name with no registry row is silently dropped by the backend — so this is the
 // only place a typo ever surfaces.
-describe('validateExtensionPointName', () => {
+describe('validateSurfacePoint', () => {
   it.each([
     ['contactDetails.headerMenu.action'],
     ['dealDetails.headerMenu.action'],
@@ -277,7 +277,7 @@ describe('validateExtensionPointName', () => {
     ['dealDetails.overviewAttributes.widget'],
     ['companyDetails.overviewSidebar.widget'],
   ])('accepts the registered point %s', (name) => {
-    expect(validateExtensionPointName(name)).toBe(true);
+    expect(validateSurfacePoint(name)).toBe(true);
   });
 
   it.each([
@@ -289,7 +289,7 @@ describe('validateExtensionPointName', () => {
     ['wrong casing', 'contactdetails.headerMenu.action'],
     ['an empty value', ''],
   ])('rejects %s', (_label, name) => {
-    expect(validateExtensionPointName(name)).not.toBe(true);
+    expect(validateSurfacePoint(name)).not.toBe(true);
   });
 });
 

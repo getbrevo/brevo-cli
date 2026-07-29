@@ -33,7 +33,7 @@ UI apps (action links that render inside Brevo CRM records) are **not live on th
 
 Three consequences worth knowing before touching this code:
 
-- **Extension-point names fail silently.** `surfacePointList` entries use the BEX-350 grammar `<location>.<place>.<kind>`. The UI kit matches by exact string equality and the platform *drops* a name with no registry entry — an empty slot, a 200, no error. That is why `validateExtensionPointName` checks against the twelve-point registry mirrored in `src/lib/constants.ts`: the CLI is the only layer that will ever tell a partner.
+- **Extension-point names fail silently.** `surfacePointList` entries use the BEX-350 grammar `<location>.<place>.<kind>`. The UI kit matches by exact string equality and the platform *drops* a name with no registry entry — an empty slot, a 200, no error. That is why `validateSurfacePoint` checks against the twelve-point registry mirrored in `src/lib/constants.ts`: the CLI is the only layer that will ever tell a partner.
 - **Two spec'd fields don't exist.** There is no per-action label (the menu entry uses the *app name*), and no partner-declared `contextProperties` (record context is an allow-list on the registry row, chosen by the platform). Don't add them back.
 - **`modalIframeUrl` is gated on `extensionType`.** The UI kit keeps it only for `iframeExtension`, so the CLI rejects it on an `actionLink` rather than letting a partner ship a URL that never opens.
 
