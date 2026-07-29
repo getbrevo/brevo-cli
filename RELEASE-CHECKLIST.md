@@ -167,28 +167,37 @@ update is required.
       deleted by the trap, and no `brevo-smoke-work-*` tmp dir is left behind.
 - [x] `yarn lint` and `yarn test` (733 tests) pass — unchanged, since nothing
       under `src/` is touched.
-- [ ] **Manual, real backend** (the one thing the mock can't prove): run
-      `yarn smoke --skip-auth` against a Brevo test account and confirm every
-      step passes. Specifically check the assertions that encode a guess about
-      server behaviour:
-  - [ ] `app-config.json`'s `distribution_type` comes back `public` for a public
-        app (it's round-tripped from the server via `buildTemplateVars`, so a
-        server that omits it silently writes `private` and this fails).
-  - [ ] The second `upload` reports `upToDate: true` (i.e. the server does not
-        bump `version` on an unchanged upload). If it bumps, the step accepts a
-        version-only diff and says so — confirm which branch fired.
-  - [ ] `submit` right after `upload` is **not** rejected for config drift.
-  - [ ] `status` for a freshly created + uploaded public app returns a state the
-        CLI has copy for (`configured` expected, `unknown` tolerated).
-  - [ ] `withdraw` on a never-submitted app returns HTTP 422 → the mapped
-        `NOT_SUBMITTED` payload at exit 0 (not a 404).
-  - [ ] `status`/`withdraw` on a random UUID map to not-found (exit 5) or
-        access-denied (exit 1), never an unmapped error.
-  - [ ] `brevo app list` shows no `brevo-cli-smoke*` app when the run finishes.
+- [x] **Manual, real backend** — ran `yarn smoke --skip-auth` on 2026-07-29
+      against a live account (prod API, OAuth login, local build via `yarn link`).
+      **24/25 passed;** the one failure was the private-app submit probe, which
+      surfaced a real CLI issue and is now recorded in `TODO.md` (see the last
+      bullet below). Every assertion that encoded a guess about server behaviour
+      is now confirmed:
+  - [x] `app-config.json`'s `distribution_type` comes back `public` for a public
+        app — round-trip via `buildTemplateVars` works, no silent `private`.
+  - [x] The second `upload` reported `up to date at version 0.0.2` — the server
+        does **not** bump `version` on an unchanged upload, so the strict
+        `upToDate: true` branch is the one that fires.
+  - [x] `submit` straight after `upload` was **not** rejected for config drift
+        (run from the project dir, so the drift check did execute).
+  - [x] `status` for a freshly created + uploaded public app returned
+        `configured` — a state the CLI has copy for, not `unknown`.
+  - [x] `withdraw` on a never-submitted app returned the mapped `NOT_SUBMITTED`
+        payload at exit 0 (HTTP 422, not a 404).
+  - [x] `status` **and** `withdraw` on a random UUID both mapped to not-found at
+        exit 5.
+  - [x] No `brevo-cli-smoke*` app left on the account — both delete steps assert
+        absence from `app list` after deleting, and both passed.
+  - [x] Bonus, unplanned: `submit` **did** return a review-form link on prod, so
+        the public path was exercised for real rather than skipped. The repeat
+        submit was idempotent (same URL, exit 0), confirming that branch too.
 - [ ] Reviewer: confirm the two intentionally permissive assertions are the right
-      call — the private-app submit probe accepts either "is private" (exit 1) or
-      not-found (exit 5), because submit preflights the review state before the
-      public check; and the repeat-submit probe accepts idempotent success or the
-      mapped "currently unavailable" refusal, because the CLI's submit hands over
-      a form URL rather than transitioning state, so a server-side "already
-      submitted" rejection can't be produced from the CLI alone.
+      call — the repeat-submit probe accepts idempotent success or the mapped
+      "currently unavailable" refusal, because the CLI's submit hands over a form
+      URL rather than transitioning state, so a server-side "already submitted"
+      rejection can't be produced from the CLI alone; and the private-app submit
+      probe now accepts the server's `This activity is not supported for private
+      apps.` alongside the CLI's own `APP_SUBMIT_NOT_PUBLIC` copy, because the
+      status preflight in `submit.ts` fires first and makes the CLI's message
+      unreachable. The refusal is correct either way — but if the reviewer would
+      rather the CLI own that message, the `TODO.md` item is the fix.
