@@ -201,3 +201,49 @@ update is required.
       status preflight in `submit.ts` fires first and makes the CLI's message
       unreachable. The refusal is correct either way — but if the reviewer would
       rather the CLI own that message, the `TODO.md` item is the fix.
+
+### Smoke test: cleanup + rate-limit hardening (BEX-339 follow-up)
+
+**Change:** Three defects the second live run exposed, all in `scripts/smoke-test.ts`:
+
+1. `trapDeleteApps` logged `trap: deleted app <id>` without checking the exit
+   status — `spawnSync` doesn't throw on a non-zero exit, so a delete that 401'd
+   was recorded as a success and the orphan went unreported. It now checks
+   `r.status`, logs the real reason, and prints an `⚠ ORPHANED APPS` block with
+   the delete commands.
+2. `Logout` and `Final cleanup` ran as ordinary steps *before* the post-run
+   safety net, destroying the credentials and the linked binary it needed — so a
+   leftover app could never be recovered. Added a `Cleanup: leftover apps` step
+   ahead of them.
+3. A rate-limited API failed every later step, including making the negative
+   probes assert mapped messages against `Rate limited. Retrying in 5 seconds…`.
+   `exec()` now retries centrally (5s/15s/30s) when a *failed* call looks
+   rate-limited, and counts the waits.
+
+Leaks and throttling are now visible in the summary and the `--report=` JSON
+(`orphanedAppIds`, `rateLimitWaits`).
+
+**Must hold true:**
+
+- [x] Transient rate limit on one call → absorbed: one 5s wait, step passes, run
+      green, `rateLimitWaits: 1` in the report.
+- [x] Every `app delete` failing → run fails, `LEAKED 2 app(s)` in the summary,
+      both ids in `orphanedAppIds`, orphan block printed with delete commands,
+      and the ids really are still on the (mock) account — report matches reality.
+- [x] Trap log never claims an unverified delete: `trap: FAILED to delete app
+      <id> (exit 3): <reason>`.
+- [x] No regression: clean run 26/26; gated run 14 passed / 12 skipped; both
+      self-cleaning. Typecheck + prettier clean.
+- [x] Sonar: 7 code smells in `scripts/smoke-test.ts` fixed (S8786 regex
+      backtracking → line-based stack-frame detector, S3358 ×2, S4624, S6551,
+      S7776, S1135). Zero security hotspots. The other 7 findings on the PR are
+      pre-existing in `src/` files this branch doesn't touch.
+- [ ] **Live re-run still pending.** The fixes above are verified against a mock
+      `brevo` only. Re-run `yarn smoke --skip-auth` on a real account to confirm
+      end to end — ideally against staging rather than a shared prod account,
+      which is what throttled the last run and made the orphan real.
+- [ ] Clean up after the pre-fix run: `brevo app list` and delete anything named
+      `brevo-cli-smoke*` (`brevo app delete --app-id <id> --force`). That run's
+      public-app delete was rate-limited and the trap's "deleted" line was the
+      unverified log fixed in point 1, so one may still exist. App ids aren't
+      recorded here — this repo is public.

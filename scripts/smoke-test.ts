@@ -181,6 +181,11 @@ interface State {
   startChild: ChildProcess | null;
   stepResults: StepResult[];
   publicObs: PublicObservations;
+  // How many times a call was retried after a rate limit — a slow run is then
+  // explicable from the report rather than looking like a hang.
+  rateLimitWaits: number;
+  // Apps the cleanup could not delete. Non-empty means a real leak.
+  orphanedAppIds: string[];
 }
 
 // ──────────────────────────── logging ────────────────────────────
@@ -209,9 +214,16 @@ function announce(state: State, n: number, title: string): void {
   logToFile(state, line);
 }
 
-function stepDone(state: State, outcome: 'ok' | 'failed' | 'skipped', detail: string, ms: number) {
-  const icon = outcome === 'ok' ? '✓' : outcome === 'skipped' ? '⊘' : '✗';
-  const word = outcome === 'ok' ? 'ok' : outcome === 'skipped' ? 'skipped' : 'FAILED';
+type StepOutcome = 'ok' | 'failed' | 'skipped';
+
+const OUTCOME_DISPLAY: Record<StepOutcome, { icon: string; word: string }> = {
+  ok: { icon: '✓', word: 'ok' },
+  skipped: { icon: '⊘', word: 'skipped' },
+  failed: { icon: '✗', word: 'FAILED' },
+};
+
+function stepDone(state: State, outcome: StepOutcome, detail: string, ms: number) {
+  const { icon, word } = OUTCOME_DISPLAY[outcome];
   const line = `  ${icon} ${detail} — ${word} (${formatMs(ms)})`;
   process.stdout.write(line + '\n');
   logToFile(state, line);
@@ -254,11 +266,25 @@ interface ExecResult {
   exitCode: number;
 }
 
-function exec(cmd: string, args: string[], state: State, opts: ExecOptions = {}): ExecResult {
-  const pretty = `$ ${cmd} ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`;
-  logToFile(state, pretty);
-  if (state.opts.verbose) process.stdout.write(`  ${pretty}\n`);
+// The API rate-limits a busy account (a full run makes ~40 calls, and the CLI's
+// own retry gives up after one attempt). A 429 is an environment condition, not
+// a CLI defect: without this, every step after the limiter kicks in fails, and
+// the negative probes fail for the *wrong* reason — asserting a mapped message
+// against "Rate limited. Retrying in 5 seconds...". Retried centrally so no step
+// has to think about it, and only when the failure actually looks like a limit.
+const RATE_LIMIT_RE = /rate limit|429|too many requests/i;
+const RATE_LIMIT_BACKOFF_MS = [5000, 15_000, 30_000];
 
+// exec() is spawnSync-based and several steps are plain sync functions, so an
+// async sleep can't be awaited here.
+function sleepSync(ms: number): void {
+  spawnSync(process.execPath, [
+    '-e',
+    `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${ms})`,
+  ]);
+}
+
+function execOnce(cmd: string, args: string[], state: State, opts: ExecOptions): ExecResult {
   const result = spawnSync(cmd, args, {
     cwd: opts.cwd,
     input: opts.input,
@@ -266,19 +292,41 @@ function exec(cmd: string, args: string[], state: State, opts: ExecOptions = {})
     env: process.env,
     stdio: opts.inherit ? 'inherit' : ['pipe', 'pipe', 'pipe'],
   });
-  const stdout = result.stdout ?? '';
-  const stderr = result.stderr ?? '';
-  const exitCode = result.status ?? -1;
+  return {
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    exitCode: result.status ?? -1,
+  };
+}
+
+function exec(cmd: string, args: string[], state: State, opts: ExecOptions = {}): ExecResult {
+  const pretty = `$ ${cmd} ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`;
+  logToFile(state, pretty);
+  if (state.opts.verbose) process.stdout.write(`  ${pretty}\n`);
+
+  let r = execOnce(cmd, args, state, opts);
+  for (let attempt = 0; attempt < RATE_LIMIT_BACKOFF_MS.length; attempt++) {
+    // `inherit` gives us no output to inspect, so it can't be classified.
+    if (r.exitCode === 0 || opts.inherit) break;
+    if (!RATE_LIMIT_RE.test(r.stderr + r.stdout)) break;
+    const wait = RATE_LIMIT_BACKOFF_MS[attempt] ?? 30_000;
+    state.rateLimitWaits++;
+    const note = `rate limited — waiting ${formatMs(wait)} and retrying (attempt ${attempt + 2}/${RATE_LIMIT_BACKOFF_MS.length + 1})`;
+    logToFile(state, note);
+    process.stdout.write(`  ${COLOR.yellow}⏳ ${note}${COLOR.reset}\n`);
+    sleepSync(wait);
+    r = execOnce(cmd, args, state, opts);
+  }
 
   if (!opts.inherit) {
-    if (stdout) logToFile(state, stdout.trimEnd());
-    if (stderr) logToFile(state, '[stderr] ' + stderr.trimEnd());
+    if (r.stdout) logToFile(state, r.stdout.trimEnd());
+    if (r.stderr) logToFile(state, '[stderr] ' + r.stderr.trimEnd());
     if (state.opts.verbose) {
-      if (stdout) process.stdout.write(stdout);
-      if (stderr) process.stderr.write(stderr);
+      if (r.stdout) process.stdout.write(r.stdout);
+      if (r.stderr) process.stderr.write(r.stderr);
     }
   }
-  return { stdout, stderr, exitCode };
+  return r;
 }
 
 function execOrThrow(
@@ -461,8 +509,19 @@ function firstLine(text: string): string {
 }
 
 // A raw stack frame in user-facing output means the error escaped the CliError
-// / ApiError mapping in src/lib/errors.ts.
-const STACK_FRAME_RE = /\n\s+at .+:\d+:\d+/;
+// / ApiError mapping in src/lib/errors.ts. Checked line by line with two
+// anchored patterns rather than one multi-line regex: `\n\s+at .+:\d+:\d+`
+// backtracks super-linearly (Sonar S8786), since `\s` also matches the newline
+// and `.+` competes with the `:line:col` tail for the same characters.
+const STACK_FRAME_HEAD_RE = /^[ \t]+at \S/;
+const STACK_FRAME_TAIL_RE = /:\d+:\d+\)?$/;
+
+function hasStackFrame(text: string): boolean {
+  return text
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .some((line) => STACK_FRAME_HEAD_RE.test(line) && STACK_FRAME_TAIL_RE.test(line));
+}
 
 interface FailureExpectation {
   // Human label for the probe, used in the step detail and failure message.
@@ -484,7 +543,7 @@ function assertMappedFailure(r: ExecResult, exp: FailureExpectation): string {
     exp.exitCodes.includes(r.exitCode),
     `${exp.what}: exit ${r.exitCode} not in expected ${exp.exitCodes.join('|')} — ${firstLine(text)}`,
   );
-  must(!STACK_FRAME_RE.test(text), `${exp.what}: output contains a raw stack trace`);
+  must(!hasStackFrame(text), `${exp.what}: output contains a raw stack trace`);
   must(
     exp.patterns.some((p) => p.test(text)),
     `${exp.what}: exit ${r.exitCode} but the message is not the mapped one — ${firstLine(text)}`,
@@ -1186,7 +1245,7 @@ function stepNegativeSubmitPrivate(state: State): string {
       // private app — so the CLI surfaces the server's shorter string and its
       // own APP_SUBMIT_NOT_PUBLIC copy is never reached. Accepted here rather
       // than failed, because the refusal itself is correct; the message
-      // ordering is a CLI issue tracked in TODO.md.
+      // ordering is a CLI-side issue, recorded in the repo-root follow-up list.
       /not supported for private apps/,
       // A backend with no submission record at all answers 404 on that read,
       // which maps to the not-found message and exit 5.
@@ -1262,7 +1321,7 @@ const KNOWN_REVIEW_STATES = [
   'changes_requested',
 ];
 
-const SUBMITTED_STATES = ['submitted', 'in_review'];
+const SUBMITTED_STATES = new Set(['submitted', 'in_review']);
 
 const SMOKE_LOGO_URI = 'https://example.com/logo.png';
 
@@ -1408,9 +1467,10 @@ function stepPublicAppWithdraw(state: State): string {
   requireCommand(state, 'withdraw');
   const app = requireApp(state.publicApp, 'public');
   const r = exec('brevo', ['app', 'withdraw', '--app-id', app.appId, '--force', '--json'], state);
+  const combinedOutput = `${r.stderr}\n${r.stdout}`;
   must(
     r.exitCode === 0,
-    `withdraw exited ${r.exitCode} (both documented outcomes exit 0): ${firstLine(`${r.stderr}\n${r.stdout}`)}`,
+    `withdraw exited ${r.exitCode} (both documented outcomes exit 0): ${firstLine(combinedOutput)}`,
   );
   const parsed = parseJson<Record<string, unknown>>(r.stdout);
   must(
@@ -1453,7 +1513,7 @@ function stepPublicAppStatusAfterWithdraw(state: State): string {
   // leave the app exactly where it was.
   if (state.publicObs.withdrawn === true) {
     must(
-      !SUBMITTED_STATES.includes(reviewState),
+      !SUBMITTED_STATES.has(reviewState),
       `app is still "${reviewState}" after a successful withdraw`,
     );
   } else if (state.publicObs.stateAfterSubmit) {
@@ -1495,7 +1555,10 @@ function readInitAppIdFromConfig(state: State, tmp: string): string | null {
   if (!existsSync(cfgPath)) return null;
   try {
     const cfg = readJsonFile(cfgPath);
-    if (cfg.appId) return String(cfg.appId);
+    // Narrow before stringifying — `appId` is unknown here, and an object would
+    // stringify to "[object Object]" and then be used as an app id.
+    const rawId = cfg.appId;
+    if (typeof rawId === 'string' || typeof rawId === 'number') return String(rawId);
   } catch (e) {
     logToFile(state, `app-config.json parse failed: ${errMsg(e)}`);
   }
@@ -1595,6 +1658,60 @@ function stepDeleteInitApp(state: State): string {
 
 // ──────────────────────────── teardown ────────────────────────────
 
+// Runs as a normal step, deliberately placed before Logout and Final cleanup.
+// Those two steps destroy the two things a delete needs — the credentials and
+// the linked `brevo` binary — so the trap-based safety net that runs after them
+// can't actually clean anything up. Any app left behind by a delete step that
+// failed earlier (a rate limit, a transient 5xx) has to be caught here, while
+// the session is still alive.
+function stepDeleteLeftoverApps(state: State): string {
+  const leftovers: Array<{ label: string; appId: string; clear: () => void }> = [];
+  if (state.mainApp) {
+    leftovers.push({
+      label: 'private',
+      appId: state.mainApp.appId,
+      clear: () => (state.mainApp = null),
+    });
+  }
+  if (state.publicApp) {
+    leftovers.push({
+      label: 'public',
+      appId: state.publicApp.appId,
+      clear: () => (state.publicApp = null),
+    });
+  }
+  if (state.initAppId) {
+    leftovers.push({
+      label: 'init',
+      appId: state.initAppId,
+      clear: () => (state.initAppId = null),
+    });
+  }
+  if (leftovers.length === 0) return 'nothing left behind';
+
+  const deleted: string[] = [];
+  const failed: string[] = [];
+  for (const { label, appId, clear } of leftovers) {
+    // exec() already retries a rate-limited call, which is the most likely
+    // reason a delete step failed in the first place.
+    const r = exec('brevo', ['app', 'delete', '--app-id', appId, '--force', '--json'], state);
+    if (r.exitCode === 0) {
+      deleted.push(`${label} ${appId}`);
+      clear();
+    } else {
+      failed.push(`${label} ${appId} (exit ${r.exitCode})`);
+    }
+  }
+
+  if (failed.length > 0) {
+    // Leave the ids on State so the trap reports them as orphans too.
+    throw new Error(
+      `could not delete ${failed.join(', ')}${deleted.length > 0 ? `; deleted ${deleted.join(', ')}` : ''}`,
+    );
+  }
+  return `recovered leftover app(s): ${deleted.join(', ')}`;
+}
+
 function stepLogout(state: State): string {
   execOrThrow('brevo', ['logout', '--force', '--json'], state);
   // whoami may exit non-zero when unauthenticated; accept either as "logged out"
@@ -1652,21 +1769,49 @@ function stepFinalCleanup(state: State): string {
 
 // ──────────────────────────── trap cleanup ────────────────────────────
 
+// Last-resort deletion. spawnSync does NOT throw on a non-zero exit, so the
+// exit status must be checked explicitly — logging "deleted" off the back of a
+// try/catch reports success for a delete that 401'd or got rate-limited, which
+// is worse than no cleanup at all because nobody goes looking for the orphan.
 function trapDeleteApps(state: State): void {
+  const orphans: string[] = [];
   for (const appId of [state.mainApp?.appId, state.publicApp?.appId, state.initAppId]) {
     if (!appId) continue;
     try {
-      spawnSync('brevo', ['app', 'delete', '--app-id', appId, '--force', '--json'], {
+      const r = spawnSync('brevo', ['app', 'delete', '--app-id', appId, '--force', '--json'], {
         timeout: 30_000,
+        encoding: 'utf8',
       });
-      logToFile(state, `trap: deleted app ${appId}`);
+      if (r.status === 0) {
+        logToFile(state, `trap: deleted app ${appId}`);
+        continue;
+      }
+      orphans.push(appId);
+      const why = firstLine(`${r.stderr ?? ''}\n${r.stdout ?? ''}`);
+      logToFile(state, `trap: FAILED to delete app ${appId} (exit ${r.status}): ${why}`);
     } catch (e) {
-      logToFile(state, `trap: failed to delete app ${appId}: ${errMsg(e)}`);
+      orphans.push(appId);
+      logToFile(state, `trap: FAILED to delete app ${appId}: ${errMsg(e)}`);
     }
   }
   state.mainApp = null;
   state.publicApp = null;
   state.initAppId = null;
+
+  if (orphans.length > 0) {
+    state.orphanedAppIds.push(...orphans);
+    // Straight to stdout: by this point the run may be logged out and the CLI
+    // unlinked, so this is the only record the operator will see.
+    process.stdout.write(
+      `\n${COLOR.red}${COLOR.bold}⚠ ORPHANED APPS — CLEANUP FAILED${COLOR.reset}\n` +
+        `${COLOR.yellow}These apps could not be deleted and are still on the account:${COLOR.reset}\n` +
+        orphans.map((id) => `  ${id}\n`).join('') +
+        `${COLOR.yellow}Log in and remove them:${COLOR.reset}\n` +
+        orphans
+          .map((id) => `  ${COLOR.dim}brevo app delete --app-id ${id} --force${COLOR.reset}\n`)
+          .join(''),
+    );
+  }
 }
 
 function trapUninstallCli(state: State): void {
@@ -1700,6 +1845,9 @@ function writeReport(state: State, ok: boolean): void {
     logFile: state.logFile,
     capabilities: state.caps,
     publicFlow: state.opts.withPublic ? state.publicObs : 'skipped (--skip-public)',
+    rateLimitWaits: state.rateLimitWaits,
+    // Anything here is a real leak on the account, not a test detail.
+    orphanedAppIds: state.orphanedAppIds,
     steps: state.stepResults,
   };
   // Step details/errors quote CLI output, and the report is a CI artefact — run
@@ -1784,6 +1932,8 @@ function buildSteps(opts: Options): Array<[string, StepFn]> {
           ['Delete init-created app', stepDeleteInitApp],
         ] as Array<[string, StepFn]>)
       : []),
+    // Must stay ahead of Logout / Final cleanup — see stepDeleteLeftoverApps.
+    ['Cleanup: leftover apps', stepDeleteLeftoverApps],
     ['Logout', stepLogout],
     ['Final cleanup', stepFinalCleanup],
   ];
@@ -1845,6 +1995,8 @@ async function main(): Promise<void> {
     startChild: null,
     stepResults: [],
     publicObs: {},
+    rateLimitWaits: 0,
+    orphanedAppIds: [],
   };
 
   installCleanupTraps(state);
@@ -1903,6 +2055,16 @@ function printColouredSummary(state: State, allOk: boolean, firstFailed: number)
     : `  ${COLOR.dim}(first failure: step ${firstFailed})${COLOR.reset}`;
   const counts = `  ${COLOR.green}${passed} passed${COLOR.reset}${failedPart}${skippedPart}${firstFailedPart}`;
   process.stdout.write(`${counts}\n`);
+  if (state.rateLimitWaits > 0) {
+    process.stdout.write(
+      `  ${COLOR.yellow}${state.rateLimitWaits} rate-limit wait(s) — the API throttled this run${COLOR.reset}\n`,
+    );
+  }
+  if (state.orphanedAppIds.length > 0) {
+    process.stdout.write(
+      `  ${COLOR.red}LEAKED ${state.orphanedAppIds.length} app(s): ${state.orphanedAppIds.join(', ')}${COLOR.reset}\n`,
+    );
+  }
   process.stdout.write(`  ${COLOR.dim}Log: ${state.logFile}${COLOR.reset}\n`);
   if (state.opts.reportPath) {
     process.stdout.write(`  ${COLOR.dim}Report: ${state.opts.reportPath}${COLOR.reset}\n`);
