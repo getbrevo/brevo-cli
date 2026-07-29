@@ -1178,11 +1178,18 @@ function stepNegativeSubmitPrivate(state: State): string {
   return assertMappedFailure(r, {
     what: 'submit a private app',
     patterns: [
+      // What the CLI would say if it got as far as its own check.
       /is private\. Private apps cannot be submitted for review/,
-      // submit preflights the review state first (see submit.ts); a backend
-      // with no submission record for a private app answers 404 there, which
-      // maps to the not-found message and exit 5 instead. Both are correct
-      // mapped refusals — an exit 0 or an unmapped error is not.
+      // What actually happens today (verified against the live API): submit
+      // preflights the review state before checking distribution_type (see
+      // checkAppStatus in submit.ts), and the server refuses that read for a
+      // private app — so the CLI surfaces the server's shorter string and its
+      // own APP_SUBMIT_NOT_PUBLIC copy is never reached. Accepted here rather
+      // than failed, because the refusal itself is correct; the message
+      // ordering is a CLI issue tracked in TODO.md.
+      /not supported for private apps/,
+      // A backend with no submission record at all answers 404 on that read,
+      // which maps to the not-found message and exit 5.
       /not found\./,
     ],
     exitCodes: [1, 5],

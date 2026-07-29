@@ -5,6 +5,17 @@ Running work tracker for this branch. Delete before merging into `main`
 
 ## Open
 
+- **`brevo app submit`'s "private app" message is unreachable.** `APP_SUBMIT_NOT_PUBLIC`
+  ("App X is private. Private apps cannot be submitted for review. Only public apps
+  are eligible…") never fires: `checkAppStatus` runs the review-state preflight
+  *before* the `distribution_type !== 'public'` check, and the API refuses that read
+  for a private app, so the user sees the server's terser `This activity is not
+  supported for private apps.` instead. Verified against the live API on 2026-07-29
+  (`brevo app submit --app-id <private> --json` → exit 1 with the server string).
+  Fix is probably to move the public check ahead of the preflight — nothing is
+  gained by reading review state for an app that can't be submitted. Worth checking
+  whether `submit.test.ts`'s coverage of that message is therefore testing a path
+  users can't hit. The smoke accepts both strings for now.
 - **Smoke: assert a real `submitted` → `withdrawn` transition.** `brevo app submit`
   only hands back the review form URL — the app moves to `submitted` when the
   *form* is submitted, not when the command runs. So the smoke can never drive the
