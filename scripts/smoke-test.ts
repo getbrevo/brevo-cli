@@ -186,6 +186,8 @@ interface State {
   rateLimitWaits: number;
   // Apps the cleanup could not delete. Non-empty means a real leak.
   orphanedAppIds: string[];
+  // Absolute path to the CLI under test, resolved once in stepReinstall.
+  brevoBin: string | null;
 }
 
 // ──────────────────────────── logging ────────────────────────────
@@ -282,6 +284,21 @@ function sleepSync(ms: number): void {
     '-e',
     `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${ms})`,
   ]);
+}
+
+// Every `brevo` call goes through the absolute path resolved once in
+// stepReinstall rather than the bare name. Searching PATH per call is a security
+// smell (Sonar S4036 — a writable PATH entry could shadow the binary), but the
+// practical reason is sharper: an unrelated `brevo` earlier on PATH silently
+// makes the entire run exercise the wrong build. A live run came close to
+// passing against a stale `@dtsl/brevo-cli` install for exactly that reason.
+//
+// The bare name is only a fallback for the trap paths, which can fire before
+// stepReinstall has resolved anything.
+const BREVO_CMD_FALLBACK = 'brevo';
+
+function brevoCmd(state: State): string {
+  return state.brevoBin ?? BREVO_CMD_FALLBACK;
 }
 
 function execOnce(cmd: string, args: string[], state: State, opts: ExecOptions): ExecResult {
@@ -429,7 +446,7 @@ async function findAppInList(
 ): Promise<boolean> {
   const backoff = [500, 1000, 2000, 4000];
   for (let i = 0; i < attempts; i++) {
-    const r = execOrThrow('brevo', ['app', 'list', '--json'], state);
+    const r = execOrThrow(brevoCmd(state), ['app', 'list', '--json'], state);
     const ids = collectAppIds(parseJson(r.stdout));
     if (ids.has(expectedId) === shouldBePresent) return true;
     if (i < attempts - 1) await sleep(backoff[i] ?? 4000);
@@ -568,7 +585,7 @@ function listedInHelp(helpText: string, command: string): boolean {
 // can't tell present from absent — and running it for real isn't an option
 // since these commands mutate or prompt.
 function detectCapabilities(state: State): Record<string, boolean> {
-  const help = exec('brevo', ['--help'], state);
+  const help = exec(brevoCmd(state), ['--help'], state);
   const helpText = help.stdout + help.stderr;
   const caps: Record<string, boolean> = {};
 
@@ -714,8 +731,12 @@ function stepReinstall(state: State): string {
   }
   state.linked = true;
 
+  // Resolve the binary once, then invoke it by absolute path for the rest of the
+  // run (see brevoCmd).
   const which = execOrThrow('which', ['brevo'], state).stdout.trim();
-  const version = execOrThrow('brevo', ['--version'], state).stdout.trim();
+  if (!which) throw new Error('could not resolve the `brevo` binary after install');
+  state.brevoBin = which;
+  const version = execOrThrow(brevoCmd(state), ['--version'], state).stdout.trim();
 
   const caps = detectCapabilities(state);
   const missing = GATED_COMMANDS.filter((c) => !caps[c]);
@@ -725,16 +746,16 @@ function stepReinstall(state: State): string {
 
 async function stepAuth(state: State): Promise<string> {
   if (state.opts.skipAuth) {
-    const r = execOrThrow('brevo', ['whoami', '--json'], state);
+    const r = execOrThrow(brevoCmd(state), ['whoami', '--json'], state);
     parseJson(r.stdout);
     return 'already authenticated (--skip-auth)';
   }
 
-  exec('brevo', ['logout', '--force', '--json'], state);
+  exec(brevoCmd(state), ['logout', '--force', '--json'], state);
 
   if (state.opts.ci) {
     // brevo login picks up BREVO_API_KEY from env automatically.
-    execOrThrow('brevo', ['login', '--json'], state);
+    execOrThrow(brevoCmd(state), ['login', '--json'], state);
   } else {
     process.stdout.write(`  ${COLOR.cyan}⏳ waiting for browser login...${COLOR.reset}\n`);
     // --json short-circuits the post-login "Would you like to create an app?"
@@ -745,11 +766,11 @@ async function stepAuth(state: State): Promise<string> {
     // Trade-off: --json also suppresses the browser-fallback URL. If your
     // browser doesn't auto-open, the run will appear to hang. Run the login
     // manually first (`brevo login`) then use `yarn smoke --skip-auth`.
-    const r = await execStreaming('brevo', ['login', '--json'], state);
+    const r = await execStreaming(brevoCmd(state), ['login', '--json'], state);
     if (r.exitCode !== 0) throw new Error('brevo login failed');
   }
 
-  const whoami = execOrThrow('brevo', ['whoami', '--json'], state);
+  const whoami = execOrThrow(brevoCmd(state), ['whoami', '--json'], state);
   parseJson(whoami.stdout);
   return 'logged in';
 }
@@ -832,7 +853,7 @@ async function createSmokeApp(state: State, opts: CreateSmokeAppOptions): Promis
     '--json',
   ];
   const created = parseJson<Record<string, unknown>>(
-    execOrThrow('brevo', args, state, { cwd: workRoot }).stdout,
+    execOrThrow(brevoCmd(state), args, state, { cwd: workRoot }).stdout,
   );
 
   const appId = pickId(created);
@@ -941,7 +962,7 @@ function requireProjectDir(app: SmokeApp): string {
 function stepAppCredentials(state: State): string {
   const app = requireApp(state.mainApp, 'private');
   const creds = execOrThrow(
-    'brevo',
+    brevoCmd(state),
     ['app', 'credentials', '--app-id', app.appId, '--reveal-secret', '--json'],
     state,
   );
@@ -980,7 +1001,7 @@ function uploadApp(state: State, app: SmokeApp): Record<string, unknown> {
     ),
   );
 
-  const r = execOrThrow('brevo', ['app', 'upload', '--yes', '--json'], state, {
+  const r = execOrThrow(brevoCmd(state), ['app', 'upload', '--yes', '--json'], state, {
     cwd: projectDir,
   });
   const res = parseJson<Record<string, unknown>>(r.stdout);
@@ -1041,7 +1062,7 @@ function stepAppUploadNoop(state: State): string {
   requireCommand(state, 'upload');
   const app = requireApp(state.mainApp, 'private');
   const res = parseJson<Record<string, unknown>>(
-    execOrThrow('brevo', ['app', 'upload', '--yes', '--json'], state, {
+    execOrThrow(brevoCmd(state), ['app', 'upload', '--yes', '--json'], state, {
       cwd: requireProjectDir(app),
     }).stdout,
   );
@@ -1074,7 +1095,7 @@ async function stepVerifyRename(state: State): Promise<string> {
   // consistent (see findAppInList), so poll with backoff before declaring miss.
   const renameBackoff = [500, 1000, 2000, 4000];
   for (let i = 0; i < renameBackoff.length; i++) {
-    const r = execOrThrow('brevo', ['app', 'list', '--json'], state);
+    const r = execOrThrow(brevoCmd(state), ['app', 'list', '--json'], state);
     if (findAppByName(parseJson(r.stdout), expected) === app.appId) {
       return `rename visible in list as "${expected}"`;
     }
@@ -1097,7 +1118,7 @@ const OAUTH_FEATURE_FILES = [
 function stepScaffold(state: State): string {
   const app = requireApp(state.mainApp, 'private');
   const projectDir = requireProjectDir(app);
-  const result = execOrThrow('brevo', ['app', 'scaffold', '--json'], state, {
+  const result = execOrThrow(brevoCmd(state), ['app', 'scaffold', '--json'], state, {
     cwd: projectDir,
   });
   const parsed = parseJson<Record<string, unknown>>(result.stdout);
@@ -1131,11 +1152,15 @@ async function stepStartBriefly(state: State): Promise<string> {
   must(existsSync(join(featureDir, 'package.json')), `no package.json in ${featureDir}`);
   execOrThrow('yarn', ['install'], state, { cwd: featureDir });
 
-  const child = spawn('brevo', ['app', 'start', 'oauth', '--port', String(state.opts.port)], {
-    cwd: dir,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
-  });
+  const child = spawn(
+    brevoCmd(state),
+    ['app', 'start', 'oauth', '--port', String(state.opts.port)],
+    {
+      cwd: dir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env,
+    },
+  );
   state.startChild = child;
   let lastOutput = '';
   let earlyExit: number | null = null;
@@ -1189,7 +1214,7 @@ function stepNegativeClientGuardrails(state: State): string {
   details.push(
     assertMappedFailure(
       exec(
-        'brevo',
+        brevoCmd(state),
         ['app', 'create', '--name', 'brevo-cli-smoke-invalid', '--distribution', 'bogus', '--json'],
         state,
         { cwd: workRoot },
@@ -1204,21 +1229,27 @@ function stepNegativeClientGuardrails(state: State): string {
 
   if (state.caps?.upload !== false) {
     details.push(
-      assertMappedFailure(exec('brevo', ['app', 'upload', '--json'], state, { cwd: workRoot }), {
-        what: 'upload with no app-config.json',
-        patterns: [/No app-config\.json found in this directory/],
-        exitCodes: [1],
-      }),
+      assertMappedFailure(
+        exec(brevoCmd(state), ['app', 'upload', '--json'], state, { cwd: workRoot }),
+        {
+          what: 'upload with no app-config.json',
+          patterns: [/No app-config\.json found in this directory/],
+          exitCodes: [1],
+        },
+      ),
     );
   }
 
   if (state.caps?.submit !== false) {
     details.push(
-      assertMappedFailure(exec('brevo', ['app', 'submit', '--json'], state, { cwd: workRoot }), {
-        what: 'submit with no resolvable app',
-        patterns: [/Cannot determine which app to submit/],
-        exitCodes: [1],
-      }),
+      assertMappedFailure(
+        exec(brevoCmd(state), ['app', 'submit', '--json'], state, { cwd: workRoot }),
+        {
+          what: 'submit with no resolvable app',
+          patterns: [/Cannot determine which app to submit/],
+          exitCodes: [1],
+        },
+      ),
     );
   }
 
@@ -1231,7 +1262,7 @@ function stepNegativeClientGuardrails(state: State): string {
 function stepNegativeSubmitPrivate(state: State): string {
   requireCommand(state, 'submit');
   const app = requireApp(state.mainApp, 'private');
-  const r = exec('brevo', ['app', 'submit', '--app-id', app.appId, '--json'], state, {
+  const r = exec(brevoCmd(state), ['app', 'submit', '--app-id', app.appId, '--json'], state, {
     cwd: ensureWorkRoot(state),
   });
   return assertMappedFailure(r, {
@@ -1271,7 +1302,7 @@ function stepNegativeUnknownApp(state: State): string {
   if (state.caps?.status !== false) {
     details.push(
       assertMappedFailure(
-        exec('brevo', ['app', 'status', '--app-id', fakeId, '--json'], state),
+        exec(brevoCmd(state), ['app', 'status', '--app-id', fakeId, '--json'], state),
         expectation('status on an unknown app'),
       ),
     );
@@ -1279,7 +1310,7 @@ function stepNegativeUnknownApp(state: State): string {
   if (state.caps?.withdraw !== false) {
     details.push(
       assertMappedFailure(
-        exec('brevo', ['app', 'withdraw', '--app-id', fakeId, '--force', '--json'], state),
+        exec(brevoCmd(state), ['app', 'withdraw', '--app-id', fakeId, '--force', '--json'], state),
         expectation('withdraw on an unknown app'),
       ),
     );
@@ -1289,7 +1320,11 @@ function stepNegativeUnknownApp(state: State): string {
 }
 
 async function deleteSmokeApp(state: State, app: SmokeApp): Promise<string> {
-  execOrThrow('brevo', ['app', 'delete', '--app-id', app.appId, '--force', '--json'], state);
+  execOrThrow(
+    brevoCmd(state),
+    ['app', 'delete', '--app-id', app.appId, '--force', '--json'],
+    state,
+  );
 
   // List lags delete too — retry until the app is gone.
   must(
@@ -1353,7 +1388,7 @@ function stepPublicAppUpload(state: State): string {
 // the backend's to decide, so it's recorded, not dictated — what's asserted is
 // that the CLI returns a state it has copy for, with a message.
 function readReviewState(state: State, app: SmokeApp): string {
-  const r = execOrThrow('brevo', ['app', 'status', '--app-id', app.appId, '--json'], state);
+  const r = execOrThrow(brevoCmd(state), ['app', 'status', '--app-id', app.appId, '--json'], state);
   const parsed = parseJson<Record<string, unknown>>(r.stdout);
   const reviewState = parsed.state;
   must(
@@ -1389,7 +1424,7 @@ function stepPublicAppSubmit(state: State): string {
   // Run from the project dir so the local-vs-server drift check is exercised;
   // straight after an upload it must come back clean. Without a project dir
   // (older build) submit still works from --app-id alone, minus the drift check.
-  const r = exec('brevo', ['app', 'submit', '--app-id', app.appId, '--json'], state, {
+  const r = exec(brevoCmd(state), ['app', 'submit', '--app-id', app.appId, '--json'], state, {
     cwd: app.projectDir || ensureWorkRoot(state),
   });
 
@@ -1429,7 +1464,7 @@ function stepPublicAppSubmitAgain(state: State): string {
   const app = requireApp(state.publicApp, 'public');
   if (!state.publicObs.formUrl) skip('first submit did not run, nothing to repeat');
 
-  const r = exec('brevo', ['app', 'submit', '--app-id', app.appId, '--json'], state, {
+  const r = exec(brevoCmd(state), ['app', 'submit', '--app-id', app.appId, '--json'], state, {
     cwd: app.projectDir || ensureWorkRoot(state),
   });
   if (r.exitCode === 0) {
@@ -1466,7 +1501,11 @@ function stepPublicAppStatusAfterSubmit(state: State): string {
 function stepPublicAppWithdraw(state: State): string {
   requireCommand(state, 'withdraw');
   const app = requireApp(state.publicApp, 'public');
-  const r = exec('brevo', ['app', 'withdraw', '--app-id', app.appId, '--force', '--json'], state);
+  const r = exec(
+    brevoCmd(state),
+    ['app', 'withdraw', '--app-id', app.appId, '--force', '--json'],
+    state,
+  );
   const combinedOutput = `${r.stderr}\n${r.stdout}`;
   must(
     r.exitCode === 0,
@@ -1539,7 +1578,7 @@ async function stepDeletePublicApp(state: State): Promise<string> {
 // list-endpoint propagation lag.
 async function findInitAppByName(state: State, expectedName: string): Promise<string | null> {
   for (let attempt = 0; attempt < 4; attempt++) {
-    const after = execOrThrow('brevo', ['app', 'list', '--json'], state);
+    const after = execOrThrow(brevoCmd(state), ['app', 'list', '--json'], state);
     const found = findAppByName(parseJson(after.stdout), expectedName);
     if (found) return found;
     if (attempt < 3) await sleep([500, 1000, 2000][attempt] ?? 2000);
@@ -1581,7 +1620,7 @@ async function stepInitWizard(state: State): Promise<string> {
   // inquirer reads ahead of its prompts before then, defaulting prompts that
   // had no answer yet. Use execScriptedStdin which writes lines one at a time
   // with a short delay so inquirer reads each answer as its prompt renders.
-  const r = await execScriptedStdin('brevo', ['app', 'init'], state, {
+  const r = await execScriptedStdin(brevoCmd(state), ['app', 'init'], state, {
     cwd: tmp,
     answers,
     interLineDelayMs: 400,
@@ -1629,7 +1668,7 @@ function printOrphanWarning(state: State, suspectIds: string[], expectedName?: s
     );
   }
   try {
-    const r = execOrThrow('brevo', ['app', 'list', '--json'], state);
+    const r = execOrThrow(brevoCmd(state), ['app', 'list', '--json'], state);
     process.stdout.write(`${COLOR.yellow}Apps currently on the account:${COLOR.reset}\n`);
     for (const a of listItems(parseJson(r.stdout))) {
       const id = pickId(a) || '?';
@@ -1651,7 +1690,7 @@ function printOrphanWarning(state: State, suspectIds: string[], expectedName?: s
 function stepDeleteInitApp(state: State): string {
   if (!state.initAppId) throw new Error('no initAppId to delete');
   const id = state.initAppId;
-  execOrThrow('brevo', ['app', 'delete', '--app-id', id, '--force', '--json'], state);
+  execOrThrow(brevoCmd(state), ['app', 'delete', '--app-id', id, '--force', '--json'], state);
   state.initAppId = null;
   return `app ${id} deleted`;
 }
@@ -1694,7 +1733,11 @@ function stepDeleteLeftoverApps(state: State): string {
   for (const { label, appId, clear } of leftovers) {
     // exec() already retries a rate-limited call, which is the most likely
     // reason a delete step failed in the first place.
-    const r = exec('brevo', ['app', 'delete', '--app-id', appId, '--force', '--json'], state);
+    const r = exec(
+      brevoCmd(state),
+      ['app', 'delete', '--app-id', appId, '--force', '--json'],
+      state,
+    );
     if (r.exitCode === 0) {
       deleted.push(`${label} ${appId}`);
       clear();
@@ -1713,9 +1756,9 @@ function stepDeleteLeftoverApps(state: State): string {
 }
 
 function stepLogout(state: State): string {
-  execOrThrow('brevo', ['logout', '--force', '--json'], state);
+  execOrThrow(brevoCmd(state), ['logout', '--force', '--json'], state);
   // whoami may exit non-zero when unauthenticated; accept either as "logged out"
-  const r = exec('brevo', ['whoami', '--json'], state);
+  const r = exec(brevoCmd(state), ['whoami', '--json'], state);
   if (r.exitCode === 0) {
     try {
       const obj = parseJson<Record<string, unknown>>(r.stdout);
@@ -1778,10 +1821,14 @@ function trapDeleteApps(state: State): void {
   for (const appId of [state.mainApp?.appId, state.publicApp?.appId, state.initAppId]) {
     if (!appId) continue;
     try {
-      const r = spawnSync('brevo', ['app', 'delete', '--app-id', appId, '--force', '--json'], {
-        timeout: 30_000,
-        encoding: 'utf8',
-      });
+      const r = spawnSync(
+        brevoCmd(state),
+        ['app', 'delete', '--app-id', appId, '--force', '--json'],
+        {
+          timeout: 30_000,
+          encoding: 'utf8',
+        },
+      );
       if (r.status === 0) {
         logToFile(state, `trap: deleted app ${appId}`);
         continue;
@@ -1997,6 +2044,7 @@ async function main(): Promise<void> {
     publicObs: {},
     rateLimitWaits: 0,
     orphanedAppIds: [],
+    brevoBin: null,
   };
 
   installCleanupTraps(state);
