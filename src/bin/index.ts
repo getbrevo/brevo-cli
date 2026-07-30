@@ -4,7 +4,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Command } from 'commander';
 import { installAuthGuard } from '../lib/auth-guard';
-import { logError, logInfo, logWarn, logSuccess } from '../lib/logger';
+import { installProactiveOauthRefresh } from '../lib/oauth-freshness';
+import { logError, logInfo, logWarn, logSuccess, logDebug } from '../lib/logger';
 import { EXIT_CODES } from '../lib/exit-codes';
 import { CliError, AbortError, AuthExpiredError } from '../lib/errors';
 import { messages } from '../lang/en';
@@ -119,6 +120,21 @@ program
 
 // Auth guard — blocks unauthenticated access (except login, logout, help)
 installAuthGuard(program);
+
+// Proactive OAuth refresh — replaces a near-expiry access token before the
+// command runs, so a short access-token TTL stays invisible and the session
+// lives as long as the refresh token does. Best-effort: failures are logged at
+// debug level and never block the command. The reactive handler below stays the
+// safety net and the only place credentials get cleared.
+installProactiveOauthRefresh(program, {
+  getAuthCred,
+  refresh: (refreshToken) => refreshAccessToken(refreshToken, OAUTH_PROXY_URL),
+  persist: updateOauthTokens,
+  onError: (err) =>
+    logDebug('proactive oauth refresh skipped', {
+      reason: err instanceof Error ? err.message : String(err),
+    }),
+});
 
 // ──────────────── Register all commands ────────────────
 
