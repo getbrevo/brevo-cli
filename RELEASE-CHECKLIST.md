@@ -247,3 +247,52 @@ Leaks and throttling are now visible in the summary and the `--report=` JSON
       public-app delete was rate-limited and the trap's "deleted" line was the
       unverified log fixed in point 1, so one may still exist. App ids aren't
       recorded here — this repo is public.
+
+### Smoke test: split into per-flow suite modules (BEX-339 follow-up)
+
+**Change:** `scripts/smoke-test.ts` was one 2141-line file. Split so either
+lifecycle can run on its own:
+
+| File | Role |
+| --- | --- |
+| `scripts/smoke-test.ts` | Runner — flags, suite registry, step composition, summary, report |
+| `scripts/smoke/core.ts` | Shared plumbing: state, logging, exec + rate-limit retry, assertions, capability detection, create/upload/delete helpers, teardown, traps |
+| `scripts/smoke/private-app.ts` | `privateAppSuite` |
+| `scripts/smoke/public-app.ts` | `publicAppSuite` |
+| `scripts/smoke/init-wizard.ts` | `initWizardSuite` (opt-in) |
+
+Selection is `--suite=private|public|init|all` (comma-separated, default
+`private,public`). `--with-public` / `--skip-public` / `--with-init` are kept as
+aliases. Setup (pre-flight, install, auth) and teardown (leftover-app cleanup,
+logout, uninstall) always run, so each suite stands alone — the public suite
+creates its own app and never depends on the private one.
+
+The extraction was mechanical: all 127 top-level blocks were indexed and
+verified to be covered exactly once (no gaps, no overlaps) before reassembly, so
+no step logic changed in the move.
+
+**Must hold true:**
+
+- [x] Typecheck (`--strict --noUncheckedIndexedAccess`) and prettier clean across
+      all five files.
+- [x] `--suite=private` → 16 steps, `--suite=public` → 16, default → 26,
+      `--skip-public` → 16. All pass, all self-cleaning.
+- [x] `--suite=frobnicate` is rejected, listing the valid names.
+- [x] Public suite alone against a build without the review commands:
+      8 passed / 8 skipped, still green.
+- [x] Failure modes survive the split: gated build 14 passed / 12 skipped;
+      every-delete-failing still reports `ORPHANED APPS` + `LEAKED 2 app(s)`;
+      transient rate limit still absorbed with one 5s wait.
+- [x] **Live run, real account, correct binary** — 26/26. Step 2 reported
+      `brevo 2.0.1 at ~/.yarn/bin/brevo`, matching `package.json`, so this
+      exercised the branch build. Observed: upload bumped to version `0.0.2`;
+      no-op upload reported up-to-date; public status `configured` throughout;
+      submit returned a review form URL and the repeat submit was idempotent;
+      withdraw mapped to `NOT_SUBMITTED` at exit 0; unknown app id → exit 5 for
+      both `status` and `withdraw`; account left at its baseline app count.
+- [ ] **Do not run this suite via `yarn smoke` until the version guard lands**
+      (see `TODO.md`). yarn prepends `node_modules/.bin` ahead of any exported
+      PATH, and this repo currently has a stray undeclared `@dtsl/brevo-cli`
+      symlinked there. An earlier live run passed 26/26 against *that* package
+      instead of the branch build. Invoke it directly meanwhile:
+      `PATH="$HOME/.yarn/bin:$PATH" ./node_modules/.bin/tsx scripts/smoke-test.ts --skip-auth`

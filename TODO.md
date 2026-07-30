@@ -5,6 +5,24 @@ Running work tracker for this branch. Delete before merging into `main`
 
 ## Open
 
+- **Smoke: assert the binary under test is the build we installed.** `stepReinstall`
+  resolves `brevo` off PATH and trusts it. Twice now a *different* package won that
+  lookup — a global `@dtsl/brevo-cli`, then a stray undeclared copy under this repo's
+  `node_modules/.bin` (which `yarn smoke` puts ahead of any exported PATH). Both
+  carried the commands under test, so a full run passed 26/26 against the wrong CLI
+  and nothing looked wrong. Pinning the resolved path doesn't help — it pins the
+  wrong binary faithfully. The fix is a version comparison in `stepReinstall`: when
+  `--against=local`, fail hard unless `brevo --version` equals `package.json`'s
+  version. Until it lands, `yarn smoke` is unsafe (both smoke workflows use exactly
+  that invocation) and the suite must be run via
+  `./node_modules/.bin/tsx scripts/smoke-test.ts`. Also worth asking why
+  `@dtsl/brevo-cli` is in `node_modules` at all — it is in neither `package.json`
+  nor `yarn.lock`.
+- **CI does not run on PRs into `features_set_public_cli`.** `.github/workflows/push.yaml`
+  is scoped to `branches: [main]`, so a PR targeting the integration branch gets
+  SonarCloud and nothing else — no lint, no tests, no build. The BEX-221 children
+  (#33–#40) all merged under this gap. One-line fix (add the branch to both triggers),
+  but it belongs in its own PR.
 - **`brevo app submit`'s "private app" message is unreachable.** `APP_SUBMIT_NOT_PUBLIC`
   ("App X is private. Private apps cannot be submitted for review. Only public apps
   are eligible…") never fires: `checkAppStatus` runs the review-state preflight
