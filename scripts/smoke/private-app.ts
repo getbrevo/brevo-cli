@@ -276,13 +276,14 @@ function stepNegativeSubmitPrivate(state: State): string {
     patterns: [
       // What the CLI would say if it got as far as its own check.
       /is private\. Private apps cannot be submitted for review/,
-      // What actually happens today (verified against the live API): submit
-      // preflights the review state before checking distribution_type (see
-      // checkAppStatus in submit.ts), and the server refuses that read for a
-      // private app — so the CLI surfaces the server's shorter string and its
-      // own APP_SUBMIT_NOT_PUBLIC copy is never reached. Accepted here rather
-      // than failed, because the refusal itself is correct; the message
-      // ordering is a CLI-side issue, recorded in the repo-root follow-up list.
+      // What actually happens (verified against the live API): submit preflights
+      // the review state before checking distribution_type (see checkAppStatus in
+      // submit.ts), and the server refuses that read for a private app — so the
+      // CLI surfaces the server's shorter string and APP_SUBMIT_NOT_PUBLIC is
+      // never reached. Both are accepted here on purpose. Submit is simply not
+      // supported for private apps, and the API owns that refusal; which of the
+      // two strings comes back is not a CLI contract worth pinning. Reviewed and
+      // settled — don't "fix" this by dropping either branch.
       /not supported for private apps/,
       // A backend with no submission record at all answers 404 on that read,
       // which maps to the not-found message and exit 5.

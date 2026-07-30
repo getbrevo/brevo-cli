@@ -91,6 +91,9 @@ export interface State {
   orphanedAppIds: string[];
   // Absolute path to the CLI under test, resolved once in stepReinstall.
   brevoBin: string | null;
+  // Set when a FatalStep aborts the run. Non-null means brevoBin is not
+  // trustworthy, so nothing else should drive it.
+  fatal: string | null;
 }
 
 // ──────────────────────────── logging ────────────────────────────
@@ -208,6 +211,20 @@ export const PKG_YARN = 'yarn';
 export const PKG_NPM = 'npm';
 export const PACKAGE_NAME = '@getbrevo/cli';
 export const CMD_WHICH = 'which';
+
+// This file lives at <repo>/scripts/smoke/, so the repo root is two up. Derived
+// from the module path rather than process.cwd() so the guard below still reads
+// the right package.json when the script is invoked from elsewhere.
+export const REPO_ROOT = join(__dirname, '..', '..');
+
+// The version the linked build must report. Read fresh each call — cheap, and
+// it can't go stale against a rebuild mid-run.
+export function localPackageVersion(): string {
+  const raw = readFileSync(join(REPO_ROOT, 'package.json'), 'utf8');
+  const pkg = JSON.parse(raw) as { version?: string };
+  if (!pkg.version) throw new Error(`no version field in ${join(REPO_ROOT, 'package.json')}`);
+  return pkg.version;
+}
 
 export function brevoCmd(state: State): string {
   return state.brevoBin ?? BREVO_CMD_FALLBACK;
@@ -553,6 +570,17 @@ export function skip(reason: string): never {
   throw new SkippedStep(reason);
 }
 
+// A failure that invalidates every remaining suite step, as opposed to one that
+// only fails its own step. The version guard is the case that matters: once we
+// know the resolved `brevo` isn't the build under test, every later step is
+// exercising the wrong program, so running them produces noise dressed up as
+// 20-odd failures and buries the one line that explains why.
+export class FatalStep extends Error {}
+
+export function fatal(reason: string): never {
+  throw new FatalStep(reason);
+}
+
 export function requireCommand(state: State, name: GatedCommand): void {
   if (state.caps?.[name] === false) {
     skip(`brevo app ${name} not available in this build (--against=${state.opts.against})`);
@@ -630,6 +658,25 @@ export function stepPreflight(state: State): string {
   return `node ${node}, yarn ${yarn}, against=${state.opts.against}, ci=${state.opts.ci}`;
 }
 
+// Ask the package manager where it put the shim instead of hoping it wins a PATH
+// lookup. `yarn link` and `npm i -g` both install to a directory they can name,
+// and resolving it directly removes the whole failure mode: yarn prepends
+// ./node_modules/.bin to PATH, so any stray `brevo` there outranks the build we
+// just linked and silently becomes the CLI under test. PATH stays as a fallback
+// for an unusual setup, with the version check below as the backstop.
+function resolveBrevoBin(state: State): string {
+  const dir =
+    state.opts.against === 'local'
+      ? exec(PKG_YARN, ['global', 'bin'], state).stdout.trim()
+      : join(exec(PKG_NPM, ['prefix', '-g'], state).stdout.trim(), 'bin');
+
+  if (dir) {
+    const candidate = join(dir, BREVO_CMD_FALLBACK);
+    if (existsSync(candidate)) return candidate;
+  }
+  return execOrThrow(CMD_WHICH, [BREVO_CMD_FALLBACK], state).stdout.trim();
+}
+
 export function stepReinstall(state: State): string {
   // Tolerate errors here — prior installations may not exist.
   exec(PKG_YARN, ['unlink'], state);
@@ -645,10 +692,30 @@ export function stepReinstall(state: State): string {
 
   // Resolve the binary once, then invoke it by absolute path for the rest of the
   // run (see brevoCmd).
-  const which = execOrThrow(CMD_WHICH, [BREVO_CMD_FALLBACK], state).stdout.trim();
+  const which = resolveBrevoBin(state);
   if (!which) throw new Error('could not resolve the `brevo` binary after install');
   state.brevoBin = which;
   const version = execOrThrow(brevoCmd(state), ['--version'], state).stdout.trim();
+
+  // Resolving `brevo` off PATH and trusting it is how an entire run ends up
+  // exercising a package that isn't this repo. It has happened twice — a global
+  // @dtsl/brevo-cli, then a stray copy under node_modules/.bin (which `yarn`
+  // puts ahead of anything you export) — and because both carried the commands
+  // under test, the run reported a clean pass against the wrong CLI. A green
+  // smoke run that proves nothing is worse than a red one.
+  //
+  // Only --against=local has a version this repo can predict; --against=published
+  // installs @latest, which is expected to differ from the working tree.
+  if (state.opts.against === 'local') {
+    const expected = localPackageVersion();
+    if (version !== expected) {
+      fatal(
+        `wrong CLI under test: \`${which} --version\` reports ${version}, but this repo's ` +
+          `package.json is ${expected}. Something ahead of the linked build is winning the ` +
+          `PATH lookup — check node_modules/.bin/brevo and global installs, then re-run.`,
+      );
+    }
+  }
 
   const caps = detectCapabilities(state);
   const missing = GATED_COMMANDS.filter((c) => !caps[c]);
@@ -1002,6 +1069,14 @@ export function printOrphanWarning(
 // failed earlier (a rate limit, a transient 5xx) has to be caught here, while
 // the session is still alive.
 export function stepDeleteLeftoverApps(state: State): string {
+  // A fatal abort means the resolved binary was never the build under test. No
+  // suite step ran, so there is nothing this run created to clean up — and
+  // deleting apps through an unidentified CLI is exactly what we don't want. If
+  // something *was* tracked, clean up anyway: an orphan beats caution.
+  if (state.fatal && !state.mainApp && !state.publicApp && !state.initAppId) {
+    skip('run aborted before a trusted CLI was resolved; nothing was created');
+  }
+
   const leftovers: Array<{ label: string; appId: string; clear: () => void }> = [];
   if (state.mainApp) {
     leftovers.push({
@@ -1053,6 +1128,14 @@ export function stepDeleteLeftoverApps(state: State): string {
 }
 
 export function stepLogout(state: State): string {
+  // Never destroy the operator's session using a CLI we couldn't identify. The
+  // run authenticated nothing, so there is no session of *ours* to tear down —
+  // logging out here just signs the human out for no reason, which is what the
+  // first run of this guard did.
+  if (state.fatal) {
+    skip('run aborted before a trusted CLI was resolved; leaving credentials alone');
+  }
+
   execOrThrow(brevoCmd(state), ['logout', '--force', '--json'], state);
   // whoami may exit non-zero when unauthenticated; accept either as "logged out"
   const r = exec(brevoCmd(state), ['whoami', '--json'], state);

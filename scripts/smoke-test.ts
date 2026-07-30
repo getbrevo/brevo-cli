@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 
 import {
   COLOR,
+  FatalStep,
   Options,
   SkippedStep,
   State,
@@ -209,6 +210,9 @@ async function runStep(n: number, name: string, fn: StepFn, state: State): Promi
       stepDone(state, 'skipped', message, ms);
       return true;
     }
+    // A fatal step still reports as a failure — the run did fail — but it also
+    // latches state.fatal so runSteps stops feeding work to a CLI we can't trust.
+    if (err instanceof FatalStep) state.fatal = message;
     state.stepResults.push({ name, ok: false, durationMs: ms, error: message });
     stepDone(state, 'failed', (message.split('\n')[0] ?? message).slice(0, 200), ms);
     logToFile(state, message);
@@ -282,6 +286,12 @@ async function resolvePort(opts: Options): Promise<void> {
 // Setup and teardown always run; the middle is whichever suites were selected.
 // Teardown order matters: leftover-app cleanup must precede Logout / Final
 // cleanup, which destroy the credentials and the linked binary it needs.
+const TEARDOWN_STEPS: Array<[string, StepFn]> = [
+  ['Cleanup: leftover apps', stepDeleteLeftoverApps],
+  ['Logout', stepLogout],
+  ['Final cleanup', stepFinalCleanup],
+];
+
 function buildSteps(opts: Options): Array<[string, StepFn]> {
   const selected = opts.suites.flatMap((name) => {
     const suite = SUITES[name];
@@ -293,9 +303,7 @@ function buildSteps(opts: Options): Array<[string, StepFn]> {
     ['Reinstall local', stepReinstall],
     ['Auth lifecycle', stepAuth],
     ...selected,
-    ['Cleanup: leftover apps', stepDeleteLeftoverApps],
-    ['Logout', stepLogout],
-    ['Final cleanup', stepFinalCleanup],
+    ...TEARDOWN_STEPS,
   ];
 }
 
@@ -305,10 +313,23 @@ async function runSteps(
 ): Promise<{ allOk: boolean; firstFailed: number }> {
   let allOk = true;
   let firstFailed = -1;
+  // Teardown always runs, even after a fatal — it's what unlinks the build and
+  // removes tmp dirs. The individual teardown steps decide for themselves what
+  // is still safe to do (see stepLogout).
+  const firstTeardown = steps.length - TEARDOWN_STEPS.length;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     if (!step) continue;
     const [name, fn] = step;
+
+    if (state.fatal && i < firstTeardown) {
+      const detail = 'skipped — run aborted, see the first failure';
+      state.stepResults.push({ name, ok: true, skipped: true, durationMs: 0, detail });
+      announce(state, i + 1, name);
+      stepDone(state, 'skipped', detail, 0);
+      continue;
+    }
+
     const ok = await runStep(i + 1, name, fn, state);
     if (!ok) {
       allOk = false;
@@ -358,6 +379,7 @@ async function main(): Promise<void> {
     rateLimitWaits: 0,
     orphanedAppIds: [],
     brevoBin: null,
+    fatal: null,
   };
 
   installCleanupTraps(state);

@@ -297,3 +297,71 @@ no step logic changed in the move.
       symlinked there. An earlier live run passed 26/26 against *that* package
       instead of the branch build. Invoke it directly meanwhile:
       `PATH="$HOME/.yarn/bin:$PATH" ./node_modules/.bin/tsx scripts/smoke-test.ts --skip-auth`
+
+### Smoke test: correct-binary resolution + fatal abort
+
+**Change:** Test/harness only — nothing under `src/` changed, so no changeset.
+
+Three related fixes to "`yarn smoke` can silently test the wrong binary":
+
+1. **Deterministic resolution.** `stepReinstall` asks the package manager where
+   it put the shim (`yarn global bin` for `--against=local`, `npm prefix -g`
+   otherwise) instead of taking the first `brevo` on PATH. PATH remains a
+   fallback. This is the actual fix: yarn prepends `./node_modules/.bin`, so a
+   stray `brevo` there outranked the freshly linked build.
+2. **Version guard as backstop.** When `--against=local`, the run now fails if
+   `brevo --version` doesn't match this repo's `package.json`. New exports:
+   `REPO_ROOT`, `localPackageVersion()`.
+3. **Fatal abort.** New `FatalStep` / `fatal()`; the guard raises it and
+   `runSteps` reports every remaining suite step ⊘ skipped. `stepLogout` and
+   `stepDeleteLeftoverApps` skip on a fatal so teardown can't drive an
+   unidentified CLI. Without this the guard failed one step and the run carried
+   on against the wrong binary for 22 more — and **logged the operator out**.
+
+Closes the PR #42 reviewer note about `yarn smoke` silently testing the wrong
+binary. A separate note from that list — that `APP_SUBMIT_NOT_PUBLIC` is
+unreachable because `submit` preflights the review state before checking
+`distribution_type` — was **reviewed and closed as won't-fix**: submit is not
+supported for private apps, the API owns that refusal, and which of the two
+strings comes back isn't a CLI contract. The private-submit probe keeps
+accepting both; see the comment on `stepNegativeSubmitPrivate`.
+
+**Must hold true:**
+
+- [x] `REPO_ROOT` resolves from `__dirname`, not `process.cwd()`, so the guard
+      reads the right `package.json` when the script is invoked from elsewhere.
+      Verified under `tsx`: `REPO_ROOT` → repo root, `localPackageVersion()` →
+      `2.0.1`.
+- [x] The guard fires on the real shadowing case: the stray
+      `node_modules/@dtsl/brevo-cli` reports `2.0.1-alpha.0` against this repo's
+      `2.0.1`, so a run that picks it up now fails instead of passing 26/26.
+- [x] `--against=published` is exempt — it installs `@latest`, whose version
+      this repo can't predict.
+- [x] `eslint`, prettier, and `tsc --strict --noUncheckedIndexedAccess
+      --noUnusedLocals` all clean on `scripts/`; 733 unit tests still pass
+      (unchanged — nothing under `src/`).
+- [x] Guard fires and aborts cleanly: with the stray `@dtsl/brevo-cli` still
+      symlinked into `node_modules/.bin`, `yarn smoke --skip-auth` reported
+      `2 passed, 1 failed, 23 skipped` — one real failure at step 2, everything
+      downstream skipped, `Logout` skipped, credentials left intact, and
+      `Final cleanup` still unlinked.
+- [x] Resolution fix verified with the symlink **still in place**: plain
+      `yarn smoke --skip-auth` now reports
+      `brevo 2.0.1 at ~/.yarn/bin/brevo` at step 2. No workaround needed.
+- [x] **Live run, 26/26**, invoked directly with `~/.yarn/bin` leading PATH.
+      Step 2 confirmed `brevo 2.0.1 at ~/.yarn/bin/brevo`; all four gated
+      commands detected; `orphanedAppIds: []`, `rateLimitWaits: 0`; both apps
+      deleted; nothing left in the repo root. Public flow: `configured` →
+      submit returned a form URL → repeat submit idempotent → withdraw
+      `NOT_SUBMITTED` → `configured`.
+- [x] The private-submit probe passes by matching the **API's** string
+      (`This activity is not supported for private apps.`), confirming
+      `APP_SUBMIT_NOT_PUBLIC` is unreachable and that accepting both patterns
+      is what keeps this green. See the won't-fix note above.
+- [ ] Manual: one full `yarn smoke --skip-auth` run (not the direct
+      invocation) end-to-end at 26/26, to close the loop on the resolution fix
+      past step 2. Needs an authenticated session.
+- [ ] Reviewer: `@dtsl/brevo-cli` is in `node_modules` but in neither
+      `package.json` nor `yarn.lock`, and nothing depends on it — almost
+      certainly left from the `@dtsl` → `@getbrevo` rename. The harness no
+      longer cares, but it's worth deleting so nothing else trips on it.
