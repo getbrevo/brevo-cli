@@ -4,19 +4,16 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 import {
   State,
   Suite,
   brevoCmd,
   errMsg,
-  exec,
   execOrThrow,
   execScriptedStdin,
   findAppByName,
   logToFile,
-  must,
   parseJson,
   printOrphanWarning,
   readJsonFile,

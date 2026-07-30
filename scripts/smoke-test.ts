@@ -32,14 +32,11 @@ import {
   Suite,
   announce,
   bestEffortCleanup,
-  ensureWorkRoot,
   errMsg,
   formatMs,
   logToFile,
-  must,
   pickFreePort,
   redact,
-  skip,
   stepAuth,
   stepDeleteLeftoverApps,
   stepDone,
@@ -101,6 +98,36 @@ function parseAgainstValue(arg: string): 'local' | 'published' {
   return v;
 }
 
+// Split in two so neither half trips Sonar's cognitive-complexity limit, and so
+// adding a flag means touching exactly one of them.
+function applyBooleanFlag(opts: Options, arg: string): boolean {
+  if (arg === '--skip-auth') opts.skipAuth = true;
+  else if (arg === '--verbose') opts.verbose = true;
+  else if (arg === '--ci') {
+    opts.ci = true;
+    opts.verbose = true;
+  } else if (arg === '--with-init') opts.suites = uniq([...opts.suites, 'init']);
+  // Kept as aliases for --suite so existing invocations keep working.
+  else if (arg === '--with-public') opts.suites = uniq([...opts.suites, 'public']);
+  else if (arg === '--skip-public') opts.suites = opts.suites.filter((s) => s !== 'public');
+  else return false;
+  return true;
+}
+
+function applyValueFlag(opts: Options, arg: string): boolean {
+  if (arg.startsWith('--port=')) {
+    opts.port = parsePortValue(arg);
+    opts.portExplicit = true;
+  } else if (arg.startsWith('--report=')) {
+    opts.reportPath = arg.slice('--report='.length);
+  } else if (arg.startsWith('--against=')) {
+    opts.against = parseAgainstValue(arg);
+  } else if (arg.startsWith('--suite=')) {
+    opts.suites = parseSuiteValue(arg);
+  } else return false;
+  return true;
+}
+
 function parseArgs(argv: string[]): Options {
   const opts: Options = {
     skipAuth: false,
@@ -113,30 +140,15 @@ function parseArgs(argv: string[]): Options {
     suites: [...DEFAULT_SUITES],
   };
   for (const arg of argv) {
-    if (arg === '--skip-auth') opts.skipAuth = true;
-    else if (arg === '--verbose') opts.verbose = true;
-    else if (arg === '--with-init') opts.suites = [...opts.suites, 'init'];
-    // Kept as aliases for --suite so existing invocations keep working.
-    else if (arg === '--skip-public') opts.suites = opts.suites.filter((s) => s !== 'public');
-    else if (arg === '--with-public') opts.suites = uniq([...opts.suites, 'public']);
-    else if (arg.startsWith('--suite=')) opts.suites = parseSuiteValue(arg);
-    else if (arg === '--ci') {
-      opts.ci = true;
-      opts.verbose = true;
-    } else if (arg.startsWith('--port=')) {
-      opts.port = parsePortValue(arg);
-      opts.portExplicit = true;
-    } else if (arg.startsWith('--report=')) {
-      opts.reportPath = arg.slice('--report='.length);
-    } else if (arg.startsWith('--against=')) {
-      opts.against = parseAgainstValue(arg);
-    } else if (arg === '-h' || arg === '--help') {
+    if (arg === '-h' || arg === '--help') {
       printHelp();
       process.exit(0);
-    } else {
+    }
+    if (!applyBooleanFlag(opts, arg) && !applyValueFlag(opts, arg)) {
       throw new Error(`unknown flag: ${arg}`);
     }
   }
+  if (opts.suites.length === 0) throw new Error('no suites selected');
   if (opts.ci && !opts.skipAuth && !process.env.BREVO_API_KEY) {
     throw new Error('--ci requires BREVO_API_KEY in env (or pair with --skip-auth)');
   }

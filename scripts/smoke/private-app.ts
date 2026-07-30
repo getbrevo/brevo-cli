@@ -20,7 +20,6 @@ import {
   exec,
   execOrThrow,
   findAppByName,
-  findAppInList,
   logToFile,
   must,
   optStr,

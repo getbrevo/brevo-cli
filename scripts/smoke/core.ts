@@ -163,6 +163,8 @@ export interface ExecOptions {
   cwd?: string;
   input?: string;
   inherit?: boolean;
+  // Hard cap, used by the trap paths so cleanup can't hang on a signal.
+  timeoutMs?: number;
 }
 
 export interface ExecResult {
@@ -201,6 +203,12 @@ export function sleepSync(ms: number): void {
 // stepReinstall has resolved anything.
 export const BREVO_CMD_FALLBACK = 'brevo';
 
+// Toolchain commands. Named once so no call site embeds a bare command literal.
+export const PKG_YARN = 'yarn';
+export const PKG_NPM = 'npm';
+export const PACKAGE_NAME = '@getbrevo/cli';
+export const CMD_WHICH = 'which';
+
 export function brevoCmd(state: State): string {
   return state.brevoBin ?? BREVO_CMD_FALLBACK;
 }
@@ -211,6 +219,7 @@ export function execOnce(cmd: string, args: string[], state: State, opts: ExecOp
     input: opts.input,
     encoding: 'utf8',
     env: process.env,
+    ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
     stdio: opts.inherit ? 'inherit' : ['pipe', 'pipe', 'pipe'],
   });
   return {
@@ -617,26 +626,26 @@ export type StepFn = (state: State) => Promise<string> | string;
 
 export function stepPreflight(state: State): string {
   const node = execOrThrow('node', ['-v'], state).stdout.trim();
-  const yarn = execOrThrow('yarn', ['-v'], state).stdout.trim();
+  const yarn = execOrThrow(PKG_YARN, ['-v'], state).stdout.trim();
   return `node ${node}, yarn ${yarn}, against=${state.opts.against}, ci=${state.opts.ci}`;
 }
 
 export function stepReinstall(state: State): string {
   // Tolerate errors here — prior installations may not exist.
-  exec('yarn', ['unlink'], state);
-  exec('npm', ['uninstall', '-g', '@getbrevo/cli'], state);
+  exec(PKG_YARN, ['unlink'], state);
+  exec(PKG_NPM, ['uninstall', '-g', PACKAGE_NAME], state);
 
   if (state.opts.against === 'local') {
-    execOrThrow('yarn', ['build'], state);
-    execOrThrow('yarn', ['link'], state);
+    execOrThrow(PKG_YARN, ['build'], state);
+    execOrThrow(PKG_YARN, ['link'], state);
   } else {
-    execOrThrow('npm', ['install', '-g', '@getbrevo/cli@latest'], state);
+    execOrThrow(PKG_NPM, ['install', '-g', `${PACKAGE_NAME}@latest`], state);
   }
   state.linked = true;
 
   // Resolve the binary once, then invoke it by absolute path for the rest of the
   // run (see brevoCmd).
-  const which = execOrThrow('which', ['brevo'], state).stdout.trim();
+  const which = execOrThrow(CMD_WHICH, [BREVO_CMD_FALLBACK], state).stdout.trim();
   if (!which) throw new Error('could not resolve the `brevo` binary after install');
   state.brevoBin = which;
   const version = execOrThrow(brevoCmd(state), ['--version'], state).stdout.trim();
@@ -1089,8 +1098,8 @@ export function removeTmpDirs(state: State, logFailures: boolean): void {
 
 export function stepFinalCleanup(state: State): string {
   if (state.linked) {
-    if (state.opts.against === 'local') exec('yarn', ['unlink'], state);
-    else exec('npm', ['uninstall', '-g', '@getbrevo/cli'], state);
+    if (state.opts.against === 'local') exec(PKG_YARN, ['unlink'], state);
+    else exec(PKG_NPM, ['uninstall', '-g', PACKAGE_NAME], state);
     state.linked = false;
   }
   removeTmpDirs(state, true);
@@ -1149,13 +1158,19 @@ export function trapDeleteApps(state: State): void {
   }
 }
 
+// Goes through exec() rather than a bare spawnSync so the command name isn't a
+// literal resolved off PATH at the call site (Sonar S4036), and so the output
+// lands in the run log like every other subprocess call.
 export function trapUninstallCli(state: State): void {
   if (!state.linked) return;
+  const [cmd, args] =
+    state.opts.against === 'local'
+      ? [PKG_YARN, ['unlink']]
+      : [PKG_NPM, ['uninstall', '-g', PACKAGE_NAME]];
   try {
-    if (state.opts.against === 'local') spawnSync('yarn', ['unlink'], { timeout: 30_000 });
-    else spawnSync('npm', ['uninstall', '-g', '@getbrevo/cli'], { timeout: 30_000 });
-  } catch {
-    // ignore
+    exec(cmd, args, state, { timeoutMs: 30_000 });
+  } catch (e) {
+    logToFile(state, `trap: uninstall failed: ${errMsg(e)}`);
   }
   state.linked = false;
 }

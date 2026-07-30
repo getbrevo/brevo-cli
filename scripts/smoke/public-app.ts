@@ -3,7 +3,6 @@
  * again -> status -> withdraw -> status -> delete, plus the unknown-app probes.
  */
 
-import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import {
