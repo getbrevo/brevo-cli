@@ -16,6 +16,19 @@ into `main` — anything that must outlive the branch belongs in
       build endpoint writes a separate config field. So the upload transport is still a guess (the CLI
       sends the block as `snapshot` on `POST /v3/app-store/apps/{id}/upload`), as are
       the deploy/remove endpoints. See `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+- [ ] **`app deploy` target-account resolution — design written, not implemented.** See
+      `BEX-290-deploy-account-resolution.md`. Makes `<account-id>` optional: standalone
+      accounts resolve their own, corporate accounts pick from
+      `GET /v3/corporate/subAccount`. Two blockers, both recorded in that file:
+      - [ ] **Non-corporate identifier is unresolved.** The corporate branch yields a numeric
+            sub-account `id`; `organization_id` is a UUID and `parseAccountId` rejects it.
+            Needs confirmation of whether `/v3/account/info` exposes a numeric account ID
+            distinct from `organization_id` / `user_id`, and whether sub-accounts share their
+            master's `organization_id`.
+      - [ ] **Deploy/remove endpoints still don't exist**, so the contract is ours to define:
+            path, body field name and type, owner of the "must be uploaded first" rule and its
+            status code, double-deploy idempotency, whether a master's credential may deploy
+            into its sub-account, and whether the response carries an installation ID.
 - [ ] **Keep `EXTENSION_POINTS` in lockstep with the registry.** `src/lib/constants.ts`
       hard-codes the twelve-point registry so slot names can be validated offline. If
       the platform's registry gains or renames an entry (e.g. a `quoteDetails`
