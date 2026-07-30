@@ -133,3 +133,167 @@ before any submit work. Only a failed fetch blocks; the state value is not a gat
       in `--json`), and a thrown error is formatted by `withCommandHandler`.
 - [ ] Manual: point the CLI at an unreachable API and confirm `brevo app
       submit` exits non-zero with the status-fetch error, not a submit error.
+
+### Smoke test: public-app lifecycle (BEX-339)
+
+**Change:** `scripts/smoke-test.ts` rewritten around two lifecycles. Removed
+`stepPublicAppRejected` (public create is valid since BEX-327). Replaced the
+`brevo app update` step with `brevo app upload` steps, fixed the scaffold step
+(no more `--app-id`), and added the public flow: create → upload → status →
+submit → submit again → status → withdraw → status → delete, plus negative
+probes. Every create now runs from a tracked tmp work root because `create`
+writes `./<slug>` into the cwd. New `--skip-public` / `--with-public` flags;
+gated commands are feature-detected from `brevo --help` and reported as
+**skipped**, not failed. Test-only — no `src/` change, so no SKILL.md/AGENTS.md
+update is required.
+
+**Must hold true:**
+
+- [x] `yarn smoke --help` lists `--with-public` / `--skip-public`; unknown flags
+      still exit 2 with the help text.
+- [x] Script typechecks under the repo's strict settings
+      (`tsc --noEmit --strict --noUncheckedIndexedAccess`) and is prettier-clean.
+- [x] Full step list passes end to end against a mock `brevo` on `PATH`
+      (25/25), and the mock account holds zero apps afterwards.
+- [x] Capability gating: with `submit`/`status`/`withdraw`/`upload` absent from
+      `brevo --help`, the run stays green — 13 passed, 12 **skipped**, no
+      failures, both apps still deleted. This is the `--against=published`
+      path while sibling tickets land.
+- [x] Pre-BEX-255 build (create returns no `directory`): upload / no-op upload /
+      verify-rename / scaffold / start skip themselves; 19 passed, 6 skipped.
+- [x] Backend serves no `google_form_link`: the submit step skips with the app
+      id in the reason rather than failing; the repeat-submit step skips too.
+- [x] Mid-run `SIGINT` (during "Start briefly"): exit 130, the created app is
+      deleted by the trap, and no `brevo-smoke-work-*` tmp dir is left behind.
+- [x] `yarn lint` and `yarn test` (733 tests) pass — unchanged, since nothing
+      under `src/` is touched.
+- [x] **Manual, real backend** — ran `yarn smoke --skip-auth` on 2026-07-29
+      against a live account (prod API, OAuth login, local build via `yarn link`).
+      **24/25 passed;** the one failure was the private-app submit probe, which
+      surfaced a real CLI issue, now recorded in the PR description's *Reviewer
+      notes* (see the last bullet below). Every assertion that encoded a guess about server behaviour
+      is now confirmed:
+  - [x] `app-config.json`'s `distribution_type` comes back `public` for a public
+        app — round-trip via `buildTemplateVars` works, no silent `private`.
+  - [x] The second `upload` reported `up to date at version 0.0.2` — the server
+        does **not** bump `version` on an unchanged upload, so the strict
+        `upToDate: true` branch is the one that fires.
+  - [x] `submit` straight after `upload` was **not** rejected for config drift
+        (run from the project dir, so the drift check did execute).
+  - [x] `status` for a freshly created + uploaded public app returned
+        `configured` — a state the CLI has copy for, not `unknown`.
+  - [x] `withdraw` on a never-submitted app returned the mapped `NOT_SUBMITTED`
+        payload at exit 0 (HTTP 422, not a 404).
+  - [x] `status` **and** `withdraw` on a random UUID both mapped to not-found at
+        exit 5.
+  - [x] No `brevo-cli-smoke*` app left on the account — both delete steps assert
+        absence from `app list` after deleting, and both passed.
+  - [x] Bonus, unplanned: `submit` **did** return a review-form link on prod, so
+        the public path was exercised for real rather than skipped. The repeat
+        submit was idempotent (same URL, exit 0), confirming that branch too.
+- [ ] Reviewer: confirm the two intentionally permissive assertions are the right
+      call — the repeat-submit probe accepts idempotent success or the mapped
+      "currently unavailable" refusal, because the CLI's submit hands over a form
+      URL rather than transitioning state, so a server-side "already submitted"
+      rejection can't be produced from the CLI alone; and the private-app submit
+      probe now accepts the server's `This activity is not supported for private
+      apps.` alongside the CLI's own `APP_SUBMIT_NOT_PUBLIC` copy, because the
+      status preflight in `submit.ts` fires first and makes the CLI's message
+      unreachable. The refusal is correct either way — but if the reviewer would
+      rather the CLI own that message, the fix is described in the PR's
+      *Reviewer notes*.
+
+### Smoke test: cleanup + rate-limit hardening (BEX-339 follow-up)
+
+**Change:** Three defects the second live run exposed, all in `scripts/smoke-test.ts`:
+
+1. `trapDeleteApps` logged `trap: deleted app <id>` without checking the exit
+   status — `spawnSync` doesn't throw on a non-zero exit, so a delete that 401'd
+   was recorded as a success and the orphan went unreported. It now checks
+   `r.status`, logs the real reason, and prints an `⚠ ORPHANED APPS` block with
+   the delete commands.
+2. `Logout` and `Final cleanup` ran as ordinary steps *before* the post-run
+   safety net, destroying the credentials and the linked binary it needed — so a
+   leftover app could never be recovered. Added a `Cleanup: leftover apps` step
+   ahead of them.
+3. A rate-limited API failed every later step, including making the negative
+   probes assert mapped messages against `Rate limited. Retrying in 5 seconds…`.
+   `exec()` now retries centrally (5s/15s/30s) when a *failed* call looks
+   rate-limited, and counts the waits.
+
+Leaks and throttling are now visible in the summary and the `--report=` JSON
+(`orphanedAppIds`, `rateLimitWaits`).
+
+**Must hold true:**
+
+- [x] Transient rate limit on one call → absorbed: one 5s wait, step passes, run
+      green, `rateLimitWaits: 1` in the report.
+- [x] Every `app delete` failing → run fails, `LEAKED 2 app(s)` in the summary,
+      both ids in `orphanedAppIds`, orphan block printed with delete commands,
+      and the ids really are still on the (mock) account — report matches reality.
+- [x] Trap log never claims an unverified delete: `trap: FAILED to delete app
+      <id> (exit 3): <reason>`.
+- [x] No regression: clean run 26/26; gated run 14 passed / 12 skipped; both
+      self-cleaning. Typecheck + prettier clean.
+- [x] Sonar: 7 code smells in `scripts/smoke-test.ts` fixed (S8786 regex
+      backtracking → line-based stack-frame detector, S3358 ×2, S4624, S6551,
+      S7776, S1135). Zero security hotspots. The other 7 findings on the PR are
+      pre-existing in `src/` files this branch doesn't touch.
+- [ ] **Live re-run still pending.** The fixes above are verified against a mock
+      `brevo` only. Re-run `yarn smoke --skip-auth` on a real account to confirm
+      end to end — ideally against staging rather than a shared prod account,
+      which is what throttled the last run and made the orphan real.
+- [ ] Clean up after the pre-fix run: `brevo app list` and delete anything named
+      `brevo-cli-smoke*` (`brevo app delete --app-id <id> --force`). That run's
+      public-app delete was rate-limited and the trap's "deleted" line was the
+      unverified log fixed in point 1, so one may still exist. App ids aren't
+      recorded here — this repo is public.
+
+### Smoke test: split into per-flow suite modules (BEX-339 follow-up)
+
+**Change:** `scripts/smoke-test.ts` was one 2141-line file. Split so either
+lifecycle can run on its own:
+
+| File | Role |
+| --- | --- |
+| `scripts/smoke-test.ts` | Runner — flags, suite registry, step composition, summary, report |
+| `scripts/smoke/core.ts` | Shared plumbing: state, logging, exec + rate-limit retry, assertions, capability detection, create/upload/delete helpers, teardown, traps |
+| `scripts/smoke/private-app.ts` | `privateAppSuite` |
+| `scripts/smoke/public-app.ts` | `publicAppSuite` |
+| `scripts/smoke/init-wizard.ts` | `initWizardSuite` (opt-in) |
+
+Selection is `--suite=private|public|init|all` (comma-separated, default
+`private,public`). `--with-public` / `--skip-public` / `--with-init` are kept as
+aliases. Setup (pre-flight, install, auth) and teardown (leftover-app cleanup,
+logout, uninstall) always run, so each suite stands alone — the public suite
+creates its own app and never depends on the private one.
+
+The extraction was mechanical: all 127 top-level blocks were indexed and
+verified to be covered exactly once (no gaps, no overlaps) before reassembly, so
+no step logic changed in the move.
+
+**Must hold true:**
+
+- [x] Typecheck (`--strict --noUncheckedIndexedAccess`) and prettier clean across
+      all five files.
+- [x] `--suite=private` → 16 steps, `--suite=public` → 16, default → 26,
+      `--skip-public` → 16. All pass, all self-cleaning.
+- [x] `--suite=frobnicate` is rejected, listing the valid names.
+- [x] Public suite alone against a build without the review commands:
+      8 passed / 8 skipped, still green.
+- [x] Failure modes survive the split: gated build 14 passed / 12 skipped;
+      every-delete-failing still reports `ORPHANED APPS` + `LEAKED 2 app(s)`;
+      transient rate limit still absorbed with one 5s wait.
+- [x] **Live run, real account, correct binary** — 26/26. Step 2 reported
+      `brevo 2.0.1 at ~/.yarn/bin/brevo`, matching `package.json`, so this
+      exercised the branch build. Observed: upload bumped to version `0.0.2`;
+      no-op upload reported up-to-date; public status `configured` throughout;
+      submit returned a review form URL and the repeat submit was idempotent;
+      withdraw mapped to `NOT_SUBMITTED` at exit 0; unknown app id → exit 5 for
+      both `status` and `withdraw`; account left at its baseline app count.
+- [ ] **Do not run this suite via `yarn smoke` until the version guard lands**
+      (see the PR's *Reviewer notes*). yarn prepends `node_modules/.bin` ahead of any exported
+      PATH, and this repo currently has a stray undeclared `@dtsl/brevo-cli`
+      symlinked there. An earlier live run passed 26/26 against *that* package
+      instead of the branch build. Invoke it directly meanwhile:
+      `PATH="$HOME/.yarn/bin:$PATH" ./node_modules/.bin/tsx scripts/smoke-test.ts --skip-auth`
