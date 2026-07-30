@@ -170,8 +170,8 @@ update is required.
 - [x] **Manual, real backend** — ran `yarn smoke --skip-auth` on 2026-07-29
       against a live account (prod API, OAuth login, local build via `yarn link`).
       **24/25 passed;** the one failure was the private-app submit probe, which
-      surfaced a real CLI issue and is now recorded in `TODO.md` (see the last
-      bullet below). Every assertion that encoded a guess about server behaviour
+      surfaced a real CLI issue, now recorded in the PR description's *Reviewer
+      notes* (see the last bullet below). Every assertion that encoded a guess about server behaviour
       is now confirmed:
   - [x] `app-config.json`'s `distribution_type` comes back `public` for a public
         app — round-trip via `buildTemplateVars` works, no silent `private`.
@@ -200,7 +200,8 @@ update is required.
       apps.` alongside the CLI's own `APP_SUBMIT_NOT_PUBLIC` copy, because the
       status preflight in `submit.ts` fires first and makes the CLI's message
       unreachable. The refusal is correct either way — but if the reviewer would
-      rather the CLI own that message, the `TODO.md` item is the fix.
+      rather the CLI own that message, the fix is described in the PR's
+      *Reviewer notes*.
 
 ### Smoke test: cleanup + rate-limit hardening (BEX-339 follow-up)
 
@@ -291,7 +292,7 @@ no step logic changed in the move.
       withdraw mapped to `NOT_SUBMITTED` at exit 0; unknown app id → exit 5 for
       both `status` and `withdraw`; account left at its baseline app count.
 - [ ] **Do not run this suite via `yarn smoke` until the version guard lands**
-      (see `TODO.md`). yarn prepends `node_modules/.bin` ahead of any exported
+      (see the PR's *Reviewer notes*). yarn prepends `node_modules/.bin` ahead of any exported
       PATH, and this repo currently has a stray undeclared `@dtsl/brevo-cli`
       symlinked there. An earlier live run passed 26/26 against *that* package
       instead of the branch build. Invoke it directly meanwhile:
