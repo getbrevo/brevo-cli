@@ -100,22 +100,27 @@ export const messages = {
 
   // App create — UI app (BEX-290)
   APP_CREATE_UI_TRIGGER_PROMPT: 'How should your app be delivered?',
-  APP_CREATE_UI_TRIGGER_LINK:
-    'Action link     (Adds a menu entry that opens your URL in a new tab)',
-  // Kept visible but unselectable so the roadmap is discoverable from the prompt
-  // itself. `iframeExtension` exists on the platform but the CLI can't author it
-  // yet; widgets have no CLI authoring path at all.
-  APP_CREATE_UI_TRIGGER_MODAL: 'Iframe modal    (Opens your URL in a modal — not yet supported)',
-  APP_CREATE_UI_TRIGGER_WIDGET:
-    'Inline widget   (Renders inside the record page — not yet supported)',
-  APP_CREATE_UI_TRIGGER_UNSUPPORTED: (choice: string) =>
-    `"${choice}" is not available yet. Only an action link can be created today.`,
+  APP_CREATE_UI_TRIGGER_LINK: 'Redirect link   (Opens your URL in a new tab)',
+  APP_CREATE_UI_TRIGGER_MODAL: 'Iframe modal    (Opens your URL inside a modal)',
   APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
   APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
+  // Kind before place, because it decides which places exist. Phrased as what the
+  // partner sees rather than as the wire's `action`/`widget`.
+  APP_CREATE_UI_KIND_PROMPT: 'How should it appear on those pages?',
+  APP_CREATE_UI_KIND_ACTION: 'Menu entry      (An item in the page’s "More" menu)',
+  APP_CREATE_UI_KIND_WIDGET: 'Card            (A card rendered in a page region)',
+  APP_CREATE_UI_PLACE_PROMPT: 'Where on those pages?',
+  APP_CREATE_UI_PLACE_REQUIRED: 'Pick at least one location.',
   APP_CREATE_UI_HEADING_PROMPT: 'Heading (primary text shown on the action):',
   APP_CREATE_UI_SUBHEADING_PROMPT: 'Subheading (optional secondary text):',
   APP_CREATE_UI_REDIRECT_LINK_PROMPT: 'Redirect link (where record context is passed):',
-  APP_CREATE_UI_LINK_TARGET_PROMPT: 'Where should the link open?',
+  APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT: 'Modal iframe URL (embedded when the CTA is clicked):',
+  // Free text rather than a checklist: the allow-list this narrows lives on the
+  // platform's extension-point registry, which the CLI cannot read yet, so there is
+  // nothing to offer as choices. A field no chosen slot allows is refused at upload,
+  // where the error lists what is allowed.
+  APP_CREATE_UI_CONTEXT_PROMPT:
+    'Record context fields to receive, comma-separated (optional — blank receives whatever each location allows):',
   APP_CREATE_UI_BOX_TITLE: 'UI app created',
   // The action-menu entry is labelled with the app name — there is no per-action
   // label field on the platform, so say so rather than let a partner hunt for one.

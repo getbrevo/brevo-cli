@@ -9,12 +9,15 @@ import {
   DEFAULT_LINK_TARGET,
   DEFAULT_UI_APP_SCOPES,
   DEFAULT_UI_APP_SURFACE,
+  EXTENSION_KIND_ACTION,
+  EXTENSION_KIND_WIDGET,
+  EXTENSION_PLACE_LABELS,
+  EXTENSION_PLACES_BY_KIND,
   EXTENSION_TYPE_ACTION_LINK,
   EXTENSION_TYPE_IFRAME,
-  LINK_TARGETS,
   UI_APP_SURFACE_TO_LOCATION,
   UI_APP_SURFACES,
-  actionPointForLocation,
+  extensionPointName,
 } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
 import { logInfo, logError } from '../../lib/logger';
@@ -26,8 +29,10 @@ import {
   validateEnum,
   validateAppName,
   validateUiApp,
+  validateUiAppContext,
   validateUiAppHeading,
   validateUiAppUrl,
+  parseUiAppContext,
 } from '../../lib/validators';
 import { printBox, createSpinner } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
@@ -272,14 +277,13 @@ async function resolveLogoUri(
 }
 
 // 4b. UI-app configuration (BEX-290) — replaces the redirect-URL step for UI
-//     apps. Only the action link is buildable today; the other delivery paths
-//     appear as disabled choices so the roadmap is visible where the decision is
-//     made.
+//     apps. Both delivery paths the UI kit renders are authorable: a redirect CTA
+//     (`actionLink`) and a modal iframe (`iframeExtension`).
 //
 //     The collected block is the app snapshot the platform stores, verbatim, so
 //     there is no vocabulary translation between what a partner authors and what
 //     the platform renders.
-async function promptUiExtensionType(): Promise<void> {
+async function promptUiExtensionType(): Promise<UiApp['extensionType']> {
   const { extensionType } = await inquirer.prompt([
     {
       type: 'list',
@@ -287,57 +291,23 @@ async function promptUiExtensionType(): Promise<void> {
       message: messages.APP_CREATE_UI_TRIGGER_PROMPT,
       choices: [
         { name: messages.APP_CREATE_UI_TRIGGER_LINK, value: EXTENSION_TYPE_ACTION_LINK },
-        new inquirer.Separator(),
-        {
-          name: messages.APP_CREATE_UI_TRIGGER_MODAL,
-          value: EXTENSION_TYPE_IFRAME,
-          disabled: 'not yet supported',
-        },
-        {
-          name: messages.APP_CREATE_UI_TRIGGER_WIDGET,
-          value: 'widget',
-          disabled: 'not yet supported',
-        },
+        { name: messages.APP_CREATE_UI_TRIGGER_MODAL, value: EXTENSION_TYPE_IFRAME },
       ],
     },
   ]);
-  // Defensive: inquirer won't return a disabled choice, but a future edit that
-  // enables one before the rest of the pipeline supports it should fail loudly
-  // rather than push a config the platform silently drops.
-  if (extensionType !== EXTENSION_TYPE_ACTION_LINK) {
-    throw new CliError(messages.APP_CREATE_UI_TRIGGER_UNSUPPORTED(String(extensionType)));
-  }
-}
-
-// Map the friendly record-type answers onto action slot names. The prompt's
-// choices come from UI_APP_SURFACES, so an unmapped value is unreachable today —
-// the throw exists so a future edit that adds a choice without adding its
-// location mapping fails loudly instead of writing a slot name the platform
-// silently drops.
-function toActionPoints(surfaces: string[]): string[] {
-  const points: string[] = [];
-  for (const surface of surfaces) {
-    const key = String(surface).trim().toLowerCase();
-    const location = UI_APP_SURFACE_TO_LOCATION[key];
-    if (!location) {
-      throw new CliError(
-        `Invalid record page "${surface}". Must be one of: ${UI_APP_SURFACES.join(', ')}.`,
-      );
-    }
-    const point = actionPointForLocation(location);
-    if (!points.includes(point)) points.push(point);
-  }
-  return points;
+  return extensionType as UiApp['extensionType'];
 }
 
 /**
- * Collect the `ui_app` block interactively. Only reachable when the app-type
- * prompt returned `ui`, which already implies an interactive terminal — so every
- * field is asked for, with no flag or default fallback path.
+ * Ask which record pages the app appears on, then whether it is a menu entry or a card,
+ * then which regions — and compose the `<location>.<place>.<kind>` slot names.
+ *
+ * Kind is asked before place, and asked as a single choice, because it decides which
+ * places exist: `headerMenu` pairs only with `action` and the `overview*` regions only
+ * with `widget`. Choosing it first means the pages x places cross-product below can never
+ * produce an invalid pair.
  */
-async function resolveUiApp(): Promise<UiApp> {
-  await promptUiExtensionType();
-
+async function promptSurfacePointList(): Promise<string[]> {
   const { surfaces } = await inquirer.prompt([
     {
       type: 'checkbox',
@@ -348,6 +318,94 @@ async function resolveUiApp(): Promise<UiApp> {
       validate: (picked: unknown[]) => picked.length > 0 || messages.APP_CREATE_UI_SURFACE_REQUIRED,
     },
   ]);
+
+  const { kind } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'kind',
+      message: messages.APP_CREATE_UI_KIND_PROMPT,
+      choices: [
+        { name: messages.APP_CREATE_UI_KIND_ACTION, value: EXTENSION_KIND_ACTION },
+        { name: messages.APP_CREATE_UI_KIND_WIDGET, value: EXTENSION_KIND_WIDGET },
+      ],
+    },
+  ]);
+
+  const availablePlaces = EXTENSION_PLACES_BY_KIND[String(kind)] ?? [];
+  const { places } = await inquirer.prompt([
+    {
+      type: 'checkbox',
+      name: 'places',
+      message: messages.APP_CREATE_UI_PLACE_PROMPT,
+      choices: availablePlaces.map((place) => ({
+        name: EXTENSION_PLACE_LABELS[place] ?? place,
+        value: place,
+      })),
+      // The action branch has exactly one place today, so pre-select it rather than
+      // making the partner tick a single box.
+      default: availablePlaces.length === 1 ? [...availablePlaces] : [],
+      validate: (picked: unknown[]) => picked.length > 0 || messages.APP_CREATE_UI_PLACE_REQUIRED,
+    },
+  ]);
+
+  return toSurfacePoints((surfaces as string[]) ?? [], (places as string[]) ?? [], String(kind));
+}
+
+/**
+ * Compose the chosen pages x places into slot names.
+ *
+ * The prompt's page choices come from UI_APP_SURFACES, so an unmapped value is
+ * unreachable today — the throw exists so a future edit that adds a choice without adding
+ * its location mapping fails loudly instead of writing a slot name the platform silently
+ * drops.
+ */
+function toSurfacePoints(surfaces: string[], places: string[], kind: string): string[] {
+  const points: string[] = [];
+  for (const surface of surfaces) {
+    const key = String(surface).trim().toLowerCase();
+    const location = UI_APP_SURFACE_TO_LOCATION[key];
+    if (!location) {
+      throw new CliError(
+        `Invalid record page "${surface}". Must be one of: ${UI_APP_SURFACES.join(', ')}.`,
+      );
+    }
+    for (const place of places) {
+      const point = extensionPointName(location, String(place).trim(), kind);
+      if (!points.includes(point)) points.push(point);
+    }
+  }
+  return points;
+}
+
+/**
+ * Ask for the record-context fields the app wants forwarded to it.
+ *
+ * Free text, because the allow-list this narrows lives on the platform's extension-point
+ * registry and the CLI cannot read it yet — so there is nothing to offer as choices. An
+ * answer naming a field no chosen slot allows is refused at upload, where the error
+ * enumerates what is allowed. Leaving it blank forwards whatever each slot allows, which
+ * is the behaviour every app had before narrowing existed.
+ */
+async function promptUiAppContext(): Promise<string[]> {
+  const { context } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'context',
+      message: messages.APP_CREATE_UI_CONTEXT_PROMPT,
+      validate: (value: string) => validateUiAppContext(parseUiAppContext(value)),
+    },
+  ]);
+  return parseUiAppContext(String(context ?? ''));
+}
+
+/**
+ * Collect the `ui_app` block interactively. Only reachable when the app-type
+ * prompt returned `ui`, which already implies an interactive terminal — so every
+ * field is asked for, with no flag or default fallback path.
+ */
+async function resolveUiApp(): Promise<UiApp> {
+  const extensionType = await promptUiExtensionType();
+  const surfacePointList = await promptSurfacePointList();
 
   const { heading } = await inquirer.prompt([
     {
@@ -366,38 +424,42 @@ async function resolveUiApp(): Promise<UiApp> {
     },
   ]);
 
-  const { redirectLink } = await inquirer.prompt([
+  const isIframe = extensionType === EXTENSION_TYPE_IFRAME;
+  const { url } = await inquirer.prompt([
     {
       type: 'input',
-      name: 'redirectLink',
-      message: messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
+      name: 'url',
+      message: isIframe
+        ? messages.APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT
+        : messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
       validate: validateUiAppUrl,
     },
   ]);
 
-  const { linkTarget } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'linkTarget',
-      message: messages.APP_CREATE_UI_LINK_TARGET_PROMPT,
-      choices: [...LINK_TARGETS],
-      default: DEFAULT_LINK_TARGET,
-    },
-  ]);
+  const context = await promptUiAppContext();
 
   const uiApp: UiApp = {
-    extensionType: EXTENSION_TYPE_ACTION_LINK,
-    surfacePointList: toActionPoints((surfaces as string[]) ?? []),
+    extensionType,
+    surfacePointList,
     heading: String(heading ?? '').trim(),
     // Omitted rather than written empty: the kit only renders it when set, and an
     // empty string would show up as a spurious diff on every upload.
     ...(String(subheading ?? '').trim() ? { subheading: String(subheading).trim() } : {}),
-    redirectLink: String(redirectLink ?? '').trim(),
-    linkTarget: String(linkTarget ?? DEFAULT_LINK_TARGET).trim() as UiApp['linkTarget'],
+    // Each type owns exactly one URL field, and carrying the other one is refused —
+    // for iframeExtension because the card and menu paths would then disagree about
+    // which URL wins. linkTarget is written only for an actionLink, and only as
+    // _blank: the server refuses _self today, so there is nothing to prompt for.
+    ...(isIframe
+      ? { modalIframeUrl: String(url ?? '').trim() }
+      : {
+          redirectLink: String(url ?? '').trim(),
+          linkTarget: DEFAULT_LINK_TARGET as UiApp['linkTarget'],
+        }),
+    ...(context.length ? { context } : {}),
   };
 
   // Belt and braces: the per-prompt validators cover each answer in isolation,
-  // but nothing else checks the assembled block — in particular the surface →
+  // but nothing else checks the assembled block — in particular the page/place →
   // slot-name mapping, which is where a silent platform-side drop would come from.
   validateUiApp(uiApp);
   return uiApp;
@@ -550,8 +612,17 @@ function renderCreatedUiApp(
     ),
     `Heading:        ${uiApp.heading ?? ''}`,
     ...(uiApp.subheading ? [`Subheading:     ${uiApp.subheading}`] : []),
-    `Redirect link:  ${uiApp.redirectLink ?? ''}`,
-    `Link target:    ${uiApp.linkTarget ?? DEFAULT_LINK_TARGET}`,
+    // Each type carries exactly one URL field, so show whichever was authored rather
+    // than printing an empty row for the other one.
+    ...(uiApp.modalIframeUrl
+      ? [`Modal iframe:   ${uiApp.modalIframeUrl}`]
+      : [
+          `Redirect link:  ${uiApp.redirectLink ?? ''}`,
+          `Link target:    ${uiApp.linkTarget ?? DEFAULT_LINK_TARGET}`,
+        ]),
+    // Only shown when narrowed. Absent means "whatever each location allows", which is
+    // not something to render as a blank field.
+    ...(uiApp.context?.length ? [`Record context: ${uiApp.context.join(', ')}`] : []),
     ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
     `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_UI_APP_SCOPES].join(', ')}`,

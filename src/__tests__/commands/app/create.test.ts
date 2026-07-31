@@ -1092,10 +1092,15 @@ describe('app/create', () => {
         appType: 'ui',
         extensionType: 'actionLink',
         surfaces: ['contact'],
+        // Placement is three prompts: pages, then kind (which decides the available
+        // places), then the places themselves.
+        kind: 'action',
+        places: ['headerMenu'],
         heading: 'Invoice Manager',
         subheading: '',
-        redirectLink: 'https://example.com/brevo',
-        linkTarget: '_blank',
+        // One URL prompt shared by both types — the message differs, the name does not.
+        url: 'https://example.com/brevo',
+        context: '',
         logoUrl: '',
         // Only reached when a test forces the OAuth path (non-TTY / --json), but
         // kept here so those tests don't need their own mock wiring.
@@ -1194,6 +1199,69 @@ describe('app/create', () => {
       expect(collectedUiApp().surfacePointList).toEqual(['contactDetails.headerMenu.action']);
     });
 
+    // Widget slots are authorable now: the UI kit renders both extension types on both
+    // kinds — a widget slot gets a card, an action slot a menu entry — so restricting the
+    // CLI to `.action` left nine of the twelve registered slots unreachable.
+    it('composes widget slot names when the card kind is chosen', async () => {
+      answerPrompts({ kind: 'widget', places: ['overviewMain', 'overviewSidebar'] });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surfacePointList).toEqual([
+        'contactDetails.overviewMain.widget',
+        'contactDetails.overviewSidebar.widget',
+      ]);
+    });
+
+    // The cross-product is pages x places, so a partner reaches several slots in one pass
+    // without the prompts multiplying.
+    it('crosses every picked page with every picked place', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        kind: 'widget',
+        places: ['overviewMain', 'overviewSidebar'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surfacePointList).toEqual([
+        'contactDetails.overviewMain.widget',
+        'contactDetails.overviewSidebar.widget',
+        'dealDetails.overviewMain.widget',
+        'dealDetails.overviewSidebar.widget',
+      ]);
+    });
+
+    // Kind is asked before place precisely so the place list contains no invalid pair:
+    // headerMenu exists only as an action, the overview regions only as widgets.
+    it('offers only the places that exist for the chosen kind', async () => {
+      answerPrompts({ kind: 'widget', places: ['overviewMain'] });
+      await createCommand(CLI_OPTIONS);
+
+      const widgetPlaces = ((questionNamed('places')?.choices ?? []) as Array<{ value?: string }>)
+        .map((c) => c.value)
+        .filter(Boolean);
+      expect(widgetPlaces).toEqual(['overviewAttributes', 'overviewMain', 'overviewSidebar']);
+    });
+
+    // The place prompt can't produce an invalid pair, because kind decides which places it
+    // offers. This asserts the backstop behind that: if a future edit ever crossed a place
+    // with the wrong kind, the assembled block fails loudly here rather than uploading a
+    // slot name the platform silently drops.
+    it('rejects a place crossed with the wrong kind', async () => {
+      answerPrompts({ kind: 'widget', places: ['headerMenu'] });
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+        /contactDetails\.headerMenu\.widget/,
+      );
+    });
+
+    it('pre-selects the only action place instead of asking for a single tick', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('places')?.default).toEqual(['headerMenu']);
+    });
+
     it('omits subheading when left blank rather than writing an empty string', async () => {
       await createCommand(CLI_OPTIONS);
 
@@ -1208,27 +1276,28 @@ describe('app/create', () => {
       expect(collectedUiApp().subheading).toBe('Review invoice history');
     });
 
-    it('honours the link-target answer', async () => {
-      answerPrompts({ linkTarget: '_self' });
-
+    // linkTarget is no longer asked: the server refuses _self, so offering a choice one of
+    // whose options would 400 is worse than writing the only accepted value.
+    it('writes _blank without prompting for a link target', async () => {
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().linkTarget).toBe('_self');
+      expect(questionNamed('linkTarget')).toBeUndefined();
+      expect(collectedUiApp().linkTarget).toBe('_blank');
     });
 
     // The per-field flags are gone, so these prompt `validate` callbacks are now
     // the only thing standing between a typo and a silently unrenderable action
     // link. Assert they're still wired up.
-    it('validates the heading and redirect-link answers at the prompt', async () => {
+    it('validates the heading and URL answers at the prompt', async () => {
       await createCommand(CLI_OPTIONS);
 
       const heading = questionNamed('heading');
       expect(typeof heading?.validate).toBe('function');
       expect((heading?.validate as (v: string) => unknown)('  ')).toMatch(/cannot be empty/i);
 
-      const redirectLink = questionNamed('redirectLink');
-      expect(typeof redirectLink?.validate).toBe('function');
-      expect((redirectLink?.validate as (v: string) => unknown)('http://example.com')).toMatch(
+      const url = questionNamed('url');
+      expect(typeof url?.validate).toBe('function');
+      expect((url?.validate as (v: string) => unknown)('http://example.com')).toMatch(
         /must use https/i,
       );
     });
@@ -1241,7 +1310,10 @@ describe('app/create', () => {
       expect((surfaces?.validate as (v: unknown[]) => unknown)(['contact'])).toBe(true);
     });
 
-    it('offers only the action link as a selectable delivery path', async () => {
+    // Both delivery paths the UI kit renders are selectable now. iframeExtension was
+    // previously disabled on the grounds that the modal surface did not exist; the kit
+    // ships it on both the card and the header-menu path.
+    it('offers both delivery paths as selectable', async () => {
       await createCommand(CLI_OPTIONS);
 
       const choices = (questionNamed('extensionType')?.choices ?? []) as Array<{
@@ -1249,7 +1321,48 @@ describe('app/create', () => {
         disabled?: string;
       }>;
       const selectable = choices.filter((c) => c.value && !c.disabled).map((c) => c.value);
-      expect(selectable).toEqual(['actionLink']);
+      expect(selectable).toEqual(['actionLink', 'iframeExtension']);
+    });
+
+    it('builds an iframeExtension block with modalIframeUrl and no redirect fields', async () => {
+      answerPrompts({ extensionType: 'iframeExtension', url: 'https://example.com/embed' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp()).toEqual({
+        extensionType: 'iframeExtension',
+        surfacePointList: ['contactDetails.headerMenu.action'],
+        heading: 'Invoice Manager',
+        modalIframeUrl: 'https://example.com/embed',
+      });
+    });
+
+    // context is a REQUEST to narrow, never a grant — the platform intersects it with the
+    // slot's own allow-list — so an unknown name is refused server-side, where the error
+    // can enumerate what is allowed.
+    it('includes the context fields when entered', async () => {
+      answerPrompts({ context: 'contactId, clientId' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().context).toEqual(['contactId', 'clientId']);
+    });
+
+    it('omits context when left blank rather than writing an empty array', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp()).not.toHaveProperty('context');
+    });
+
+    it('rejects a blank or duplicated context field at the prompt', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const validate = questionNamed('context')?.validate as (v: string) => unknown;
+      expect(validate('contactId, contactId')).toMatch(/duplicate/i);
+      // Blank entries are dropped rather than rejected, so an answer with a stray comma
+      // still passes and yields the one real field.
+      expect(validate('contactId, ')).toBe(true);
+      expect(validate('')).toBe(true);
     });
 
     it('never offers the OAuth feature scaffold', async () => {

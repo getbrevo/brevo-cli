@@ -3,6 +3,24 @@
 Design and review notes for the UI-app authoring surface. **Status: implemented** on this
 branch; this file records the shape of the change and the decisions behind it.
 
+> **Superseded in part by BEX-355.** This file is a point-in-time record. Four of its
+> statements no longer hold:
+>
+> - **"An action link may only target `<location>.headerMenu.action` … a `.widget` slot
+>   would register it somewhere it never appears"** — false. The UI kit renders both
+>   extension types on both kinds: a widget slot gets a card
+>   (`buildExtensionCardConfig.ts`), an action slot a menu entry
+>   (`getExtensionActions.ts`). All twelve registered slots are now authorable.
+> - **`modalIframeUrl` "not authorable"** — now authorable, via `iframeExtension`. The
+>   modal surface this cited as missing ships in the kit on both delivery paths. An
+>   `iframeExtension` may not carry `redirectLink` (the two paths disagree about which URL
+>   wins) or `linkTarget` (inert for a modal).
+> - **`linkTarget` is no longer prompted.** Uploads are pinned to `_blank`; `_self` is
+>   refused server-side for now, so there is no choice to offer.
+> - **"`contextProperties` … not declared by the partner"** — true when written. The
+>   platform since added `context`: the partner may now *narrow* the slot's context
+>   allow-list, though never widen it.
+
 **Branch base:** cut from `features_set_public_cli`, not `main`. The change extends
 `applyConditionals` in `src/templates/index.ts`, which the PKCE work introduced on that
 branch and which does not exist in `main` yet.

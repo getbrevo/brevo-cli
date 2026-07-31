@@ -478,14 +478,18 @@ describe('app/upload', () => {
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    it('rejects a widget slot for an action link', async () => {
+    // Widget slots upload now: the UI kit renders an actionLink on both kinds — a widget
+    // slot gets a redirect CTA card, an action slot a menu entry — so the previous
+    // action-slots-only restriction left nine of the twelve registered slots unreachable.
+    it('accepts a widget slot for an action link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: { ...UI_APP, surfacePointList: ['contactDetails.overviewMain.widget'] },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/renders as a menu action/i);
-      expect(appService.uploadApp).not.toHaveBeenCalled();
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
     });
 
     it('rejects an empty surfacePointList', async () => {
@@ -559,8 +563,11 @@ describe('app/upload', () => {
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/Invalid ui_app.linkTarget/i);
     });
 
-    it.each([['iframeExtension'], ['legacyComponent']])(
-      'rejects the not-yet-authorable %s type',
+    // legacyComponent is the pre-extensibility interpreter path, driven by the UI kit's own
+    // config registry rather than by a snapshot — never partner-authored. The pre-BEX-350
+    // snake_case spellings are refused too: the CLI only ever writes canonical camelCase.
+    it.each([['legacyComponent'], ['action_link'], ['iframe_extension']])(
+      'rejects the non-authorable %s type',
       async (extensionType) => {
         (readProjectConfig as jest.Mock).mockReturnValue({
           ...UI_CONFIG,
@@ -572,6 +579,68 @@ describe('app/upload', () => {
         );
       },
     );
+
+    // iframeExtension uploads now — the UI kit ships modal rendering on both the card and
+    // the header-menu path, so the surface the old block cited as missing exists.
+    it('uploads an iframeExtension with a modalIframeUrl', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: {
+          extensionType: 'iframeExtension',
+          surfacePointList: ['contactDetails.headerMenu.action'],
+          heading: 'Invoice Manager',
+          modalIframeUrl: 'https://example.com/embed',
+        },
+      });
+
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
+    });
+
+    it('rejects an iframeExtension carrying a redirectLink', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: {
+          extensionType: 'iframeExtension',
+          surfacePointList: ['contactDetails.headerMenu.action'],
+          heading: 'Invoice Manager',
+          modalIframeUrl: 'https://example.com/embed',
+          redirectLink: 'https://example.com/go',
+        },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/cannot be combined/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    // context is a request to narrow, checked locally only for shape. Whether a name is
+    // ALLOWED is a server-side check against the extension-point registry, whose allow-list
+    // the CLI cannot read.
+    it('uploads a context narrowing', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, context: ['contactId'] },
+      });
+
+      await uploadCommand({ yes: true });
+
+      const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+      expect(payload.snapshot.context).toEqual(['contactId']);
+    });
+
+    it.each([
+      ['a duplicated context field', ['contactId', 'contactId']],
+      ['an empty context field name', ['contactId', '']],
+    ])('rejects %s', async (_label, context) => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, context },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/ui_app.context/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
 
     // The UI kit drops modalIframeUrl for anything that isn't an
     // iframeExtension, so authoring one on an action link is a silent no-op.

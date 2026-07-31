@@ -21,13 +21,14 @@ export interface AccountResponse {
 // on either side of the platform reads those names. Keeping the CLI's authored
 // file 1:1 with the consumed shape means there is no mapping layer to drift.
 //
-// Two fields the spec described have no counterpart in the implementation and are
-// therefore not authorable:
-//   - a per-action label — the menu entry is labelled with the *app name*, so
-//     there is nothing to author.
-//   - `contextProperties` — the record context an action receives is an allow-list
-//     on the extension-point registry entry, i.e. a property of the slot, chosen
-//     by the platform, not declared by the partner.
+// One field the spec described has no counterpart in the implementation and is
+// therefore not authorable: a per-action label. The menu entry is labelled with the
+// *app name*, so there is nothing to author. (`heading` is not that label — it is the
+// card title on a widget slot, and unused on an action slot.)
+//
+// The record context an app receives IS partly authorable, via `context` — but only
+// downwards. The ceiling is the extension-point registry entry's allow-list, chosen by
+// the platform; `context` narrows it and can never widen it. See the field below.
 
 /**
  * The delivery path an extension renders through. camelCase per BEX-350, matching
@@ -97,12 +98,32 @@ export interface UiApp {
   heading?: string;
   /** Secondary CTA text rendered beneath the heading. */
   subheading?: string;
-  /** Destination for an `actionLink`. Non-http(s) values are dropped by the kit. */
+  /**
+   * Destination for an `actionLink`. Non-http(s) values are dropped by the kit.
+   * Refused on an `iframeExtension`: the widget-card path opens `modalIframeUrl`
+   * while the header-menu path routes on `redirectLink` first, so an app carrying
+   * both behaves differently depending on which slot renders it.
+   */
   redirectLink?: string;
-  /** `actionLink` only. Written explicitly rather than relying on any default. */
+  /**
+   * `actionLink` only. Written explicitly rather than relying on any default, and
+   * currently always `_blank` — the server refuses `_self` for now, so the CLI does
+   * not prompt for it.
+   */
   linkTarget?: LinkTarget;
-  /** `iframeExtension` only — dropped by the kit for any other type. Not authorable yet. */
+  /** `iframeExtension` only — dropped by the kit for any other type. */
   modalIframeUrl?: string;
+  /**
+   * The record-context field NAMES this app wants forwarded to it, e.g.
+   * `['contactId']`. A REQUEST to narrow, never a grant: the platform intersects it
+   * with the slot's own allow-list, so an app can only ever receive fewer fields than
+   * the slot permits.
+   *
+   * Absent or empty means "no narrowing" — the slot's whole allow-list is forwarded.
+   * A name no authored slot allows is refused at upload, because the serving path
+   * would otherwise drop it without a word.
+   */
+  context?: string[];
   /** Snapshot version, surfaced at the manifest item root. Server-managed. */
   version?: string;
 }

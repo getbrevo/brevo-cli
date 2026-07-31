@@ -115,6 +115,16 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       a CLI release ahead of the reseed produces action links that render nothing.
       The CLI's local registry copy lives in `src/lib/constants.ts`
       (`EXTENSION_POINTS`) and must be updated in lockstep if the registry changes.
+      `EXTENSION_PLACE_LABELS` in the same file mirrors the registry's
+      `surface_point_name` column and needs the same treatment. Both mirrors go
+      away once the registry is exposed over HTTP and the CLI reads it at prompt
+      time.
+- [ ] **Seed `extension_points.allowed_context_field` before shipping the context
+      prompt.** `ui_app.context` narrows this per-slot allow-list, and the upload
+      endpoint validates each authored field against it. If the column is NULL on
+      every row, every `context` value is refused — so a CLI release that prompts
+      for it ahead of the seed offers partners a field they cannot use. Leaving the
+      prompt blank is unaffected.
 - [ ] **Build the snapshot write path — still missing.** On
       the platform nothing writes the app snapshot; only the
       manifest read path parses it, and the existing build endpoint writes a

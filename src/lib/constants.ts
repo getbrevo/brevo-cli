@@ -193,12 +193,52 @@ export const EXTENSION_WIDGET_PLACES: readonly string[] = [
 ] as const;
 
 // The only action place in the current registry: the record page's header "More"
-// (•••) overflow menu. An action link mounts here.
+// (•••) overflow menu.
 export const EXTENSION_ACTION_PLACE = 'headerMenu';
+
+/**
+ * The `kind` segment. Both extension types render on both kinds — a widget slot gets a
+ * card, an action slot a menu entry — so kind is a placement choice, not a consequence
+ * of the extension type.
+ */
+export const EXTENSION_KIND_ACTION = 'action';
+export const EXTENSION_KIND_WIDGET = 'widget';
+
+/**
+ * Which places are available for each kind. This is what makes the page x place
+ * cross-product always valid: `headerMenu` pairs only with `action` and the three
+ * `overview*` places only with `widget`, so choosing the kind first removes every
+ * invalid combination from the place prompt.
+ */
+export const EXTENSION_PLACES_BY_KIND: Readonly<Record<string, readonly string[]>> = {
+  [EXTENSION_KIND_ACTION]: [EXTENSION_ACTION_PLACE],
+  [EXTENSION_KIND_WIDGET]: EXTENSION_WIDGET_PLACES,
+} as const;
+
+/**
+ * Friendly labels for the place prompt — partners think in page regions, the wire wants
+ * the `place` segment.
+ *
+ * These mirror `extension_points.surface_point_name`, which is the platform's own
+ * display text for each slot. The CLI cannot read that column until the registry is
+ * exposed over HTTP; once it is, these labels come from the server and this map goes
+ * away along with EXTENSION_POINTS.
+ */
+export const EXTENSION_PLACE_LABELS: Readonly<Record<string, string>> = {
+  headerMenu: 'Header "More" (•••) menu',
+  overviewMain: 'Main column',
+  overviewSidebar: 'Sidebar',
+  overviewAttributes: 'Attributes panel',
+} as const;
+
+/** Build a slot name in the `<location>.<place>.<kind>` grammar. */
+export function extensionPointName(location: string, place: string, kind: string): string {
+  return `${location}.${place}.${kind}`;
+}
 
 /** Build an action slot name for a record page. */
 export function actionPointForLocation(location: string): string {
-  return `${location}.${EXTENSION_ACTION_PLACE}.action`;
+  return extensionPointName(location, EXTENSION_ACTION_PLACE, EXTENSION_KIND_ACTION);
 }
 
 /**
@@ -209,10 +249,6 @@ export const EXTENSION_POINTS: readonly string[] = EXTENSION_LOCATIONS.flatMap((
   ...EXTENSION_WIDGET_PLACES.map((place) => `${location}.${place}.widget`),
   actionPointForLocation(location),
 ]);
-
-/** Action slots only — the subset an action link can target. */
-export const EXTENSION_ACTION_POINTS: readonly string[] =
-  EXTENSION_LOCATIONS.map(actionPointForLocation);
 
 /**
  * Friendly record-type choices (the values offered at the UI-app record-page
@@ -249,6 +285,16 @@ export const LINK_TARGETS: readonly string[] = ['_blank', '_self'] as const;
 // The CLI always writes linkTarget explicitly, so the authored file is complete
 // and never depends on a server- or client-side default being applied.
 export const DEFAULT_LINK_TARGET = '_blank';
+
+/**
+ * The only linkTarget uploads accept today. `_self` is refused server-side even though
+ * both the platform and the UI kit handle it, so the CLI writes `_blank` unconditionally
+ * rather than prompting for a choice one of whose options would 400.
+ *
+ * To restore the choice: widen this back to LINK_TARGETS and re-add the prompt, in step
+ * with the server relaxing its own check.
+ */
+export const UPLOADABLE_LINK_TARGETS: readonly string[] = [DEFAULT_LINK_TARGET] as const;
 
 export const BREVO_DASHBOARD_API_KEYS_URL = 'https://app.brevo.com/settings/keys/api';
 export const BREVO_API_KEY_DOCS_URL = 'https://developers.brevo.com/docs/api-key-authentication';

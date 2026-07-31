@@ -344,10 +344,6 @@ describe('validateUiApp', () => {
     ['a missing surfacePointList', { ...VALID, surfacePointList: undefined }],
     ['an unregistered point', { ...VALID, surfacePointList: ['contact.header.action'] }],
     [
-      'a widget slot for an action link',
-      { ...VALID, surfacePointList: ['contactDetails.overviewMain.widget'] },
-    ],
-    [
       'duplicate points',
       {
         ...VALID,
@@ -358,15 +354,42 @@ describe('validateUiApp', () => {
     ['a missing redirectLink', { ...VALID, redirectLink: undefined }],
     ['an insecure redirectLink', { ...VALID, redirectLink: 'http://example.com' }],
     ['an unknown linkTarget', { ...VALID, linkTarget: '_top' }],
+    // _self is refused because the server refuses it. Accepting it locally would only
+    // move the failure to upload time.
+    ['the _self linkTarget while uploads are pinned to _blank', { ...VALID, linkTarget: '_self' }],
+    ['a non-array context', { ...VALID, context: 'contactId' }],
+    ['an empty context field name', { ...VALID, context: ['contactId', ''] }],
+    ['a duplicated context field name', { ...VALID, context: ['contactId', 'contactId'] }],
   ])('rejects %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(CliError);
   });
 
-  // Types beyond the action link exist on the platform but the CLI can't author
-  // them yet — pushing one would produce a config nothing renders.
-  it.each([['iframeExtension'], ['legacyComponent']])('rejects the %s type', (extensionType) => {
-    expect(() => validateUiApp({ ...VALID, extensionType })).toThrow(/Unsupported/i);
+  // Widget slots are authorable: the UI kit renders both extension types on both kinds — a
+  // widget slot gets a card, an action slot a menu entry — so there is no kind rule to
+  // enforce here.
+  it('accepts a widget slot', () => {
+    expect(() =>
+      validateUiApp({ ...VALID, surfacePointList: ['contactDetails.overviewMain.widget'] }),
+    ).not.toThrow();
   });
+
+  it('accepts an omitted context', () => {
+    expect(() => validateUiApp({ ...VALID, context: undefined })).not.toThrow();
+  });
+
+  it('accepts context field names', () => {
+    expect(() => validateUiApp({ ...VALID, context: ['contactId'] })).not.toThrow();
+  });
+
+  // legacyComponent is the pre-extensibility interpreter path, driven by the UI kit's own
+  // config registry rather than by a snapshot — never partner-authored. The pre-BEX-350
+  // snake_case spellings fail here too, by design: the CLI only writes canonical camelCase.
+  it.each([['legacyComponent'], ['action_link'], ['iframe_extension']])(
+    'rejects the %s type',
+    (extensionType) => {
+      expect(() => validateUiApp({ ...VALID, extensionType })).toThrow(/Unsupported/i);
+    },
+  );
 
   // The UI kit keeps modalIframeUrl only for iframeExtension, so one on an
   // action link is silently discarded.
@@ -374,5 +397,51 @@ describe('validateUiApp', () => {
     expect(() => validateUiApp({ ...VALID, modalIframeUrl: 'https://example.com/modal' })).toThrow(
       /only used by/i,
     );
+  });
+});
+
+// iframeExtension became authorable once the UI kit shipped modal rendering on both
+// delivery paths (the modal card layout, and the header-menu action + its modal).
+describe('validateUiApp — iframeExtension', () => {
+  const VALID_IFRAME = {
+    extensionType: 'iframeExtension',
+    surfacePointList: ['contactDetails.headerMenu.action'],
+    heading: 'Invoice Manager',
+    modalIframeUrl: 'https://example.com/embed',
+  };
+
+  it('accepts a valid iframe extension', () => {
+    expect(() => validateUiApp(VALID_IFRAME)).not.toThrow();
+  });
+
+  it('accepts a widget slot', () => {
+    expect(() =>
+      validateUiApp({
+        ...VALID_IFRAME,
+        surfacePointList: ['contactDetails.overviewMain.widget'],
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ['a missing modalIframeUrl', { ...VALID_IFRAME, modalIframeUrl: undefined }],
+    ['an insecure modalIframeUrl', { ...VALID_IFRAME, modalIframeUrl: 'http://example.com' }],
+    ['an empty heading', { ...VALID_IFRAME, heading: ' ' }],
+  ])('rejects %s', (_label, block) => {
+    expect(() => validateUiApp(block)).toThrow(CliError);
+  });
+
+  // The two delivery paths disagree about which URL wins when both are set: the card path
+  // pairs strictly by extensionType and opens the modal, while the header-menu path routes
+  // on redirectLink first and never opens it. Same app, different behaviour per slot.
+  it('rejects redirectLink alongside modalIframeUrl', () => {
+    expect(() =>
+      validateUiApp({ ...VALID_IFRAME, redirectLink: 'https://example.com/go' }),
+    ).toThrow(/cannot be combined/i);
+  });
+
+  // linkTarget governs where a redirect opens; a modal embeds its URL instead.
+  it('rejects linkTarget', () => {
+    expect(() => validateUiApp({ ...VALID_IFRAME, linkTarget: '_blank' })).toThrow(/no effect/i);
   });
 });

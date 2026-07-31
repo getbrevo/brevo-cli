@@ -2,10 +2,9 @@ import { CliError } from './errors';
 import {
   LEGACY_ALL_SCOPE,
   EXTENSION_POINTS,
-  EXTENSION_ACTION_POINTS,
   EXTENSION_TYPE_ACTION_LINK,
   EXTENSION_TYPE_IFRAME,
-  LINK_TARGETS,
+  UPLOADABLE_LINK_TARGETS,
 } from './constants';
 
 const APP_NAME_MAX_LENGTH = 48;
@@ -210,15 +209,55 @@ export function validateSurfacePoint(point: string): true | string {
 }
 
 /**
+ * The extension types the CLI can author. `legacyComponent` is absent by design: it is
+ * the pre-extensibility interpreter path, driven by the UI kit's own config registry
+ * rather than by a snapshot, and never partner-authored.
+ *
+ * The pre-BEX-350 snake_case spellings are absent too — the CLI only ever writes
+ * canonical camelCase, even though the server still accepts the old spellings inbound.
+ */
+const AUTHORABLE_EXTENSION_TYPES: readonly string[] = [
+  EXTENSION_TYPE_ACTION_LINK,
+  EXTENSION_TYPE_IFRAME,
+] as const;
+
+/**
+ * Validate a `context` list: field names must be non-empty and unique. Returns `true` or
+ * an error string, so it can back an inquirer `validate` directly.
+ *
+ * Whether the platform actually ALLOWS a given name is not checkable locally — the
+ * allow-list lives on the extension-point registry row — so that check happens
+ * server-side at upload, where the 400 enumerates the allowed set.
+ */
+export function validateUiAppContext(fields: readonly string[]): true | string {
+  const seen = new Set<string>();
+  for (const field of fields) {
+    const trimmed = String(field ?? '').trim();
+    if (!trimmed) return 'Context field names cannot be empty.';
+    if (seen.has(trimmed)) return `Duplicate context field "${trimmed}".`;
+    seen.add(trimmed);
+  }
+  return true;
+}
+
+/** Parse a comma-separated context answer into trimmed field names. */
+export function parseUiAppContext(value: string): string[] {
+  return String(value ?? '')
+    .split(',')
+    .map((field) => field.trim())
+    .filter((field) => field.length > 0);
+}
+
+/**
  * Fully validate a `ui_app` block before it is sent to the server.
  *
  * The block is the app snapshot the platform stores, verbatim.
  * Every field below is optional on the wire — the backend degrades a malformed or
  * absent snapshot to "not yet migrated" rather than erroring — which means the
- * server will NOT tell a partner their action link is unrenderable. This
- * pre-flight is therefore the only enforcement point, so it is deliberately
- * stricter than the wire: it requires the fields an action link actually needs to
- * render, and rejects combinations the consumers silently discard.
+ * serving path will NOT tell a partner their extension is unrenderable. This
+ * pre-flight is therefore deliberately stricter than the wire: it requires the fields
+ * each type actually needs to render, and rejects combinations the consumers silently
+ * discard.
  *
  * Throws CliError on the first problem found.
  */
@@ -229,47 +268,66 @@ export function validateUiApp(uiApp: unknown): void {
     );
   }
   const block = uiApp as Record<string, unknown>;
+  const extensionType = String(block.extensionType ?? '');
 
-  // Only action links are authorable. `legacyComponent` is the pre-extensibility
-  // interpreter path (never CLI-authored) and `iframeExtension` needs the modal
-  // surface that isn't built yet. The pre-BEX-350 snake_case spellings fail here
-  // too, by design — the CLI only ever writes canonical camelCase.
-  if (block.extensionType !== EXTENSION_TYPE_ACTION_LINK) {
+  if (!AUTHORABLE_EXTENSION_TYPES.includes(extensionType)) {
     throw new CliError(
-      `Unsupported ui_app.extensionType "${String(block.extensionType)}". Only "${EXTENSION_TYPE_ACTION_LINK}" can be uploaded today.`,
+      `Unsupported ui_app.extensionType "${extensionType}". Must be one of: ${AUTHORABLE_EXTENSION_TYPES.join(', ')}.`,
     );
   }
 
-  const points = block.surfacePointList;
+  validateSurfacePointList(block.surfacePointList);
+
+  const headingCheck = validateUiAppHeading(String(block.heading ?? ''));
+  if (headingCheck !== true) throw new CliError(`ui_app.heading: ${headingCheck}`);
+
+  if (extensionType === EXTENSION_TYPE_IFRAME) {
+    validateIframeExtensionFields(block);
+  } else {
+    validateActionLinkFields(block);
+  }
+
+  if (block.context !== undefined) {
+    if (!Array.isArray(block.context)) {
+      throw new CliError('ui_app.context must be an array of field names, e.g. ["contactId"].');
+    }
+    const contextCheck = validateUiAppContext(block.context.map((field) => String(field)));
+    if (contextCheck !== true) throw new CliError(`ui_app.context: ${contextCheck}`);
+  }
+}
+
+/**
+ * Validate the slot list. Both extension types render on both kinds — a widget slot gets
+ * a card, an action slot a menu entry — so the only rules are that the list is non-empty,
+ * every name is registered, and no name repeats.
+ */
+function validateSurfacePointList(points: unknown): void {
   if (!Array.isArray(points) || points.length === 0) {
     throw new CliError(
-      'ui_app.surfacePointList must list at least one extension point (e.g. ["contactDetails.headerMenu.action"]). An empty list makes the platform fall back to default widget slots, which an action link cannot render in.',
+      'ui_app.surfacePointList must list at least one extension point (e.g. ["contactDetails.headerMenu.action"]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
     );
   }
   for (const point of points) {
     const check = validateSurfacePoint(String(point));
     if (check !== true) throw new CliError(`ui_app.surfacePointList: ${check}`);
-    // An action link yields a menu descriptor, so it can only occupy an action
-    // slot; targeting a `.widget` slot registers it somewhere it never renders.
-    if (!EXTENSION_ACTION_POINTS.includes(String(point).trim())) {
-      throw new CliError(
-        `ui_app.surfacePointList: "${String(point)}" is a widget slot, but an ${EXTENSION_TYPE_ACTION_LINK} renders as a menu action. Use one of: ${EXTENSION_ACTION_POINTS.join(', ')}.`,
-      );
-    }
   }
   if (new Set(points.map((p) => String(p).trim())).size !== points.length) {
     throw new CliError('ui_app.surfacePointList contains duplicate extension points.');
   }
+}
 
-  const headingCheck = validateUiAppHeading(String(block.heading ?? ''));
-  if (headingCheck !== true) throw new CliError(`ui_app.heading: ${headingCheck}`);
-
+function validateActionLinkFields(block: Record<string, unknown>): void {
   const urlCheck = validateUiAppUrl(String(block.redirectLink ?? ''));
   if (urlCheck !== true) throw new CliError(`ui_app.redirectLink: ${urlCheck}`);
 
-  if (block.linkTarget !== undefined && !LINK_TARGETS.includes(String(block.linkTarget))) {
+  // _self is refused server-side for now, so accepting it here would only move the
+  // failure to upload time. See UPLOADABLE_LINK_TARGETS.
+  if (
+    block.linkTarget !== undefined &&
+    !UPLOADABLE_LINK_TARGETS.includes(String(block.linkTarget))
+  ) {
     throw new CliError(
-      `Invalid ui_app.linkTarget "${String(block.linkTarget)}". Must be one of: ${LINK_TARGETS.join(', ')}.`,
+      `Invalid ui_app.linkTarget "${String(block.linkTarget)}". Must be one of: ${UPLOADABLE_LINK_TARGETS.join(', ')}.`,
     );
   }
 
@@ -279,6 +337,28 @@ export function validateUiApp(uiApp: unknown): void {
   if (block.modalIframeUrl !== undefined && String(block.modalIframeUrl).trim()) {
     throw new CliError(
       `ui_app.modalIframeUrl is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirectLink instead.`,
+    );
+  }
+}
+
+function validateIframeExtensionFields(block: Record<string, unknown>): void {
+  const urlCheck = validateUiAppUrl(String(block.modalIframeUrl ?? ''));
+  if (urlCheck !== true) throw new CliError(`ui_app.modalIframeUrl: ${urlCheck}`);
+
+  // Refused because the two delivery paths disagree about which URL wins: the
+  // widget-card path pairs strictly by extensionType and opens the modal, while the
+  // header-menu path routes on redirectLink first and never opens it. The same app would
+  // behave differently depending on the slot it rendered on.
+  if (block.redirectLink !== undefined && String(block.redirectLink).trim()) {
+    throw new CliError(
+      `ui_app.redirectLink cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the modal, while a card would open the modal. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
+    );
+  }
+
+  // linkTarget only governs where a redirectLink opens; a modal embeds its URL.
+  if (block.linkTarget !== undefined && String(block.linkTarget).trim()) {
+    throw new CliError(
+      `ui_app.linkTarget has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL in a modal rather than navigating to it. Remove it.`,
     );
   }
 }
