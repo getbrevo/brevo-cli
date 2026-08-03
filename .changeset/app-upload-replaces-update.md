@@ -10,7 +10,7 @@ Replace `brevo app update` with `brevo app upload` (BEX-250).
 
 On success, `upload` now reads the server-confirmed version from either `app_version` or `version` in the upload response, so the bumped version is always persisted to `app-config.json` and printed — instead of silently keeping the old value when the server returns it under `version`.
 
-Likewise, `upload` now reads the server-confirmed `distribution_type` from the top level of the upload response (where current server builds return it — the response's `auth` block only carries `scopes` and `redirect_urls`), falling back to the legacy `auth.distribution_type` nesting and then to the local config. Previously the top-level value was ignored and the write-back silently kept whatever `app-config.json` already said.
+Likewise, `upload` now reads the server-confirmed `distribution_type` from the top level of the upload response, where the server has always returned it — the response's `auth` block only carries `scopes` and `redirect_urls`. Previously the CLI looked for it nested under `auth` (a shape no server build ever emitted), so the write-back silently kept whatever `app-config.json` already said instead of the server's echo. If the field is ever missing from a response, the write-back still falls back to the local value. The response's `auth.scopes`/`auth.redirect_urls` may also come back `null` (e.g. UI-only apps whose snapshot has no OAuth block) — the write-back treats `null` as absent and keeps the locally-sent values.
 
 Breaking change: any script or CI job invoking `brevo app update` (or its `--scope`/`--redirect-uri`/`--name`/`--logo-uri` flags) needs to switch to editing `app-config.json` and running `brevo app upload` instead.
 

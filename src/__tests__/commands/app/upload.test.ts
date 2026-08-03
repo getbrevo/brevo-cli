@@ -49,14 +49,16 @@ const BASE_REMOTE = {
 };
 
 // Wire shape for appService.uploadApp()'s resolved response — distinct from
-// BASE_REMOTE (which mirrors OAuthApp / fetchApp's shape): auth is nested.
+// BASE_REMOTE (which mirrors OAuthApp / fetchApp's shape): distribution_type
+// is top-level and auth carries only scopes + redirect_urls (locked contract —
+// no server build ever nested distribution_type under auth in the response).
 const BASE_UPLOAD_RESPONSE = {
   app_id: '1',
   name: 'Test App',
   logo_uri: '',
   app_version: '1.0.0',
+  distribution_type: 'private' as const,
   auth: {
-    distribution_type: 'private' as const,
     scopes: ['contacts:read'],
     redirect_urls: ['http://localhost:3009/auth/callback'],
   },
@@ -215,8 +217,8 @@ describe('app/upload', () => {
       name: 'Renamed App',
       logo_uri: '',
       app_version: '2.0.0',
+      distribution_type: 'private',
       auth: {
-        distribution_type: 'private',
         scopes: ['contacts:read'],
         redirect_urls: ['http://localhost:3009/auth/callback'],
       },
@@ -256,6 +258,34 @@ describe('app/upload', () => {
     );
   });
 
+  it('keeps the local scopes/redirect URLs when the response auth carries nulls', async () => {
+    // The auth key is always present in the upload response, but its values are
+    // null (not empty arrays, not absent) when the stored snapshot has no OAuth
+    // block — e.g. UI-only apps. The write-back must fall back to what was sent
+    // rather than persisting nulls or crashing.
+    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      app_id: '1',
+      name: 'Renamed App',
+      logo_uri: '',
+      app_version: '2.0.0',
+      distribution_type: 'private',
+      auth: { scopes: null, redirect_urls: null },
+    });
+
+    await uploadCommand({ yes: true });
+
+    expect(writeProjectConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        auth: {
+          scopes: ['contacts:read'],
+          redirectUrls: ['http://localhost:3009/auth/callback'],
+        },
+      }),
+    );
+  });
+
   it('captures the new version when the upload response names it `version` (not `app_version`)', async () => {
     // Some upload responses mirror the app object and return the bumped version
     // under `version` (like GET/list) rather than `app_version`. The CLI must
@@ -268,8 +298,8 @@ describe('app/upload', () => {
       logo_uri: '',
       // no app_version; new version arrives under `version`
       version: '2.0.0',
+      distribution_type: 'private',
       auth: {
-        distribution_type: 'private',
         scopes: ['contacts:read'],
         redirect_urls: ['http://localhost:3009/auth/callback'],
       },

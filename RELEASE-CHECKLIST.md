@@ -301,25 +301,35 @@ no step logic changed in the move.
 ### Upload write-back reads top-level `distribution_type` from the response
 
 **Change:** `uploadProjectConfig` (`src/commands/app/upload.ts`) read the
-server-confirmed distribution only from `response.auth.distribution_type`, but
-current server builds return it at the top level of the upload response (the
-`auth` block only carries `scopes` + `redirect_urls`). The `?? config.distribution_type`
-fallback masked the break — nothing errored, but the write-back never persisted
-the server-confirmed value. The read order is now `response.distribution_type`
-→ `response.auth.distribution_type` (legacy nesting) → local config.
-`UploadAppResponse` gained the optional top-level field. Request payload is
+server-confirmed distribution only from `response.auth.distribution_type` — a
+shape the upload-service owners confirmed **no server build has ever emitted**
+(the upload response returns `distribution_type` top-level; its `auth` block
+carries only `scopes` + `redirect_urls`, per the service's locked OpenAPI
+contract). The `?? config.distribution_type` fallback masked the break —
+nothing errored, but the write-back never persisted the server-confirmed value.
+The read is now `response.distribution_type ?? config.distribution_type`; the
+nested read was dropped entirely as confirmed-dead code, so there is no
+backward-compat concern. `UploadAppResponse` gained the top-level field, and
+its `auth.scopes`/`auth.redirect_urls` are typed `string[] | null` — the
+service owners confirmed they come back `null` (not absent, not `[]`) when the
+stored snapshot has no OAuth block (UI-only apps). Request payload is
 untouched — `UploadAppPayload` still nests `distribution_type` under `auth`,
-which remains the locked upload contract.
+which the service owners confirmed remains the locked request contract
+(top-level would 400 under strict binding; no move planned).
 
 **Must hold true:**
 
-- [x] A response with top-level `distribution_type` and no `auth.distribution_type`
-      persists the server value into `app-config.json`. Covered by the new
-      `upload.test.ts` case (`persists the server-confirmed distribution_type…`),
-      watched failing before the fix.
-- [x] Legacy responses nesting it under `auth` still work (existing write-back
-      tests unchanged and green).
-- [x] Full suite green (731/731), `tsc --noEmit` clean.
+- [x] A response with top-level `distribution_type` persists the server value
+      into `app-config.json`. Covered by the new `upload.test.ts` case
+      (`persists the server-confirmed distribution_type…`), watched failing
+      before the fix.
+- [x] A response with `"auth":{"scopes":null,"redirect_urls":null}` keeps the
+      locally-sent scopes/redirect URLs — no nulls persisted, no crash. Covered
+      by `keeps the local scopes/redirect URLs when the response auth carries
+      nulls`.
+- [x] A response missing `distribution_type` entirely still falls back to the
+      local config value (`??` chain unchanged on that side).
+- [x] Full suite green (732/732), `tsc --noEmit` clean, lint clean.
 - [ ] Manual: `brevo app upload` against a current server build, then inspect
       `app-config.json` — `distribution_type` must match the server's echo, not
       merely the pre-upload local value.
@@ -348,9 +358,13 @@ var, `ProjectConfig.cliVersion` type all removed — nothing ever read the field
 - [ ] Manual: `brevo app create` still succeeds against the current backend (which
       tolerated `cli_version`) — i.e. removing the key is backward-compatible with
       lenient builds too.
-- [ ] Reviewer: confirm with the upload-service owners that nothing *requires*
+- [x] Reviewer: confirm with the upload-service owners that nothing *requires*
       `cli_version` in the body (telemetry should read the `User-Agent` header,
       which is unchanged and covered by `telemetry.test.ts` / `client.test.ts`).
+      **Confirmed by the service owners 2026-08-03:** zero references to
+      `cli_version` server-side — upload (strict) 400s on it, PATCH/create
+      silently ignore it, and telemetry reads the structured `User-Agent` from
+      the request log. The header approach is final.
 - [ ] Manual: run `brevo app upload` in a project whose `app-config.json` still
       carries a legacy `cliVersion` field — upload must succeed and the write-back
       may silently drop the field (fill-only semantics unaffected).

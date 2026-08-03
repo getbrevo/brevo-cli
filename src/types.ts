@@ -84,13 +84,15 @@ export interface UploadAppResponse {
   // version is never silently dropped just because of which key the server used.
   app_version?: string;
   version?: string;
-  // Current server builds return distribution_type at the top level (the auth
-  // block only carries scopes + redirect_urls); older builds nested it under
-  // auth. Read both so the server-confirmed value is never dropped.
+  // Top-level in the response (locked, server-confirmed contract) — only the
+  // *request* nests distribution_type under auth. No server build has ever
+  // emitted it inside the response's auth block.
   distribution_type?: 'public' | 'private';
+  // The auth key is always present, but scopes/redirect_urls come back null
+  // (not absent, not []) when the stored snapshot has no OAuth block, e.g.
+  // UI-only apps. Treat null as "absent" — never iterate them directly.
   auth: {
-    distribution_type?: 'public' | 'private';
-    scopes?: string[];
-    redirect_urls?: string[];
+    scopes?: string[] | null;
+    redirect_urls?: string[] | null;
   };
 }

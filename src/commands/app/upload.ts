@@ -256,8 +256,7 @@ export async function uploadProjectConfig(
     ...config,
     appName: finalName,
     logoUri: response.logo_uri ?? config.logoUri,
-    distribution_type:
-      response.distribution_type ?? response.auth.distribution_type ?? config.distribution_type,
+    distribution_type: response.distribution_type ?? config.distribution_type,
     version: confirmedVersion,
     auth: {
       scopes: response.auth.scopes ?? scopes,
