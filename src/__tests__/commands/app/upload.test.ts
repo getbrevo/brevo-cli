@@ -172,7 +172,10 @@ describe('app/upload', () => {
     expect(appService.uploadApp).not.toHaveBeenCalled();
   });
 
-  it('POSTs the correct wire shape — distribution_type nested under auth, app_version, redirect_urls', async () => {
+  it('POSTs the correct wire shape — auth carries only scopes + redirect_urls, app_version top-level', async () => {
+    // distribution_type is deliberately absent from the request (BEX-355
+    // contract): it is immutable via upload, so the server no longer accepts
+    // it in the body. The CLI guards drift client-side instead.
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -188,11 +191,24 @@ describe('app/upload', () => {
       logo_uri: '',
       app_version: '1.0.0',
       auth: {
-        distribution_type: 'private',
         scopes: ['contacts:read'],
         redirect_urls: ['http://localhost:3009/auth/callback'],
       },
     });
+  });
+
+  it('blocks the upload when local distribution_type differs from the app on Brevo', async () => {
+    // distribution_type is immutable via upload. The server used to enforce
+    // this with a 400; now the field isn't in the request at all, so the CLI
+    // enforces it against the remote state it already fetches for the diff.
+    (readProjectConfig as jest.Mock).mockReturnValue({
+      ...BASE_CONFIG,
+      distribution_type: 'public' as const,
+    });
+
+    await expect(uploadCommand({ yes: true })).rejects.toThrow(/distribution/i);
+    expect(appService.uploadApp).not.toHaveBeenCalled();
+    expect(writeProjectConfig).not.toHaveBeenCalled();
   });
 
   it('never sends a ui_app field', async () => {

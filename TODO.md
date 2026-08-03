@@ -12,21 +12,15 @@
       Confirmed by the upload-service owners 2026-08-03: zero server-side references —
       upload (strict) 400s on it, PATCH/create silently ignore it, telemetry reads the
       structured `User-Agent` from the request log. Header approach is final.
-- [ ] **Propose dropping `distribution_type` from the upload *request* while the contract
-      is still pre-release.** The upload endpoint has zero released consumers — the
-      published CLI's `app update` used `PATCH /v3/app-store/apps/{id}`, and the server
-      contract only just froze — so this is the last cheap moment to fix the
-      request/response asymmetry (request nests it under `auth`, response returns it
-      top-level). Recommended shape: remove the field from the request entirely rather
-      than moving it top-level, since it is immutable via upload anyway (server 400s
-      "distribution_type cannot be changed via upload"). If the server drops it:
-      (1) remove `distribution_type` from `UploadAppPayload.auth` and the POST body in
-      `uploadProjectConfig`; (2) keep the user-facing drift guard by erroring client-side
-      when `config.distribution_type` differs from the fetched remote value (the command
-      already fetches the remote app for the diff), preserving today's "cannot be changed
-      via upload" UX; (3) update the wire-shape test and the `UploadAppPayload` comment in
-      `src/types.ts`. Do nothing until the server side lands their change — sending the
-      field is required today and dropping it unilaterally changes nothing.
+- [x] **Drop `distribution_type` from the upload *request*.** Agreed with the server
+      side — they are removing it from the upload request in the BEX-355 contract
+      (the field is immutable via upload, and the endpoint had zero released
+      consumers). CLI side landed on this branch: removed from `UploadAppPayload.auth`
+      and the POST body, client-side drift guard added in `uploadCommand` (errors with
+      `APP_UPLOAD_DISTRIBUTION_IMMUTABLE` when local `distribution_type` differs from
+      the fetched remote value, preserving the old server-400 UX), wire-shape tests and
+      docs updated. Verify against a server build with the BEX-355 contract before
+      release (see RELEASE-CHECKLIST.md).
 - [ ] **Port the `cli_version` removal to the `BEX-290_ui-components` worktree.** That
       branch still injects `cli_version` at three sites in `src/services/app.ts`
       (createApp, updateApp, uploadApp — lines ~160/171/178) plus the template/type

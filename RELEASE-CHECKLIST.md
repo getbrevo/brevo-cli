@@ -334,6 +334,44 @@ which the service owners confirmed remains the locked request contract
       `app-config.json` — `distribution_type` must match the server's echo, not
       merely the pre-upload local value.
 
+### Upload request drops `distribution_type`; drift is guarded client-side
+
+**Change:** Coordinated with the server side (BEX-355 contract): `distribution_type`
+is immutable via upload, so it is no longer part of the upload *request* at all —
+removed from `UploadAppPayload.auth` and the POST body in `uploadProjectConfig`.
+Because the server can no longer reject drift with its 400, `uploadCommand` now
+enforces it client-side: after the (pre-existing) remote fetch, if the remote
+distribution differs from `app-config.json`'s, it throws
+`APP_UPLOAD_DISTRIBUTION_IMMUTABLE` before rendering the diff, prompting, or
+pushing — in interactive, `--yes`, and `--json` modes alike. The guard is skipped
+when the server reports no distribution (nothing to compare against). The
+response side is unchanged (top-level `distribution_type`, write-back as before).
+`SKILL.md`/`AGENTS.md` no longer list `distribution_type` as editable-via-upload
+and document the immutability error instead; the changeset says the same.
+
+**Must hold true:**
+
+- [x] The upload POST body's `auth` carries only `scopes` + `redirect_urls` — no
+      `distribution_type`. Covered by the updated wire-shape test in
+      `upload.test.ts` and the byte-for-byte pass-through test in `app.test.ts`;
+      both watched failing before the change.
+- [x] Local `distribution_type` differing from the remote app blocks the upload
+      with the immutability error — `uploadApp` and `writeProjectConfig` are
+      never called. Covered by `blocks the upload when local distribution_type
+      differs…`, watched failing before the guard existed.
+- [x] Full suite green (733/733), `tsc --noEmit` clean, lint clean.
+- [ ] Manual: against a server build with the BEX-355 contract, `brevo app
+      upload` succeeds with the field absent from the request (strict binding
+      accepts the body) — and against a pre-BEX-355 build, confirm whether the
+      server *requires* `auth.distribution_type` (if it does, this branch must
+      not release before the server change deploys; sequencing note for the PR).
+- [ ] Manual: edit `distribution_type` in a real project's `app-config.json` to
+      the other value and run `brevo app upload` — expect the immutability error
+      naming both values, exit non-zero, and no server call after the initial
+      fetch.
+
+### Drop `cli_version` from request bodies and `cliVersion` from app-config.json
+
 **Change:** `createApp` and `uploadApp` (`src/services/app.ts`) no longer spread
 `cli_version` into the request body — the upload endpoint binds
 strictly and 400s on unknown top-level keys, and the version already travels on

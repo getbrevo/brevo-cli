@@ -234,7 +234,6 @@ export async function uploadProjectConfig(
       logo_uri: config.logoUri ?? '',
       app_version: appVersion,
       auth: {
-        distribution_type: config.distribution_type,
         scopes,
         redirect_urls: redirectUrls,
       },
@@ -285,6 +284,16 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   // Unconditional: --json and --yes both still fetch + diff, per BEX-250.
   const remote = await fetchExistingApp(config.appId, options.json);
   const diff = buildDiff(config, remote);
+
+  // distribution_type is immutable via upload and no longer part of the
+  // request (BEX-355 contract), so the server can't reject drift anymore —
+  // enforce it here against the remote state we just fetched. Skipped when
+  // the server didn't report a distribution to compare against.
+  if (diff.currentDistribution && diff.currentDistribution !== diff.nextDistribution) {
+    throw new CliError(
+      messages.APP_UPLOAD_DISTRIBUTION_IMMUTABLE(diff.currentDistribution, diff.nextDistribution),
+    );
+  }
 
   if (!options.json) {
     renderUploadDiff(diff);

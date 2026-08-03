@@ -121,6 +121,8 @@ export const messages = {
   APP_UPLOAD_CANCELLED: 'Upload cancelled.',
   APP_UPLOAD_SUCCESS: 'App uploaded.',
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
+  APP_UPLOAD_DISTRIBUTION_IMMUTABLE: (current: string, next: string) =>
+    `distribution_type cannot be changed via upload — this app is "${current}" on Brevo, but app-config.json says "${next}".\n  Edit \`distribution_type\` in app-config.json back to "${current}", or create a new ${next} app with \`${CLI.APP_CREATE}\`.`,
 
   // App submit (BEX-221)
   APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
