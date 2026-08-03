@@ -410,7 +410,7 @@ describe('app/scaffold', () => {
       expect(computeSlug('Test App')).toBe('test-app');
     });
 
-    it('passes cliVersion and DEFAULT_SCOPES fallback into template vars', () => {
+    it('passes DEFAULT_SCOPES fallback into template vars without a CLI_VERSION var', () => {
       const { runBaseScaffold } = require('../../../commands/app/scaffold');
       runBaseScaffold(
         '1',
@@ -421,7 +421,7 @@ describe('app/scaffold', () => {
 
       const { loadBaseTemplates } = require('../../../templates');
       const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
-      expect(vars['{{CLI_VERSION}}']).toBe('9.9.9');
+      expect(vars).not.toHaveProperty('{{CLI_VERSION}}');
       expect(vars['{{SCOPES_JSON}}']).toBe(
         JSON.stringify(['contacts:read', 'contacts:write', 'crm:read', 'crm:write']),
       );

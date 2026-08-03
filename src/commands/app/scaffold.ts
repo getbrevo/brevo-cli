@@ -293,10 +293,6 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
   const granularScopes = (remoteScopes ?? []).filter((s) => s !== LEGACY_ALL_SCOPE);
   const scopes = granularScopes.length > 0 ? granularScopes : [...DEFAULT_SCOPES];
 
-  const pkg = JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'),
-  );
-  const cliVersion: string = pkg.version;
   const slug = computeSlug(ctx.appDetails?.name);
 
   const vars = {
@@ -313,7 +309,6 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
     '{{APP_VERSION}}': ctx.appDetails?.version ?? '',
     '{{OAUTH_BASE}}': OAUTH_BASE,
     '{{OAUTH_REALM}}': OAUTH_REALM,
-    '{{CLI_VERSION}}': cliVersion,
   };
 
   return { vars, scopes, legacyAllSubstituted };

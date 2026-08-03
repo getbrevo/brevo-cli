@@ -404,7 +404,6 @@ export interface ProjectConfig {
   appName: string;
   version?: string;
   logoUri?: string;
-  cliVersion?: string;
   createdAt?: string;
   updatedAt?: string;
   /** Distribution type of the app: 'private' or 'public' */

@@ -1,7 +1,6 @@
 import { ApiClient } from '../../api/client';
 import { createAppService } from '../../services/app';
 import { ApiError } from '../../lib/errors';
-import { CLI_VERSION } from '../../lib/cli-version';
 import { getAppCredentials, saveAppCredentials } from '../../lib/config';
 
 jest.mock('../../lib/config', () => ({
@@ -118,7 +117,6 @@ describe('services/app', () => {
         name: 'Test App',
         distribution_type: 'private',
         source: 'cli',
-        cli_version: CLI_VERSION,
       });
       expect(result).toEqual({ ...response, app_id: '1' });
     });
@@ -132,7 +130,10 @@ describe('services/app', () => {
   });
 
   describe('uploadApp', () => {
-    it('should POST to the upload endpoint with the full payload plus cli_version', async () => {
+    // The upload endpoint binds its body strictly and 400s on unknown top-level
+    // keys, so the payload must go over the wire unchanged — the CLI version
+    // already travels on every request via the User-Agent header.
+    it('should POST to the upload endpoint with the payload unchanged', async () => {
       const response = {
         app_id: UUID,
         name: 'Test App',
@@ -168,8 +169,8 @@ describe('services/app', () => {
           scopes: ['contacts:read'],
           redirect_urls: ['http://localhost:3010/auth/callback'],
         },
-        cli_version: CLI_VERSION,
       });
+      expect((mockClient.post as jest.Mock).mock.calls[0][1]).not.toHaveProperty('cli_version');
       expect(result).toEqual(response);
     });
 
