@@ -26,10 +26,14 @@ jest.mock('../../../lib/config', () => ({
   getApiKey: jest.fn().mockReturnValue('test-key'),
   readProjectConfig: jest.fn().mockReturnValue(null),
   writeProjectConfig: jest.fn(),
+  saveAppName: jest.fn(),
 }));
 
 jest.mock('../../../container', () => ({
-  appService: { updateApp: jest.fn().mockResolvedValue(undefined) },
+  appService: {
+    fetchApp: jest.fn().mockResolvedValue({ version: '0.0.1' }),
+    uploadApp: jest.fn().mockResolvedValue({ auth: {} }),
+  },
   accountService: { validateApiKey: jest.fn(), getAccount: jest.fn() },
   client: {},
 }));
@@ -47,7 +51,7 @@ import { logWarn } from '../../../lib/logger';
 import { appService } from '../../../container';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
-const mockUpdateApp = appService.updateApp as jest.Mock;
+const mockUploadApp = appService.uploadApp as jest.Mock;
 
 type MockChild = EventEmitter & { kill: jest.Mock };
 const makeMockChild = (): MockChild => Object.assign(new EventEmitter(), { kill: jest.fn() });
@@ -235,7 +239,7 @@ describe('app/start', () => {
 
       await expect(startCommand({ feature: 'oauth' })).rejects.toThrow(/legacy 'all'/);
       expect(spawn).not.toHaveBeenCalled();
-      expect(mockUpdateApp).not.toHaveBeenCalled();
+      expect(mockUploadApp).not.toHaveBeenCalled();
     });
 
     it('starts normally when scopes are granular', async () => {
@@ -299,7 +303,7 @@ describe('app/start', () => {
       await promise;
 
       expect(mockPrompt).not.toHaveBeenCalled();
-      expect(mockUpdateApp).not.toHaveBeenCalled();
+      expect(mockUploadApp).not.toHaveBeenCalled();
       expect(writeProjectConfig).not.toHaveBeenCalled();
       expect(getSpawnEnv().REDIRECT_URI).toBe('http://localhost:3010/auth/callback');
     });
@@ -336,10 +340,20 @@ describe('app/start', () => {
       await promise;
 
       expect(mockPrompt).toHaveBeenCalledTimes(1);
-      expect(mockUpdateApp).toHaveBeenCalledWith('42', {
-        redirect_uris: ['https://prod.example.com/cb', 'http://localhost:4000/auth/callback'],
-      });
-      expect(writeProjectConfig).toHaveBeenCalledTimes(1);
+      // The server is synced through the upload flow (full config state),
+      // never through a direct field PATCH (BEX-366).
+      expect(mockUploadApp).toHaveBeenCalledWith(
+        '42',
+        expect.objectContaining({
+          app_id: '42',
+          auth: expect.objectContaining({
+            redirect_urls: ['https://prod.example.com/cb', 'http://localhost:4000/auth/callback'],
+          }),
+        }),
+      );
+      // Written twice: the config file first (source of truth), then the
+      // server's echo after the upload confirms the version.
+      expect(writeProjectConfig).toHaveBeenCalledTimes(2);
       const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
       expect(written.auth.redirectUrls).toEqual([
         'https://prod.example.com/cb',
@@ -363,7 +377,7 @@ describe('app/start', () => {
       process.nextTick(() => mockChild.emit('close', 0));
       await promise;
 
-      expect(mockUpdateApp).not.toHaveBeenCalled();
+      expect(mockUploadApp).not.toHaveBeenCalled();
       expect(writeProjectConfig).not.toHaveBeenCalled();
       expect(logWarn).toHaveBeenCalledWith(
         expect.stringContaining('http://localhost:4000/auth/callback'),
@@ -405,7 +419,7 @@ describe('app/start', () => {
         /not registered.*non-interactive/,
       );
       expect(mockPrompt).not.toHaveBeenCalled();
-      expect(mockUpdateApp).not.toHaveBeenCalled();
+      expect(mockUploadApp).not.toHaveBeenCalled();
     });
 
     it('should skip the registration check when app-config has no appId', async () => {
@@ -421,18 +435,22 @@ describe('app/start', () => {
       await promise;
 
       expect(mockPrompt).not.toHaveBeenCalled();
-      expect(mockUpdateApp).not.toHaveBeenCalled();
+      expect(mockUploadApp).not.toHaveBeenCalled();
     });
 
-    it('should propagate API errors from updateApp', async () => {
+    it('should propagate upload errors but keep the config write', async () => {
       (readProjectConfig as jest.Mock).mockReturnValueOnce(
         ttyConfig(['https://prod.example.com/cb']),
       );
       mockPrompt.mockResolvedValueOnce({ shouldRegister: true });
-      mockUpdateApp.mockRejectedValueOnce(new Error('boom'));
+      mockUploadApp.mockRejectedValueOnce(new Error('boom'));
 
       await expect(startCommand({ feature: 'oauth', port: 4000 })).rejects.toThrow('boom');
-      expect(writeProjectConfig).not.toHaveBeenCalled();
+      // The config file is the source of truth and is written before the
+      // upload, so a failed upload keeps the local change; the user is told
+      // to finish the sync with `brevo app upload`.
+      expect(writeProjectConfig).toHaveBeenCalledTimes(1);
+      expect(logWarn).toHaveBeenCalledWith(expect.stringContaining('brevo app upload'));
       expect(spawn).not.toHaveBeenCalled();
     });
   });

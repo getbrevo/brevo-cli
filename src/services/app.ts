@@ -162,16 +162,6 @@ export function createAppService(client: ApiClient) {
       return normalizeAppId(raw);
     },
 
-    async updateApp(
-      appId: string,
-      body: { name?: string; redirect_uris: string[]; scopes?: string[]; logo_uri?: string },
-    ): Promise<void> {
-      await client.patch(ENDPOINTS.APP_STORE_APP(appId), {
-        ...body,
-        cli_version: CLI_VERSION,
-      });
-    },
-
     async uploadApp(appId: string, payload: UploadAppPayload): Promise<UploadAppResponse> {
       return client.post<UploadAppResponse>(ENDPOINTS.APP_STORE_APP_UPLOAD(appId), {
         ...payload,

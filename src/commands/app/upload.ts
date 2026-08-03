@@ -199,6 +199,74 @@ function hasNoChanges(diff: UploadDiff): boolean {
   );
 }
 
+export interface ConfigUploadOutcome {
+  confirmedVersion: string;
+  finalName: string;
+}
+
+/**
+ * Push the config's full desired state to the server — the single write path
+ * for app state (BEX-366) — and persist the server's echo back into
+ * app-config.json so the local copy always tracks the confirmed version.
+ *
+ * The upload contract needs the server's latest version as a staleness token;
+ * when none is known (neither passed in nor stored in the config), the remote
+ * app is fetched to obtain one.
+ */
+export async function uploadProjectConfig(
+  config: NonNullable<ProjectConfig>,
+  opts: { silent?: boolean; appVersion?: string } = {},
+): Promise<ConfigUploadOutcome> {
+  const redirectUrls = config.auth?.redirectUrls ?? [];
+  const scopes = config.auth?.scopes ?? [];
+
+  let appVersion = opts.appVersion ?? config.version ?? '';
+  if (!appVersion) {
+    appVersion = (await fetchExistingApp(config.appId, opts.silent)).version ?? '';
+  }
+
+  const spinner = createSpinner('Uploading app...', { silent: opts.silent });
+  let response: UploadAppResponse;
+  try {
+    response = await appService.uploadApp(config.appId, {
+      app_id: config.appId,
+      name: config.appName,
+      logo_uri: config.logoUri ?? '',
+      app_version: appVersion,
+      auth: {
+        distribution_type: config.distribution_type,
+        scopes,
+        redirect_urls: redirectUrls,
+      },
+    });
+  } finally {
+    spinner.stop();
+  }
+
+  const finalName = response.name ?? config.appName;
+  if (finalName) saveAppName(config.appId, finalName);
+
+  // Single source of truth for the version we persist AND print, so the two can
+  // never diverge. Prefer the upload contract's `app_version`, fall back to
+  // `version` (some server builds return the bumped value under that key), and
+  // only then to the version we sent — so a server-confirmed bump always wins.
+  const confirmedVersion = response.app_version ?? response.version ?? appVersion;
+
+  writeProjectConfig({
+    ...config,
+    appName: finalName,
+    logoUri: response.logo_uri ?? config.logoUri,
+    distribution_type: response.auth.distribution_type ?? config.distribution_type,
+    version: confirmedVersion,
+    auth: {
+      scopes: response.auth.scopes ?? scopes,
+      redirectUrls: response.auth.redirect_urls ?? redirectUrls,
+    },
+  });
+
+  return { confirmedVersion, finalName };
+}
+
 export const uploadCommand = withCommandHandler(async (options: UploadOptions): Promise<void> => {
   const config = loadUsableConfig();
 
@@ -254,43 +322,9 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     }
   }
 
-  const spinner = createSpinner('Uploading app...', { silent: options.json });
-  let response: UploadAppResponse;
-  try {
-    response = await appService.uploadApp(config.appId, {
-      app_id: config.appId,
-      name: config.appName,
-      logo_uri: config.logoUri ?? '',
-      app_version: diff.nextVersion,
-      auth: {
-        distribution_type: config.distribution_type,
-        scopes,
-        redirect_urls: redirectUrls,
-      },
-    });
-  } finally {
-    spinner.stop();
-  }
-
-  const finalName = response.name ?? config.appName;
-  if (finalName) saveAppName(config.appId, finalName);
-
-  // Single source of truth for the version we persist AND print, so the two can
-  // never diverge. Prefer the upload contract's `app_version`, fall back to
-  // `version` (some server builds return the bumped value under that key), and
-  // only then to the version we sent — so a server-confirmed bump always wins.
-  const confirmedVersion = response.app_version ?? response.version ?? diff.nextVersion;
-
-  writeProjectConfig({
-    ...config,
-    appName: finalName,
-    logoUri: response.logo_uri ?? config.logoUri,
-    distribution_type: response.auth.distribution_type ?? config.distribution_type,
-    version: confirmedVersion,
-    auth: {
-      scopes: response.auth.scopes ?? scopes,
-      redirectUrls: response.auth.redirect_urls ?? redirectUrls,
-    },
+  const { confirmedVersion, finalName } = await uploadProjectConfig(config, {
+    silent: options.json,
+    appVersion: diff.nextVersion,
   });
 
   if (options.json) {

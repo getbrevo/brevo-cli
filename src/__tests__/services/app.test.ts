@@ -131,53 +131,6 @@ describe('services/app', () => {
     });
   });
 
-  describe('updateApp', () => {
-    it('should PATCH with the UUID path and return void regardless of response body', async () => {
-      // Real server returns only {"message": "app updated successfully"} —
-      // the service must not depend on any echoed fields.
-      (mockClient.patch as jest.Mock).mockResolvedValue({ message: 'app updated successfully' });
-
-      const result = await service.updateApp(UUID, {
-        name: 'Updated App',
-        redirect_uris: ['http://localhost:3000'],
-      });
-
-      expect(mockClient.patch).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}`, {
-        name: 'Updated App',
-        redirect_uris: ['http://localhost:3000'],
-        cli_version: CLI_VERSION,
-      });
-      expect(result).toBeUndefined();
-    });
-
-    it('forwards scopes when present', async () => {
-      (mockClient.patch as jest.Mock).mockResolvedValue(undefined);
-      await service.updateApp('42', {
-        name: 'X',
-        redirect_uris: ['https://x/cb'],
-        scopes: ['contacts:read', 'crm:write'],
-      });
-      expect(mockClient.patch).toHaveBeenCalledWith(
-        expect.stringContaining('/v3/app-store/apps/42'),
-        {
-          name: 'X',
-          redirect_uris: ['https://x/cb'],
-          scopes: ['contacts:read', 'crm:write'],
-          cli_version: CLI_VERSION,
-        },
-      );
-    });
-
-    it('omits scopes when undefined (back-compat)', async () => {
-      (mockClient.patch as jest.Mock).mockResolvedValue(undefined);
-      await service.updateApp('42', { name: 'X', redirect_uris: ['https://x/cb'] });
-      expect(mockClient.patch).toHaveBeenCalledWith(
-        expect.stringContaining('/v3/app-store/apps/42'),
-        { name: 'X', redirect_uris: ['https://x/cb'], cli_version: CLI_VERSION },
-      );
-    });
-  });
-
   describe('uploadApp', () => {
     it('should POST to the upload endpoint with the full payload plus cli_version', async () => {
       const response = {

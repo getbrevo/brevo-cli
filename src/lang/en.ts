@@ -260,8 +260,10 @@ export const messages = {
     `Port ${port} isn't registered as a redirect URL for this app.`,
   APP_START_REDIRECT_REGISTER_PROMPT: (url: string) =>
     `Register ${url}? You can delete it later if you want.`,
-  APP_START_REDIRECT_REGISTERING: 'Registering redirect URL...',
-  APP_START_REDIRECT_REGISTERED: (url: string) => `Registered ${url}.`,
+  APP_START_REDIRECT_REGISTERED: (url: string) =>
+    `Added ${url} to app-config.json and uploaded the new config.`,
+  APP_START_REDIRECT_UPLOAD_FAILED: (url: string) =>
+    `${url} was saved to app-config.json but the upload failed. Fix the issue and run \`${CLI.APP_UPLOAD}\` to finish registering it.`,
   APP_START_REDIRECT_DECLINED: (url: string) =>
     `Continuing without registering. The OAuth callback at ${url} will fail until you register it. Add it to \`auth.redirectUrls\` in app-config.json and run \`${CLI.APP_UPLOAD}\` to register later.`,
   APP_START_REDIRECT_NON_INTERACTIVE: (port: number, url: string) =>
