@@ -39,6 +39,7 @@ jest.mock('../../container', () => ({
 }));
 
 import inquirer from 'inquirer';
+import { ApiError, AuthExpiredError, ErrorCode } from '../../lib/errors';
 import { isAuthenticated, readProjectConfig } from '../../lib/config';
 import { loginCommand } from '../../commands/login';
 import { createCommand } from '../../commands/app/create';
@@ -76,11 +77,33 @@ describe('initCommand', () => {
     expect(createCommand).toHaveBeenCalled();
   });
 
-  it('should fall through to login when local creds fail backend verification', async () => {
+  it('should proceed without a login prompt when an expired access token is refreshed', async () => {
+    // The refresh (proactive hook or reactive 401 retry) is transparent to
+    // init — all it sees is a probe that succeeds.
+    (isAuthenticated as jest.Mock).mockReturnValue(true);
+    (accountService.getAccount as jest.Mock).mockResolvedValue({
+      email: 'user@example.com',
+      organization_id: 'org-1',
+      user_id: 1,
+    });
+    (readProjectConfig as jest.Mock).mockReturnValue(null);
+    (createCommand as jest.Mock).mockResolvedValue(undefined);
+
+    await initCommand({});
+
+    expect(loginCommand).not.toHaveBeenCalled();
+    expect(createCommand).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['401', new ApiError('Unauthorized', 401, ErrorCode.AUTH_EXPIRED)],
+    ['403', new ApiError('Forbidden', 403, ErrorCode.ACCESS_DENIED)],
+    ['a cleared session', new AuthExpiredError()],
+  ])('should fall through to login when the probe returns %s', async (_label, err) => {
     (isAuthenticated as jest.Mock)
       .mockReturnValueOnce(true) // local creds exist
       .mockReturnValueOnce(true); // after login — authenticated
-    (accountService.getAccount as jest.Mock).mockRejectedValue(new Error('401'));
+    (accountService.getAccount as jest.Mock).mockRejectedValue(err);
     (readProjectConfig as jest.Mock).mockReturnValue(null);
     (loginCommand as jest.Mock).mockResolvedValue(undefined);
     (createCommand as jest.Mock).mockResolvedValue(undefined);
@@ -90,6 +113,47 @@ describe('initCommand', () => {
     expect(accountService.getAccount).toHaveBeenCalled();
     expect(loginCommand).toHaveBeenCalledWith({ suppressNextSteps: true });
     expect(createCommand).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a network error', new ApiError('Network error', 0, ErrorCode.NETWORK_ERROR)],
+    ['a server error', new ApiError('Internal server error', 500)],
+    ['an unexpected throw', new Error('boom')],
+  ])('should keep the stored session when the probe fails with %s', async (_label, err) => {
+    (isAuthenticated as jest.Mock).mockReturnValue(true);
+    (accountService.getAccount as jest.Mock).mockRejectedValue(err);
+    (readProjectConfig as jest.Mock).mockReturnValue(null);
+    (createCommand as jest.Mock).mockResolvedValue(undefined);
+
+    await initCommand({});
+
+    expect(accountService.getAccount).toHaveBeenCalled();
+    expect(loginCommand).not.toHaveBeenCalled();
+    expect(createCommand).toHaveBeenCalled();
+  });
+
+  it('should ask the user to log in before any prompt when the session is dead', async () => {
+    const callOrder: string[] = [];
+    (isAuthenticated as jest.Mock).mockReturnValueOnce(true).mockReturnValueOnce(true);
+    (accountService.getAccount as jest.Mock).mockRejectedValue(new AuthExpiredError());
+    (readProjectConfig as jest.Mock).mockReturnValue({ appId: '42', appName: 'My App' });
+    (appService.fetchApp as jest.Mock).mockImplementation(() => {
+      callOrder.push('fetchApp');
+      return Promise.resolve({ app_id: '42', name: 'My App' });
+    });
+    (loginCommand as jest.Mock).mockImplementation(() => {
+      callOrder.push('login');
+      return Promise.resolve(undefined);
+    });
+    mockPrompt.mockImplementation(() => {
+      callOrder.push('prompt');
+      return Promise.resolve({ action: 'skip' });
+    });
+
+    await initCommand({});
+
+    expect(callOrder[0]).toBe('login');
+    expect(callOrder).toContain('prompt');
   });
 
   it('should login if not authenticated', async () => {

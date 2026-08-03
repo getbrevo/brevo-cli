@@ -192,6 +192,8 @@ export const messages = {
   // Init
   INIT_WELCOME: 'Brevo CLI — Quick Setup',
   INIT_ALREADY_LOGGED_IN: 'Already authenticated.',
+  INIT_VERIFY_UNAVAILABLE:
+    "Couldn't reach Brevo to verify your credentials — continuing with the stored session.",
   INIT_STEP_LOGIN: '  Step 1: Authenticate with your Brevo account',
   INIT_STEP_CREATE: '  Step 2: Create your first OAuth app',
   INIT_APPS_EXIST: (count: number) => `You have ${count} app${count === 1 ? '' : 's'} already.`,
