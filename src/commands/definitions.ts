@@ -7,7 +7,7 @@ import { logoutCommand } from './logout';
 import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
 import { deployCommand } from './app/deploy';
-import { removeCommand } from './app/remove';
+import { undeployCommand } from './app/undeploy';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
 import { statusCommand } from './app/status';
@@ -195,13 +195,13 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         }),
     },
     {
-      name: 'remove',
-      description: 'Remove an app from a Brevo account',
+      name: 'undeploy',
+      description: 'Undeploy an app from a Brevo account',
       arguments: [{ name: '<account-id>', description: 'Brevo account (tenant) ID' }],
       examples: [
-        'brevo app remove 99999',
-        'brevo app remove 99999 --app-id 42',
-        'brevo app remove 99999 --force --json',
+        'brevo app undeploy 99999',
+        'brevo app undeploy 99999 --app-id 42',
+        'brevo app undeploy 99999 --force --json',
       ],
       options: [
         {
@@ -213,7 +213,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts, accountId) =>
-        removeCommand({
+        undeployCommand({
           accountId: accountId as string | undefined,
           appId: opts.appId as string | undefined,
           force: Boolean(opts.force),

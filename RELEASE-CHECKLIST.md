@@ -74,7 +74,7 @@ to create a public app or drive the review lifecycle (`app submit` / `app status
 
 UI apps (action links) are not live on the Brevo platform, so the agent-facing docs
 carry a **⚠️ UI apps are not available yet** notice telling agents never to create a
-UI app or drive the deploy lifecycle (`app deploy` / `app remove`). This mirrors the
+UI app or drive the deploy lifecycle (`app deploy` / `app undeploy`). This mirrors the
 public-apps notice above, including its *Exception — internal Brevo accounts* clause.
 
 **When UI apps go GA, remove the notice everywhere in one pass:**
@@ -82,7 +82,7 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 - [ ] `agent-context/SKILL.md`
   - [ ] Delete the `## ⚠️ UI apps are not available yet` section.
   - [ ] Decision tree — drop the **not available yet** prefix from "Create a UI app /
-        action link", "Make a UI app available in an account", and "Remove a UI app
+        action link", "Make a UI app available in an account", and "Undeploy a UI app
         from an account".
   - [ ] Hard rules — delete rule 7 (*Don't create UI apps for real use*). Keep rule 8
         (*Never mix the two app types*) — that one is a correctness rule, not a
@@ -90,7 +90,7 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 - [ ] `agent-context/AGENTS.md`
   - [ ] Delete the `## ⚠️ UI apps are not available yet` section.
   - [ ] Common commands table — drop the **⚠️ Not available yet** prefix from the
-        `brevo app deploy` and `brevo app remove` rows.
+        `brevo app deploy` and `brevo app undeploy` rows.
   - [ ] Conventions — delete the *UI apps are not available yet* bullet. Keep the
         *Two app types, one command surface* and *The `ui_app` block* bullets.
 - [ ] `README.md` — delete the **⚠️ UI apps are not available yet** blockquote below
@@ -222,7 +222,7 @@ before any submit work. Only a failed fetch blocks; the state value is not a gat
 **Change:** New app type. `brevo app create --type <oauth|ui>` with a UI-app prompt
 path, a `ui_app` block in `app-config.json`, `ui_app` on the upload payload with
 local validation and diffing, and two new commands `brevo app deploy <account-id>` /
-`brevo app remove <account-id>`. `applyConditionals` generalised from a single
+`brevo app undeploy <account-id>` (named `remove` during development). `applyConditionals` generalised from a single
 distribution value to a flag set.
 
 **Must hold true:**
@@ -246,8 +246,8 @@ distribution value to a flag set.
       (which rewrites `app-config.json` wholesale from server values). Covered by
       `preserves the local ui_app block through a confirmed config refresh`.
 - [x] `app deploy` refuses before an upload, and maps the server's 422 to the same
-      message. `app remove` has no gate and exits `0` when not deployed. Covered by
-      `deploy.test.ts` / `remove.test.ts`.
+      message. `app undeploy` has no gate and exits `0` when not deployed. Covered by
+      `deploy.test.ts` / `undeploy.test.ts`.
 - [x] The `ui_app` block matches the platform's stored app-snapshot shape field for
       field (`extensionType`, `surfacePointList`, `heading`, `subheading`,
       `redirectLink`, `linkTarget`), verified against both of the platform's
@@ -265,7 +265,7 @@ distribution value to a flag set.
 - [ ] Manual: `brevo app deploy <account-id>` against a real account, then confirm the
       action link actually renders in that account's contact record action menu, opens
       the external URL in a new tab, and carries the declared context properties.
-      Then `brevo app remove <account-id>` and confirm it disappears.
+      Then `brevo app undeploy <account-id>` and confirm it disappears.
 - [ ] Manual: `brevo app deploy <account-id>` on a never-uploaded app must refuse with
       the `brevo app upload` hint — verify the **server** path too (not just the local
       `version` pre-flight) by deleting `version` from a config whose app *was*
@@ -273,8 +273,9 @@ distribution value to a flag set.
 - [ ] Manual: `brevo app create` interactively on an existing OAuth project directory
       and confirm the new app-type prompt appears first and that choosing *OAuth app*
       reproduces the previous flow exactly.
-- [ ] Manual: confirm the disabled *Iframe modal* / *Inline widget* choices in the
-      delivery prompt are visible but unselectable.
+- [ ] Manual: confirm the UI-app create flow has **no delivery-path prompt** — it goes
+      straight to placement — and the written block is always `actionLink` (decision
+      2026-08-03: iframeExtension stays off the prompts until the iframe-embed RFC).
 - [ ] Manual: confirm the created-app box states that the menu entry is labelled with
       the app name — partners will otherwise look for a label field that doesn't exist.
 - [ ] Reviewer: `agent-context/SKILL.md` and `agent-context/AGENTS.md` both document
@@ -282,11 +283,11 @@ distribution value to a flag set.
       UI-field flags exist), the `ui_app` block, and both carry the
       UI-apps-not-available notice with equivalent wording (CLAUDE.md requires those
       two stay in sync).
-- [ ] Reviewer: the **field names are now verified** against both platform consumers,
-      but the **snapshot write path does not exist yet** — confirm with the app-store
-      backend team how the CLI should submit it (the CLI currently sends a `snapshot`
-      key on the existing upload endpoint) before this ships to users. Same for the
-      deploy/remove endpoints. See *Before UI-apps GA* → related follow-ups.
+- [ ] Reviewer: the **field names and the upload wire key (`ui_app`) are now verified**
+      against the platform's CLI upload endpoint, but the **deploy/undeploy endpoints
+      are designed, not built** — confirm the final routes and body shape with the
+      app-store backend team before this ships to users. See *Before UI-apps GA* →
+      related follow-ups.
 - [ ] Reviewer: BEX-350 needs a coordinated release (kit + reseeded extension-point
       registry + backend). A CLI release ahead of the reseed authors names that resolve
       to nothing, silently. Confirm the sequencing.
@@ -305,16 +306,51 @@ distribution value to a flag set.
       gone — they are the only remaining input check. Covered by
       `validates the heading and redirect-link answers at the prompt` and
       `requires at least one record page`.
-- [x] Only the action link is selectable at the delivery prompt. Covered by
-      `offers only the action link as a selectable delivery path`.
+- [x] There is no delivery-path prompt; the block is always `actionLink`. Covered by
+      `never prompts for a delivery path and always authors an actionLink`.
+      (History: the prompt was disabled-choices at first, briefly offered
+      `iframeExtension`, and was removed on the 2026-08-03 actionLink-only decision.)
 - [x] The authored `extensionType` is `actionLink`, and `action_link` is rejected on
       upload. Covered by `builds the snapshot shape the platform consumes` and the
       `validateUiApp` type cases.
 - [ ] Manual: with a UI project created via the prompts, confirm `brevo app upload`
       renders `Extension type: actionLink` in the diff and sends that value under
-      `snapshot`. Then hand-edit the file to `action_link` and confirm the upload is
-      rejected locally with exit `1` and no API call.
+      the `ui_app` wire key. Then hand-edit the file to `action_link` and confirm the
+      upload is rejected locally with exit `1` and no API call.
 - [ ] Reviewer: the platform's server-side `linkTarget` default is gated on the literal
       `"action_link"`, so it no longer fires for CLI-authored apps. Confirm this stays
       harmless — the CLI always writes `linkTarget` explicitly, and the UI kit defaults
       an absent/unrecognised value to `_blank` client-side.
+
+### `remove` → `undeploy` rename + actionLink-only prompts (2026-08-03)
+
+**Change:** `brevo app remove` is now `brevo app undeploy`, hitting
+`POST /v3/app-store/apps/{id}/undeploy` (aligning with the platform's approved
+deploy/undeploy design — the CLI route previously skewed as `/remove`). Its JSON
+output keys renamed `removed` → `undeployed`. The `iframeExtension` delivery-path
+prompt is removed from `brevo app create` per the 2026-08-03 decision: the CLI
+authors `actionLink` only until the iframe-embed RFC; a hand-edited
+`iframeExtension` block still validates and uploads (the platform keeps accepting
+it).
+
+**Must hold true:**
+
+- [x] No `remove` command remains: `brevo app remove` is unregistered, the service
+      method and endpoint constant are renamed, and no source or doc references the
+      old name. Covered by `undeploy.test.ts` (ported from `remove.test.ts`, JSON
+      keys updated) and a repo-wide grep.
+- [x] `undeploy` behaves exactly as `remove` did: no upload gate, 422 → informational
+      NOT_DEPLOYED exit `0`, `--force`/`--json` unchanged. Covered by
+      `undeploy.test.ts`.
+- [x] The UI-app create flow asks no `extensionType` question and always writes
+      `actionLink` + `redirectLink` + `linkTarget: "_blank"`. Covered by
+      `never prompts for a delivery path and always authors an actionLink`.
+- [x] `validateUiApp` still accepts a hand-authored `iframeExtension` block
+      (`modalIframeUrl` required, `redirectLink`/`linkTarget` rejected) — the
+      prompts are gated, not the wire. Covered by the existing `validateUiApp`
+      iframe cases.
+- [ ] Manual: `brevo app --help` lists `undeploy` (not `remove`), and
+      `brevo app undeploy <account-id> --json` against a non-deployed app returns
+      `{"undeployed": false, "reason": "NOT_DEPLOYED"}` with exit `0`.
+- [ ] Reviewer: confirm with the app-store backend team that the shipped route is
+      `/undeploy` (design doc naming) before either side releases.

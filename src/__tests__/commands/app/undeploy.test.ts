@@ -2,7 +2,7 @@ jest.mock('inquirer', () => ({ prompt: jest.fn() }));
 
 jest.mock('../../../container', () => ({
   appService: {
-    removeApp: jest.fn(),
+    undeployApp: jest.fn(),
     fetchAppsList: jest.fn(),
   },
 }));
@@ -12,7 +12,7 @@ jest.mock('../../../lib/config', () => ({
 }));
 
 import inquirer from 'inquirer';
-import { removeCommand } from '../../../commands/app/remove';
+import { undeployCommand } from '../../../commands/app/undeploy';
 import { appService } from '../../../container';
 import { readProjectConfig } from '../../../lib/config';
 import { ApiError } from '../../../lib/errors';
@@ -28,7 +28,7 @@ const LINKED_CONFIG = {
   ui_app: { type: 'link' as const },
 };
 
-describe('app/remove', () => {
+describe('app/undeploy', () => {
   let stdoutSpy: jest.SpyInstance;
   const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
 
@@ -41,7 +41,7 @@ describe('app/remove', () => {
     });
     jest.clearAllMocks();
     // See the note in deploy.test.ts — implementations survive clearAllMocks().
-    (appService.removeApp as jest.Mock).mockResolvedValue(undefined);
+    (appService.undeployApp as jest.Mock).mockResolvedValue(undefined);
     (readProjectConfig as jest.Mock).mockReturnValue(LINKED_CONFIG);
   });
 
@@ -54,53 +54,57 @@ describe('app/remove', () => {
     }
   });
 
-  it('removes the linked app from the given account', async () => {
-    await removeCommand({ accountId: '99999', force: true });
+  it('undeploys the linked app from the given account', async () => {
+    await undeployCommand({ accountId: '99999', force: true });
 
-    expect(appService.removeApp).toHaveBeenCalledWith('42', '99999');
+    expect(appService.undeployApp).toHaveBeenCalledWith('42', '99999');
   });
 
   it('errors when the account ID is missing', async () => {
-    await expect(removeCommand({ force: true })).rejects.toThrow(/Missing account ID/i);
-    expect(appService.removeApp).not.toHaveBeenCalled();
+    await expect(undeployCommand({ force: true })).rejects.toThrow(/Missing account ID/i);
+    expect(appService.undeployApp).not.toHaveBeenCalled();
   });
 
-  // Unlike deploy, remove has no upload gate — an app deployed by an older CLI
-  // version must still be removable.
+  // Unlike deploy, undeploy has no upload gate — an app deployed by an older CLI
+  // version must still be undeployable.
   it('does not require the app to have been uploaded', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({ ...LINKED_CONFIG, version: '' });
 
-    await removeCommand({ accountId: '99999', force: true });
+    await undeployCommand({ accountId: '99999', force: true });
 
-    expect(appService.removeApp).toHaveBeenCalledWith('42', '99999');
+    expect(appService.undeployApp).toHaveBeenCalledWith('42', '99999');
   });
 
   it('treats "not deployed" (422) as informational, not a failure', async () => {
-    (appService.removeApp as jest.Mock).mockRejectedValue(
+    (appService.undeployApp as jest.Mock).mockRejectedValue(
       new ApiError('Unprocessable', 422, undefined),
     );
 
-    await expect(removeCommand({ accountId: '99999', force: true })).resolves.toBeUndefined();
+    await expect(undeployCommand({ accountId: '99999', force: true })).resolves.toBeUndefined();
     expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/is not deployed/i);
   });
 
   it('reports NOT_DEPLOYED in JSON mode without failing', async () => {
-    (appService.removeApp as jest.Mock).mockRejectedValue(
+    (appService.undeployApp as jest.Mock).mockRejectedValue(
       new ApiError('Unprocessable', 422, undefined),
     );
 
-    await removeCommand({ accountId: '99999', json: true });
+    await undeployCommand({ accountId: '99999', json: true });
 
     const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
-    expect(parsed).toMatchObject({ removed: false, reason: 'NOT_DEPLOYED', accountId: '99999' });
+    expect(parsed).toMatchObject({
+      undeployed: false,
+      reason: 'NOT_DEPLOYED',
+      accountId: '99999',
+    });
   });
 
   it('propagates errors other than 422', async () => {
-    (appService.removeApp as jest.Mock).mockRejectedValue(
+    (appService.undeployApp as jest.Mock).mockRejectedValue(
       new ApiError('Server error', 500, undefined),
     );
 
-    await expect(removeCommand({ accountId: '99999', force: true })).rejects.toThrow(
+    await expect(undeployCommand({ accountId: '99999', force: true })).rejects.toThrow(
       /Server error/,
     );
   });
@@ -108,16 +112,16 @@ describe('app/remove', () => {
   it('does nothing when the confirmation is declined', async () => {
     mockPrompt.mockResolvedValueOnce({ confirmed: false });
 
-    await removeCommand({ accountId: '99999' });
+    await undeployCommand({ accountId: '99999' });
 
-    expect(appService.removeApp).not.toHaveBeenCalled();
-    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/Remove cancelled/i);
+    expect(appService.undeployApp).not.toHaveBeenCalled();
+    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/Undeploy cancelled/i);
   });
 
   it('emits JSON on success', async () => {
-    await removeCommand({ accountId: '99999', json: true });
+    await undeployCommand({ accountId: '99999', json: true });
 
     const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
-    expect(parsed).toEqual({ removed: true, appId: '42', accountId: '99999' });
+    expect(parsed).toEqual({ undeployed: true, appId: '42', accountId: '99999' });
   });
 });

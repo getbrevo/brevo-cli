@@ -23,7 +23,7 @@ interface DeployOptions {
  * `brevo app deploy <account-id>` — make an app available in one Brevo account.
  *
  * Until an in-product enable/disable surface ships, this (with
- * `app remove`) is the only way a UI app becomes visible in an account.
+ * `app undeploy`) is the only way a UI app becomes visible in an account.
  */
 export const deployCommand = withCommandHandler(async (options: DeployOptions): Promise<void> => {
   const { appId, appLabel, accountId } = await resolveDeploymentTarget(

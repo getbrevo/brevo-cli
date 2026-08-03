@@ -99,9 +99,6 @@ export const messages = {
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
 
   // App create — UI app (BEX-290)
-  APP_CREATE_UI_TRIGGER_PROMPT: 'How should your app be delivered?',
-  APP_CREATE_UI_TRIGGER_LINK: 'Redirect link   (Opens your URL in a new tab)',
-  APP_CREATE_UI_TRIGGER_MODAL: 'Iframe modal    (Opens your URL inside a modal)',
   APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
   APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
   // Kind before place, because it decides which places exist. Phrased as what the
@@ -114,7 +111,6 @@ export const messages = {
   APP_CREATE_UI_HEADING_PROMPT: 'Heading (primary text shown on the action):',
   APP_CREATE_UI_SUBHEADING_PROMPT: 'Subheading (optional secondary text):',
   APP_CREATE_UI_REDIRECT_LINK_PROMPT: 'Redirect link (where record context is passed):',
-  APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT: 'Modal iframe URL (embedded when the CTA is clicked):',
   // Free text rather than a checklist: the allow-list this narrows lives on the
   // platform's extension-point registry, which the CLI cannot read yet, so there is
   // nothing to offer as choices. A field no chosen slot allows is refused at upload,
@@ -178,14 +174,14 @@ export const messages = {
   // been validated by an upload. `version` is only ever written by a successful
   // upload, so its absence is a reliable local signal.
   APP_DEPLOY_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
-  APP_REMOVE_SELECT: 'Select an app to remove:',
-  APP_REMOVE_CONFIRM: (name: string, appId: string, accountId: string) =>
-    `Remove app "${name}" (${appId}) from account ${accountId}?`,
-  APP_REMOVE_CANCELLED: 'Remove cancelled.',
-  APP_REMOVE_SUCCESS: (appId: string, accountId: string) =>
-    `App ${appId} removed from account ${accountId}.`,
-  APP_REMOVE_MISSING_ACCOUNT_ID: `Missing account ID.\n\n  Usage: ${CLI.APP_REMOVE()}`,
-  APP_REMOVE_NOT_DEPLOYED: (appId: string, accountId: string) =>
+  APP_UNDEPLOY_SELECT: 'Select an app to undeploy:',
+  APP_UNDEPLOY_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Undeploy app "${name}" (${appId}) from account ${accountId}?`,
+  APP_UNDEPLOY_CANCELLED: 'Undeploy cancelled.',
+  APP_UNDEPLOY_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} undeployed from account ${accountId}.`,
+  APP_UNDEPLOY_MISSING_ACCOUNT_ID: `Missing account ID.\n\n  Usage: ${CLI.APP_UNDEPLOY()}`,
+  APP_UNDEPLOY_NOT_DEPLOYED: (appId: string, accountId: string) =>
     `App ${appId} is not deployed to account ${accountId}.`,
   APP_DEPLOY_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',

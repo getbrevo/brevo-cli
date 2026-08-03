@@ -96,9 +96,10 @@ export const ENDPOINTS = {
   // ⚠️ ASSUMED CONTRACT — pending confirmation from the app-store backend team:
   // paths below, and `account_id` carried in the request body rather than as a
   // path segment. If the real contract differs, this and appService.deployApp /
-  // removeApp are the only two places to change.
+  // undeployApp are the only two places to change.
   APP_STORE_APP_DEPLOY: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/deploy`,
-  APP_STORE_APP_REMOVE: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/remove`,
+  APP_STORE_APP_UNDEPLOY: (appId: string) =>
+    `/v3/app-store/apps/${encodeURIComponent(appId)}/undeploy`,
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -120,8 +121,8 @@ export const CLI = {
   APP_UPLOAD: 'brevo app upload',
   APP_DEPLOY: (accountId?: string) =>
     accountId ? `brevo app deploy ${accountId}` : 'brevo app deploy <account-id>',
-  APP_REMOVE: (accountId?: string) =>
-    accountId ? `brevo app remove ${accountId}` : 'brevo app remove <account-id>',
+  APP_UNDEPLOY: (accountId?: string) =>
+    accountId ? `brevo app undeploy ${accountId}` : 'brevo app undeploy <account-id>',
   APP_DELETE: 'brevo app delete',
   APP_WITHDRAW: (appId?: string) =>
     appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',

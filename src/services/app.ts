@@ -192,7 +192,7 @@ export function createAppService(client: ApiClient) {
      *
      * ⚠️ ASSUMED CONTRACT — `account_id` in the body, path from
      * ENDPOINTS.APP_STORE_APP_DEPLOY. Pending confirmation from the app-store
-     * backend team; this and `removeApp` are the only places to change.
+     * backend team; this and `undeployApp` are the only places to change.
      *
      * 404 becomes a friendly CliError; everything else (notably the "not yet
      * uploaded" rejection) propagates for the command to map.
@@ -209,9 +209,9 @@ export function createAppService(client: ApiClient) {
      * Withdraw a UI app's availability from a single account. Counterpart to
      * {@link deployApp}; same assumed contract caveat.
      */
-    async removeApp(appId: string, accountId: string): Promise<void> {
+    async undeployApp(appId: string, accountId: string): Promise<void> {
       try {
-        await client.post(ENDPOINTS.APP_STORE_APP_REMOVE(appId), { account_id: accountId });
+        await client.post(ENDPOINTS.APP_STORE_APP_UNDEPLOY(appId), { account_id: accountId });
       } catch (err) {
         rethrowNotFound(err, appId);
       }

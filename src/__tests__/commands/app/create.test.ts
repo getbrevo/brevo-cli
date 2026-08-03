@@ -1090,7 +1090,6 @@ describe('app/create', () => {
     const answerPrompts = (overrides: Record<string, unknown> = {}) => {
       const answers: Record<string, unknown> = {
         appType: 'ui',
-        extensionType: 'actionLink',
         surfaces: ['contact'],
         // Placement is three prompts: pages, then kind (which decides the available
         // places), then the places themselves.
@@ -1098,7 +1097,6 @@ describe('app/create', () => {
         places: ['headerMenu'],
         heading: 'Invoice Manager',
         subheading: '',
-        // One URL prompt shared by both types — the message differs, the name does not.
         url: 'https://example.com/brevo',
         context: '',
         logoUrl: '',
@@ -1310,31 +1308,15 @@ describe('app/create', () => {
       expect((surfaces?.validate as (v: unknown[]) => unknown)(['contact'])).toBe(true);
     });
 
-    // Both delivery paths the UI kit renders are selectable now. iframeExtension was
-    // previously disabled on the grounds that the modal surface did not exist; the kit
-    // ships it on both the card and the header-menu path.
-    it('offers both delivery paths as selectable', async () => {
+    // Decision 2026-08-03: the CLI authors actionLink only until the iframe-embed
+    // RFC lands. There is no extensionType prompt any more — the block is written
+    // as actionLink unconditionally (the platform still accepts a hand-edited
+    // iframeExtension block at upload; validateUiApp keeps validating it).
+    it('never prompts for a delivery path and always authors an actionLink', async () => {
       await createCommand(CLI_OPTIONS);
 
-      const choices = (questionNamed('extensionType')?.choices ?? []) as Array<{
-        value?: string;
-        disabled?: string;
-      }>;
-      const selectable = choices.filter((c) => c.value && !c.disabled).map((c) => c.value);
-      expect(selectable).toEqual(['actionLink', 'iframeExtension']);
-    });
-
-    it('builds an iframeExtension block with modalIframeUrl and no redirect fields', async () => {
-      answerPrompts({ extensionType: 'iframeExtension', url: 'https://example.com/embed' });
-
-      await createCommand(CLI_OPTIONS);
-
-      expect(collectedUiApp()).toEqual({
-        extensionType: 'iframeExtension',
-        surfacePointList: ['contactDetails.headerMenu.action'],
-        heading: 'Invoice Manager',
-        modalIframeUrl: 'https://example.com/embed',
-      });
+      expect(questionNamed('extensionType')).toBeUndefined();
+      expect(collectedUiApp().extensionType).toBe('actionLink');
     });
 
     // context is a REQUEST to narrow, never a grant — the platform intersects it with the

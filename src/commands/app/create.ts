@@ -14,7 +14,6 @@ import {
   EXTENSION_PLACE_LABELS,
   EXTENSION_PLACES_BY_KIND,
   EXTENSION_TYPE_ACTION_LINK,
-  EXTENSION_TYPE_IFRAME,
   UI_APP_SURFACE_TO_LOCATION,
   UI_APP_SURFACES,
   extensionPointName,
@@ -277,26 +276,14 @@ async function resolveLogoUri(
 }
 
 // 4b. UI-app configuration (BEX-290) — replaces the redirect-URL step for UI
-//     apps. Both delivery paths the UI kit renders are authorable: a redirect CTA
-//     (`actionLink`) and a modal iframe (`iframeExtension`).
+//     apps. The CLI authors `actionLink` only: the 2026-08-03 decision keeps
+//     `iframeExtension` off the prompts until the iframe-embed RFC lands (the
+//     platform's upload endpoint still accepts it, so a hand-edited block keeps
+//     working — see validateUiApp).
 //
 //     The collected block is the app snapshot the platform stores, verbatim, so
 //     there is no vocabulary translation between what a partner authors and what
 //     the platform renders.
-async function promptUiExtensionType(): Promise<UiApp['extensionType']> {
-  const { extensionType } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'extensionType',
-      message: messages.APP_CREATE_UI_TRIGGER_PROMPT,
-      choices: [
-        { name: messages.APP_CREATE_UI_TRIGGER_LINK, value: EXTENSION_TYPE_ACTION_LINK },
-        { name: messages.APP_CREATE_UI_TRIGGER_MODAL, value: EXTENSION_TYPE_IFRAME },
-      ],
-    },
-  ]);
-  return extensionType as UiApp['extensionType'];
-}
 
 /**
  * Ask which record pages the app appears on, then whether it is a menu entry or a card,
@@ -404,7 +391,6 @@ async function promptUiAppContext(): Promise<string[]> {
  * field is asked for, with no flag or default fallback path.
  */
 async function resolveUiApp(): Promise<UiApp> {
-  const extensionType = await promptUiExtensionType();
   const surfacePointList = await promptSurfacePointList();
 
   const { heading } = await inquirer.prompt([
@@ -424,14 +410,11 @@ async function resolveUiApp(): Promise<UiApp> {
     },
   ]);
 
-  const isIframe = extensionType === EXTENSION_TYPE_IFRAME;
   const { url } = await inquirer.prompt([
     {
       type: 'input',
       name: 'url',
-      message: isIframe
-        ? messages.APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT
-        : messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
+      message: messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
       validate: validateUiAppUrl,
     },
   ]);
@@ -439,22 +422,16 @@ async function resolveUiApp(): Promise<UiApp> {
   const context = await promptUiAppContext();
 
   const uiApp: UiApp = {
-    extensionType,
+    extensionType: EXTENSION_TYPE_ACTION_LINK as UiApp['extensionType'],
     surfacePointList,
     heading: String(heading ?? '').trim(),
     // Omitted rather than written empty: the kit only renders it when set, and an
     // empty string would show up as a spurious diff on every upload.
     ...(String(subheading ?? '').trim() ? { subheading: String(subheading).trim() } : {}),
-    // Each type owns exactly one URL field, and carrying the other one is refused —
-    // for iframeExtension because the card and menu paths would then disagree about
-    // which URL wins. linkTarget is written only for an actionLink, and only as
-    // _blank: the server refuses _self today, so there is nothing to prompt for.
-    ...(isIframe
-      ? { modalIframeUrl: String(url ?? '').trim() }
-      : {
-          redirectLink: String(url ?? '').trim(),
-          linkTarget: DEFAULT_LINK_TARGET as UiApp['linkTarget'],
-        }),
+    // linkTarget is written explicitly, and only as _blank: the server refuses
+    // _self today, so there is nothing to prompt for.
+    redirectLink: String(url ?? '').trim(),
+    linkTarget: DEFAULT_LINK_TARGET as UiApp['linkTarget'],
     ...(context.length ? { context } : {}),
   };
 
@@ -612,14 +589,8 @@ function renderCreatedUiApp(
     ),
     `Heading:        ${uiApp.heading ?? ''}`,
     ...(uiApp.subheading ? [`Subheading:     ${uiApp.subheading}`] : []),
-    // Each type carries exactly one URL field, so show whichever was authored rather
-    // than printing an empty row for the other one.
-    ...(uiApp.modalIframeUrl
-      ? [`Modal iframe:   ${uiApp.modalIframeUrl}`]
-      : [
-          `Redirect link:  ${uiApp.redirectLink ?? ''}`,
-          `Link target:    ${uiApp.linkTarget ?? DEFAULT_LINK_TARGET}`,
-        ]),
+    `Redirect link:  ${uiApp.redirectLink ?? ''}`,
+    `Link target:    ${uiApp.linkTarget ?? DEFAULT_LINK_TARGET}`,
     // Only shown when narrowed. Absent means "whatever each location allows", which is
     // not something to render as a blank field.
     ...(uiApp.context?.length ? [`Record context: ${uiApp.context.join(', ')}`] : []),

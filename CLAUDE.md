@@ -25,7 +25,7 @@ Because that surface is shipped and unguarded, `agent-context/SKILL.md` and `age
 
 ## UI apps are not GA either — same deal (BEX-290)
 
-UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The CLI ships the surface — the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app deploy <account-id>`, `brevo app remove <account-id>` — and, exactly as with public apps, `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a **⚠️ UI apps are not available yet** notice reusing the same *Exception — internal Brevo accounts* clause. `README.md` mirrors it.
+UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The CLI ships the surface — the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app deploy <account-id>`, `brevo app undeploy <account-id>` — and, exactly as with public apps, `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a **⚠️ UI apps are not available yet** notice reusing the same *Exception — internal Brevo accounts* clause. `README.md` mirrors it.
 
 **Every clause of the public-apps section above applies verbatim** — it does not restrict work in this repo, don't remove or soften the notice during unrelated cleanup, keep the internal-account escape hatch, and it's documentation-level only (no runtime guard, by design).
 
@@ -41,7 +41,7 @@ Three consequences worth knowing before touching this code:
 
 **A UI app is prompt-only — there is no `--type` flag and no per-field flags.** `brevo app create` asks the app type first; a UI app can only be authored from an interactive terminal, so every non-interactive run (`--json` or piped stdin) creates an OAuth app, exactly as before BEX-290. This is deliberate: UI apps aren't live, and a scriptable create surface would invite pipelines to pin to a shape that can still change. Don't add flags back without revisiting that.
 
-**What is still assumed: the transport, not the shape.** Nothing on the platform writes the app snapshot yet — only the read path that consumes it exists. The CLI sends the block under a `snapshot` key on `POST /v3/app-store/apps/{id}/upload`; `deploy`/`remove` likewise assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the body and HTTP 422 for "not uploaded" / "not deployed". All marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+**What is still assumed: the deploy transport.** The upload wire contract is confirmed against the platform's CLI upload endpoint — the block travels under the `ui_app` key on `POST /v3/app-store/apps/{id}/upload` (the earlier `snapshot` key was rejected server-side; "snapshot" on the platform names the whole stored app config). `deploy`/`undeploy` still assume `POST /v3/app-store/apps/{id}/deploy|undeploy` with `account_id` in the body and HTTP 422 for "not uploaded" / "not deployed" — the server side is designed but not built yet. All marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
 
 **The presence of `ui_app` is the app-type discriminator** — there is no `appType` key in `app-config.json`. Every branch that needs to tell the two types apart goes through `isUiAppConfig()` in `src/lib/config.ts`; use it rather than testing for the key inline, so the discriminator can change in one place.
 
