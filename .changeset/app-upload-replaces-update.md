@@ -10,4 +10,8 @@ Replace `brevo app update` with `brevo app upload` (BEX-250).
 
 On success, `upload` now reads the server-confirmed version from either `app_version` or `version` in the upload response, so the bumped version is always persisted to `app-config.json` and printed — instead of silently keeping the old value when the server returns it under `version`.
 
+Likewise, `upload` now reads the server-confirmed `distribution_type` from the top level of the upload response (where current server builds return it — the response's `auth` block only carries `scopes` and `redirect_urls`), falling back to the legacy `auth.distribution_type` nesting and then to the local config. Previously the top-level value was ignored and the write-back silently kept whatever `app-config.json` already said.
+
 Breaking change: any script or CI job invoking `brevo app update` (or its `--scope`/`--redirect-uri`/`--name`/`--logo-uri` flags) needs to switch to editing `app-config.json` and running `brevo app upload` instead.
+
+The CLI no longer injects `cli_version` into the `app create` and `app upload` request bodies. The upload endpoint binds its body strictly and rejects unknown top-level keys with a 400, and the CLI version already reaches the backend on every request via the `User-Agent` header (`brevo-cli/<version> (<os>; auth=<method>)`), so the body field was both redundant and a hard failure against strict server builds. Relatedly, `brevo app create`/`brevo app scaffold` no longer stamp an informational `cliVersion` field into `app-config.json` — nothing ever read it, and it recorded only the version that scaffolded the project. Existing `app-config.json` files that carry the field keep working; the CLI ignores it and drops it on the next config write-back.

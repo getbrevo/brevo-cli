@@ -84,6 +84,10 @@ export interface UploadAppResponse {
   // version is never silently dropped just because of which key the server used.
   app_version?: string;
   version?: string;
+  // Current server builds return distribution_type at the top level (the auth
+  // block only carries scopes + redirect_urls); older builds nested it under
+  // auth. Read both so the server-confirmed value is never dropped.
+  distribution_type?: 'public' | 'private';
   auth: {
     distribution_type?: 'public' | 'private';
     scopes?: string[];

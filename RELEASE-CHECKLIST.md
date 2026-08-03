@@ -297,3 +297,60 @@ no step logic changed in the move.
       symlinked there. An earlier live run passed 26/26 against *that* package
       instead of the branch build. Invoke it directly meanwhile:
       `PATH="$HOME/.yarn/bin:$PATH" ./node_modules/.bin/tsx scripts/smoke-test.ts --skip-auth`
+
+### Upload write-back reads top-level `distribution_type` from the response
+
+**Change:** `uploadProjectConfig` (`src/commands/app/upload.ts`) read the
+server-confirmed distribution only from `response.auth.distribution_type`, but
+current server builds return it at the top level of the upload response (the
+`auth` block only carries `scopes` + `redirect_urls`). The `?? config.distribution_type`
+fallback masked the break — nothing errored, but the write-back never persisted
+the server-confirmed value. The read order is now `response.distribution_type`
+→ `response.auth.distribution_type` (legacy nesting) → local config.
+`UploadAppResponse` gained the optional top-level field. Request payload is
+untouched — `UploadAppPayload` still nests `distribution_type` under `auth`,
+which remains the locked upload contract.
+
+**Must hold true:**
+
+- [x] A response with top-level `distribution_type` and no `auth.distribution_type`
+      persists the server value into `app-config.json`. Covered by the new
+      `upload.test.ts` case (`persists the server-confirmed distribution_type…`),
+      watched failing before the fix.
+- [x] Legacy responses nesting it under `auth` still work (existing write-back
+      tests unchanged and green).
+- [x] Full suite green (731/731), `tsc --noEmit` clean.
+- [ ] Manual: `brevo app upload` against a current server build, then inspect
+      `app-config.json` — `distribution_type` must match the server's echo, not
+      merely the pre-upload local value.
+
+**Change:** `createApp` and `uploadApp` (`src/services/app.ts`) no longer spread
+`cli_version` into the request body — the upload endpoint binds
+strictly and 400s on unknown top-level keys, and the version already travels on
+every request in the `User-Agent` header (`src/lib/telemetry.ts`). The scaffold
+no longer stamps `cliVersion` into `app-config.json` (template line, `{{CLI_VERSION}}`
+var, `ProjectConfig.cliVersion` type all removed — nothing ever read the field).
+`source: 'cli'` on create is deliberately untouched (see `TODO.md`).
+
+**Must hold true:**
+
+- [x] `uploadApp` POSTs the `UploadAppPayload` byte-for-byte — no extra top-level
+      keys. Covered by the updated `app.test.ts` assertion including an explicit
+      `not.toHaveProperty('cli_version')`.
+- [x] `createApp` body carries only the payload plus `source: 'cli'`. Covered by
+      `app.test.ts`.
+- [x] Template vars no longer include `{{CLI_VERSION}}` and the scaffolded
+      `app-config.json` has no `cliVersion` line. Covered by `scaffold.test.ts`.
+- [x] Full suite green: 730/730, lint clean, `tsc --noEmit` clean.
+- [ ] Manual: `brevo app upload` against a strict server build (one that rejects
+      unknown keys) succeeds where it previously 400'd. Blocked on access to a
+      server build with the BEX-355 contract merged.
+- [ ] Manual: `brevo app create` still succeeds against the current backend (which
+      tolerated `cli_version`) — i.e. removing the key is backward-compatible with
+      lenient builds too.
+- [ ] Reviewer: confirm with the upload-service owners that nothing *requires*
+      `cli_version` in the body (telemetry should read the `User-Agent` header,
+      which is unchanged and covered by `telemetry.test.ts` / `client.test.ts`).
+- [ ] Manual: run `brevo app upload` in a project whose `app-config.json` still
+      carries a legacy `cliVersion` field — upload must succeed and the write-back
+      may silently drop the field (fill-only semantics unaffected).

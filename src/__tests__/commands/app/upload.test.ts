@@ -230,6 +230,32 @@ describe('app/upload', () => {
     expect(saveAppName).toHaveBeenCalledWith('1', 'Renamed App');
   });
 
+  it('persists the server-confirmed distribution_type when the response carries it top-level', async () => {
+    // Current server builds return distribution_type at the top level of the
+    // upload response; the auth block only carries scopes + redirect_urls. The
+    // write-back must pick up the server-confirmed value, not silently fall
+    // back to whatever the local config already said.
+    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      app_id: '1',
+      name: 'Renamed App',
+      logo_uri: '',
+      app_version: '2.0.0',
+      distribution_type: 'public',
+      auth: {
+        scopes: ['contacts:read'],
+        redirect_urls: ['http://localhost:3009/auth/callback'],
+      },
+    });
+
+    await uploadCommand({ yes: true });
+
+    expect(writeProjectConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ distribution_type: 'public' }),
+    );
+  });
+
   it('captures the new version when the upload response names it `version` (not `app_version`)', async () => {
     // Some upload responses mirror the app object and return the bumped version
     // under `version` (like GET/list) rather than `app_version`. The CLI must
