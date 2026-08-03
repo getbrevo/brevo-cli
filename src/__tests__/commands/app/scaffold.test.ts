@@ -696,10 +696,10 @@ describe('app/scaffold', () => {
     // returned a `ui_app` for an app the local config says is OAuth, honouring it
     // would silently reclassify the project and write a UI config over an OAuth
     // one — so `fetchAppContext` takes the block from the caller only.
-    it('ignores a server-returned snapshot for a project whose local config is OAuth', async () => {
+    it('ignores a server-returned ui_app block for a project whose local config is OAuth', async () => {
       (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
         diffs: [],
-        app: { ...serverApp, snapshot: uiApp },
+        app: { ...serverApp, ui_app: uiApp },
       });
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,

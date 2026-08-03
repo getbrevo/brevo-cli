@@ -125,23 +125,25 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       every row, every `context` value is refused — so a CLI release that prompts
       for it ahead of the seed offers partners a field they cannot use. Leaving the
       prompt blank is unaffected.
-- [ ] **Build the snapshot write path — still missing.** On
-      the platform nothing writes the app snapshot; only the
-      manifest read path parses it, and the existing build endpoint writes a
-      *separate* config field. The CLI currently sends the block under a
-      `snapshot` key on `POST /v3/app-store/apps/{id}/upload` — confirm or correct
-      that once the write endpoint exists (`src/types.ts` `UploadAppPayload` and
-      `upload.ts` are the only places to change).
+- [x] **Snapshot write path confirmed.** The platform's upload endpoint
+      (app-store-bo-be `POST /cli/apps/{app_id}/upload`, branch
+      feat/bex-355-cli-snapshot-contract) binds the block under `ui_app` and
+      rejects unknown keys with a 400. The CLI now sends `ui_app` to match
+      (`src/types.ts` `UploadAppPayload` and `upload.ts`). "snapshot" on the
+      platform means the whole stored app config; this block is only its UI
+      subset, hence the key.
 - [ ] **Confirm the deploy/remove endpoint contract.** `ENDPOINTS.APP_STORE_APP_DEPLOY`
       / `APP_STORE_APP_REMOVE` and `appService.deployApp` / `removeApp` currently
       assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the
       body, and that the "not yet uploaded" / "not deployed" rejections are HTTP 422.
       All four assumptions are marked in code comments.
-- [ ] Confirm whether `GET /v3/app-store/apps/{id}` returns the snapshot. The upload
-      diff and the scaffold-refresh path both read `snapshot` opportunistically and
-      degrade safely when absent (the block reads as new / is carried forward
+- [ ] Confirm whether `GET /v3/app-store/apps/{id}` returns the `ui_app` block. The
+      upload diff and the scaffold-refresh path both read `ui_app` opportunistically
+      and degrade safely when absent (the block reads as new / is carried forward
       locally), but the diff is only fully accurate once the server echoes it —
       notably `linkTarget`, which the backend defaults to `_blank` server-side.
+      Server-side echo fix is planned in app-store-bo-be's `/cli/apps/{id}` handler
+      (the latest app_versions.snapshot row already carries the block).
 - [ ] Decide whether the CLI should guard the UI-app path at runtime, the same open
       question as `--distribution public` above. There is no `--type ui` flag to guard —
       a UI app can only be chosen at the interactive app-type prompt, which is itself a
@@ -250,15 +252,16 @@ distribution value to a flag set.
       field (`extensionType`, `surfacePointList`, `heading`, `subheading`,
       `redirectLink`, `linkTarget`), verified against both of the platform's
       consumers (BEX-308 / BEX-350). Covered by
-      `builds the snapshot shape the platform consumes` and
-      `sends the block under the snapshot key`.
+      `builds the ui_app shape the platform consumes` and
+      `sends the block under the ui_app key`.
 - [x] An unregistered, mis-cased, stale-grammar, or widget-slot extension point is
       rejected locally — the platform would drop it silently. Covered by
       `validateSurfacePoint` cases and the upload-level rejections.
 - [ ] Manual, **against a real test account**: run `brevo app create`, choose **UI app**
       at the prompt, inspect the generated `app-config.json`, then `brevo app upload`
-      and confirm the backend **accepts** the snapshot. A 4xx here means the write path
-      isn't built yet (expected — see the follow-ups above), not a shape mismatch.
+      and confirm the backend **accepts** the `ui_app` block. The write path exists
+      (see the confirmed follow-up above); a 400 naming an unknown key means the CLI
+      and server disagree on the wire key again.
 - [ ] Manual: `brevo app deploy <account-id>` against a real account, then confirm the
       action link actually renders in that account's contact record action menu, opens
       the external URL in a new tab, and carries the declared context properties.

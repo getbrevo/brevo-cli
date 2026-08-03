@@ -116,7 +116,7 @@ interface UploadDiff {
   nextVersion: string;
   migratingLegacyScopes: boolean;
   // UI apps only (BEX-290). `currentUiApp` stays undefined on server builds that
-  // accept the snapshot on write but don't echo it back on reads — in that case
+  // accept the ui_app block on write but don't echo it back on reads — in that case
   // the block always reads as new, which is safe: re-sending an identical block is
   // idempotent, whereas skipping it could strand a local edit.
   currentUiApp?: UiApp;
@@ -140,7 +140,7 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
     currentVersion: remote.version,
     nextVersion: config.version || remote.version || '',
     migratingLegacyScopes: containsLegacyAllScope(remote.scopes ?? []),
-    currentUiApp: remote.snapshot,
+    currentUiApp: remote.ui_app,
     nextUiApp: config.ui_app,
   };
 }
@@ -335,7 +335,7 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
       },
       // Spread rather than a fixed key so OAuth uploads keep their exact
       // historical payload shape — `ui_app` is absent, not `undefined`.
-      ...(isUiApp && config.ui_app ? { snapshot: config.ui_app } : {}),
+      ...(isUiApp && config.ui_app ? { ui_app: config.ui_app } : {}),
     });
   } finally {
     spinner.stop();
@@ -367,7 +367,7 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     },
     // Prefer the server's normalized block when it echoes one back, otherwise
     // keep what we just sent.
-    ...(isUiApp ? { ui_app: response.snapshot ?? config.ui_app } : {}),
+    ...(isUiApp ? { ui_app: response.ui_app ?? config.ui_app } : {}),
   });
 
   if (options.json) {

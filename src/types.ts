@@ -140,9 +140,9 @@ export interface OAuthApp {
   version?: string;
   // Review-submission form for public apps (BEX-221); absent for private apps.
   google_form_link?: string;
-  // Present only for UI apps, and only once the server echoes the snapshot back
-  // on reads. Absent for OAuth apps and on server builds that don't return it.
-  snapshot?: UiApp;
+  // Present only for UI apps, and only once the server echoes the ui_app block
+  // back on reads. Absent for OAuth apps and on server builds that don't return it.
+  ui_app?: UiApp;
   created_at: string;
   updated_at: string;
 }
@@ -200,11 +200,13 @@ export interface UploadAppPayload {
   // earlier CLI versions guaranteed it was never sent at all, and the OAuth
   // payload shape is unchanged from that contract.
   //
-  // Named `snapshot` after the app snapshot the manifest read path parses.
-  // ⚠️ The write path is the one part of this contract that does not exist on the
-  // platform yet, so this key is an assumption — the shape is confirmed against
-  // its consumers, only the transport is not. Tracked in RELEASE-CHECKLIST.md.
-  snapshot?: UiApp;
+  // Named `ui_app` — the same key the block carries in app-config.json and
+  // inside the platform's stored app snapshot, where "snapshot" means the whole
+  // stored config and this block is only its UI subset. The platform's upload
+  // endpoint (app-store-bo-be POST /cli/apps/{id}/upload) binds this key
+  // strictly and rejects unknown keys with a 400, so any other name fails loudly
+  // instead of being silently dropped.
+  ui_app?: UiApp;
 }
 
 export interface UploadAppResponse {
@@ -224,7 +226,7 @@ export interface UploadAppResponse {
   };
   // Echoed back for UI apps so the local config can be reconciled with whatever
   // the server normalized (notably `linkTarget`, which it defaults to `_blank`).
-  // Tolerated as absent: server builds that accept the snapshot on write but
+  // Tolerated as absent: server builds that accept the block on write but
   // don't return it leave the locally-sent block in place.
-  snapshot?: UiApp;
+  ui_app?: UiApp;
 }

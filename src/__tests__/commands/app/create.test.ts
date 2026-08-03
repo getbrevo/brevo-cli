@@ -1158,7 +1158,7 @@ describe('app/create', () => {
       expect(questionNamed('redirectUrl')).toBeUndefined();
     });
 
-    it('does not send the snapshot to POST /apps', async () => {
+    it('does not send the ui_app block to POST /apps', async () => {
       await createCommand(CLI_OPTIONS);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
@@ -1168,7 +1168,7 @@ describe('app/create', () => {
 
     // Field names and casing must match the platform's stored app snapshot
     // exactly — `extensionType` is camelCase since BEX-350.
-    it('builds the snapshot shape the platform consumes', async () => {
+    it('builds the ui_app shape the platform consumes', async () => {
       await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp()).toEqual({
