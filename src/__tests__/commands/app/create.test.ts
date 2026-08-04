@@ -725,8 +725,8 @@ describe('app/create', () => {
   it('should prompt for name when not provided', async () => {
     mockPrompt
       .mockResolvedValueOnce({ name: 'Prompted App' }) // name prompt
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ distribution: 'private' }) // distribution prompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
       .mockResolvedValueOnce({ logoUrl: '' })
@@ -751,9 +751,9 @@ describe('app/create', () => {
   });
 
   it('should throw on invalid distribution', async () => {
-    // The app-type prompt runs before distribution is validated.
-    mockPrompt.mockResolvedValueOnce({ appType: 'oauth' });
-
+    // Distribution is resolved (and its flag validated) before the app-type
+    // prompt, so no prompt answers are needed — queueing one here would leak
+    // an unconsumed value into the next test.
     await expect(createCommand({ name: 'Test', distribution: 'invalid' })).rejects.toThrow(
       'Invalid --distribution',
     );
@@ -1089,6 +1089,7 @@ describe('app/create', () => {
      */
     const answerPrompts = (overrides: Record<string, unknown> = {}) => {
       const answers: Record<string, unknown> = {
+        distribution: 'private',
         appType: 'ui',
         surfaces: ['contact'],
         // Placement is three prompts: pages, then kind (which decides the available

@@ -102,9 +102,10 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
   return answer.name;
 }
 
-// 2. App type — OAuth integration vs UI app (BEX-290).
-//    Asked before distribution because it decides which of the two remaining
-//    prompt paths runs (OAuth callback URLs vs UI-app placement).
+// 3. App type — OAuth integration vs UI app (BEX-290).
+//    Asked after distribution: name and distribution describe the app record
+//    itself, so they come first; the type then decides which of the two
+//    remaining prompt paths runs (OAuth callback URLs vs UI-app placement).
 //
 //    Prompt-only, deliberately: there is no `--type` flag, so a UI app can only
 //    be authored from an interactive terminal. UI apps aren't live on the
@@ -132,7 +133,7 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
   return answer.appType as AppType;
 }
 
-// 3. Distribution type
+// 2. Distribution type
 async function resolveDistribution(distributionFlag: string | undefined): Promise<string> {
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
@@ -621,8 +622,8 @@ export const createCommand = withCommandHandler(
     const interactive = !jsonMode && !!process.stdin.isTTY;
 
     const appName = await resolveAppName(options.name);
-    const appType = await resolveAppType(interactive);
     const distribution = await resolveDistribution(options.distribution);
+    const appType = await resolveAppType(interactive);
 
     // The two app types diverge here: OAuth apps collect callback URLs, UI apps
     // collect placement + destination. Neither path runs the other's prompts.

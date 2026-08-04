@@ -600,11 +600,11 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 > and the action link won't render — silently, with a 200. Confirm the reseed has run in
 > your environment before treating a non-rendering link as a CLI defect.
 
-### TC-12.1 — Interactive create asks for the app type first
+### TC-12.1 — Interactive create asks for the app type after name and distribution
 **Priority:** High
 **Preconditions:** Logged in; TTY; cwd has **no** `app-config.json`.
 **Steps:** Run `brevo app create`.
-**Expected:** After "App name:", the next prompt is "What type of app are you building?" with **OAuth app** and **UI app**. Choosing **OAuth app** reproduces the previous flow exactly (distribution → redirect URL → logo → scaffold prompt).
+**Expected:** Prompt order is "App name:" → "Distribution type?" → "What type of app are you building?" with **OAuth app** and **UI app**. Choosing **OAuth app** reproduces the previous flow from there (redirect URL → logo → scaffold prompt).
 
 ### TC-12.2 — Delivery prompt shows unsupported options as disabled
 **Priority:** Medium
