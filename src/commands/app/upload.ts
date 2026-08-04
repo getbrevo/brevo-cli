@@ -184,7 +184,11 @@ function renderUploadDiff(diff: UploadDiff): void {
   if (diff.migratingLegacyScopes) {
     logInfo(`  ${messages.LEGACY_ALL_SCOPE_UPDATE_MIGRATING}`);
   }
-  logAligned('  Scopes:        ', diffLines(diff.currentScopes, diff.nextScopes));
+  // Scopes are OAuth-only as well — a UI app's auth is `{ "type": "none" }`,
+  // so a scopes row would only ever render as noise.
+  if (!diff.nextUiApp) {
+    logAligned('  Scopes:        ', diffLines(diff.currentScopes, diff.nextScopes));
+  }
   if (diff.currentLogoUri && diff.currentLogoUri !== diff.nextLogoUri) {
     logInfo(`  Logo URL:      ${diff.currentLogoUri} → ${diff.nextLogoUri || '(none)'}`);
   } else if (diff.nextLogoUri) {
@@ -230,8 +234,10 @@ function diffToJson(diff: UploadDiff) {
     },
     next: {
       name: diff.nextName,
-      redirect_uris: diff.nextUrls,
-      scopes: diff.nextScopes,
+      // OAuth-only keys are omitted for UI apps — their desired state has no
+      // OAuth block (auth is `{ "type": "none" }`), and emitting empty arrays
+      // would misread as "clearing the values".
+      ...(diff.nextUiApp ? {} : { redirect_uris: diff.nextUrls, scopes: diff.nextScopes }),
       logo_uri: diff.nextLogoUri,
       distribution_type: diff.nextDistribution,
       version: diff.nextVersion,
@@ -241,12 +247,19 @@ function diffToJson(diff: UploadDiff) {
 }
 
 function hasNoChanges(diff: UploadDiff): boolean {
+  // Scopes and redirect URLs are OAuth-only: a UI app's config carries neither
+  // (auth is `{ "type": "none" }`), so comparing them against whatever the
+  // server still reports would flag a phantom change on every upload.
+  const isUiApp = !!diff.nextUiApp;
+  const oauthUnchanged =
+    isUiApp ||
+    (JSON.stringify([...diff.currentUrls].sort()) === JSON.stringify([...diff.nextUrls].sort()) &&
+      JSON.stringify([...diff.currentScopes].sort()) ===
+        JSON.stringify([...diff.nextScopes].sort()));
   return (
     diff.currentName === diff.nextName &&
     diff.currentDistribution === diff.nextDistribution &&
-    JSON.stringify([...diff.currentUrls].sort()) === JSON.stringify([...diff.nextUrls].sort()) &&
-    JSON.stringify([...diff.currentScopes].sort()) ===
-      JSON.stringify([...diff.nextScopes].sort()) &&
+    oauthUnchanged &&
     (diff.currentLogoUri || '') === (diff.nextLogoUri || '') &&
     (diff.currentVersion || '') === (diff.nextVersion || '') &&
     // Without this, editing only the `ui_app` block reports "Already up to date"
@@ -291,10 +304,19 @@ export async function uploadProjectConfig(
       logo_uri: config.logoUri ?? '',
       app_version: appVersion,
       distribution_type: config.distribution_type,
-      auth: {
-        scopes,
-        redirect_uris: redirectUris,
-      },
+      // UI apps have no OAuth block — the whole `auth` key is omitted, not sent
+      // with empty arrays, mirroring `auth: { "type": "none" }` in the config.
+      // ASSUMED wire contract (server side not built yet, see
+      // RELEASE-CHECKLIST.md → Before UI-apps GA): the upload endpoint must
+      // tolerate an absent auth key for UI apps.
+      ...(isUiApp
+        ? {}
+        : {
+            auth: {
+              scopes,
+              redirect_uris: redirectUris,
+            },
+          }),
       // Spread rather than a fixed key so OAuth uploads keep their exact
       // historical payload shape — `ui_app` is absent, not `undefined`.
       ...(isUiApp && config.ui_app ? { ui_app: config.ui_app } : {}),
@@ -318,15 +340,15 @@ export async function uploadProjectConfig(
     logoUri: response.logo_uri ?? config.logoUri,
     distribution_type: response.distribution_type ?? config.distribution_type,
     version: confirmedVersion,
-    auth: {
-      scopes: response.auth.scopes ?? scopes,
-      // Preserved as-is for UI apps: `redirectUris` is absent from their config
-      // by design, and writing back an empty array would add a key the app type
-      // doesn't use.
-      ...(isUiApp && !config.auth?.redirectUris
-        ? {}
-        : { redirectUris: response.auth.redirect_uris ?? redirectUris }),
-    },
+    // A UI app's auth block is always written back as the canonical
+    // `{ type: 'none' }` — never reconciled from the server's echo, which
+    // reports null scopes/redirect_uris for UI-only apps anyway.
+    auth: isUiApp
+      ? { type: 'none' }
+      : {
+          scopes: response.auth.scopes ?? scopes,
+          redirectUris: response.auth.redirect_uris ?? redirectUris,
+        },
     // Prefer the server's normalized block when it echoes one back, otherwise
     // keep what we just sent.
     ...(isUiApp ? { ui_app: response.ui_app ?? config.ui_app } : {}),
@@ -335,13 +357,33 @@ export async function uploadProjectConfig(
   return { confirmedVersion, finalName };
 }
 
+// The auth block's shape follows the app type, and a mismatch is a hard error
+// rather than a silent ignore — same stance as validateSurfacePoint: the CLI is
+// the only layer that will ever tell the partner. A UI app must carry exactly
+// `auth: { "type": "none" }` (no scopes, no redirect URIs — nothing OAuth is
+// issued for it); an OAuth app must not carry `type: "none"`.
+function validateAuthShape(config: NonNullable<ProjectConfig>): void {
+  const isUiApp = isUiAppConfig(config);
+  if (isUiApp) {
+    if (config.auth?.type !== 'none') {
+      throw new CliError(messages.APP_UPLOAD_UI_APP_AUTH_TYPE_REQUIRED);
+    }
+    if (config.auth.scopes !== undefined || config.auth.redirectUris !== undefined) {
+      throw new CliError(messages.APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS);
+    }
+  } else if (config.auth?.type === 'none') {
+    throw new CliError(messages.APP_UPLOAD_AUTH_NONE_WITHOUT_UI_APP);
+  }
+}
+
 export const uploadCommand = withCommandHandler(async (options: UploadOptions): Promise<void> => {
   const config = loadUsableConfig();
   const isUiApp = isUiAppConfig(config);
 
-  // A UI app has no OAuth callback, so the redirect requirement is OAuth-only.
-  // Any URLs a UI-app config happens to carry are still format-checked rather
-  // than silently forwarded.
+  validateAuthShape(config);
+
+  // A UI app has no OAuth callback (enforced above), so the redirect
+  // requirement — and validation — is OAuth-only.
   const redirectUris = config.auth?.redirectUris ?? [];
   if (!isUiApp && redirectUris.length === 0) {
     throw new CliError(messages.APP_UPLOAD_NO_REDIRECT_URLS_OAUTH);

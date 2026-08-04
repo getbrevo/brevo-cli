@@ -7,7 +7,6 @@ import {
   DEFAULT_REDIRECT_URI,
   DEFAULT_SCOPES,
   DEFAULT_LINK_TARGET,
-  DEFAULT_UI_APP_SCOPES,
   DEFAULT_UI_APP_SURFACE,
   EXTENSION_KIND_ACTION,
   EXTENSION_KIND_WIDGET,
@@ -500,10 +499,11 @@ function buildCreatePayload(inputs: CreateAppInputs) {
   return {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
-    // A UI app has no OAuth callback — sending an empty array (or worse, the
-    // default localhost URI) would register a redirect URL it never uses.
-    ...(isUiApp ? {} : { redirect_uris: inputs.redirectUris }),
-    scopes: isUiApp ? [...DEFAULT_UI_APP_SCOPES] : [...DEFAULT_SCOPES],
+    // A UI app has no OAuth block at all (`auth: { "type": "none" }` in its
+    // config) — the scopes and redirect_uris keys are omitted entirely, not
+    // sent empty. Sending an empty array (or worse, the default localhost URI)
+    // would register OAuth state the app type never uses.
+    ...(isUiApp ? {} : { redirect_uris: inputs.redirectUris, scopes: [...DEFAULT_SCOPES] }),
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
 }
@@ -596,7 +596,6 @@ function renderCreatedUiApp(
     ...(uiApp.context?.length ? [`Record context: ${uiApp.context.join(', ')}`] : []),
     ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
-    `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_UI_APP_SCOPES].join(', ')}`,
     '',
     // The menu entry is labelled with the app name, not a per-action label —
     // worth stating, since it's the one place a partner might expect a field.

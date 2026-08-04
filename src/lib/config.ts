@@ -409,8 +409,20 @@ export interface ProjectConfig {
   updatedAt?: string;
   /** Distribution type of the app: 'private' or 'public' */
   distribution_type: 'private' | 'public';
+  /**
+   * OAuth apps carry `{ scopes, redirectUris }`. UI apps carry exactly
+   * `{ type: 'none' }` — no scopes, no redirect URIs, no jwtSecret (nothing is
+   * issued for them today). Enforced in `app upload` (see validateAuthShape),
+   * not here, so unrelated commands that merely read config keep working on a
+   * half-edited file.
+   *
+   * Caution: `auth.type` also existed briefly as an *interim distribution*
+   * carrier ('private' | 'public') — the read path folds those legacy values
+   * into `distribution_type` and drops them, while preserving 'none'.
+   */
   auth: {
-    scopes: string[];
+    type?: 'none';
+    scopes?: string[];
     // Absent for UI apps: an action link has no OAuth callback to register.
     // OAuth apps still require at least one (enforced in `app upload`).
     redirectUris?: string[];
@@ -422,19 +434,6 @@ export interface ProjectConfig {
    * rather than testing for the key directly.
    */
   ui_app?: UiApp;
-  permittedUrls: {
-    fetch: string[];
-    img: string[];
-    iframe: string[];
-    js: string[];
-    css: string[];
-  };
-  support: {
-    supportEmail: string;
-    documentationUrl: string;
-    supportUrl: string;
-    supportPhone: string;
-  };
 }
 
 const PROJECT_CONFIG_FILE = 'app-config.json';
@@ -500,27 +499,44 @@ export function readProjectConfig(): ProjectConfig | null {
     let distributionType: 'private' | 'public' | undefined;
     if (typeof newDistributionType === 'string' && newDistributionType.trim()) {
       distributionType = newDistributionType.trim() as 'private' | 'public';
-    } else if (typeof legacyAuthType === 'string' && legacyAuthType.trim()) {
+    } else if (
+      typeof legacyAuthType === 'string' &&
+      legacyAuthType.trim() &&
+      legacyAuthType !== 'none' // 'none' is the UI-app auth marker, not a distribution
+    ) {
       distributionType = legacyAuthType.trim() as 'private' | 'public';
     } else if (typeof legacyDistribution === 'string' && legacyDistribution.trim()) {
       distributionType = legacyDistribution.trim() as 'private' | 'public';
     } else {
       distributionType = 'private';
     }
-    // Legacy auth.type is folded into distributionType above and dropped here
-    // so it doesn't leak into authOverride.
-    if (authOverride && 'type' in authOverride) {
-      delete authOverride.type;
-    } else if (rawAuth && typeof rawAuth === 'object' && 'type' in rawAuth) {
-      authOverride = { ...rawAuth };
-      delete (authOverride as Record<string, unknown>).type;
+    // Legacy auth.type (the interim distribution carrier, 'private'/'public')
+    // is folded into distributionType above and dropped here so it doesn't
+    // leak into authOverride. `auth.type: "none"` is different — it is the
+    // *current* auth marker for UI apps (no OAuth, no scopes, no redirect
+    // URIs) and must survive the read untouched.
+    const isAuthTypeNone = legacyAuthType === 'none';
+    if (!isAuthTypeNone) {
+      if (authOverride && 'type' in authOverride) {
+        delete authOverride.type;
+      } else if (rawAuth && typeof rawAuth === 'object' && 'type' in rawAuth) {
+        authOverride = { ...rawAuth };
+        delete (authOverride as Record<string, unknown>).type;
+      }
     }
     // Drop the legacy top-level `distribution` key from the returned config —
-    // it's already folded into distribution_type above. Callers that write
-    // this object back to disk (upload.ts, start.ts) then naturally migrate
-    // old projects to the new shape on their next write, instead of
-    // round-tripping the stray key forever.
-    const { distribution: _legacyDistribution, ...rawWithoutLegacyDistribution } = rawRecord;
+    // it's already folded into distribution_type above. `permittedUrls` and
+    // `support` were scaffolded into every config but never read by anything;
+    // they're dropped the same way. Callers that write this object back to
+    // disk (upload.ts, start.ts) then naturally migrate old projects to the
+    // new shape on their next write, instead of round-tripping stray keys
+    // forever.
+    const {
+      distribution: _legacyDistribution,
+      permittedUrls: _permittedUrls,
+      support: _support,
+      ...rawWithoutLegacyDistribution
+    } = rawRecord;
     // `ui_app` (BEX-290) is passed through structurally intact — the spread
     // above already carries it — but a non-object value is dropped so callers
     // can trust `config.ui_app` is an object whenever it is present. Field-level
@@ -621,7 +637,9 @@ export function backfillProjectConfigFromServer(
   const hasDistribution =
     isNonEmptyString(rawRecord.distribution_type) ||
     isNonEmptyString(rawRecord.distribution) ||
-    isNonEmptyString(legacyAuthType);
+    // auth.type carried the distribution only in its interim shape —
+    // 'none' is the UI-app auth marker and says nothing about distribution.
+    (isNonEmptyString(legacyAuthType) && legacyAuthType !== 'none');
   if (!hasDistribution) {
     next.distribution_type = server.distribution_type ?? normalized.distribution_type;
     backfilled.push('distribution_type');

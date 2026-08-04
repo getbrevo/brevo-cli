@@ -1138,11 +1138,13 @@ describe('app/create', () => {
       expect(payload).not.toHaveProperty('redirect_uris');
     });
 
-    it('sends the narrower UI-app scope defaults', async () => {
+    // A UI app has no OAuth block (`auth: { "type": "none" }` in its config) —
+    // the scopes key is omitted from the wire entirely, not sent empty.
+    it('omits scopes from the create payload', async () => {
       await createCommand(CLI_OPTIONS);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
-      expect(payload.scopes).toEqual(['contacts:read', 'contacts:write']);
+      expect(payload).not.toHaveProperty('scopes');
     });
 
     // The regression this guards: resolveRedirectUrls falls back to

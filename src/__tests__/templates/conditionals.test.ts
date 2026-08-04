@@ -174,7 +174,20 @@ describe('app-config.json template branching', () => {
     const parsed = JSON.parse(out);
 
     expect(parsed.ui_app).toEqual(uiApp);
-    expect(parsed.auth).not.toHaveProperty('redirectUris');
-    expect(parsed.auth.scopes).toEqual(['contacts:read', 'contacts:write']);
+    // A UI app has no OAuth block: auth is exactly { type: 'none' }.
+    expect(parsed.auth).toEqual({ type: 'none' });
+  });
+
+  // Dropped from the scaffolded config (nothing ever read them) — their
+  // reappearance would mean the template regressed.
+  it('renders neither permittedUrls nor support for either app type', () => {
+    for (const flags of [
+      new Set<TemplateFlag>(['private', 'oauth']),
+      new Set<TemplateFlag>(['private', 'ui_app']),
+    ]) {
+      const parsed = JSON.parse(renderConfig({ '{{UI_APP_JSON}}': '{}' }, flags));
+      expect(parsed).not.toHaveProperty('permittedUrls');
+      expect(parsed).not.toHaveProperty('support');
+    }
   });
 });

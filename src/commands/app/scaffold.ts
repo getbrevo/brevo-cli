@@ -7,7 +7,6 @@ import {
   OAUTH_BASE,
   OAUTH_REALM,
   DEFAULT_SCOPES,
-  DEFAULT_UI_APP_SCOPES,
   LEGACY_ALL_SCOPE,
 } from '../../lib/constants';
 import { logSuccess, logInfo, logWarn } from '../../lib/logger';
@@ -251,16 +250,21 @@ function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDif
     }
   }
 
-  const localScopes = [...(localConfig.auth?.scopes ?? [])].sort((a, b) => a.localeCompare(b));
-  const serverScopes = [...(ctx.appDetails?.scopes ?? [])]
-    .filter((s) => s !== LEGACY_ALL_SCOPE)
-    .sort((a, b) => a.localeCompare(b));
-  if (JSON.stringify(localScopes) !== JSON.stringify(serverScopes)) {
-    diffs.push({
-      field: 'scopes',
-      local: localScopes.join(', ') || '(none)',
-      server: serverScopes.join(', ') || '(none)',
-    });
+  // Scopes are OAuth-only too: a UI app's config carries no scopes by design
+  // (`auth: { "type": "none" }`), so comparing against whatever the server
+  // reports would flag drift on every refresh.
+  if (!isUiAppConfig(localConfig)) {
+    const localScopes = [...(localConfig.auth?.scopes ?? [])].sort((a, b) => a.localeCompare(b));
+    const serverScopes = [...(ctx.appDetails?.scopes ?? [])]
+      .filter((s) => s !== LEGACY_ALL_SCOPE)
+      .sort((a, b) => a.localeCompare(b));
+    if (JSON.stringify(localScopes) !== JSON.stringify(serverScopes)) {
+      diffs.push({
+        field: 'scopes',
+        local: localScopes.join(', ') || '(none)',
+        server: serverScopes.join(', ') || '(none)',
+      });
+    }
   }
 
   const localLogo = localConfig.logoUri ?? '';
@@ -328,15 +332,19 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
   const rawAppName = ctx.appDetails?.name || path.basename(targetDir);
   const appName = rawAppName.replaceAll(/["\\\n\r\t]/g, '').trim() || 'my-app';
   // Never propagate the deprecated legacy 'all' scope into a fresh
-  // app-config.json — keep the app's granular scopes, fall back to the app
-  // type's defaults when 'all' was the only scope, and tell the user (BEX-214).
+  // app-config.json — keep the app's granular scopes, fall back to the
+  // defaults when 'all' was the only scope, and tell the user (BEX-214).
+  // UI apps have no OAuth block at all (`auth: { "type": "none" }`), so their
+  // scopes resolve to [] — the ui_app template branch never renders them.
   const remoteScopes = ctx.appDetails?.scopes;
-  const legacyAllSubstituted = containsLegacyAllScope(remoteScopes);
+  const legacyAllSubstituted = !ctx.uiApp && containsLegacyAllScope(remoteScopes);
   const granularScopes = (remoteScopes ?? []).filter((s) => s !== LEGACY_ALL_SCOPE);
-  // UI apps start from a narrower scope set than OAuth apps — they read record
-  // context rather than driving a full authorization flow.
-  const defaultScopes = ctx.uiApp ? DEFAULT_UI_APP_SCOPES : DEFAULT_SCOPES;
-  const scopes = granularScopes.length > 0 ? granularScopes : [...defaultScopes];
+  let scopes: string[];
+  if (ctx.uiApp) {
+    scopes = [];
+  } else {
+    scopes = granularScopes.length > 0 ? granularScopes : [...DEFAULT_SCOPES];
+  }
 
   const slug = computeSlug(ctx.appDetails?.name);
 

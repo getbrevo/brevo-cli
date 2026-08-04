@@ -832,7 +832,12 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     `app-config.json distribution_type ${JSON.stringify(cfg.distribution_type)} != ${opts.distribution}`,
   );
   must('version' in cfg, 'app-config.json has no version key');
-  must(cfg.permittedUrls && cfg.support, 'app-config.json is missing permittedUrls/support blocks');
+  // permittedUrls/support were dropped from the scaffolded config (nothing ever
+  // read them) — their reappearance would mean the template regressed.
+  must(
+    !('permittedUrls' in cfg) && !('support' in cfg),
+    'app-config.json still carries the removed permittedUrls/support blocks',
+  );
   if (opts.logoUri) {
     must(cfg.logoUri === opts.logoUri, `app-config.json logoUri ${JSON.stringify(cfg.logoUri)}`);
   }

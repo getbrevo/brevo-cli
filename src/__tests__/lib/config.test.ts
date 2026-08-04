@@ -558,6 +558,34 @@ describe('config', () => {
         expect(cfg).not.toHaveProperty('distribution');
       });
 
+      // `auth.type: "none"` is the *current* UI-app auth marker, not the interim
+      // distribution carrier — it must survive the read and never be misread as
+      // a distribution value.
+      it('preserves auth.type none and does not treat it as a distribution', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'none' },
+          ui_app: { extensionType: 'actionLink' },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth).toEqual({ type: 'none' });
+        expect(cfg?.distribution_type).toBe('private');
+      });
+
+      // permittedUrls/support were scaffolded into every config but never read;
+      // the read path drops them so the next write migrates old files.
+      it('drops the removed permittedUrls and support sections', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+          permittedUrls: { fetch: [], img: [], iframe: [], js: [], css: [] },
+          support: { supportEmail: 'user@example.com' },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg).not.toHaveProperty('permittedUrls');
+        expect(cfg).not.toHaveProperty('support');
+      });
+
       // auth.redirectUrls → auth.redirectUris (renamed to track the wire key
       // redirect_uris). The legacy key is read when the new one is absent and
       // dropped from the returned config, so any write-back migrates the file.

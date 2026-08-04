@@ -194,7 +194,11 @@ export interface UploadAppPayload {
   logo_uri: string;
   app_version: string;
   distribution_type: 'public' | 'private';
-  auth: {
+  // Absent for UI apps: their config carries `auth: { "type": "none" }` and no
+  // OAuth block travels on the wire — the key is omitted, not sent empty.
+  // ASSUMED contract until the server side ships (RELEASE-CHECKLIST.md →
+  // Before UI-apps GA). Always present for OAuth apps.
+  auth?: {
     scopes: string[];
     redirect_uris: string[];
   };

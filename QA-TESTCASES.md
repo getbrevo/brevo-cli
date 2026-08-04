@@ -614,13 +614,13 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 ### TC-12.3 — UI-app create writes the snapshot shape and no redirect URLs
 **Priority:** High
 **Steps:** Complete the UI-app flow — pick one or more record pages, then heading, subheading, redirect link (`https://…`), link target.
-**Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extensionType: "actionLink"`, `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth.scopes` is `["contacts:read","contacts:write"]` and there is **no** `auth.redirectUrls`. No `src/oauth/` directory, no feature prompt.
+**Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extensionType: "actionLink"`, `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth` is exactly `{ "type": "none" }` — **no** `scopes`, **no** `redirectUris` — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
 
 ### TC-12.4 — Upload sends the snapshot and is accepted
 **Priority:** High
 **Preconditions:** TC-12.3 done; ability to observe the request.
 **Steps:** `brevo app upload` from the project directory.
-**Expected:** The summary includes a `UI app:` block listing extension type / point(s) / heading / subheading / redirect link / link target, and **no** "Redirect URLs" row. The payload carries the block under the **`snapshot`** key (not `ui_app`) alongside `app_version`/`name`/`logo_uri`/`auth`. The server accepts it; `Version:` is printed and written back to `app-config.json`.
+**Expected:** The summary includes a `UI app:` block listing extension type / point(s) / heading / subheading / redirect link / link target, and **no** "Redirect URLs" row. The payload carries the block under the **`ui_app`** key alongside `app_version`/`name`/`logo_uri` and has **no `auth` key at all** (UI apps carry no OAuth block). The server accepts it; `Version:` is printed and written back to `app-config.json` with `auth` restored as exactly `{ "type": "none" }`.
 
 ### TC-12.5 — Editing only the snapshot is detected as a change
 **Priority:** High

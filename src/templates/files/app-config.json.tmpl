@@ -4,29 +4,16 @@
   "version": "{{APP_VERSION}}",
   "logoUri": "{{LOGO_URI}}",
   "distribution_type": "{{DISTRIBUTION}}",
+{{#if ui_app}}
+  "ui_app": {{UI_APP_JSON}},
+{{/if}}
   "auth": {
 {{#if oauth}}
     "scopes": {{SCOPES_JSON}},
     "redirectUris": {{REDIRECT_URLS_JSON}}
 {{/if}}
 {{#if ui_app}}
-    "scopes": {{SCOPES_JSON}}
+    "type": "none"
 {{/if}}
-  },
-{{#if ui_app}}
-  "ui_app": {{UI_APP_JSON}},
-{{/if}}
-  "permittedUrls": {
-    "fetch": [],
-    "img": [],
-    "iframe": [],
-    "js": [],
-    "css": []
-  },
-  "support": {
-    "supportEmail": "",
-    "documentationUrl": "",
-    "supportUrl": "",
-    "supportPhone": ""
   }
 }

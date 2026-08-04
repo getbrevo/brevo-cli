@@ -156,13 +156,8 @@ export const DEFAULT_SCOPES: readonly string[] = [
 ] as const;
 
 // ──────────────── UI apps (BEX-290) ────────────────
-// An action link reads record context rather than driving an OAuth flow, so it
-// starts from a narrower scope set than DEFAULT_SCOPES. Widen via `auth.scopes`
-// in app-config.json + `app upload`.
-export const DEFAULT_UI_APP_SCOPES: readonly string[] = [
-  'contacts:read',
-  'contacts:write',
-] as const;
+// A UI app has no OAuth block at all — its config carries `auth: { "type":
+// "none" }`, so there is no per-type default scope set (BEX-290 follow-up).
 
 /**
  * Extension-point slot grammar: `<location>.<place>.<kind>` (BEX-350).

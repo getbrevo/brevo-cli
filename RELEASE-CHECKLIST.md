@@ -132,6 +132,14 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       (`src/types.ts` `UploadAppPayload` and `upload.ts`). "snapshot" on the
       platform means the whole stored app config; this block is only its UI
       subset, hence the key.
+- [ ] **Confirm the no-auth wire contract for UI apps.** A UI app's config now
+      carries `auth: { "type": "none" }` (no scopes, no redirect URIs, no
+      jwtSecret — nothing OAuth is issued for it). The CLI therefore omits the
+      `scopes`/`redirect_uris` keys from `POST /apps` and omits the whole `auth`
+      key from the upload payload for UI apps. Both are ASSUMED to be tolerated
+      server-side (marked in `create.ts` / `upload.ts` / `types.ts`); confirm with
+      the app-store backend team, including what the server does with the OAuth
+      credentials it still issues at create time for UI apps.
 - [ ] **Confirm the deploy/remove endpoint contract.** `ENDPOINTS.APP_STORE_APP_DEPLOY`
       / `APP_STORE_APP_REMOVE` and `appService.deployApp` / `removeApp` currently
       assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the
@@ -716,3 +724,37 @@ everywhere (see the rename entry below).
 - [x] Full suite green: 733/733, lint clean.
 - [ ] Manual: `brevo app upload` against a real backend — confirm the printed
       and persisted version match the server's bumped `version` value.
+
+### UI apps: `auth: { "type": "none" }` and slimmer app-config.json
+
+**Change:** A UI app's config no longer carries an OAuth block: `auth` is
+exactly `{ "type": "none" }` — no scopes (the `DEFAULT_UI_APP_SCOPES` constant
+is gone), no redirect URIs, no jwtSecret. On the wire, `POST /apps` for a UI
+app omits the `scopes` key and the upload payload omits the whole `auth` key
+(ASSUMED server-tolerated — see *Before UI-apps GA*). `app upload` enforces
+the shape both ways: a UI-app config with `scopes`/`redirectUris` is rejected,
+as is `"type": "none"` on a config without `ui_app`. Additionally the unused
+`permittedUrls` and `support` sections were dropped from the scaffolded
+config for **both** app types (nothing ever read them); the read path strips
+them from legacy files so the next write migrates. The read path also carves
+`"none"` out of the interim `auth.type` → `distribution_type` migration.
+
+**Must hold true:**
+
+- [x] UI-app create sends no `scopes`/`redirect_uris` keys; upload sends no
+      `auth` key; write-back restores `auth: { type: 'none' }` verbatim.
+      Covered in `create.test.ts` / `upload.test.ts`.
+- [x] Auth-shape mismatches fail with actionable errors (3 paths covered in
+      `upload.test.ts`).
+- [x] `readProjectConfig` preserves `auth.type: "none"` (not folded into
+      `distribution_type`, not deleted as the interim key) and drops
+      `permittedUrls`/`support`. Covered in `config.test.ts`.
+- [x] OAuth flows unchanged: same create/upload payloads, scopes and redirect
+      validation intact. Full suite green: 885/885.
+- [ ] Manual: create a UI app end-to-end from a local build, inspect the
+      written `app-config.json` (auth block, no permittedUrls/support), and run
+      `brevo app upload` against a real backend to confirm the server accepts
+      the auth-less payload.
+- [ ] Manual: `brevo app upload` in an OAuth project scaffolded by an older
+      build (file still has `permittedUrls`/`support`) — upload succeeds and
+      the write-back drops both sections.
