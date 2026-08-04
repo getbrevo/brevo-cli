@@ -837,8 +837,8 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     must(cfg.logoUri === opts.logoUri, `app-config.json logoUri ${JSON.stringify(cfg.logoUri)}`);
   }
   const cfgUrls = asStringArray(
-    (cfg.auth as Record<string, unknown> | undefined)?.redirectUrls,
-    'app-config.json auth.redirectUrls',
+    (cfg.auth as Record<string, unknown> | undefined)?.redirectUris,
+    'app-config.json auth.redirectUris',
   );
   must(cfgUrls.includes(redirectUri), `app-config.json is missing redirect URL ${redirectUri}`);
 
@@ -882,13 +882,13 @@ export function uploadApp(state: State, app: SmokeApp): Record<string, unknown> 
   const auth = (cfg.auth ?? {}) as Record<string, unknown>;
   const nextName = renamedName(app);
   const nextUrls = [
-    ...asStringArray(auth.redirectUrls, 'app-config.json auth.redirectUrls'),
+    ...asStringArray(auth.redirectUris, 'app-config.json auth.redirectUris'),
     EXTRA_REDIRECT_URI,
   ];
   writeFileSync(
     configPath,
     JSON.stringify(
-      { ...cfg, appName: nextName, auth: { ...auth, redirectUrls: nextUrls } },
+      { ...cfg, appName: nextName, auth: { ...auth, redirectUris: nextUrls } },
       null,
       2,
     ),
@@ -930,8 +930,8 @@ export function uploadApp(state: State, app: SmokeApp): Record<string, unknown> 
     `app-config.json version ${JSON.stringify(written.version)} != response ${JSON.stringify(res.version)}`,
   );
   const writtenUrls = asStringArray(
-    (written.auth as Record<string, unknown> | undefined)?.redirectUrls,
-    'app-config.json auth.redirectUrls after upload',
+    (written.auth as Record<string, unknown> | undefined)?.redirectUris,
+    'app-config.json auth.redirectUris after upload',
   );
   must(
     writtenUrls.includes(app.redirectUri) && writtenUrls.includes(EXTRA_REDIRECT_URI),
