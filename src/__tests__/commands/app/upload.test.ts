@@ -32,7 +32,7 @@ const BASE_CONFIG = {
   distribution_type: 'private' as const,
   logoUri: '',
   version: '1.0.0',
-  auth: { scopes: ['contacts:read'], redirectUrls: ['http://localhost:3009/auth/callback'] },
+  auth: { scopes: ['contacts:read'], redirectUris: ['http://localhost:3009/auth/callback'] },
 };
 
 const BASE_REMOTE = {
@@ -49,16 +49,18 @@ const BASE_REMOTE = {
 };
 
 // Wire shape for appService.uploadApp()'s resolved response — distinct from
-// BASE_REMOTE (which mirrors OAuthApp / fetchApp's shape): auth is nested.
+// BASE_REMOTE (which mirrors OAuthApp / fetchApp's shape): distribution_type
+// is top-level and auth carries only scopes + redirect_uris (locked contract —
+// no server build ever nested distribution_type under auth in the response).
 const BASE_UPLOAD_RESPONSE = {
   app_id: '1',
   name: 'Test App',
   logo_uri: '',
-  app_version: '1.0.0',
+  version: '1.0.0',
+  distribution_type: 'private' as const,
   auth: {
-    distribution_type: 'private' as const,
     scopes: ['contacts:read'],
-    redirect_urls: ['http://localhost:3009/auth/callback'],
+    redirect_uris: ['http://localhost:3009/auth/callback'],
   },
 };
 
@@ -108,12 +110,12 @@ describe('app/upload', () => {
   it('always fetches remote state and shows the diff, even under --yes', async () => {
     const changedConfig = {
       ...BASE_CONFIG,
-      auth: { ...BASE_CONFIG.auth, redirectUrls: ['http://localhost:9999/auth/callback'] },
+      auth: { ...BASE_CONFIG.auth, redirectUris: ['http://localhost:9999/auth/callback'] },
     };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       ...BASE_REMOTE,
-      auth: { ...BASE_REMOTE, redirect_urls: ['http://localhost:9999/auth/callback'] },
+      auth: { ...BASE_REMOTE, redirect_uris: ['http://localhost:9999/auth/callback'] },
     });
 
     await uploadCommand({ yes: true });
@@ -170,7 +172,7 @@ describe('app/upload', () => {
     expect(appService.uploadApp).not.toHaveBeenCalled();
   });
 
-  it('POSTs the correct wire shape — distribution_type nested under auth, app_version, redirect_urls', async () => {
+  it('POSTs the correct wire shape — top-level distribution_type, app_version, redirect_uris under auth', async () => {
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -185,12 +187,26 @@ describe('app/upload', () => {
       name: 'Renamed App',
       logo_uri: '',
       app_version: '1.0.0',
+      distribution_type: 'private',
       auth: {
-        distribution_type: 'private',
         scopes: ['contacts:read'],
-        redirect_urls: ['http://localhost:3009/auth/callback'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
       },
     });
+  });
+
+  it('blocks the upload when local distribution_type differs from the app on Brevo', async () => {
+    // distribution_type is immutable via upload. The server (BEX-355) rejects
+    // drift with a 422, but the CLI fast-fails first against the remote state
+    // it already fetches for the diff — no round trip wasted on a doomed push.
+    (readProjectConfig as jest.Mock).mockReturnValue({
+      ...BASE_CONFIG,
+      distribution_type: 'public' as const,
+    });
+
+    await expect(uploadCommand({ yes: true })).rejects.toThrow(/distribution/i);
+    expect(appService.uploadApp).not.toHaveBeenCalled();
+    expect(writeProjectConfig).not.toHaveBeenCalled();
   });
 
   it('never sends a ui_app field', async () => {
@@ -214,11 +230,11 @@ describe('app/upload', () => {
       app_id: '1',
       name: 'Renamed App',
       logo_uri: '',
-      app_version: '2.0.0',
+      version: '2.0.0',
+      distribution_type: 'private',
       auth: {
-        distribution_type: 'private',
         scopes: ['contacts:read'],
-        redirect_urls: ['http://localhost:3009/auth/callback'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
       },
     });
 
@@ -230,22 +246,77 @@ describe('app/upload', () => {
     expect(saveAppName).toHaveBeenCalledWith('1', 'Renamed App');
   });
 
-  it('captures the new version when the upload response names it `version` (not `app_version`)', async () => {
-    // Some upload responses mirror the app object and return the bumped version
-    // under `version` (like GET/list) rather than `app_version`. The CLI must
-    // still persist and display the new value, never silently keep the old one.
+  it('persists the server-confirmed distribution_type when the response carries it top-level', async () => {
+    // Current server builds return distribution_type at the top level of the
+    // upload response; the auth block only carries scopes + redirect_uris. The
+    // write-back must pick up the server-confirmed value, not silently fall
+    // back to whatever the local config already said.
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       app_id: '1',
       name: 'Renamed App',
       logo_uri: '',
-      // no app_version; new version arrives under `version`
       version: '2.0.0',
+      distribution_type: 'public',
       auth: {
-        distribution_type: 'private',
         scopes: ['contacts:read'],
-        redirect_urls: ['http://localhost:3009/auth/callback'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
+    });
+
+    await uploadCommand({ yes: true });
+
+    expect(writeProjectConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ distribution_type: 'public' }),
+    );
+  });
+
+  it('keeps the local scopes/redirect URLs when the response auth carries nulls', async () => {
+    // The auth key is always present in the upload response, but its values are
+    // null (not empty arrays, not absent) when the stored snapshot has no OAuth
+    // block — e.g. UI-only apps. The write-back must fall back to what was sent
+    // rather than persisting nulls or crashing.
+    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      app_id: '1',
+      name: 'Renamed App',
+      logo_uri: '',
+      version: '2.0.0',
+      distribution_type: 'private',
+      auth: { scopes: null, redirect_uris: null },
+    });
+
+    await uploadCommand({ yes: true });
+
+    expect(writeProjectConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        auth: {
+          scopes: ['contacts:read'],
+          redirectUris: ['http://localhost:3009/auth/callback'],
+        },
+      }),
+    );
+  });
+
+  it('captures the new version when the upload response names it `app_version` (not `version`)', async () => {
+    // The BO emits the bumped version under `version` (canonical — see
+    // UploadAppResponse), but the CLI tolerates the request-side key
+    // `app_version` too, so a server build that mirrors the request naming
+    // never makes the CLI silently keep the old value.
+    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      app_id: '1',
+      name: 'Renamed App',
+      logo_uri: '',
+      // no `version`; new version arrives under the request-side key
+      app_version: '2.0.0',
+      distribution_type: 'private',
+      auth: {
+        scopes: ['contacts:read'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
       },
     });
 
@@ -279,7 +350,7 @@ describe('app/upload', () => {
   it('throws when app-config.json has no redirect URLs', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...BASE_CONFIG,
-      auth: { ...BASE_CONFIG.auth, redirectUrls: [] },
+      auth: { ...BASE_CONFIG.auth, redirectUris: [] },
     });
 
     await expect(uploadCommand({ yes: true })).rejects.toThrow(/no redirect URLs/i);
@@ -288,7 +359,7 @@ describe('app/upload', () => {
   it('rejects an invalid redirect URL protocol', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...BASE_CONFIG,
-      auth: { ...BASE_CONFIG.auth, redirectUrls: ['ftp://bad'] },
+      auth: { ...BASE_CONFIG.auth, redirectUris: ['ftp://bad'] },
     });
 
     await expect(uploadCommand({ yes: true })).rejects.toThrow(/http:\/\/ or https:\/\//);

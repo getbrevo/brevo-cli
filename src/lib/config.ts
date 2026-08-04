@@ -404,14 +404,13 @@ export interface ProjectConfig {
   appName: string;
   version?: string;
   logoUri?: string;
-  cliVersion?: string;
   createdAt?: string;
   updatedAt?: string;
   /** Distribution type of the app: 'private' or 'public' */
   distribution_type: 'private' | 'public';
   auth: {
     scopes: string[];
-    redirectUrls?: string[];
+    redirectUris?: string[];
   };
   permittedUrls: {
     fetch: string[];
@@ -460,6 +459,21 @@ export function readProjectConfig(): ProjectConfig | null {
       if (Array.isArray(scopes)) {
         authOverride = { ...rawAuth, scopes: splitScopes(scopes as string[]) };
       }
+    }
+    // Redirect URLs were renamed auth.redirectUrls → auth.redirectUris to track
+    // the wire key (redirect_uris, BEX-355/366). Read the legacy key when the
+    // new one is absent and drop it from the returned config, so callers that
+    // write the object back to disk (upload.ts, start.ts) migrate old projects
+    // on their next write. Downgrade caveat: older CLI releases read only the
+    // legacy key, so a migrated file fails loudly there ("no redirect URLs"),
+    // never silently.
+    if (rawAuth && typeof rawAuth === 'object' && 'redirectUrls' in rawAuth) {
+      authOverride = authOverride ?? { ...rawAuth };
+      const legacyRedirects = (rawAuth as Record<string, unknown>).redirectUrls;
+      if (!Array.isArray(authOverride.redirectUris) && Array.isArray(legacyRedirects)) {
+        authOverride.redirectUris = legacyRedirects;
+      }
+      delete authOverride.redirectUrls;
     }
     // distribution_type has moved twice: originally a top-level `distribution`
     // key (still the shape of every currently-published scaffold), briefly

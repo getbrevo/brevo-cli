@@ -297,3 +297,201 @@ no step logic changed in the move.
       symlinked there. An earlier live run passed 26/26 against *that* package
       instead of the branch build. Invoke it directly meanwhile:
       `PATH="$HOME/.yarn/bin:$PATH" ./node_modules/.bin/tsx scripts/smoke-test.ts --skip-auth`
+
+### Upload write-back reads top-level `distribution_type` from the response
+
+**Change:** `uploadProjectConfig` (`src/commands/app/upload.ts`) read the
+server-confirmed distribution only from `response.auth.distribution_type` — a
+shape the upload-service owners confirmed **no server build has ever emitted**
+(the upload response returns `distribution_type` top-level; its `auth` block
+carries only `scopes` + `redirect_uris`, per the service's locked OpenAPI
+contract). The `?? config.distribution_type` fallback masked the break —
+nothing errored, but the write-back never persisted the server-confirmed value.
+The read is now `response.distribution_type ?? config.distribution_type`; the
+nested read was dropped entirely as confirmed-dead code, so there is no
+backward-compat concern. `UploadAppResponse` gained the top-level field, and
+its `auth.scopes`/`auth.redirect_uris` are typed `string[] | null` — the
+service owners confirmed they come back `null` (not absent, not `[]`) when the
+stored snapshot has no OAuth block (UI-only apps). Request payload is
+untouched — `UploadAppPayload` still nests `distribution_type` under `auth`,
+which the service owners confirmed remains the locked request contract
+(top-level would 400 under strict binding; no move planned).
+
+**Must hold true:**
+
+- [x] A response with top-level `distribution_type` persists the server value
+      into `app-config.json`. Covered by the new `upload.test.ts` case
+      (`persists the server-confirmed distribution_type…`), watched failing
+      before the fix.
+- [x] A response with `"auth":{"scopes":null,"redirect_uris":null}` keeps the
+      locally-sent scopes/redirect URLs — no nulls persisted, no crash. Covered
+      by `keeps the local scopes/redirect URLs when the response auth carries
+      nulls`.
+- [x] A response missing `distribution_type` entirely still falls back to the
+      local config value (`??` chain unchanged on that side).
+- [x] Full suite green (732/732), `tsc --noEmit` clean, lint clean.
+- [ ] Manual: `brevo app upload` against a current server build, then inspect
+      `app-config.json` — `distribution_type` must match the server's echo, not
+      merely the pre-upload local value.
+
+### Upload request sends top-level `distribution_type`; server enforces immutability, CLI fast-fails drift
+
+**Change:** Decision reversed from the earlier "drop the field" plan on this
+branch: the upload *request* keeps `distribution_type`, moved from `auth` to
+the **top level** of the body — fixing the request/response asymmetry (the
+response and `OAuthApp` were always top-level; distribution is an app-level
+attribute, not an OAuth setting). The server side (BEX-355) declares the
+top-level field and rejects drift with its 422 ("distribution_type cannot be
+changed via upload"). The client-side guard added on this branch **stays** as
+a fast-fail UX layer: after the (pre-existing) remote fetch, if the remote
+distribution differs from `app-config.json`'s, `uploadCommand` throws
+`APP_UPLOAD_DISTRIBUTION_IMMUTABLE` before rendering the diff, prompting, or
+pushing — in interactive, `--yes`, and `--json` modes alike. The guard is
+skipped when the server reports no distribution (server check is then the only
+enforcement). The response side is unchanged (top-level `distribution_type`,
+write-back as before). Docs already describe the field as immutable-with-error;
+the changeset no longer claims the field is absent from the request.
+
+**Must hold true:**
+
+- [x] The upload POST body carries `distribution_type` at the **top level**
+      (not under `auth`; `auth` carries only `scopes` + `redirect_uris`).
+      Covered by the wire-shape test in `upload.test.ts` and the byte-for-byte
+      pass-through test in `app.test.ts`.
+- [x] Local `distribution_type` differing from the remote app blocks the upload
+      with the immutability error — `uploadApp` and `writeProjectConfig` are
+      never called. Covered by `blocks the upload when local distribution_type
+      differs…`.
+- [x] Full suite green (733/733), `tsc --noEmit` clean, lint clean.
+- [ ] Server side (BEX-355): the upload request schema **declares top-level
+      `distribution_type`** (strict binding must accept it; it must no longer
+      require the old `auth.distribution_type` nesting) and validates it
+      against the stored app — 422 with a "distribution_type cannot be changed
+      via upload"-style message on mismatch, no partial write. Confirm whether
+      the field is required or optional-when-present; the CLI always sends it,
+      so either works, but the contract doc should say which.
+- [ ] Sequencing: pre-BEX-355 server builds bind strictly and expect the old
+      `auth.distribution_type` nesting — this CLI must not release before the
+      server change deploys (note it in the PR).
+- [ ] Manual: `brevo app upload` with matching `distribution_type` succeeds
+      against the BEX-355 server build (top-level field in the request body).
+- [ ] Manual: edit `distribution_type` in a real project's `app-config.json` to
+      the other value and run `brevo app upload` — expect the CLI immutability
+      error naming both values, exit non-zero, and no server call after the
+      initial fetch. (Server 422 is the backstop if the guard is ever bypassed,
+      e.g. remote fetch reports no distribution.)
+
+### Upload `auth` block renames `redirect_urls` → `redirect_uris`
+
+**Change:** The upload request/response `auth` block now uses `redirect_uris`,
+the key every other surface already uses (create/PATCH endpoints, OAuth
+service, stored snapshot, `OAuthApp`/`fetchApp`, RFC 7591). Upload was the lone
+holdout with `redirect_urls`; renamed pre-release on both sides in the same
+coordinated pass as the top-level `distribution_type` move (server:
+`app-store-bo-be` `feat/bex-355-cli-snapshot-contract`). `UploadAppPayload`'s quirk
+comment now lists only `app_version` as intentional divergence.
+`app-config.json` follows in a second step (see the next entry): the local key
+is now `auth.redirectUris` too, with the legacy `redirectUrls` still read and
+migrated on write-back.
+
+**Must hold true:**
+
+- [x] The upload POST body's `auth` carries `redirect_uris` (not
+      `redirect_urls`). Covered by the wire-shape test in `upload.test.ts` and
+      the pass-through test in `app.test.ts`.
+- [x] Write-back reads `response.auth.redirect_uris` (null tolerated, keeps
+      locally-sent values). Covered by the null write-back test.
+- [x] Full suite green (733/733), `tsc --noEmit` clean, lint clean.
+- [ ] Server side: upload request binds `auth.redirect_uris`, response echoes
+      the same key, and a body still sending `redirect_urls` gets the strict
+      400 naming the key (proves the rename can't fail silently).
+- [ ] Manual (against the paired server build): `brevo app upload` changing a
+      redirect URL round-trips — new URL pushed, server echo written back into
+      `app-config.json`.
+
+### `app-config.json` renames `auth.redirectUrls` → `auth.redirectUris` (tolerant read, migrate-on-write)
+
+**Change:** The local config key now matches the wire key: `ProjectConfig.auth`
+carries `redirectUris`, `readProjectConfig` reads the legacy `redirectUrls`
+when the new key is absent (new key wins when both are present) and drops it
+from the returned object — so every write-back (`upload`, `app start`,
+credentials backfill) migrates old projects automatically, same pattern as the
+legacy `distribution`/`auth.type` handling. Scaffold template, user-facing
+messages (`en.ts`), `SKILL.md`, README template, and QA cases all say
+`redirectUris` now. **Known downgrade caveat (accepted):** older CLI releases
+read only `redirectUrls`, so a migrated file fails loudly there
+("No redirect URLs") — never silently.
+
+**Must hold true:**
+
+- [x] Legacy `redirectUrls` config is read correctly and the returned object
+      carries only `redirectUris`. Covered by the three new
+      `config.test.ts` cases (legacy read, both-keys precedence, write-back
+      migration round-trip).
+- [x] Full suite green (736/736), `tsc --noEmit` clean, lint clean.
+- [ ] Manual: in a project whose `app-config.json` still says `redirectUrls`,
+      run `brevo app upload` — upload succeeds and the file afterwards says
+      `redirectUris` with the same values.
+- [ ] Manual: fresh `brevo app create` scaffold writes `redirectUris`.
+
+### Drop `cli_version` from request bodies and `cliVersion` from app-config.json
+
+**Change:** `createApp` and `uploadApp` (`src/services/app.ts`) no longer spread
+`cli_version` into the request body — the upload endpoint binds
+strictly and 400s on unknown top-level keys, and the version already travels on
+every request in the `User-Agent` header (`src/lib/telemetry.ts`). The scaffold
+no longer stamps `cliVersion` into `app-config.json` (template line, `{{CLI_VERSION}}`
+var, `ProjectConfig.cliVersion` type all removed — nothing ever read the field).
+`source: 'cli'` on create is deliberately untouched (see `TODO.md`).
+
+**Must hold true:**
+
+- [x] `uploadApp` POSTs the `UploadAppPayload` byte-for-byte — no extra top-level
+      keys. Covered by the updated `app.test.ts` assertion including an explicit
+      `not.toHaveProperty('cli_version')`.
+- [x] `createApp` body carries only the payload plus `source: 'cli'`. Covered by
+      `app.test.ts`.
+- [x] Template vars no longer include `{{CLI_VERSION}}` and the scaffolded
+      `app-config.json` has no `cliVersion` line. Covered by `scaffold.test.ts`.
+- [x] Full suite green: 730/730, lint clean, `tsc --noEmit` clean.
+- [ ] Manual: `brevo app upload` against a strict server build (one that rejects
+      unknown keys) succeeds where it previously 400'd. Blocked on access to a
+      server build with the BEX-355 contract merged.
+- [ ] Manual: `brevo app create` still succeeds against the current backend (which
+      tolerated `cli_version`) — i.e. removing the key is backward-compatible with
+      lenient builds too.
+- [x] Reviewer: confirm with the upload-service owners that nothing *requires*
+      `cli_version` in the body (telemetry should read the `User-Agent` header,
+      which is unchanged and covered by `telemetry.test.ts` / `client.test.ts`).
+      **Confirmed by the service owners 2026-08-03:** zero references to
+      `cli_version` server-side — upload (strict) 400s on it, PATCH/create
+      silently ignore it, and telemetry reads the structured `User-Agent` from
+      the request log. The header approach is final.
+- [ ] Manual: run `brevo app upload` in a project whose `app-config.json` still
+      carries a legacy `cliVersion` field — upload must succeed and the write-back
+      may silently drop the field (fill-only semantics unaffected).
+
+### Upload response version key: `version` is canonical, `app_version` is the fallback
+
+**Change:** Verified against the BO source (`app-store-bo-be`
+`http_cli_upload_app.go`): the upload *response* returns the bumped version
+under `version` (plus optional `display_version`), not `app_version` — that
+name is request-side only. `UploadAppResponse` (`src/types.ts`) and the
+write-back in `src/commands/app/upload.ts` now read `version` first with
+`app_version` kept as a tolerated fallback (precedence flipped; both keys were
+already read, so no behavior change against any real server build). Test
+fixtures updated to mirror the BO response shape. Redirect naming was
+re-confirmed in the same pass and has since been aligned: upload used to be
+the lone endpoint saying `redirect_urls`; the key is now `redirect_uris`
+everywhere (see the rename entry below).
+
+**Must hold true:**
+
+- [x] A response carrying only `version` persists and prints the bumped value.
+      Covered by `upload.test.ts` (canonical fixtures now use `version`).
+- [x] A response carrying only `app_version` still works (tolerance path).
+      Covered by `captures the new version when the upload response names it
+      'app_version'`.
+- [x] Full suite green: 733/733, lint clean.
+- [ ] Manual: `brevo app upload` against a real backend — confirm the printed
+      and persisted version match the server's bumped `version` value.

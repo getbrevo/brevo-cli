@@ -318,7 +318,7 @@ describe('config', () => {
       expect(getEmail()).toBe('custom@test.com');
     });
 
-    it('should strip redirectUrls from app credentials during migration', () => {
+    it('should strip redirectUris from app credentials during migration', () => {
       writeRawCredentials({
         profiles: { default: { apiKey: 'key-1', accountEmail: 'a@b.com' } },
         activeProfile: 'default',
@@ -326,17 +326,17 @@ describe('config', () => {
           '1': {
             clientId: 'c1',
             clientSecret: 's1',
-            redirectUrls: ['http://localhost:3000'],
+            redirectUris: ['http://localhost:3000'],
           },
         },
       });
 
       const app = getAppCredentials('1');
       expect(app).toEqual({ clientId: 'c1', clientSecret: 's1' });
-      expect((app as unknown as Record<string, unknown>)?.redirectUrls).toBeUndefined();
+      expect((app as unknown as Record<string, unknown>)?.redirectUris).toBeUndefined();
     });
 
-    it('should strip redirectUrls from app credentials on normal read', () => {
+    it('should strip redirectUris from app credentials on normal read', () => {
       writeRawCredentials({
         apiKey: 'key-1',
         accountEmail: 'a@b.com',
@@ -344,7 +344,7 @@ describe('config', () => {
           '1': {
             clientId: 'c1',
             clientSecret: 's1',
-            redirectUrls: ['http://localhost:3000'],
+            redirectUris: ['http://localhost:3000'],
           },
         },
       });
@@ -492,7 +492,7 @@ describe('config', () => {
       it('backfills distribution_type from the oldest legacy top-level distribution key', () => {
         writeConfig({
           appId: '42',
-          auth: { scopes: ['crm:read'], redirectUrls: [] },
+          auth: { scopes: ['crm:read'], redirectUris: [] },
           distribution: 'public',
         });
         const cfg = readProjectConfig();
@@ -556,6 +556,51 @@ describe('config', () => {
         });
         const cfg = readProjectConfig();
         expect(cfg).not.toHaveProperty('distribution');
+      });
+
+      // auth.redirectUrls → auth.redirectUris (renamed to track the wire key
+      // redirect_uris). The legacy key is read when the new one is absent and
+      // dropped from the returned config, so any write-back migrates the file.
+      it('reads redirect URLs from the legacy auth.redirectUrls key', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'private',
+          auth: { scopes: ['crm:read'], redirectUrls: ['https://example.com/cb'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth.redirectUris).toEqual(['https://example.com/cb']);
+        expect(cfg?.auth).not.toHaveProperty('redirectUrls');
+      });
+
+      it('prefers auth.redirectUris over the legacy key when both are present', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'private',
+          auth: {
+            scopes: ['crm:read'],
+            redirectUris: ['https://new.example.com/cb'],
+            redirectUrls: ['https://old.example.com/cb'],
+          },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth.redirectUris).toEqual(['https://new.example.com/cb']);
+        expect(cfg?.auth).not.toHaveProperty('redirectUrls');
+      });
+
+      it('migrates the legacy redirect key on write-back (writeProjectConfig round-trip)', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'private',
+          auth: { scopes: ['crm:read'], redirectUrls: ['https://example.com/cb'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg).not.toBeNull();
+        writeProjectConfig(cfg as NonNullable<typeof cfg>);
+        const onDisk = JSON.parse(
+          fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'),
+        );
+        expect(onDisk.auth.redirectUris).toEqual(['https://example.com/cb']);
+        expect(onDisk.auth).not.toHaveProperty('redirectUrls');
       });
 
       it('does not carry the interim auth.type key forward in the returned config', () => {

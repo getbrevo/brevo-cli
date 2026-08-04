@@ -159,7 +159,7 @@ async function promptRedirectUrls(quiet: boolean): Promise<string[]> {
     logInfo(messages.APP_CREATE_REDIRECT_HINT(CLI.APP_START('oauth')));
   }
 
-  const redirectUrls: string[] = [];
+  const redirectUris: string[] = [];
   const { redirectUrl: firstUrl } = await inquirer.prompt([
     {
       type: 'input',
@@ -169,7 +169,7 @@ async function promptRedirectUrls(quiet: boolean): Promise<string[]> {
       validate: validateRedirectUrl,
     },
   ]);
-  redirectUrls.push((firstUrl as string).trim());
+  redirectUris.push((firstUrl as string).trim());
 
   while (await promptAddAnotherRedirect()) {
     const { nextUrl } = await inquirer.prompt([
@@ -180,9 +180,9 @@ async function promptRedirectUrls(quiet: boolean): Promise<string[]> {
         validate: validateRedirectUrl,
       },
     ]);
-    redirectUrls.push((nextUrl as string).trim());
+    redirectUris.push((nextUrl as string).trim());
   }
-  return redirectUrls;
+  return redirectUris;
 }
 
 // 3. Redirect URI(s) — already validated by collectUrls parser when passed via flag
@@ -259,7 +259,7 @@ async function resolveCreateDirectory(
 interface CreateAppInputs {
   appName: string;
   distribution: string;
-  redirectUrls: string[];
+  redirectUris: string[];
   logoUri?: string;
 }
 
@@ -272,7 +272,7 @@ function buildCreatePayload(inputs: CreateAppInputs) {
   return {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
-    redirect_uris: inputs.redirectUrls,
+    redirect_uris: inputs.redirectUris,
     scopes: [...DEFAULT_SCOPES],
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
@@ -355,13 +355,13 @@ export const createCommand = withCommandHandler(
 
     const appName = await resolveAppName(options.name);
     const distribution = await resolveDistribution(options.distribution);
-    const redirectUrls = await resolveRedirectUrls(options.redirectUri, jsonMode);
+    const redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
     const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
 
     const interactive = !jsonMode && !!process.stdin.isTTY;
     const dir = await resolveCreateDirectory(appName, interactive);
 
-    const inputs: CreateAppInputs = { appName, distribution, redirectUrls, logoUri };
+    const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri };
     const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
 
     // Store app credentials locally — client_secret may not be retrievable again

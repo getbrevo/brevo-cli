@@ -123,7 +123,7 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
     currentName: remote.name,
     nextName: config.appName,
     currentUrls: remote.redirect_uris ?? [],
-    nextUrls: config.auth?.redirectUrls ?? [],
+    nextUrls: config.auth?.redirectUris ?? [],
     currentLogoUri: remote.logo_uri,
     nextLogoUri: config.logoUri ?? '',
     currentScopes: remote.scopes ?? [],
@@ -199,14 +199,82 @@ function hasNoChanges(diff: UploadDiff): boolean {
   );
 }
 
+export interface ConfigUploadOutcome {
+  confirmedVersion: string;
+  finalName: string;
+}
+
+/**
+ * Push the config's full desired state to the server — the single write path
+ * for app state (BEX-366) — and persist the server's echo back into
+ * app-config.json so the local copy always tracks the confirmed version.
+ *
+ * The upload contract needs the server's latest version as a staleness token;
+ * when none is known (neither passed in nor stored in the config), the remote
+ * app is fetched to obtain one.
+ */
+export async function uploadProjectConfig(
+  config: NonNullable<ProjectConfig>,
+  opts: { silent?: boolean; appVersion?: string } = {},
+): Promise<ConfigUploadOutcome> {
+  const redirectUris = config.auth?.redirectUris ?? [];
+  const scopes = config.auth?.scopes ?? [];
+
+  let appVersion = opts.appVersion ?? config.version ?? '';
+  if (!appVersion) {
+    appVersion = (await fetchExistingApp(config.appId, opts.silent)).version ?? '';
+  }
+
+  const spinner = createSpinner('Uploading app...', { silent: opts.silent });
+  let response: UploadAppResponse;
+  try {
+    response = await appService.uploadApp(config.appId, {
+      app_id: config.appId,
+      name: config.appName,
+      logo_uri: config.logoUri ?? '',
+      app_version: appVersion,
+      distribution_type: config.distribution_type,
+      auth: {
+        scopes,
+        redirect_uris: redirectUris,
+      },
+    });
+  } finally {
+    spinner.stop();
+  }
+
+  const finalName = response.name ?? config.appName;
+  if (finalName) saveAppName(config.appId, finalName);
+
+  // Single source of truth for the version we persist AND print, so the two can
+  // never diverge. The server returns the bumped value under `version` (see
+  // UploadAppResponse); fall back to `app_version` for tolerance, and only then
+  // to the version we sent — so a server-confirmed bump always wins.
+  const confirmedVersion = response.version ?? response.app_version ?? appVersion;
+
+  writeProjectConfig({
+    ...config,
+    appName: finalName,
+    logoUri: response.logo_uri ?? config.logoUri,
+    distribution_type: response.distribution_type ?? config.distribution_type,
+    version: confirmedVersion,
+    auth: {
+      scopes: response.auth.scopes ?? scopes,
+      redirectUris: response.auth.redirect_uris ?? redirectUris,
+    },
+  });
+
+  return { confirmedVersion, finalName };
+}
+
 export const uploadCommand = withCommandHandler(async (options: UploadOptions): Promise<void> => {
   const config = loadUsableConfig();
 
-  const redirectUrls = config.auth?.redirectUrls ?? [];
-  if (redirectUrls.length === 0) {
+  const redirectUris = config.auth?.redirectUris ?? [];
+  if (redirectUris.length === 0) {
     throw new CliError(messages.APP_UPLOAD_NO_REDIRECT_URLS);
   }
-  validateRedirectUrls(redirectUrls);
+  validateRedirectUrls(redirectUris);
 
   const scopes = config.auth?.scopes ?? [];
   validateScopes(scopes);
@@ -217,6 +285,17 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   // Unconditional: --json and --yes both still fetch + diff, per BEX-250.
   const remote = await fetchExistingApp(config.appId, options.json);
   const diff = buildDiff(config, remote);
+
+  // distribution_type is immutable via upload. The server (BEX-355) rejects
+  // drift with a 422, but that would burn the round trip — fast-fail here
+  // against the remote state we just fetched, before prompting or pushing.
+  // Skipped when the server didn't report a distribution to compare against
+  // (the server-side check then remains the only enforcement).
+  if (diff.currentDistribution && diff.currentDistribution !== diff.nextDistribution) {
+    throw new CliError(
+      messages.APP_UPLOAD_DISTRIBUTION_IMMUTABLE(diff.currentDistribution, diff.nextDistribution),
+    );
+  }
 
   if (!options.json) {
     renderUploadDiff(diff);
@@ -254,43 +333,9 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     }
   }
 
-  const spinner = createSpinner('Uploading app...', { silent: options.json });
-  let response: UploadAppResponse;
-  try {
-    response = await appService.uploadApp(config.appId, {
-      app_id: config.appId,
-      name: config.appName,
-      logo_uri: config.logoUri ?? '',
-      app_version: diff.nextVersion,
-      auth: {
-        distribution_type: config.distribution_type,
-        scopes,
-        redirect_urls: redirectUrls,
-      },
-    });
-  } finally {
-    spinner.stop();
-  }
-
-  const finalName = response.name ?? config.appName;
-  if (finalName) saveAppName(config.appId, finalName);
-
-  // Single source of truth for the version we persist AND print, so the two can
-  // never diverge. Prefer the upload contract's `app_version`, fall back to
-  // `version` (some server builds return the bumped value under that key), and
-  // only then to the version we sent — so a server-confirmed bump always wins.
-  const confirmedVersion = response.app_version ?? response.version ?? diff.nextVersion;
-
-  writeProjectConfig({
-    ...config,
-    appName: finalName,
-    logoUri: response.logo_uri ?? config.logoUri,
-    distribution_type: response.auth.distribution_type ?? config.distribution_type,
-    version: confirmedVersion,
-    auth: {
-      scopes: response.auth.scopes ?? scopes,
-      redirectUrls: response.auth.redirect_urls ?? redirectUrls,
-    },
+  const { confirmedVersion, finalName } = await uploadProjectConfig(config, {
+    silent: options.json,
+    appVersion: diff.nextVersion,
   });
 
   if (options.json) {
