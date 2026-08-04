@@ -91,7 +91,7 @@ const matchingLocalConfig = {
   distribution_type: 'private' as const,
   logoUri: '',
   version: '1.0.0',
-  auth: { scopes: ['contacts:read'], redirectUrls: ['http://localhost:3009/auth/callback'] },
+  auth: { scopes: ['contacts:read'], redirectUris: ['http://localhost:3009/auth/callback'] },
 };
 
 describe('app/scaffold', () => {
@@ -233,7 +233,7 @@ describe('app/scaffold', () => {
     it('shows the diff and refreshes the base config (full overwrite) on consent', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
-        auth: { scopes: ['contacts:read'], redirectUrls: ['http://old-host/cb'] },
+        auth: { scopes: ['contacts:read'], redirectUris: ['http://old-host/cb'] },
       });
       mockPrompt
         .mockResolvedValueOnce({ confirmed: true })
@@ -242,7 +242,7 @@ describe('app/scaffold', () => {
       await scaffoldCommand({});
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-      expect(output).toContain('redirectUrls');
+      expect(output).toContain('redirectUris');
       expect(output).toContain('differs from the server');
 
       const { loadBaseTemplates, loadFeatureTemplates } = require('../../../templates');
@@ -259,7 +259,7 @@ describe('app/scaffold', () => {
         {
           auth: {
             scopes: ['contacts:write'],
-            redirectUrls: ['http://localhost:3009/auth/callback'],
+            redirectUris: ['http://localhost:3009/auth/callback'],
           },
         },
         'scopes',
@@ -286,7 +286,7 @@ describe('app/scaffold', () => {
     it('cancels without writing when the config differs and the user declines', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
-        auth: { scopes: ['contacts:read'], redirectUrls: ['http://old-host/cb'] },
+        auth: { scopes: ['contacts:read'], redirectUris: ['http://old-host/cb'] },
       });
       mockPrompt.mockResolvedValueOnce({ confirmed: false });
 
@@ -342,7 +342,7 @@ describe('app/scaffold', () => {
     it('cancels and surfaces the diffs (no prompt) when the config differs', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
-        auth: { scopes: ['contacts:read'], redirectUrls: ['http://old-host/cb'] },
+        auth: { scopes: ['contacts:read'], redirectUris: ['http://old-host/cb'] },
       });
 
       await scaffoldCommand({ json: true });
@@ -353,7 +353,7 @@ describe('app/scaffold', () => {
       const parsed = JSON.parse(output);
       expect(parsed.cancelled).toBe(true);
       expect(parsed.diffs).toEqual(
-        expect.arrayContaining([expect.objectContaining({ field: 'redirectUrls' })]),
+        expect.arrayContaining([expect.objectContaining({ field: 'redirectUris' })]),
       );
     });
 
@@ -391,7 +391,7 @@ describe('app/scaffold', () => {
       },
       clientId: 'cli-123',
       clientSecret: 'secret-456',
-      redirectUrls: ['http://localhost:3009/auth/callback'],
+      redirectUris: ['http://localhost:3009/auth/callback'],
       redirectUri: 'http://localhost:3009/auth/callback',
     };
 
@@ -521,7 +521,7 @@ describe('app/scaffold', () => {
       },
       clientId: 'cli-123',
       clientSecret: 'secret-456',
-      redirectUrls: ['http://localhost:3009/auth/callback'],
+      redirectUris: ['http://localhost:3009/auth/callback'],
       redirectUri: 'http://localhost:3009/auth/callback',
     };
 

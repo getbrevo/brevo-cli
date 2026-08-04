@@ -28,8 +28,8 @@ const FEATURES: Record<string, { entry: string; description: string }> = {
  * (host = localhost or 127.0.0.1) on the given port, or undefined.
  * Unparseable URLs are skipped.
  */
-function findMatchingLocalRedirect(redirectUrls: string[], port: number): string | undefined {
-  return redirectUrls.find((url) => {
+function findMatchingLocalRedirect(redirectUris: string[], port: number): string | undefined {
+  return redirectUris.find((url) => {
     try {
       const parsed = new URL(url);
       const hostMatches = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
@@ -55,8 +55,8 @@ async function ensureRedirectRegistered(
   config: ProjectConfig,
   port: number,
 ): Promise<string | undefined> {
-  const redirectUrls = config.auth?.redirectUrls ?? [];
-  const existing = findMatchingLocalRedirect(redirectUrls, port);
+  const redirectUris = config.auth?.redirectUris ?? [];
+  const existing = findMatchingLocalRedirect(redirectUris, port);
   if (existing) return existing;
 
   const newRedirectUrl = `http://localhost:${port}/auth/callback`;
@@ -85,7 +85,7 @@ async function ensureRedirectRegistered(
   // single write path for app state. Never PATCH fields directly (BEX-366).
   const updatedConfig: ProjectConfig = {
     ...config,
-    auth: { ...config.auth, redirectUrls: [...redirectUrls, newRedirectUrl] },
+    auth: { ...config.auth, redirectUris: [...redirectUris, newRedirectUrl] },
   };
   writeProjectConfig(updatedConfig);
 
@@ -128,7 +128,7 @@ function resolveFeatureEntry(feature: string | undefined): string {
 
 function resolvePort(config: ProjectConfig | null, optionsPort?: number): number {
   if (optionsPort) return optionsPort;
-  const redirectUrl = config?.auth?.redirectUrls?.[0];
+  const redirectUrl = config?.auth?.redirectUris?.[0];
   if (!redirectUrl) return DEFAULT_PORT;
   try {
     const parsed = new URL(redirectUrl);

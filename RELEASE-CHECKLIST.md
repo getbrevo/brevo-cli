@@ -388,10 +388,11 @@ the key every other surface already uses (create/PATCH endpoints, OAuth
 service, stored snapshot, `OAuthApp`/`fetchApp`, RFC 7591). Upload was the lone
 holdout with `redirect_urls`; renamed pre-release on both sides in the same
 coordinated pass as the top-level `distribution_type` move (server:
-`app-store-bo-be` `feat/bex-355-cli-snapshot-contract`). `app-config.json`'s
-camelCase `redirectUrls` is deliberately untouched — it's the partner-facing
-local file, and the CLI translates either way. `UploadAppPayload`'s quirk
+`app-store-bo-be` `feat/bex-355-cli-snapshot-contract`). `UploadAppPayload`'s quirk
 comment now lists only `app_version` as intentional divergence.
+`app-config.json` follows in a second step (see the next entry): the local key
+is now `auth.redirectUris` too, with the legacy `redirectUrls` still read and
+migrated on write-back.
 
 **Must hold true:**
 
@@ -407,6 +408,31 @@ comment now lists only `app_version` as intentional divergence.
 - [ ] Manual (against the paired server build): `brevo app upload` changing a
       redirect URL round-trips — new URL pushed, server echo written back into
       `app-config.json`.
+
+### `app-config.json` renames `auth.redirectUrls` → `auth.redirectUris` (tolerant read, migrate-on-write)
+
+**Change:** The local config key now matches the wire key: `ProjectConfig.auth`
+carries `redirectUris`, `readProjectConfig` reads the legacy `redirectUrls`
+when the new key is absent (new key wins when both are present) and drops it
+from the returned object — so every write-back (`upload`, `app start`,
+credentials backfill) migrates old projects automatically, same pattern as the
+legacy `distribution`/`auth.type` handling. Scaffold template, user-facing
+messages (`en.ts`), `SKILL.md`, README template, and QA cases all say
+`redirectUris` now. **Known downgrade caveat (accepted):** older CLI releases
+read only `redirectUrls`, so a migrated file fails loudly there
+("No redirect URLs") — never silently.
+
+**Must hold true:**
+
+- [x] Legacy `redirectUrls` config is read correctly and the returned object
+      carries only `redirectUris`. Covered by the three new
+      `config.test.ts` cases (legacy read, both-keys precedence, write-back
+      migration round-trip).
+- [x] Full suite green (736/736), `tsc --noEmit` clean, lint clean.
+- [ ] Manual: in a project whose `app-config.json` still says `redirectUrls`,
+      run `brevo app upload` — upload succeeds and the file afterwards says
+      `redirectUris` with the same values.
+- [ ] Manual: fresh `brevo app create` scaffold writes `redirectUris`.
 
 ### Drop `cli_version` from request bodies and `cliVersion` from app-config.json
 

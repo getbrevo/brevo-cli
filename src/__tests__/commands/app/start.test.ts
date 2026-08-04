@@ -163,7 +163,7 @@ describe('app/start', () => {
     (readProjectConfig as jest.Mock).mockReturnValueOnce({
       appId: '42',
       appName: 'Test',
-      auth: { type: 'oauth', scopes: [], redirectUrls: ['http://localhost:3010/auth/callback'] },
+      auth: { type: 'oauth', scopes: [], redirectUris: ['http://localhost:3010/auth/callback'] },
     });
 
     const mockChild = makeMockChild();
@@ -233,7 +233,7 @@ describe('app/start', () => {
         auth: {
           type: 'oauth',
           scopes: ['all'],
-          redirectUrls: ['http://localhost:3009/auth/callback'],
+          redirectUris: ['http://localhost:3009/auth/callback'],
         },
       });
 
@@ -249,7 +249,7 @@ describe('app/start', () => {
         auth: {
           type: 'oauth',
           scopes: ['contacts:read', 'crm:read'],
-          redirectUrls: ['http://localhost:3009/auth/callback'],
+          redirectUris: ['http://localhost:3009/auth/callback'],
         },
       });
 
@@ -266,12 +266,12 @@ describe('app/start', () => {
 
   describe('redirect-URL self-registration', () => {
     const ttyConfig = (
-      redirectUrls: string[] = [],
+      redirectUris: string[] = [],
       overrides: Partial<{ appId: string }> = {},
     ): Record<string, unknown> => ({
       appId: '42',
       appName: 'Test',
-      auth: { type: 'oauth', scopes: [], redirectUrls },
+      auth: { type: 'oauth', scopes: [], redirectUris },
       ...overrides,
     });
 
@@ -355,7 +355,7 @@ describe('app/start', () => {
       // server's echo after the upload confirms the version.
       expect(writeProjectConfig).toHaveBeenCalledTimes(2);
       const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
-      expect(written.auth.redirectUrls).toEqual([
+      expect(written.auth.redirectUris).toEqual([
         'https://prod.example.com/cb',
         'http://localhost:4000/auth/callback',
       ]);

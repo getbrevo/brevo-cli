@@ -130,6 +130,7 @@ describe('app/credentials', () => {
     expect(parsed.clientId).toBe('cli-123');
     expect(parsed.clientSecret).toBe('[hidden]');
     expect(parsed.redirectUris).toEqual(['http://localhost:3000', 'https://example.com/cb']);
+    // The old key must not appear — credentials JSON has always said redirectUris.
     expect(parsed.redirectUrls).toBeUndefined();
   });
 

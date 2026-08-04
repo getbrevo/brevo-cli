@@ -69,7 +69,7 @@ export interface AppContext {
     : null;
   clientId: string;
   clientSecret: string;
-  redirectUrls: string[];
+  redirectUris: string[];
   redirectUri: string;
 }
 
@@ -96,15 +96,15 @@ export async function fetchAppContext(appId: string, silent?: boolean): Promise<
     appService.syncAppCredentials(appId, result.app);
   }
   const serverRedirectUrls = appDetails?.redirect_uris ?? [];
-  const redirectUrls = serverRedirectUrls.length > 0 ? serverRedirectUrls : [DEFAULT_REDIRECT_URI];
-  const localhostUri = redirectUrls.find(
+  const redirectUris = serverRedirectUrls.length > 0 ? serverRedirectUrls : [DEFAULT_REDIRECT_URI];
+  const localhostUri = redirectUris.find(
     (url: string) => url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1'),
   );
   return {
     appDetails,
     clientId: appDetails?.client_id || PLACEHOLDER_CLIENT_ID,
     clientSecret: appDetails?.client_secret || 'YOUR_CLIENT_SECRET',
-    redirectUrls,
+    redirectUris,
     redirectUri: localhostUri || DEFAULT_REDIRECT_URI,
   };
 }
@@ -213,13 +213,13 @@ function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDif
     });
   }
 
-  const localRedirects = [...(localConfig.auth?.redirectUrls ?? [])].sort((a, b) =>
+  const localRedirects = [...(localConfig.auth?.redirectUris ?? [])].sort((a, b) =>
     a.localeCompare(b),
   );
-  const serverRedirects = [...ctx.redirectUrls].sort((a, b) => a.localeCompare(b));
+  const serverRedirects = [...ctx.redirectUris].sort((a, b) => a.localeCompare(b));
   if (JSON.stringify(localRedirects) !== JSON.stringify(serverRedirects)) {
     diffs.push({
-      field: 'redirectUrls',
+      field: 'redirectUris',
       local: localRedirects.join(', ') || '(none)',
       server: serverRedirects.join(', ') || '(none)',
     });
@@ -302,7 +302,7 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
     '{{CLIENT_ID}}': ctx.clientId,
     '{{CLIENT_SECRET}}': ctx.clientSecret,
     '{{REDIRECT_URI}}': ctx.redirectUri,
-    '{{REDIRECT_URLS_JSON}}': JSON.stringify(ctx.redirectUrls),
+    '{{REDIRECT_URLS_JSON}}': JSON.stringify(ctx.redirectUris),
     '{{SCOPES_JSON}}': JSON.stringify(scopes),
     '{{DISTRIBUTION}}': ctx.appDetails?.distribution_type ?? 'private',
     '{{LOGO_URI}}': ctx.appDetails?.logo_uri ?? '',

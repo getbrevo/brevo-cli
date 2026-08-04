@@ -48,7 +48,7 @@ function computeConfigDrift(config: ProjectConfig, remote: OAuthApp): FieldDrift
       remote: asList(remote.name),
     });
   }
-  const localUrls = config.auth?.redirectUrls ?? [];
+  const localUrls = config.auth?.redirectUris ?? [];
   const remoteUrls = remote.redirect_uris ?? [];
   if (!arraysEqualAsSets(localUrls, remoteUrls)) {
     drift.push({

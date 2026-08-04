@@ -32,7 +32,7 @@ const BASE_CONFIG = {
   distribution_type: 'private' as const,
   logoUri: '',
   version: '1.0.0',
-  auth: { scopes: ['contacts:read'], redirectUrls: ['http://localhost:3009/auth/callback'] },
+  auth: { scopes: ['contacts:read'], redirectUris: ['http://localhost:3009/auth/callback'] },
 };
 
 const BASE_REMOTE = {
@@ -110,7 +110,7 @@ describe('app/upload', () => {
   it('always fetches remote state and shows the diff, even under --yes', async () => {
     const changedConfig = {
       ...BASE_CONFIG,
-      auth: { ...BASE_CONFIG.auth, redirectUrls: ['http://localhost:9999/auth/callback'] },
+      auth: { ...BASE_CONFIG.auth, redirectUris: ['http://localhost:9999/auth/callback'] },
     };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -294,7 +294,7 @@ describe('app/upload', () => {
       expect.objectContaining({
         auth: {
           scopes: ['contacts:read'],
-          redirectUrls: ['http://localhost:3009/auth/callback'],
+          redirectUris: ['http://localhost:3009/auth/callback'],
         },
       }),
     );
@@ -350,7 +350,7 @@ describe('app/upload', () => {
   it('throws when app-config.json has no redirect URLs', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...BASE_CONFIG,
-      auth: { ...BASE_CONFIG.auth, redirectUrls: [] },
+      auth: { ...BASE_CONFIG.auth, redirectUris: [] },
     });
 
     await expect(uploadCommand({ yes: true })).rejects.toThrow(/no redirect URLs/i);
@@ -359,7 +359,7 @@ describe('app/upload', () => {
   it('rejects an invalid redirect URL protocol', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...BASE_CONFIG,
-      auth: { ...BASE_CONFIG.auth, redirectUrls: ['ftp://bad'] },
+      auth: { ...BASE_CONFIG.auth, redirectUris: ['ftp://bad'] },
     });
 
     await expect(uploadCommand({ yes: true })).rejects.toThrow(/http:\/\/ or https:\/\//);

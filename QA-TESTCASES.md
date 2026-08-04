@@ -278,13 +278,13 @@ brevo app create --name "QA Flags App" --distribution private \
 
 ### TC-5.10 — Invalid redirect URL/protocol → error
 **Priority:** Medium
-**Steps:** Put `ftp://x` into `auth.redirectUrls`, run `brevo app upload`.
+**Steps:** Put `ftp://x` into `auth.redirectUris`, run `brevo app upload`.
 **Expected:** Friendly invalid-redirect error; no push.
 
 ### TC-5.11 — Success writes server-confirmed values back to `app-config.json`
 **Priority:** High
 **Steps:** Change the name locally, `brevo app upload --yes`, then inspect `app-config.json`.
-**Expected:** File updated with server-confirmed name, logo, `distribution_type`, `version`, scopes, redirectUrls. `brevo app list` reflects the new name (cached-name masking may apply briefly).
+**Expected:** File updated with server-confirmed name, logo, `distribution_type`, `version`, scopes, redirectUris. `brevo app list` reflects the new name (cached-name masking may apply briefly).
 
 ### TC-5.12 — Server rejection propagates
 **Priority:** Medium
@@ -445,20 +445,21 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
   "appId": "42",
   "appName": "Legacy App",
   "distribution": "public",
-  "auth": { "scopes": ["contacts_read"], "redirectUrls": ["https://example.com/cb"] }
+  "auth": { "scopes": ["contacts_read"], "redirectUris": ["https://example.com/cb"] }
 }
 ```
 **Steps:** `brevo app upload` (make no changes first, then a small change).
 **Expected:**
 - CLI reads it without error; treats distribution as `public`.
-- After a successful `upload`, the file is **migrated** on write to a top-level `distribution_type: "public"`, with the stray top-level `distribution` key gone and `auth` reduced to `{ scopes, redirectUrls }`.
+- After a successful `upload`, the file is **migrated** on write to a top-level `distribution_type: "public"`, with the stray top-level `distribution` key gone and `auth` reduced to `{ scopes, redirectUris }`.
+- Same migration applies to the redirect key: a config still saying `auth.redirectUrls` uploads fine, and after any write-back the file says `auth.redirectUris` (old key gone). New key wins if both are present.
 - No crash, no data loss.
 
 ### TC-9.2 — Interim `auth.type` shape migrates
 **Priority:** High
 **Preconditions:** `app-config.json` with the never-released interim shape:
 ```json
-{ "appId": "42", "appName": "Interim", "auth": { "type": "public", "scopes": ["contacts_read"], "redirectUrls": ["https://example.com/cb"] } }
+{ "appId": "42", "appName": "Interim", "auth": { "type": "public", "scopes": ["contacts_read"], "redirectUris": ["https://example.com/cb"] } }
 ```
 **Steps:** `brevo app upload --yes` (with a change), then inspect the file.
 **Expected:** Distribution read as `public`; after write, `auth.type` is dropped and `distribution_type: "public"` is at top level.

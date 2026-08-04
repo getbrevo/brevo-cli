@@ -123,7 +123,7 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
     currentName: remote.name,
     nextName: config.appName,
     currentUrls: remote.redirect_uris ?? [],
-    nextUrls: config.auth?.redirectUrls ?? [],
+    nextUrls: config.auth?.redirectUris ?? [],
     currentLogoUri: remote.logo_uri,
     nextLogoUri: config.logoUri ?? '',
     currentScopes: remote.scopes ?? [],
@@ -217,7 +217,7 @@ export async function uploadProjectConfig(
   config: NonNullable<ProjectConfig>,
   opts: { silent?: boolean; appVersion?: string } = {},
 ): Promise<ConfigUploadOutcome> {
-  const redirectUrls = config.auth?.redirectUrls ?? [];
+  const redirectUris = config.auth?.redirectUris ?? [];
   const scopes = config.auth?.scopes ?? [];
 
   let appVersion = opts.appVersion ?? config.version ?? '';
@@ -236,7 +236,7 @@ export async function uploadProjectConfig(
       distribution_type: config.distribution_type,
       auth: {
         scopes,
-        redirect_uris: redirectUrls,
+        redirect_uris: redirectUris,
       },
     });
   } finally {
@@ -260,7 +260,7 @@ export async function uploadProjectConfig(
     version: confirmedVersion,
     auth: {
       scopes: response.auth.scopes ?? scopes,
-      redirectUrls: response.auth.redirect_uris ?? redirectUrls,
+      redirectUris: response.auth.redirect_uris ?? redirectUris,
     },
   });
 
@@ -270,11 +270,11 @@ export async function uploadProjectConfig(
 export const uploadCommand = withCommandHandler(async (options: UploadOptions): Promise<void> => {
   const config = loadUsableConfig();
 
-  const redirectUrls = config.auth?.redirectUrls ?? [];
-  if (redirectUrls.length === 0) {
+  const redirectUris = config.auth?.redirectUris ?? [];
+  if (redirectUris.length === 0) {
     throw new CliError(messages.APP_UPLOAD_NO_REDIRECT_URLS);
   }
-  validateRedirectUrls(redirectUrls);
+  validateRedirectUrls(redirectUris);
 
   const scopes = config.auth?.scopes ?? [];
   validateScopes(scopes);
