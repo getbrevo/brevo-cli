@@ -61,14 +61,16 @@ export interface CreateAppResponse {
 // version), and redirect URLs are redirect_urls (not redirect_uris like every
 // other endpoint). These are confirmed, intentional quirks of this one
 // endpoint — do not "fix" them to match OAuthApp's naming. distribution_type
-// is deliberately absent: it is immutable via upload, so the BEX-355 contract
-// dropped it from the request (strict binding rejects unknown keys); the CLI
-// guards against local drift before uploading instead.
+// is top-level (BEX-355 contract), matching the response and OAuthApp — it is
+// an app-level attribute, not an OAuth setting. It is sent but immutable: the
+// server 400s when it differs from the stored app, and the CLI additionally
+// fast-fails on drift before uploading.
 export interface UploadAppPayload {
   app_id: string;
   name: string;
   logo_uri: string;
   app_version: string;
+  distribution_type: 'public' | 'private';
   auth: {
     scopes: string[];
     redirect_urls: string[];
@@ -79,12 +81,14 @@ export interface UploadAppResponse {
   app_id: string;
   name: string;
   logo_uri?: string;
-  // The bumped version lives in `app_version` per the locked upload contract,
-  // but tolerate `version` too: some server builds mirror the app object (which
-  // uses `version` everywhere else — see OAuthApp). Reading both means a new
-  // version is never silently dropped just because of which key the server used.
-  app_version?: string;
+  // The bumped version lives in `version` — confirmed against the BO source
+  // (app-store-bo-be cliUploadAppResponse), which emits `version` (+ optional
+  // `display_version`), same as the app object everywhere else. `app_version`
+  // is request-side naming only; tolerate it here as a fallback so a server
+  // build that ever mirrors the request key can't silently drop the bump.
   version?: string;
+  app_version?: string;
+  display_version?: string;
   // Top-level in the response (locked, server-confirmed contract) — only the
   // *request* nests distribution_type under auth. No server build has ever
   // emitted it inside the response's auth block.

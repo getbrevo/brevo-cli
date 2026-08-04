@@ -233,6 +233,7 @@ export async function uploadProjectConfig(
       name: config.appName,
       logo_uri: config.logoUri ?? '',
       app_version: appVersion,
+      distribution_type: config.distribution_type,
       auth: {
         scopes,
         redirect_urls: redirectUrls,
@@ -246,10 +247,10 @@ export async function uploadProjectConfig(
   if (finalName) saveAppName(config.appId, finalName);
 
   // Single source of truth for the version we persist AND print, so the two can
-  // never diverge. Prefer the upload contract's `app_version`, fall back to
-  // `version` (some server builds return the bumped value under that key), and
-  // only then to the version we sent — so a server-confirmed bump always wins.
-  const confirmedVersion = response.app_version ?? response.version ?? appVersion;
+  // never diverge. The server returns the bumped value under `version` (see
+  // UploadAppResponse); fall back to `app_version` for tolerance, and only then
+  // to the version we sent — so a server-confirmed bump always wins.
+  const confirmedVersion = response.version ?? response.app_version ?? appVersion;
 
   writeProjectConfig({
     ...config,
@@ -285,10 +286,11 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   const remote = await fetchExistingApp(config.appId, options.json);
   const diff = buildDiff(config, remote);
 
-  // distribution_type is immutable via upload and no longer part of the
-  // request (BEX-355 contract), so the server can't reject drift anymore —
-  // enforce it here against the remote state we just fetched. Skipped when
-  // the server didn't report a distribution to compare against.
+  // distribution_type is immutable via upload. The server (BEX-355) rejects
+  // drift with a 400, but that would burn the round trip — fast-fail here
+  // against the remote state we just fetched, before prompting or pushing.
+  // Skipped when the server didn't report a distribution to compare against
+  // (the server-side check then remains the only enforcement).
   if (diff.currentDistribution && diff.currentDistribution !== diff.nextDistribution) {
     throw new CliError(
       messages.APP_UPLOAD_DISTRIBUTION_IMMUTABLE(diff.currentDistribution, diff.nextDistribution),

@@ -12,15 +12,17 @@
       Confirmed by the upload-service owners 2026-08-03: zero server-side references —
       upload (strict) 400s on it, PATCH/create silently ignore it, telemetry reads the
       structured `User-Agent` from the request log. Header approach is final.
-- [x] **Drop `distribution_type` from the upload *request*.** Agreed with the server
-      side — they are removing it from the upload request in the BEX-355 contract
-      (the field is immutable via upload, and the endpoint had zero released
-      consumers). CLI side landed on this branch: removed from `UploadAppPayload.auth`
-      and the POST body, client-side drift guard added in `uploadCommand` (errors with
-      `APP_UPLOAD_DISTRIBUTION_IMMUTABLE` when local `distribution_type` differs from
-      the fetched remote value, preserving the old server-400 UX), wire-shape tests and
-      docs updated. Verify against a server build with the BEX-355 contract before
-      release (see RELEASE-CHECKLIST.md).
+- [x] **~~Drop~~ Keep `distribution_type` in the upload *request*, moved top-level** —
+      decision reversed 2026-08-04: the field stays in the request and moves from
+      `auth` to the top level of the body, matching the response and `OAuthApp`
+      (fixes the request/response asymmetry); the server remains the immutability
+      authority. CLI side re-landed on this branch: top-level
+      `UploadAppPayload.distribution_type` and the POST body updated; the client-side
+      drift guard in `uploadCommand` (`APP_UPLOAD_DISTRIBUTION_IMMUTABLE`) is kept as
+      a fast-fail before the server's 400. Server side (BEX-355) must declare
+      top-level `distribution_type` in the upload schema and 400 on mismatch with the
+      stored app — see the per-branch entry in RELEASE-CHECKLIST.md for the exact
+      server checklist.
 - [ ] **Port the `cli_version` removal to the `BEX-290_ui-components` worktree.** That
       branch still injects `cli_version` at three sites in `src/services/app.ts`
       (createApp, updateApp, uploadApp — lines ~160/171/178) plus the template/type

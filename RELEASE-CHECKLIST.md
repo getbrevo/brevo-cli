@@ -334,41 +334,52 @@ which the service owners confirmed remains the locked request contract
       `app-config.json` — `distribution_type` must match the server's echo, not
       merely the pre-upload local value.
 
-### Upload request drops `distribution_type`; drift is guarded client-side
+### Upload request sends top-level `distribution_type`; server enforces immutability, CLI fast-fails drift
 
-**Change:** Coordinated with the server side (BEX-355 contract): `distribution_type`
-is immutable via upload, so it is no longer part of the upload *request* at all —
-removed from `UploadAppPayload.auth` and the POST body in `uploadProjectConfig`.
-Because the server can no longer reject drift with its 400, `uploadCommand` now
-enforces it client-side: after the (pre-existing) remote fetch, if the remote
-distribution differs from `app-config.json`'s, it throws
+**Change:** Decision reversed from the earlier "drop the field" plan on this
+branch: the upload *request* keeps `distribution_type`, moved from `auth` to
+the **top level** of the body — fixing the request/response asymmetry (the
+response and `OAuthApp` were always top-level; distribution is an app-level
+attribute, not an OAuth setting). The server side (BEX-355) declares the
+top-level field and rejects drift with its 400 ("distribution_type cannot be
+changed via upload"). The client-side guard added on this branch **stays** as
+a fast-fail UX layer: after the (pre-existing) remote fetch, if the remote
+distribution differs from `app-config.json`'s, `uploadCommand` throws
 `APP_UPLOAD_DISTRIBUTION_IMMUTABLE` before rendering the diff, prompting, or
-pushing — in interactive, `--yes`, and `--json` modes alike. The guard is skipped
-when the server reports no distribution (nothing to compare against). The
-response side is unchanged (top-level `distribution_type`, write-back as before).
-`SKILL.md`/`AGENTS.md` no longer list `distribution_type` as editable-via-upload
-and document the immutability error instead; the changeset says the same.
+pushing — in interactive, `--yes`, and `--json` modes alike. The guard is
+skipped when the server reports no distribution (server check is then the only
+enforcement). The response side is unchanged (top-level `distribution_type`,
+write-back as before). Docs already describe the field as immutable-with-error;
+the changeset no longer claims the field is absent from the request.
 
 **Must hold true:**
 
-- [x] The upload POST body's `auth` carries only `scopes` + `redirect_urls` — no
-      `distribution_type`. Covered by the updated wire-shape test in
-      `upload.test.ts` and the byte-for-byte pass-through test in `app.test.ts`;
-      both watched failing before the change.
+- [x] The upload POST body carries `distribution_type` at the **top level**
+      (not under `auth`; `auth` carries only `scopes` + `redirect_urls`).
+      Covered by the wire-shape test in `upload.test.ts` and the byte-for-byte
+      pass-through test in `app.test.ts`.
 - [x] Local `distribution_type` differing from the remote app blocks the upload
       with the immutability error — `uploadApp` and `writeProjectConfig` are
       never called. Covered by `blocks the upload when local distribution_type
-      differs…`, watched failing before the guard existed.
+      differs…`.
 - [x] Full suite green (733/733), `tsc --noEmit` clean, lint clean.
-- [ ] Manual: against a server build with the BEX-355 contract, `brevo app
-      upload` succeeds with the field absent from the request (strict binding
-      accepts the body) — and against a pre-BEX-355 build, confirm whether the
-      server *requires* `auth.distribution_type` (if it does, this branch must
-      not release before the server change deploys; sequencing note for the PR).
+- [ ] Server side (BEX-355): the upload request schema **declares top-level
+      `distribution_type`** (strict binding must accept it; it must no longer
+      require the old `auth.distribution_type` nesting) and validates it
+      against the stored app — 400 with a "distribution_type cannot be changed
+      via upload"-style message on mismatch, no partial write. Confirm whether
+      the field is required or optional-when-present; the CLI always sends it,
+      so either works, but the contract doc should say which.
+- [ ] Sequencing: pre-BEX-355 server builds bind strictly and expect the old
+      `auth.distribution_type` nesting — this CLI must not release before the
+      server change deploys (note it in the PR).
+- [ ] Manual: `brevo app upload` with matching `distribution_type` succeeds
+      against the BEX-355 server build (top-level field in the request body).
 - [ ] Manual: edit `distribution_type` in a real project's `app-config.json` to
-      the other value and run `brevo app upload` — expect the immutability error
-      naming both values, exit non-zero, and no server call after the initial
-      fetch.
+      the other value and run `brevo app upload` — expect the CLI immutability
+      error naming both values, exit non-zero, and no server call after the
+      initial fetch. (Server 400 is the backstop if the guard is ever bypassed,
+      e.g. remote fetch reports no distribution.)
 
 ### Drop `cli_version` from request bodies and `cliVersion` from app-config.json
 
@@ -406,3 +417,27 @@ var, `ProjectConfig.cliVersion` type all removed — nothing ever read the field
 - [ ] Manual: run `brevo app upload` in a project whose `app-config.json` still
       carries a legacy `cliVersion` field — upload must succeed and the write-back
       may silently drop the field (fill-only semantics unaffected).
+
+### Upload response version key: `version` is canonical, `app_version` is the fallback
+
+**Change:** Verified against the BO source (`app-store-bo-be`
+`http_cli_upload_app.go`): the upload *response* returns the bumped version
+under `version` (plus optional `display_version`), not `app_version` — that
+name is request-side only. `UploadAppResponse` (`src/types.ts`) and the
+write-back in `src/commands/app/upload.ts` now read `version` first with
+`app_version` kept as a tolerated fallback (precedence flipped; both keys were
+already read, so no behavior change against any real server build). Test
+fixtures updated to mirror the BO response shape. Redirect naming re-confirmed
+in the same pass: upload uses `auth.redirect_urls`, every other endpoint uses
+`redirect_uris` — CLI already matches, no change.
+
+**Must hold true:**
+
+- [x] A response carrying only `version` persists and prints the bumped value.
+      Covered by `upload.test.ts` (canonical fixtures now use `version`).
+- [x] A response carrying only `app_version` still works (tolerance path).
+      Covered by `captures the new version when the upload response names it
+      'app_version'`.
+- [x] Full suite green: 733/733, lint clean.
+- [ ] Manual: `brevo app upload` against a real backend — confirm the printed
+      and persisted version match the server's bumped `version` value.

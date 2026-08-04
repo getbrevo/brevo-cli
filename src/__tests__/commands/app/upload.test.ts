@@ -56,7 +56,7 @@ const BASE_UPLOAD_RESPONSE = {
   app_id: '1',
   name: 'Test App',
   logo_uri: '',
-  app_version: '1.0.0',
+  version: '1.0.0',
   distribution_type: 'private' as const,
   auth: {
     scopes: ['contacts:read'],
@@ -172,10 +172,7 @@ describe('app/upload', () => {
     expect(appService.uploadApp).not.toHaveBeenCalled();
   });
 
-  it('POSTs the correct wire shape — auth carries only scopes + redirect_urls, app_version top-level', async () => {
-    // distribution_type is deliberately absent from the request (BEX-355
-    // contract): it is immutable via upload, so the server no longer accepts
-    // it in the body. The CLI guards drift client-side instead.
+  it('POSTs the correct wire shape — top-level distribution_type, app_version, redirect_urls under auth', async () => {
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -190,6 +187,7 @@ describe('app/upload', () => {
       name: 'Renamed App',
       logo_uri: '',
       app_version: '1.0.0',
+      distribution_type: 'private',
       auth: {
         scopes: ['contacts:read'],
         redirect_urls: ['http://localhost:3009/auth/callback'],
@@ -198,9 +196,9 @@ describe('app/upload', () => {
   });
 
   it('blocks the upload when local distribution_type differs from the app on Brevo', async () => {
-    // distribution_type is immutable via upload. The server used to enforce
-    // this with a 400; now the field isn't in the request at all, so the CLI
-    // enforces it against the remote state it already fetches for the diff.
+    // distribution_type is immutable via upload. The server (BEX-355) rejects
+    // drift with a 400, but the CLI fast-fails first against the remote state
+    // it already fetches for the diff — no round trip wasted on a doomed push.
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...BASE_CONFIG,
       distribution_type: 'public' as const,
@@ -232,7 +230,7 @@ describe('app/upload', () => {
       app_id: '1',
       name: 'Renamed App',
       logo_uri: '',
-      app_version: '2.0.0',
+      version: '2.0.0',
       distribution_type: 'private',
       auth: {
         scopes: ['contacts:read'],
@@ -259,7 +257,7 @@ describe('app/upload', () => {
       app_id: '1',
       name: 'Renamed App',
       logo_uri: '',
-      app_version: '2.0.0',
+      version: '2.0.0',
       distribution_type: 'public',
       auth: {
         scopes: ['contacts:read'],
@@ -285,7 +283,7 @@ describe('app/upload', () => {
       app_id: '1',
       name: 'Renamed App',
       logo_uri: '',
-      app_version: '2.0.0',
+      version: '2.0.0',
       distribution_type: 'private',
       auth: { scopes: null, redirect_urls: null },
     });
@@ -302,18 +300,19 @@ describe('app/upload', () => {
     );
   });
 
-  it('captures the new version when the upload response names it `version` (not `app_version`)', async () => {
-    // Some upload responses mirror the app object and return the bumped version
-    // under `version` (like GET/list) rather than `app_version`. The CLI must
-    // still persist and display the new value, never silently keep the old one.
+  it('captures the new version when the upload response names it `app_version` (not `version`)', async () => {
+    // The BO emits the bumped version under `version` (canonical — see
+    // UploadAppResponse), but the CLI tolerates the request-side key
+    // `app_version` too, so a server build that mirrors the request naming
+    // never makes the CLI silently keep the old value.
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       app_id: '1',
       name: 'Renamed App',
       logo_uri: '',
-      // no app_version; new version arrives under `version`
-      version: '2.0.0',
+      // no `version`; new version arrives under the request-side key
+      app_version: '2.0.0',
       distribution_type: 'private',
       auth: {
         scopes: ['contacts:read'],
