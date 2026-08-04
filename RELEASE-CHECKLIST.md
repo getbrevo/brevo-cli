@@ -304,13 +304,13 @@ no step logic changed in the move.
 server-confirmed distribution only from `response.auth.distribution_type` — a
 shape the upload-service owners confirmed **no server build has ever emitted**
 (the upload response returns `distribution_type` top-level; its `auth` block
-carries only `scopes` + `redirect_urls`, per the service's locked OpenAPI
+carries only `scopes` + `redirect_uris`, per the service's locked OpenAPI
 contract). The `?? config.distribution_type` fallback masked the break —
 nothing errored, but the write-back never persisted the server-confirmed value.
 The read is now `response.distribution_type ?? config.distribution_type`; the
 nested read was dropped entirely as confirmed-dead code, so there is no
 backward-compat concern. `UploadAppResponse` gained the top-level field, and
-its `auth.scopes`/`auth.redirect_urls` are typed `string[] | null` — the
+its `auth.scopes`/`auth.redirect_uris` are typed `string[] | null` — the
 service owners confirmed they come back `null` (not absent, not `[]`) when the
 stored snapshot has no OAuth block (UI-only apps). Request payload is
 untouched — `UploadAppPayload` still nests `distribution_type` under `auth`,
@@ -323,7 +323,7 @@ which the service owners confirmed remains the locked request contract
       into `app-config.json`. Covered by the new `upload.test.ts` case
       (`persists the server-confirmed distribution_type…`), watched failing
       before the fix.
-- [x] A response with `"auth":{"scopes":null,"redirect_urls":null}` keeps the
+- [x] A response with `"auth":{"scopes":null,"redirect_uris":null}` keeps the
       locally-sent scopes/redirect URLs — no nulls persisted, no crash. Covered
       by `keeps the local scopes/redirect URLs when the response auth carries
       nulls`.
@@ -355,7 +355,7 @@ the changeset no longer claims the field is absent from the request.
 **Must hold true:**
 
 - [x] The upload POST body carries `distribution_type` at the **top level**
-      (not under `auth`; `auth` carries only `scopes` + `redirect_urls`).
+      (not under `auth`; `auth` carries only `scopes` + `redirect_uris`).
       Covered by the wire-shape test in `upload.test.ts` and the byte-for-byte
       pass-through test in `app.test.ts`.
 - [x] Local `distribution_type` differing from the remote app blocks the upload
@@ -380,6 +380,33 @@ the changeset no longer claims the field is absent from the request.
       error naming both values, exit non-zero, and no server call after the
       initial fetch. (Server 422 is the backstop if the guard is ever bypassed,
       e.g. remote fetch reports no distribution.)
+
+### Upload `auth` block renames `redirect_urls` → `redirect_uris`
+
+**Change:** The upload request/response `auth` block now uses `redirect_uris`,
+the key every other surface already uses (create/PATCH endpoints, OAuth
+service, stored snapshot, `OAuthApp`/`fetchApp`, RFC 7591). Upload was the lone
+holdout with `redirect_urls`; renamed pre-release on both sides in the same
+coordinated pass as the top-level `distribution_type` move (server:
+`app-store-bo-be` `feat/bex-355-cli-snapshot-contract`). `app-config.json`'s
+camelCase `redirectUrls` is deliberately untouched — it's the partner-facing
+local file, and the CLI translates either way. `UploadAppPayload`'s quirk
+comment now lists only `app_version` as intentional divergence.
+
+**Must hold true:**
+
+- [x] The upload POST body's `auth` carries `redirect_uris` (not
+      `redirect_urls`). Covered by the wire-shape test in `upload.test.ts` and
+      the pass-through test in `app.test.ts`.
+- [x] Write-back reads `response.auth.redirect_uris` (null tolerated, keeps
+      locally-sent values). Covered by the null write-back test.
+- [x] Full suite green (733/733), `tsc --noEmit` clean, lint clean.
+- [ ] Server side: upload request binds `auth.redirect_uris`, response echoes
+      the same key, and a body still sending `redirect_urls` gets the strict
+      400 naming the key (proves the rename can't fail silently).
+- [ ] Manual (against the paired server build): `brevo app upload` changing a
+      redirect URL round-trips — new URL pushed, server echo written back into
+      `app-config.json`.
 
 ### Drop `cli_version` from request bodies and `cliVersion` from app-config.json
 
@@ -427,9 +454,10 @@ name is request-side only. `UploadAppResponse` (`src/types.ts`) and the
 write-back in `src/commands/app/upload.ts` now read `version` first with
 `app_version` kept as a tolerated fallback (precedence flipped; both keys were
 already read, so no behavior change against any real server build). Test
-fixtures updated to mirror the BO response shape. Redirect naming re-confirmed
-in the same pass: upload uses `auth.redirect_urls`, every other endpoint uses
-`redirect_uris` — CLI already matches, no change.
+fixtures updated to mirror the BO response shape. Redirect naming was
+re-confirmed in the same pass and has since been aligned: upload used to be
+the lone endpoint saying `redirect_urls`; the key is now `redirect_uris`
+everywhere (see the rename entry below).
 
 **Must hold true:**
 

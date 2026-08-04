@@ -56,15 +56,14 @@ export interface CreateAppResponse {
   updated_at: string;
 }
 
-// Wire shape for POST /v3/app-store/apps/{app_id}/upload — deliberately
-// distinct from OAuthApp: the version field is named app_version (not
-// version), and redirect URLs are redirect_urls (not redirect_uris like every
-// other endpoint). These are confirmed, intentional quirks of this one
-// endpoint — do not "fix" them to match OAuthApp's naming. distribution_type
-// is top-level (BEX-355 contract), matching the response and OAuthApp — it is
-// an app-level attribute, not an OAuth setting. It is sent but immutable: the
-// server 400s when it differs from the stored app, and the CLI additionally
-// fast-fails on drift before uploading.
+// Wire shape for POST /v3/app-store/apps/{app_id}/upload. One deliberate
+// quirk remains vs OAuthApp: the request's version field is named app_version
+// (not version) — confirmed, intentional, do not "fix" it. Everything else is
+// aligned (BEX-355 contract): redirect URIs are redirect_uris like every other
+// endpoint, and distribution_type is top-level, matching the response and
+// OAuthApp — it is an app-level attribute, not an OAuth setting. It is sent
+// but immutable: the server 422s when it differs from the stored app, and the
+// CLI additionally fast-fails on drift before uploading.
 export interface UploadAppPayload {
   app_id: string;
   name: string;
@@ -73,7 +72,7 @@ export interface UploadAppPayload {
   distribution_type: 'public' | 'private';
   auth: {
     scopes: string[];
-    redirect_urls: string[];
+    redirect_uris: string[];
   };
 }
 
@@ -89,15 +88,14 @@ export interface UploadAppResponse {
   version?: string;
   app_version?: string;
   display_version?: string;
-  // Top-level in the response (locked, server-confirmed contract) — only the
-  // *request* nests distribution_type under auth. No server build has ever
-  // emitted it inside the response's auth block.
+  // Top-level, same as the request (locked, server-confirmed contract). No
+  // server build has ever emitted it inside the response's auth block.
   distribution_type?: 'public' | 'private';
-  // The auth key is always present, but scopes/redirect_urls come back null
+  // The auth key is always present, but scopes/redirect_uris come back null
   // (not absent, not []) when the stored snapshot has no OAuth block, e.g.
   // UI-only apps. Treat null as "absent" — never iterate them directly.
   auth: {
     scopes?: string[] | null;
-    redirect_urls?: string[] | null;
+    redirect_uris?: string[] | null;
   };
 }

@@ -142,7 +142,7 @@ describe('services/app', () => {
         distribution_type: 'private',
         auth: {
           scopes: ['contacts:read'],
-          redirect_urls: ['http://localhost:3010/auth/callback'],
+          redirect_uris: ['http://localhost:3010/auth/callback'],
         },
       };
       (mockClient.post as jest.Mock).mockResolvedValue(response);
@@ -155,7 +155,7 @@ describe('services/app', () => {
         distribution_type: 'private',
         auth: {
           scopes: ['contacts:read'],
-          redirect_urls: ['http://localhost:3010/auth/callback'],
+          redirect_uris: ['http://localhost:3010/auth/callback'],
         },
       });
 
@@ -167,7 +167,7 @@ describe('services/app', () => {
         distribution_type: 'private',
         auth: {
           scopes: ['contacts:read'],
-          redirect_urls: ['http://localhost:3010/auth/callback'],
+          redirect_uris: ['http://localhost:3010/auth/callback'],
         },
       });
       expect((mockClient.post as jest.Mock).mock.calls[0][1]).not.toHaveProperty('cli_version');
@@ -183,7 +183,7 @@ describe('services/app', () => {
           logo_uri: '',
           app_version: '0.0.1',
           distribution_type: 'private',
-          auth: { scopes: [], redirect_urls: [] },
+          auth: { scopes: [], redirect_uris: [] },
         }),
       ).rejects.toThrow('app_version_outdated');
     });

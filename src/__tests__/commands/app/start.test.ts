@@ -347,7 +347,7 @@ describe('app/start', () => {
         expect.objectContaining({
           app_id: '42',
           auth: expect.objectContaining({
-            redirect_urls: ['https://prod.example.com/cb', 'http://localhost:4000/auth/callback'],
+            redirect_uris: ['https://prod.example.com/cb', 'http://localhost:4000/auth/callback'],
           }),
         }),
       );

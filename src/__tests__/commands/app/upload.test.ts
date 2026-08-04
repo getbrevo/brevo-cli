@@ -50,7 +50,7 @@ const BASE_REMOTE = {
 
 // Wire shape for appService.uploadApp()'s resolved response — distinct from
 // BASE_REMOTE (which mirrors OAuthApp / fetchApp's shape): distribution_type
-// is top-level and auth carries only scopes + redirect_urls (locked contract —
+// is top-level and auth carries only scopes + redirect_uris (locked contract —
 // no server build ever nested distribution_type under auth in the response).
 const BASE_UPLOAD_RESPONSE = {
   app_id: '1',
@@ -60,7 +60,7 @@ const BASE_UPLOAD_RESPONSE = {
   distribution_type: 'private' as const,
   auth: {
     scopes: ['contacts:read'],
-    redirect_urls: ['http://localhost:3009/auth/callback'],
+    redirect_uris: ['http://localhost:3009/auth/callback'],
   },
 };
 
@@ -115,7 +115,7 @@ describe('app/upload', () => {
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       ...BASE_REMOTE,
-      auth: { ...BASE_REMOTE, redirect_urls: ['http://localhost:9999/auth/callback'] },
+      auth: { ...BASE_REMOTE, redirect_uris: ['http://localhost:9999/auth/callback'] },
     });
 
     await uploadCommand({ yes: true });
@@ -172,7 +172,7 @@ describe('app/upload', () => {
     expect(appService.uploadApp).not.toHaveBeenCalled();
   });
 
-  it('POSTs the correct wire shape — top-level distribution_type, app_version, redirect_urls under auth', async () => {
+  it('POSTs the correct wire shape — top-level distribution_type, app_version, redirect_uris under auth', async () => {
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -190,7 +190,7 @@ describe('app/upload', () => {
       distribution_type: 'private',
       auth: {
         scopes: ['contacts:read'],
-        redirect_urls: ['http://localhost:3009/auth/callback'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
       },
     });
   });
@@ -234,7 +234,7 @@ describe('app/upload', () => {
       distribution_type: 'private',
       auth: {
         scopes: ['contacts:read'],
-        redirect_urls: ['http://localhost:3009/auth/callback'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
       },
     });
 
@@ -248,7 +248,7 @@ describe('app/upload', () => {
 
   it('persists the server-confirmed distribution_type when the response carries it top-level', async () => {
     // Current server builds return distribution_type at the top level of the
-    // upload response; the auth block only carries scopes + redirect_urls. The
+    // upload response; the auth block only carries scopes + redirect_uris. The
     // write-back must pick up the server-confirmed value, not silently fall
     // back to whatever the local config already said.
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
@@ -261,7 +261,7 @@ describe('app/upload', () => {
       distribution_type: 'public',
       auth: {
         scopes: ['contacts:read'],
-        redirect_urls: ['http://localhost:3009/auth/callback'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
       },
     });
 
@@ -285,7 +285,7 @@ describe('app/upload', () => {
       logo_uri: '',
       version: '2.0.0',
       distribution_type: 'private',
-      auth: { scopes: null, redirect_urls: null },
+      auth: { scopes: null, redirect_uris: null },
     });
 
     await uploadCommand({ yes: true });
@@ -316,7 +316,7 @@ describe('app/upload', () => {
       distribution_type: 'private',
       auth: {
         scopes: ['contacts:read'],
-        redirect_urls: ['http://localhost:3009/auth/callback'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
       },
     });
 

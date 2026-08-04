@@ -236,7 +236,7 @@ export async function uploadProjectConfig(
       distribution_type: config.distribution_type,
       auth: {
         scopes,
-        redirect_urls: redirectUrls,
+        redirect_uris: redirectUrls,
       },
     });
   } finally {
@@ -260,7 +260,7 @@ export async function uploadProjectConfig(
     version: confirmedVersion,
     auth: {
       scopes: response.auth.scopes ?? scopes,
-      redirectUrls: response.auth.redirect_urls ?? redirectUrls,
+      redirectUrls: response.auth.redirect_uris ?? redirectUrls,
     },
   });
 
