@@ -71,7 +71,7 @@ export interface AppContext {
     : null;
   clientId: string;
   clientSecret: string;
-  redirectUrls: string[];
+  redirectUris: string[];
   redirectUri: string;
   /**
    * The UI-app block to write into app-config.json (BEX-290). Unlike every other
@@ -116,15 +116,15 @@ export async function fetchAppContext(
     appService.syncAppCredentials(appId, result.app);
   }
   const serverRedirectUrls = appDetails?.redirect_uris ?? [];
-  const redirectUrls = serverRedirectUrls.length > 0 ? serverRedirectUrls : [DEFAULT_REDIRECT_URI];
-  const localhostUri = redirectUrls.find(
+  const redirectUris = serverRedirectUrls.length > 0 ? serverRedirectUrls : [DEFAULT_REDIRECT_URI];
+  const localhostUri = redirectUris.find(
     (url: string) => url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1'),
   );
   return {
     appDetails,
     clientId: appDetails?.client_id || PLACEHOLDER_CLIENT_ID,
     clientSecret: appDetails?.client_secret || 'YOUR_CLIENT_SECRET',
-    redirectUrls,
+    redirectUris,
     redirectUri: localhostUri || DEFAULT_REDIRECT_URI,
     ...(uiApp ? { uiApp } : {}),
   };
@@ -234,17 +234,17 @@ function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDif
     });
   }
 
-  // UI apps have no OAuth callback, and `ctx.redirectUrls` falls back to the
+  // UI apps have no OAuth callback, and `ctx.redirectUris` falls back to the
   // default localhost URI when the server returns none — comparing the two would
   // report a permanent phantom diff on every UI-app scaffold. Skip it entirely.
   if (!isUiAppConfig(localConfig)) {
-    const localRedirects = [...(localConfig.auth?.redirectUrls ?? [])].sort((a, b) =>
+    const localRedirects = [...(localConfig.auth?.redirectUris ?? [])].sort((a, b) =>
       a.localeCompare(b),
     );
-    const serverRedirects = [...ctx.redirectUrls].sort((a, b) => a.localeCompare(b));
+    const serverRedirects = [...ctx.redirectUris].sort((a, b) => a.localeCompare(b));
     if (JSON.stringify(localRedirects) !== JSON.stringify(serverRedirects)) {
       diffs.push({
-        field: 'redirectUrls',
+        field: 'redirectUris',
         local: localRedirects.join(', ') || '(none)',
         server: serverRedirects.join(', ') || '(none)',
       });
@@ -338,10 +338,6 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
   const defaultScopes = ctx.uiApp ? DEFAULT_UI_APP_SCOPES : DEFAULT_SCOPES;
   const scopes = granularScopes.length > 0 ? granularScopes : [...defaultScopes];
 
-  const pkg = JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'),
-  );
-  const cliVersion: string = pkg.version;
   const slug = computeSlug(ctx.appDetails?.name);
 
   const vars = {
@@ -351,14 +347,13 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
     '{{CLIENT_ID}}': ctx.clientId,
     '{{CLIENT_SECRET}}': ctx.clientSecret,
     '{{REDIRECT_URI}}': ctx.redirectUri,
-    '{{REDIRECT_URLS_JSON}}': JSON.stringify(ctx.redirectUrls),
+    '{{REDIRECT_URLS_JSON}}': JSON.stringify(ctx.redirectUris),
     '{{SCOPES_JSON}}': JSON.stringify(scopes),
     '{{DISTRIBUTION}}': ctx.appDetails?.distribution_type ?? 'private',
     '{{LOGO_URI}}': ctx.appDetails?.logo_uri ?? '',
     '{{APP_VERSION}}': ctx.appDetails?.version ?? '',
     '{{OAUTH_BASE}}': OAUTH_BASE,
     '{{OAUTH_REALM}}': OAUTH_REALM,
-    '{{CLI_VERSION}}': cliVersion,
     // Empty for OAuth apps — its emptiness is what selects the `oauth`
     // conditional branch in templates (see resolveTemplateFlags).
     '{{UI_APP_JSON}}': renderUiAppJson(ctx.uiApp),

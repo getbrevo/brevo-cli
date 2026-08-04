@@ -213,7 +213,7 @@ async function promptRedirectUrls(quiet: boolean): Promise<string[]> {
     logInfo(messages.APP_CREATE_REDIRECT_HINT(CLI.APP_START('oauth')));
   }
 
-  const redirectUrls: string[] = [];
+  const redirectUris: string[] = [];
   const { redirectUrl: firstUrl } = await inquirer.prompt([
     {
       type: 'input',
@@ -223,7 +223,7 @@ async function promptRedirectUrls(quiet: boolean): Promise<string[]> {
       validate: validateRedirectUrl,
     },
   ]);
-  redirectUrls.push((firstUrl as string).trim());
+  redirectUris.push((firstUrl as string).trim());
 
   while (await promptAddAnotherRedirect()) {
     const { nextUrl } = await inquirer.prompt([
@@ -234,9 +234,9 @@ async function promptRedirectUrls(quiet: boolean): Promise<string[]> {
         validate: validateRedirectUrl,
       },
     ]);
-    redirectUrls.push((nextUrl as string).trim());
+    redirectUris.push((nextUrl as string).trim());
   }
-  return redirectUrls;
+  return redirectUris;
 }
 
 // 3. Redirect URI(s) — already validated by collectUrls parser when passed via flag
@@ -480,7 +480,7 @@ async function resolveCreateDirectory(
 interface CreateAppInputs {
   appName: string;
   distribution: string;
-  redirectUrls: string[];
+  redirectUris: string[];
   logoUri?: string;
   /** Present for UI apps only; drives scope defaults and omits redirect URIs. */
   uiApp?: UiApp;
@@ -502,7 +502,7 @@ function buildCreatePayload(inputs: CreateAppInputs) {
     distribution_type: inputs.distribution as 'public' | 'private',
     // A UI app has no OAuth callback — sending an empty array (or worse, the
     // default localhost URI) would register a redirect URL it never uses.
-    ...(isUiApp ? {} : { redirect_uris: inputs.redirectUrls }),
+    ...(isUiApp ? {} : { redirect_uris: inputs.redirectUris }),
     scopes: isUiApp ? [...DEFAULT_UI_APP_SCOPES] : [...DEFAULT_SCOPES],
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
@@ -627,19 +627,19 @@ export const createCommand = withCommandHandler(
 
     // The two app types diverge here: OAuth apps collect callback URLs, UI apps
     // collect placement + destination. Neither path runs the other's prompts.
-    let redirectUrls: string[] = [];
+    let redirectUris: string[] = [];
     let uiApp: UiApp | undefined;
     if (appType === 'ui') {
       uiApp = await resolveUiApp();
     } else {
-      redirectUrls = await resolveRedirectUrls(options.redirectUri, jsonMode);
+      redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
     }
 
     const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
 
     const dir = await resolveCreateDirectory(appName, interactive);
 
-    const inputs: CreateAppInputs = { appName, distribution, redirectUrls, logoUri, uiApp };
+    const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri, uiApp };
     const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
 
     // Store app credentials locally — client_secret may not be retrievable again

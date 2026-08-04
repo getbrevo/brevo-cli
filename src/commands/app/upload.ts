@@ -130,7 +130,7 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
     currentName: remote.name,
     nextName: config.appName,
     currentUrls: remote.redirect_uris ?? [],
-    nextUrls: config.auth?.redirectUrls ?? [],
+    nextUrls: config.auth?.redirectUris ?? [],
     currentLogoUri: remote.logo_uri,
     nextLogoUri: config.logoUri ?? '',
     currentScopes: remote.scopes ?? [],
@@ -255,6 +255,86 @@ function hasNoChanges(diff: UploadDiff): boolean {
   );
 }
 
+export interface ConfigUploadOutcome {
+  confirmedVersion: string;
+  finalName: string;
+}
+
+/**
+ * Push the config's full desired state to the server — the single write path
+ * for app state (BEX-366) — and persist the server's echo back into
+ * app-config.json so the local copy always tracks the confirmed version.
+ *
+ * The upload contract needs the server's latest version as a staleness token;
+ * when none is known (neither passed in nor stored in the config), the remote
+ * app is fetched to obtain one.
+ */
+export async function uploadProjectConfig(
+  config: NonNullable<ProjectConfig>,
+  opts: { silent?: boolean; appVersion?: string } = {},
+): Promise<ConfigUploadOutcome> {
+  const isUiApp = isUiAppConfig(config);
+  const redirectUris = config.auth?.redirectUris ?? [];
+  const scopes = config.auth?.scopes ?? [];
+
+  let appVersion = opts.appVersion ?? config.version ?? '';
+  if (!appVersion) {
+    appVersion = (await fetchExistingApp(config.appId, opts.silent)).version ?? '';
+  }
+
+  const spinner = createSpinner('Uploading app...', { silent: opts.silent });
+  let response: UploadAppResponse;
+  try {
+    response = await appService.uploadApp(config.appId, {
+      app_id: config.appId,
+      name: config.appName,
+      logo_uri: config.logoUri ?? '',
+      app_version: appVersion,
+      distribution_type: config.distribution_type,
+      auth: {
+        scopes,
+        redirect_uris: redirectUris,
+      },
+      // Spread rather than a fixed key so OAuth uploads keep their exact
+      // historical payload shape — `ui_app` is absent, not `undefined`.
+      ...(isUiApp && config.ui_app ? { ui_app: config.ui_app } : {}),
+    });
+  } finally {
+    spinner.stop();
+  }
+
+  const finalName = response.name ?? config.appName;
+  if (finalName) saveAppName(config.appId, finalName);
+
+  // Single source of truth for the version we persist AND print, so the two can
+  // never diverge. The server returns the bumped value under `version` (see
+  // UploadAppResponse); fall back to `app_version` for tolerance, and only then
+  // to the version we sent — so a server-confirmed bump always wins.
+  const confirmedVersion = response.version ?? response.app_version ?? appVersion;
+
+  writeProjectConfig({
+    ...config,
+    appName: finalName,
+    logoUri: response.logo_uri ?? config.logoUri,
+    distribution_type: response.distribution_type ?? config.distribution_type,
+    version: confirmedVersion,
+    auth: {
+      scopes: response.auth.scopes ?? scopes,
+      // Preserved as-is for UI apps: `redirectUris` is absent from their config
+      // by design, and writing back an empty array would add a key the app type
+      // doesn't use.
+      ...(isUiApp && !config.auth?.redirectUris
+        ? {}
+        : { redirectUris: response.auth.redirect_uris ?? redirectUris }),
+    },
+    // Prefer the server's normalized block when it echoes one back, otherwise
+    // keep what we just sent.
+    ...(isUiApp ? { ui_app: response.ui_app ?? config.ui_app } : {}),
+  });
+
+  return { confirmedVersion, finalName };
+}
+
 export const uploadCommand = withCommandHandler(async (options: UploadOptions): Promise<void> => {
   const config = loadUsableConfig();
   const isUiApp = isUiAppConfig(config);
@@ -262,11 +342,11 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   // A UI app has no OAuth callback, so the redirect requirement is OAuth-only.
   // Any URLs a UI-app config happens to carry are still format-checked rather
   // than silently forwarded.
-  const redirectUrls = config.auth?.redirectUrls ?? [];
-  if (!isUiApp && redirectUrls.length === 0) {
+  const redirectUris = config.auth?.redirectUris ?? [];
+  if (!isUiApp && redirectUris.length === 0) {
     throw new CliError(messages.APP_UPLOAD_NO_REDIRECT_URLS_OAUTH);
   }
-  validateRedirectUrls(redirectUrls);
+  validateRedirectUrls(redirectUris);
 
   // Local pre-flight so a malformed block fails with a precise message before a
   // round-trip. The app-store backend remains the validation authority.
@@ -283,6 +363,17 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   // Unconditional: --json and --yes both still fetch + diff, per BEX-250.
   const remote = await fetchExistingApp(config.appId, options.json);
   const diff = buildDiff(config, remote);
+
+  // distribution_type is immutable via upload. The server (BEX-355) rejects
+  // drift with a 422, but that would burn the round trip — fast-fail here
+  // against the remote state we just fetched, before prompting or pushing.
+  // Skipped when the server didn't report a distribution to compare against
+  // (the server-side check then remains the only enforcement).
+  if (diff.currentDistribution && diff.currentDistribution !== diff.nextDistribution) {
+    throw new CliError(
+      messages.APP_UPLOAD_DISTRIBUTION_IMMUTABLE(diff.currentDistribution, diff.nextDistribution),
+    );
+  }
 
   if (!options.json) {
     renderUploadDiff(diff);
@@ -320,54 +411,9 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     }
   }
 
-  const spinner = createSpinner('Uploading app...', { silent: options.json });
-  let response: UploadAppResponse;
-  try {
-    response = await appService.uploadApp(config.appId, {
-      app_id: config.appId,
-      name: config.appName,
-      logo_uri: config.logoUri ?? '',
-      app_version: diff.nextVersion,
-      auth: {
-        distribution_type: config.distribution_type,
-        scopes,
-        redirect_urls: redirectUrls,
-      },
-      // Spread rather than a fixed key so OAuth uploads keep their exact
-      // historical payload shape — `ui_app` is absent, not `undefined`.
-      ...(isUiApp && config.ui_app ? { ui_app: config.ui_app } : {}),
-    });
-  } finally {
-    spinner.stop();
-  }
-
-  const finalName = response.name ?? config.appName;
-  if (finalName) saveAppName(config.appId, finalName);
-
-  // Single source of truth for the version we persist AND print, so the two can
-  // never diverge. Prefer the upload contract's `app_version`, fall back to
-  // `version` (some server builds return the bumped value under that key), and
-  // only then to the version we sent — so a server-confirmed bump always wins.
-  const confirmedVersion = response.app_version ?? response.version ?? diff.nextVersion;
-
-  writeProjectConfig({
-    ...config,
-    appName: finalName,
-    logoUri: response.logo_uri ?? config.logoUri,
-    distribution_type: response.auth.distribution_type ?? config.distribution_type,
-    version: confirmedVersion,
-    auth: {
-      scopes: response.auth.scopes ?? scopes,
-      // Preserved as-is for UI apps: `redirectUrls` is absent from their config
-      // by design, and writing back an empty array would add a key the app type
-      // doesn't use.
-      ...(isUiApp && !config.auth?.redirectUrls
-        ? {}
-        : { redirectUrls: response.auth.redirect_urls ?? redirectUrls }),
-    },
-    // Prefer the server's normalized block when it echoes one back, otherwise
-    // keep what we just sent.
-    ...(isUiApp ? { ui_app: response.ui_app ?? config.ui_app } : {}),
+  const { confirmedVersion, finalName } = await uploadProjectConfig(config, {
+    silent: options.json,
+    appVersion: diff.nextVersion,
   });
 
   if (options.json) {

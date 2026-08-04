@@ -103,7 +103,7 @@ describe('app/create', () => {
       appDetails: null,
       clientId: '',
       clientSecret: '',
-      redirectUrls: [],
+      redirectUris: [],
       redirectUri: '',
     });
     (runBaseScaffold as jest.Mock).mockReturnValue({

@@ -61,17 +61,17 @@ Brevo OAuth integration for testing and implementing app authorization flows, sc
 brevo app upload
 ```
 
-For example, to rename the app or add a redirect URL, edit `appName` or `auth.redirectUrls` in `app-config.json`:
+For example, to rename the app or add a redirect URL, edit `appName` or `auth.redirectUris` in `app-config.json`:
 
 ```bash
-# 1. Edit app-config.json (e.g. change "appName", or append to "auth.redirectUrls")
+# 1. Edit app-config.json (e.g. change "appName", or append to "auth.redirectUris")
 # 2. Push the change
 brevo app upload
 ```
 
 `brevo app upload` always fetches the current server state first and shows a diff before pushing — review it before confirming (or pass `--yes` to skip the prompt).
 
-To avoid unintentionally accumulating stale redirect URLs over time, periodically review `auth.redirectUrls` in `app-config.json` and remove obsolete entries before running `brevo app upload`.
+To avoid unintentionally accumulating stale redirect URLs over time, periodically review `auth.redirectUris` in `app-config.json` and remove obsolete entries before running `brevo app upload`.
 
 `brevo app upload` has no `--app-id` flag — it always resolves the app from this directory's `app-config.json`. To manage a different app, `cd` into that app's project directory (or use `brevo app credentials --app-id <id>` to inspect it without editing).
 

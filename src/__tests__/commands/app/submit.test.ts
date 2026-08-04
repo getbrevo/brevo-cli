@@ -56,7 +56,7 @@ const MATCHING_CONFIG = {
   version: '0.0.2',
   auth: {
     scopes: ['crm:read'],
-    redirectUrls: ['http://localhost:3009/auth/callback', 'https://example.com/callback'],
+    redirectUris: ['http://localhost:3009/auth/callback', 'https://example.com/callback'],
   },
 };
 
@@ -325,7 +325,7 @@ describe('app/submit', () => {
   it('tags values missing locally as server only in the drift diff', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...MATCHING_CONFIG,
-      auth: { ...MATCHING_CONFIG.auth, redirectUrls: ['https://example.com/callback'] },
+      auth: { ...MATCHING_CONFIG.auth, redirectUris: ['https://example.com/callback'] },
     });
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
@@ -352,7 +352,7 @@ describe('app/submit', () => {
       logoUri: '',
       auth: {
         scopes: [],
-        redirectUrls: ['https://example.com/callback', 'http://localhost:3009/auth/callback'],
+        redirectUris: ['https://example.com/callback', 'http://localhost:3009/auth/callback'],
       },
     });
     (appService.fetchApp as jest.Mock).mockResolvedValue({

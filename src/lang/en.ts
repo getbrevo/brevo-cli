@@ -159,7 +159,7 @@ export const messages = {
   // UI apps have no OAuth callback, so the redirect-URL requirement is
   // OAuth-only — this message names the app type to make that explicit.
   APP_UPLOAD_NO_REDIRECT_URLS_OAUTH:
-    'app-config.json has no redirect URLs configured. OAuth apps need at least one — add it to `auth.redirectUrls`.',
+    'app-config.json has no redirect URLs configured. OAuth apps need at least one — add it to `auth.redirectUris`.',
   APP_UPLOAD_UI_APP_SUMMARY: 'UI app:',
 
   // App deploy / remove — per-account availability for UI apps (BEX-290)
@@ -185,6 +185,8 @@ export const messages = {
     `App ${appId} is not deployed to account ${accountId}.`,
   APP_DEPLOY_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
+  APP_UPLOAD_DISTRIBUTION_IMMUTABLE: (current: string, next: string) =>
+    `distribution_type cannot be changed via upload — this app is "${current}" on Brevo, but app-config.json says "${next}".\n  Edit \`distribution_type\` in app-config.json back to "${current}", or create a new ${next} app with \`${CLI.APP_CREATE}\`.`,
 
   // App submit (BEX-221)
   APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
@@ -316,21 +318,23 @@ export const messages = {
   APP_START_UNKNOWN_FEATURE: (feature: string, available: string) =>
     `Unknown feature "${feature}". Available features: ${available}`,
   APP_START_PORT_IN_USE: (port: number) =>
-    `Port ${port} is already in use.\n\n  Either stop the process using port ${port}, use a different port with \`--port <port>\`,\n  or update your redirect URL by editing \`auth.redirectUrls\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+    `Port ${port} is already in use.\n\n  Either stop the process using port ${port}, use a different port with \`--port <port>\`,\n  or update your redirect URL by editing \`auth.redirectUris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
   APP_START_CUSTOM_PORT_IN_USE: (port: number) =>
-    `Port ${port} is already in use.\n\n  Stop the process using port ${port}, or pick another port with \`--port <port>\`\n  and update your redirect URL by editing \`auth.redirectUrls\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+    `Port ${port} is already in use.\n\n  Stop the process using port ${port}, or pick another port with \`--port <port>\`\n  and update your redirect URL by editing \`auth.redirectUris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
   APP_START_EXITED: (feature: string, code: number) => `${feature} exited with code ${code}`,
   APP_START_FAILED: (feature: string, error: string) => `Failed to start ${feature}: ${error}`,
   APP_START_REDIRECT_NOT_REGISTERED: (port: number) =>
     `Port ${port} isn't registered as a redirect URL for this app.`,
   APP_START_REDIRECT_REGISTER_PROMPT: (url: string) =>
     `Register ${url}? You can delete it later if you want.`,
-  APP_START_REDIRECT_REGISTERING: 'Registering redirect URL...',
-  APP_START_REDIRECT_REGISTERED: (url: string) => `Registered ${url}.`,
+  APP_START_REDIRECT_REGISTERED: (url: string) =>
+    `Added ${url} to app-config.json and uploaded the new config.`,
+  APP_START_REDIRECT_UPLOAD_FAILED: (url: string) =>
+    `${url} was saved to app-config.json but the upload failed. Fix the issue and run \`${CLI.APP_UPLOAD}\` to finish registering it.`,
   APP_START_REDIRECT_DECLINED: (url: string) =>
-    `Continuing without registering. The OAuth callback at ${url} will fail until you register it. Add it to \`auth.redirectUrls\` in app-config.json and run \`${CLI.APP_UPLOAD}\` to register later.`,
+    `Continuing without registering. The OAuth callback at ${url} will fail until you register it. Add it to \`auth.redirectUris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` to register later.`,
   APP_START_REDIRECT_NON_INTERACTIVE: (port: number, url: string) =>
-    `Port ${port} is not registered as a redirect URL for this app, and we can't prompt in non-interactive mode. Add \`${url}\` to \`auth.redirectUrls\` in app-config.json and run \`${CLI.APP_UPLOAD}\` first, or re-run interactively.`,
+    `Port ${port} is not registered as a redirect URL for this app, and we can't prompt in non-interactive mode. Add \`${url}\` to \`auth.redirectUris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` first, or re-run interactively.`,
 
   AUTH_LOGOUT_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force to skip.',

@@ -134,7 +134,6 @@ describe('app-config.json template branching', () => {
     '{{APP_NAME}}': 'Invoice Manager',
     '{{APP_VERSION}}': '1.0.0',
     '{{LOGO_URI}}': '',
-    '{{CLI_VERSION}}': '2.0.1',
     '{{DISTRIBUTION}}': 'private',
     '{{SCOPES_JSON}}': '["contacts:read","contacts:write"]',
     '{{REDIRECT_URLS_JSON}}': '["http://localhost:3009/auth/callback"]',
@@ -146,18 +145,18 @@ describe('app-config.json template branching', () => {
       ...extraVars,
     });
 
-  it('renders valid JSON with redirectUrls and no ui_app for an OAuth app', () => {
+  it('renders valid JSON with redirectUris and no ui_app for an OAuth app', () => {
     const out = renderConfig(
       { '{{UI_APP_JSON}}': '' },
       new Set<TemplateFlag>(['private', 'oauth']),
     );
     const parsed = JSON.parse(out);
 
-    expect(parsed.auth.redirectUrls).toEqual(['http://localhost:3009/auth/callback']);
+    expect(parsed.auth.redirectUris).toEqual(['http://localhost:3009/auth/callback']);
     expect(parsed).not.toHaveProperty('ui_app');
   });
 
-  it('renders valid JSON with ui_app and no redirectUrls for a UI app', () => {
+  it('renders valid JSON with ui_app and no redirectUris for a UI app', () => {
     // The platform's app-snapshot shape — nested one level deep, which is
     // what the template's indent handling has to survive.
     const uiApp = {
@@ -175,7 +174,7 @@ describe('app-config.json template branching', () => {
     const parsed = JSON.parse(out);
 
     expect(parsed.ui_app).toEqual(uiApp);
-    expect(parsed.auth).not.toHaveProperty('redirectUrls');
+    expect(parsed.auth).not.toHaveProperty('redirectUris');
     expect(parsed.auth.scopes).toEqual(['contacts:read', 'contacts:write']);
   });
 });

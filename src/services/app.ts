@@ -1,6 +1,5 @@
 import inquirer from 'inquirer';
 import { ApiClient } from '../api/client';
-import { CLI_VERSION } from '../lib/cli-version';
 import { ENDPOINTS } from '../lib/constants';
 import { ApiError, CliError } from '../lib/errors';
 import { EXIT_CODES } from '../lib/exit-codes';
@@ -157,26 +156,15 @@ export function createAppService(client: ApiClient) {
       const raw = await client.post<CreateAppResponse>(ENDPOINTS.APP_STORE_APPS, {
         ...payload,
         source: 'cli',
-        cli_version: CLI_VERSION,
       });
       return normalizeAppId(raw);
     },
 
-    async updateApp(
-      appId: string,
-      body: { name?: string; redirect_uris: string[]; scopes?: string[]; logo_uri?: string },
-    ): Promise<void> {
-      await client.patch(ENDPOINTS.APP_STORE_APP(appId), {
-        ...body,
-        cli_version: CLI_VERSION,
-      });
-    },
-
+    // The payload goes over the wire unchanged: the upload endpoint rejects
+    // unknown top-level keys with a 400, and the CLI version already reaches
+    // the server on every request via the User-Agent header (see telemetry.ts).
     async uploadApp(appId: string, payload: UploadAppPayload): Promise<UploadAppResponse> {
-      return client.post<UploadAppResponse>(ENDPOINTS.APP_STORE_APP_UPLOAD(appId), {
-        ...payload,
-        cli_version: CLI_VERSION,
-      });
+      return client.post<UploadAppResponse>(ENDPOINTS.APP_STORE_APP_UPLOAD(appId), payload);
     },
 
     async deleteApp(appId: string): Promise<void> {

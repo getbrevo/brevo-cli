@@ -3,12 +3,11 @@
   "appName": "{{APP_NAME}}",
   "version": "{{APP_VERSION}}",
   "logoUri": "{{LOGO_URI}}",
-  "cliVersion": "{{CLI_VERSION}}",
   "distribution_type": "{{DISTRIBUTION}}",
   "auth": {
 {{#if oauth}}
     "scopes": {{SCOPES_JSON}},
-    "redirectUrls": {{REDIRECT_URLS_JSON}}
+    "redirectUris": {{REDIRECT_URLS_JSON}}
 {{/if}}
 {{#if ui_app}}
     "scopes": {{SCOPES_JSON}}
