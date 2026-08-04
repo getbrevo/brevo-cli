@@ -197,7 +197,7 @@ describe('app/upload', () => {
 
   it('blocks the upload when local distribution_type differs from the app on Brevo', async () => {
     // distribution_type is immutable via upload. The server (BEX-355) rejects
-    // drift with a 400, but the CLI fast-fails first against the remote state
+    // drift with a 422, but the CLI fast-fails first against the remote state
     // it already fetches for the diff — no round trip wasted on a doomed push.
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...BASE_CONFIG,

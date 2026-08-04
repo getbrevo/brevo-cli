@@ -19,9 +19,9 @@
       authority. CLI side re-landed on this branch: top-level
       `UploadAppPayload.distribution_type` and the POST body updated; the client-side
       drift guard in `uploadCommand` (`APP_UPLOAD_DISTRIBUTION_IMMUTABLE`) is kept as
-      a fast-fail before the server's 400. Server side (BEX-355) must declare
-      top-level `distribution_type` in the upload schema and 400 on mismatch with the
-      stored app — see the per-branch entry in RELEASE-CHECKLIST.md for the exact
+      a fast-fail before the server's 422. Server side (BEX-355) must declare
+      top-level `distribution_type` in the upload schema and 422 on mismatch with the
+      stored app (landed on its `feat/bex-355-cli-snapshot-contract` branch 2026-08-04) — see the per-branch entry in RELEASE-CHECKLIST.md for the exact
       server checklist.
 - [ ] **Port the `cli_version` removal to the `BEX-290_ui-components` worktree.** That
       branch still injects `cli_version` at three sites in `src/services/app.ts`

@@ -287,7 +287,7 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   const diff = buildDiff(config, remote);
 
   // distribution_type is immutable via upload. The server (BEX-355) rejects
-  // drift with a 400, but that would burn the round trip — fast-fail here
+  // drift with a 422, but that would burn the round trip — fast-fail here
   // against the remote state we just fetched, before prompting or pushing.
   // Skipped when the server didn't report a distribution to compare against
   // (the server-side check then remains the only enforcement).

@@ -341,7 +341,7 @@ branch: the upload *request* keeps `distribution_type`, moved from `auth` to
 the **top level** of the body — fixing the request/response asymmetry (the
 response and `OAuthApp` were always top-level; distribution is an app-level
 attribute, not an OAuth setting). The server side (BEX-355) declares the
-top-level field and rejects drift with its 400 ("distribution_type cannot be
+top-level field and rejects drift with its 422 ("distribution_type cannot be
 changed via upload"). The client-side guard added on this branch **stays** as
 a fast-fail UX layer: after the (pre-existing) remote fetch, if the remote
 distribution differs from `app-config.json`'s, `uploadCommand` throws
@@ -366,7 +366,7 @@ the changeset no longer claims the field is absent from the request.
 - [ ] Server side (BEX-355): the upload request schema **declares top-level
       `distribution_type`** (strict binding must accept it; it must no longer
       require the old `auth.distribution_type` nesting) and validates it
-      against the stored app — 400 with a "distribution_type cannot be changed
+      against the stored app — 422 with a "distribution_type cannot be changed
       via upload"-style message on mismatch, no partial write. Confirm whether
       the field is required or optional-when-present; the CLI always sends it,
       so either works, but the contract doc should say which.
@@ -378,7 +378,7 @@ the changeset no longer claims the field is absent from the request.
 - [ ] Manual: edit `distribution_type` in a real project's `app-config.json` to
       the other value and run `brevo app upload` — expect the CLI immutability
       error naming both values, exit non-zero, and no server call after the
-      initial fetch. (Server 400 is the backstop if the guard is ever bypassed,
+      initial fetch. (Server 422 is the backstop if the guard is ever bypassed,
       e.g. remote fetch reports no distribution.)
 
 ### Drop `cli_version` from request bodies and `cliVersion` from app-config.json
