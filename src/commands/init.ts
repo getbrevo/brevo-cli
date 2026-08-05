@@ -3,7 +3,7 @@ import { isAuthenticated, readProjectConfig } from '../lib/config';
 import { logSuccess, logInfo, logWarn, logDebug } from '../lib/logger';
 import { createSpinner } from '../lib/ui';
 import { messages } from '../lang/en';
-import { ApiError, AuthExpiredError, CliError } from '../lib/errors';
+import { ApiError, AuthExpiredError, CliError, ErrorCode } from '../lib/errors';
 import { withCommandHandler } from '../lib/command-handler';
 import { loginCommand } from './login';
 import { createCommand } from './app/create';
@@ -15,10 +15,18 @@ import { appService, accountService } from '../container';
  *
  * Only the former justifies sending the user through a login. A network blip,
  * a 5xx or an unexpected throw says nothing about whether the session is valid.
+ *
+ * An auth gateway in front of the API (Cloudflare Access and friends) answers
+ * with its own 401/403 interstitial, which the client surfaces as
+ * `AUTH_GATEWAY`. That is not our credentials being refused — `brevo login`
+ * cannot clear it — so it belongs with the inconclusive results, where the
+ * real gateway error reaches the user on the next call.
  */
 function isAuthRejection(err: unknown): boolean {
   if (err instanceof AuthExpiredError) return true;
-  return err instanceof ApiError && (err.statusCode === 401 || err.statusCode === 403);
+  if (!(err instanceof ApiError)) return false;
+  if (err.errorCode === ErrorCode.AUTH_GATEWAY) return false;
+  return err.statusCode === 401 || err.statusCode === 403;
 }
 
 async function ensureLoggedIn(): Promise<void> {
@@ -36,9 +44,9 @@ async function ensureLoggedIn(): Promise<void> {
       spinner.stop();
       if (!isAuthRejection(err)) {
         // The probe is a courtesy, not a gate. Announcing "expired" and opening
-        // a browser here would be wrong — and would fail anyway when the
-        // network is what's broken. Carry on; the reactive 401 handler still
-        // catches genuinely dead credentials later in the flow.
+        // a browser here would be wrong — and would fail for the same reason
+        // the probe did. Carry on; the reactive 401 handler still catches
+        // genuinely dead credentials later in the flow.
         logDebug('init credential probe inconclusive', {
           reason: err instanceof Error ? err.message : String(err),
         });

@@ -119,6 +119,10 @@ describe('initCommand', () => {
     ['a network error', new ApiError('Network error', 0, ErrorCode.NETWORK_ERROR)],
     ['a server error', new ApiError('Internal server error', 500)],
     ['an unexpected throw', new Error('boom')],
+    // An auth gateway (Cloudflare Access etc.) answers with its own 401/403.
+    // `brevo login` cannot clear that, so it must not trigger a login prompt.
+    ['a 403 auth gateway', new ApiError('Auth gateway', 403, ErrorCode.AUTH_GATEWAY)],
+    ['a 401 auth gateway', new ApiError('Auth gateway', 401, ErrorCode.AUTH_GATEWAY)],
   ])('should keep the stored session when the probe fails with %s', async (_label, err) => {
     (isAuthenticated as jest.Mock).mockReturnValue(true);
     (accountService.getAccount as jest.Mock).mockRejectedValue(err);
