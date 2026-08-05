@@ -801,3 +801,25 @@ render as (heading = link label, subheading = tooltip, redirect = URL).
       created `app-config.json` carries the selected `extension_point` names.
 - [ ] Manual: run `brevo app create` → UI app against an environment WITHOUT
       BEX-361 — verify the actionable abort (QA TC-12.2b).
+
+### Smoke suite: assert on `auth.redirectUris` (post-rename drift fix)
+
+**Change:** `scripts/smoke/core.ts` only. The BEX-366 rename of app-config.json's
+`auth.redirectUrls` → `auth.redirectUris` landed without updating the smoke
+harness, so the create/upload steps in both lifecycles failed on the old key
+(`auth.redirectUrls is not an array: undefined`) before the upload CLI call even
+ran, cascading into the rename-verify and public status/submit steps. The six
+assertion/write sites now use `redirectUris`. No test case removed, no `src/`
+change, no user-visible CLI behavior change (so no changeset).
+
+**Must hold true:**
+
+- [x] `npx tsc --noEmit -p scripts/tsconfig.json` passes.
+- [x] The key the smoke script reads/writes matches what the CLI scaffolds
+      (`src/templates/files/app-config.json.tmpl` writes `auth.redirectUris`).
+- [ ] Manual: `yarn smoke` against staging — steps 4/6/8 (private create,
+      upload, verify rename) and 14–21 (public lifecycle) pass. If public
+      status/submit still fail *after* a successful upload, that is a
+      backend-side question (review snapshot), not this fix.
+- [ ] Manual: rerun requires a `dist/` owned by the current user (a prior
+      `sudo` run left it root-owned; `sudo chown -R "$(whoami)" dist` first).
