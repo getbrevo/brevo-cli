@@ -17,6 +17,12 @@ into `main` — anything that must outlive the branch belongs in
 - [ ] **Consider surfacing `url_pattern` from the BEX-361 rows** in the placement
       prompt (e.g. as a choice hint) so partners see where in the product a slot
       renders before picking it.
+- [ ] **Blocking before release: server-side unified-payload change.** The CLI now
+      sends the create payload with OAuth fields nested under `auth` (same block as
+      upload) and the upload payload with `version` instead of `app_version`.
+      `POST /apps` is live in production, so the create endpoint must accept the
+      nested `auth` block (and upload the `version` key) before this CLI ships — see
+      the per-branch entry in RELEASE-CHECKLIST.md.
 
 - [x] **`ui_app` field names — resolved.** Aligned with the platform's manifest read path and its
       extensibility UI kit (BEX-308 / BEX-350). The block is the stored app snapshot

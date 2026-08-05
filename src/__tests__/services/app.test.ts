@@ -206,7 +206,7 @@ describe('services/app', () => {
         app_id: UUID,
         name: 'Test App',
         logo_uri: '',
-        app_version: '0.0.2',
+        version: '0.0.2',
         distribution_type: 'private',
         auth: {
           scopes: ['contacts:read'],
@@ -218,7 +218,7 @@ describe('services/app', () => {
         app_id: UUID,
         name: 'Test App',
         logo_uri: '',
-        app_version: '0.0.2',
+        version: '0.0.2',
         distribution_type: 'private',
         auth: {
           scopes: ['contacts:read'],
@@ -236,7 +236,7 @@ describe('services/app', () => {
           app_id: '42',
           name: 'X',
           logo_uri: '',
-          app_version: '0.0.1',
+          version: '0.0.1',
           distribution_type: 'private',
           auth: { scopes: [], redirect_uris: [] },
         }),

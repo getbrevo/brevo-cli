@@ -184,7 +184,7 @@ function renderUploadDiff(diff: UploadDiff): void {
   if (diff.migratingLegacyScopes) {
     logInfo(`  ${messages.LEGACY_ALL_SCOPE_UPDATE_MIGRATING}`);
   }
-  // Scopes are OAuth-only as well — a UI app's auth is `{ "type": "none" }`,
+  // Scopes are OAuth-only as well — a UI app's auth is empty (`{}`),
   // so a scopes row would only ever render as noise.
   if (!diff.nextUiApp) {
     logAligned('  Scopes:        ', diffLines(diff.currentScopes, diff.nextScopes));
@@ -235,7 +235,7 @@ function diffToJson(diff: UploadDiff) {
     next: {
       name: diff.nextName,
       // OAuth-only keys are omitted for UI apps — their desired state has no
-      // OAuth block (auth is `{ "type": "none" }`), and emitting empty arrays
+      // OAuth block (auth is `{}`), and emitting empty arrays
       // would misread as "clearing the values".
       ...(diff.nextUiApp ? {} : { redirect_uris: diff.nextUrls, scopes: diff.nextScopes }),
       logo_uri: diff.nextLogoUri,
@@ -248,7 +248,7 @@ function diffToJson(diff: UploadDiff) {
 
 function hasNoChanges(diff: UploadDiff): boolean {
   // Scopes and redirect URLs are OAuth-only: a UI app's config carries neither
-  // (auth is `{ "type": "none" }`), so comparing them against whatever the
+  // (auth is `{}`), so comparing them against whatever the
   // server still reports would flag a phantom change on every upload.
   const isUiApp = !!diff.nextUiApp;
   const oauthUnchanged =
@@ -302,10 +302,10 @@ export async function uploadProjectConfig(
       app_id: config.appId,
       name: config.appName,
       logo_uri: config.logoUri ?? '',
-      app_version: appVersion,
+      version: appVersion,
       distribution_type: config.distribution_type,
       // UI apps have no OAuth block — the whole `auth` key is omitted, not sent
-      // with empty arrays, mirroring `auth: { "type": "none" }` in the config.
+      // with empty arrays, mirroring `auth: {}` in the config.
       // ASSUMED wire contract (server side not built yet, see
       // RELEASE-CHECKLIST.md → Before UI-apps GA): the upload endpoint must
       // tolerate an absent auth key for UI apps.
@@ -340,11 +340,11 @@ export async function uploadProjectConfig(
     logoUri: response.logo_uri ?? config.logoUri,
     distribution_type: response.distribution_type ?? config.distribution_type,
     version: confirmedVersion,
-    // A UI app's auth block is always written back as the canonical
-    // `{ type: 'none' }` — never reconciled from the server's echo, which
-    // reports null scopes/redirect_uris for UI-only apps anyway.
+    // A UI app's auth block is always written back as the canonical empty
+    // `{}` — never reconciled from the server's echo, which reports null
+    // scopes/redirect_uris for UI-only apps anyway.
     auth: isUiApp
-      ? { type: 'none' }
+      ? {}
       : {
           scopes: response.auth.scopes ?? scopes,
           redirectUris: response.auth.redirect_uris ?? redirectUris,
@@ -360,19 +360,14 @@ export async function uploadProjectConfig(
 // The auth block's shape follows the app type, and a mismatch is a hard error
 // rather than a silent ignore — same stance as validateSurfacePoint: the CLI is
 // the only layer that will ever tell the partner. A UI app must carry exactly
-// `auth: { "type": "none" }` (no scopes, no redirect URIs — nothing OAuth is
-// issued for it); an OAuth app must not carry `type: "none"`.
+// `auth: {}` (no scopes, no redirect URIs — nothing OAuth is issued for it).
 function validateAuthShape(config: NonNullable<ProjectConfig>): void {
-  const isUiApp = isUiAppConfig(config);
-  if (isUiApp) {
-    if (config.auth?.type !== 'none') {
-      throw new CliError(messages.APP_UPLOAD_UI_APP_AUTH_TYPE_REQUIRED);
-    }
-    if (config.auth.scopes !== undefined || config.auth.redirectUris !== undefined) {
-      throw new CliError(messages.APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS);
-    }
-  } else if (config.auth?.type === 'none') {
-    throw new CliError(messages.APP_UPLOAD_AUTH_NONE_WITHOUT_UI_APP);
+  if (!isUiAppConfig(config)) return;
+  if (!config.auth) {
+    throw new CliError(messages.APP_UPLOAD_UI_APP_AUTH_EMPTY_REQUIRED);
+  }
+  if (config.auth.scopes !== undefined || config.auth.redirectUris !== undefined) {
+    throw new CliError(messages.APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS);
   }
 }
 

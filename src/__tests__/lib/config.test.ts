@@ -558,17 +558,17 @@ describe('config', () => {
         expect(cfg).not.toHaveProperty('distribution');
       });
 
-      // `auth.type: "none"` is the *current* UI-app auth marker, not the interim
-      // distribution carrier — it must survive the read and never be misread as
-      // a distribution value.
-      it('preserves auth.type none and does not treat it as a distribution', () => {
+      // `auth.type: "none"` was the dev-era UI-app auth marker. It is dropped
+      // on read (a UI app's auth is now the empty object) but must never be
+      // misread as a distribution value.
+      it('drops auth.type none and does not treat it as a distribution', () => {
         writeConfig({
           appId: '42',
           auth: { type: 'none' },
           ui_app: { extensionType: 'actionLink' },
         });
         const cfg = readProjectConfig();
-        expect(cfg?.auth).toEqual({ type: 'none' });
+        expect(cfg?.auth).toEqual({});
         expect(cfg?.distribution_type).toBe('private');
       });
 

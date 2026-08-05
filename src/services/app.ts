@@ -183,8 +183,12 @@ export function createAppService(client: ApiClient) {
     async createApp(payload: {
       name: string;
       distribution_type: 'public' | 'private';
-      redirect_uris?: string[];
-      scopes?: string[];
+      // OAuth fields travel inside `auth`, the same block the upload endpoint
+      // takes (unified payload structure). Omitted entirely for UI apps.
+      auth?: {
+        scopes: string[];
+        redirect_uris: string[];
+      };
       logo_uri?: string;
     }): Promise<CreateAppResponse> {
       const raw = await client.post<CreateAppResponse>(ENDPOINTS.APP_STORE_APPS, {

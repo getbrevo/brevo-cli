@@ -210,24 +210,26 @@ export interface CreateAppResponse {
   updated_at: string;
 }
 
-// Wire shape for POST /v3/app-store/apps/{app_id}/upload. One deliberate
-// quirk remains vs OAuthApp: the request's version field is named app_version
-// (not version) — confirmed, intentional, do not "fix" it. Everything else is
-// aligned (BEX-355 contract): redirect URIs are redirect_uris like every other
-// endpoint, and distribution_type is top-level, matching the response and
-// OAuthApp — it is an app-level attribute, not an OAuth setting. It is sent
-// but immutable: the server 422s when it differs from the stored app, and the
-// CLI additionally fast-fails on drift before uploading.
+// Wire shape for POST /v3/app-store/apps/{app_id}/upload. Fully aligned with
+// the create request (unified payload structure): OAuth fields travel inside
+// the `auth` block on both endpoints, and the version field is named `version`
+// like the response and every app object (the historical `app_version` request
+// key is gone — the server accepts `version` as part of this alignment).
+// distribution_type is top-level, matching the response and OAuthApp — it is
+// an app-level attribute, not an OAuth setting. It is sent but immutable: the
+// server 422s when it differs from the stored app, and the CLI additionally
+// fast-fails on drift before uploading.
 export interface UploadAppPayload {
   app_id: string;
   name: string;
   logo_uri: string;
-  app_version: string;
+  version: string;
   distribution_type: 'public' | 'private';
-  // Absent for UI apps: their config carries `auth: { "type": "none" }` and no
+  // Absent for UI apps: their config carries an empty `auth: {}` and no
   // OAuth block travels on the wire — the key is omitted, not sent empty.
   // ASSUMED contract until the server side ships (RELEASE-CHECKLIST.md →
-  // Before UI-apps GA). Always present for OAuth apps.
+  // Before UI-apps GA). Always present for OAuth apps. Same block, same
+  // semantics on the create request (unified payload structure).
   auth?: {
     scopes: string[];
     redirect_uris: string[];

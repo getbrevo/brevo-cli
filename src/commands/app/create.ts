@@ -647,11 +647,14 @@ function buildCreatePayload(inputs: CreateAppInputs) {
   return {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
-    // A UI app has no OAuth block at all (`auth: { "type": "none" }` in its
-    // config) — the scopes and redirect_uris keys are omitted entirely, not
-    // sent empty. Sending an empty array (or worse, the default localhost URI)
-    // would register OAuth state the app type never uses.
-    ...(isUiApp ? {} : { redirect_uris: inputs.redirectUris, scopes: [...DEFAULT_SCOPES] }),
+    // OAuth fields travel inside the `auth` block, same as the upload payload
+    // (unified structure). A UI app has no OAuth block at all (`auth: {}` in
+    // its config) — the key is omitted entirely, not sent empty. Sending empty
+    // arrays (or worse, the default localhost URI) would register OAuth state
+    // the app type never uses.
+    ...(isUiApp
+      ? {}
+      : { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } }),
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
 }

@@ -145,13 +145,13 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       Once upload also reads it, the local mirrors go away entirely (see
       TODO.md).
 - [ ] **Confirm the no-auth wire contract for UI apps.** A UI app's config now
-      carries `auth: { "type": "none" }` (no scopes, no redirect URIs, no
-      jwtSecret — nothing OAuth is issued for it). The CLI therefore omits the
-      `scopes`/`redirect_uris` keys from `POST /apps` and omits the whole `auth`
-      key from the upload payload for UI apps. Both are ASSUMED to be tolerated
-      server-side (marked in `create.ts` / `upload.ts` / `types.ts`); confirm with
-      the app-store backend team, including what the server does with the OAuth
-      credentials it still issues at create time for UI apps.
+      carries an empty `auth: {}` (no scopes, no redirect URIs, no jwtSecret —
+      nothing OAuth is issued for it). The CLI therefore omits the whole `auth`
+      block from both `POST /apps` and the upload payload for UI apps. Both are
+      ASSUMED to be tolerated server-side (marked in `create.ts` / `upload.ts` /
+      `types.ts`); confirm with the app-store backend team, including what the
+      server does with the OAuth credentials it still issues at create time for
+      UI apps.
 - [ ] **Confirm the deploy/remove endpoint contract.** `ENDPOINTS.APP_STORE_APP_DEPLOY`
       / `APP_STORE_APP_REMOVE` and `appService.deployApp` / `removeApp` currently
       assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the
@@ -823,3 +823,41 @@ change, no user-visible CLI behavior change (so no changeset).
       backend-side question (review snapshot), not this fix.
 - [ ] Manual: rerun requires a `dist/` owned by the current user (a prior
       `sudo` run left it root-owned; `sudo chown -R "$(whoami)" dist` first).
+
+### Unified create/upload payload structure + `auth: {}` for UI apps
+
+**Change:** `POST /v3/app-store/apps` (create) now sends the same structure as
+the upload payload: OAuth fields travel inside `auth: { scopes, redirect_uris }`
+instead of top-level `scopes`/`redirect_uris` keys (UI apps omit the block
+entirely, as before). The upload request's version field is renamed
+`app_version` → `version`, matching the response and every app object. A UI
+app's `app-config.json` auth marker changed from `auth: { "type": "none" }` to
+the empty object `auth: {}` — the scaffold template, upload write-back,
+`validateAuthShape`, and the config read path (which now drops any legacy
+`auth.type`, migrating dev-era files on next write) all follow. Docs updated in
+`SKILL.md`/`AGENTS.md`.
+
+**⚠️ Server dependency — do not release ahead of the backend.** Unlike the
+UI-app assumptions above, `POST /apps` is live in production for OAuth apps: a
+CLI sending nested `auth` against a server that still binds top-level
+`scopes`/`redirect_uris` would create apps with no OAuth config (or 400). The
+create endpoint must accept the nested block — and the upload endpoint the
+`version` key — before this ships.
+
+**Must hold true:**
+
+- [x] `buildCreatePayload` (OAuth) emits `auth: { scopes, redirect_uris }` and
+      no top-level `scopes`/`redirect_uris`; UI apps emit no `auth` key at all.
+      Covered in `create.test.ts`.
+- [x] Upload payload carries `version` (no `app_version` key); the response
+      read path still tolerates both. Covered in `upload.test.ts` /
+      `app.test.ts`.
+- [x] Scaffolded UI-app `app-config.json` carries `auth: {}` and parses as
+      valid JSON; `readProjectConfig` drops a legacy `auth.type: "none"`
+      without misreading it as a distribution. Covered in
+      `conditionals.test.ts` / `config.test.ts`.
+- [x] Full suite green: 899/899, lint clean.
+- [ ] Manual (blocked on backend): create an OAuth app against a server build
+      that accepts nested `auth` — verify scopes and redirect URIs land on the
+      app. Then `brevo app upload` — verify the server accepts `version` and
+      the confirmed version is written back.

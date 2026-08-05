@@ -158,8 +158,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Test App',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
     expect(saveAppCredentials).toHaveBeenCalledWith(1, {
       clientId: 'cli-123',
@@ -689,8 +691,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenLastCalledWith({
       name: 'New Name',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
     // Cache must use the retried name, not the original (rejected) one
     expect(saveAppName).toHaveBeenCalledWith(3, 'New Name');
@@ -746,8 +750,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Prompted App',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
   });
 
@@ -781,8 +787,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Public App',
       distribution_type: 'public',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
   });
 
@@ -826,8 +834,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Café Résumé',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
   });
 
@@ -854,8 +864,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Multi URL App',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback', 'https://myapp.com/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback', 'https://myapp.com/callback'],
+      },
     });
   });
 
@@ -882,8 +894,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Flag App',
       distribution_type: 'private',
-      redirect_uris: ['https://myapp.com/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['https://myapp.com/callback'],
+      },
     });
     // Only the app-type, logo and scaffold-feature prompts — no redirect URL prompts.
     expect(mockPrompt).toHaveBeenCalledTimes(3);
@@ -908,8 +922,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Multi Flag App',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3000/cb', 'https://prod.example.com/cb'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3000/cb', 'https://prod.example.com/cb'],
+      },
     });
     // No prompts at all in JSON mode with all flags provided
     expect(mockPrompt).not.toHaveBeenCalled();
@@ -1026,7 +1042,9 @@ describe('app/create', () => {
 
     expect(appService.createApp).toHaveBeenCalledWith(
       expect.objectContaining({
-        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        auth: expect.objectContaining({
+          scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        }),
       }),
     );
   });
@@ -1164,20 +1182,13 @@ describe('app/create', () => {
 
     const collectedUiApp = () => (fetchAppContext as jest.Mock).mock.calls[0][2];
 
-    it('omits redirect_uris from the create payload', async () => {
+    // A UI app has no OAuth block (`auth: {}` in its config) — the whole
+    // auth key is omitted from the wire entirely, not sent empty.
+    it('omits the auth block from the create payload', async () => {
       await createCommand(CLI_OPTIONS);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
-      expect(payload).not.toHaveProperty('redirect_uris');
-    });
-
-    // A UI app has no OAuth block (`auth: { "type": "none" }` in its config) —
-    // the scopes key is omitted from the wire entirely, not sent empty.
-    it('omits scopes from the create payload', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
-      expect(payload).not.toHaveProperty('scopes');
+      expect(payload).not.toHaveProperty('auth');
     });
 
     // The regression this guards: resolveRedirectUrls falls back to
@@ -1557,7 +1568,7 @@ describe('app/create', () => {
 
       expect(questionNamed('appType')).toBeUndefined();
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
-      expect(payload).toHaveProperty('redirect_uris');
+      expect(payload).toHaveProperty('auth.redirect_uris');
       expect(collectedUiApp()).toBeUndefined();
     });
 

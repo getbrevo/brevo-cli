@@ -263,7 +263,7 @@ brevo app create --name "QA Flags App" --distribution private \
 **Priority:** High
 **Preconditions:** Ability to observe the request (proxy/network log) OR verify via server state.
 **Steps:** Make a change and `brevo app upload --yes`.
-**Expected:** Payload has `app_version` (top-level), `name`, `logo_uri`, and `auth: { distribution_type, scopes, redirect_urls }`. Note: **`redirect_urls`** (not `redirect_uris`) and `distribution_type` nested under `auth`. For an **OAuth** app `ui_app` is never sent — the key must be absent, not `null`. (UI apps do send it; see section 12.)
+**Expected:** Payload has `version`, `name`, `logo_uri`, and `distribution_type` all top-level, plus `auth: { scopes, redirect_uris }`. Note: **`version`** (not `app_version`) and `distribution_type` at the top level, not under `auth` — the same structure `POST /apps` sends at create. For an **OAuth** app `ui_app` is never sent — the key must be absent, not `null`. (UI apps do send it; see section 12.)
 
 ### TC-5.8 — Legacy `all` scope blocks upload
 **Priority:** High
@@ -629,13 +629,13 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Priority:** High
 **Preconditions:** BEX-361 endpoint available.
 **Steps:** Complete the UI-app flow — pick one or more record pages, the integration type (External link), then heading, subheading, redirect link (`https://…`), and the record-context prompt (a checkbox of allowed fields when the registry declares them, free text otherwise).
-**Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extensionType: "actionLink"`, `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth` is exactly `{ "type": "none" }` — **no** `scopes`, **no** `redirectUris` — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
+**Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extensionType: "actionLink"`, `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth` is exactly the empty object `{}` — **no** `scopes`, **no** `redirectUris`, **no** `type` key — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
 
 ### TC-12.4 — Upload sends the snapshot and is accepted
 **Priority:** High
 **Preconditions:** TC-12.3 done; ability to observe the request.
 **Steps:** `brevo app upload` from the project directory.
-**Expected:** The summary includes a `UI app:` block listing extension type / point(s) / heading / subheading / redirect link / link target, and **no** "Redirect URLs" row. The payload carries the block under the **`ui_app`** key alongside `app_version`/`name`/`logo_uri` and has **no `auth` key at all** (UI apps carry no OAuth block). The server accepts it; `Version:` is printed and written back to `app-config.json` with `auth` restored as exactly `{ "type": "none" }`.
+**Expected:** The summary includes a `UI app:` block listing extension type / point(s) / heading / subheading / redirect link / link target, and **no** "Redirect URLs" row. The payload carries the block under the **`ui_app`** key alongside `version`/`name`/`logo_uri` and has **no `auth` key at all** (UI apps carry no OAuth block). The server accepts it; `Version:` is printed and written back to `app-config.json` with `auth` restored as exactly the empty object `{}`.
 
 ### TC-12.5 — Editing only the snapshot is detected as a change
 **Priority:** High

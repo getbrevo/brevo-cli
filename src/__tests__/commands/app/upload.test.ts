@@ -175,7 +175,7 @@ describe('app/upload', () => {
     expect(appService.uploadApp).not.toHaveBeenCalled();
   });
 
-  it('POSTs the correct wire shape — top-level distribution_type, app_version, redirect_uris under auth', async () => {
+  it('POSTs the correct wire shape — top-level distribution_type, version, redirect_uris under auth', async () => {
     const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -189,7 +189,7 @@ describe('app/upload', () => {
       app_id: '1',
       name: 'Renamed App',
       logo_uri: '',
-      app_version: '1.0.0',
+      version: '1.0.0',
       distribution_type: 'private',
       auth: {
         scopes: ['contacts:read'],
@@ -432,16 +432,16 @@ describe('app/upload', () => {
       linkTarget: '_blank' as const,
     };
 
-    // A UI app carries no OAuth block at all — `auth` is exactly
-    // `{ type: 'none' }`, and that absence of scopes/redirectUris is the point
-    // of the OAuth-only checks (and enforced by validateAuthShape).
+    // A UI app carries no OAuth block at all — `auth` is exactly the empty
+    // object `{}`, and that absence of scopes/redirectUris is the point of the
+    // OAuth-only checks (and enforced by validateAuthShape).
     const UI_CONFIG = {
       appId: '1',
       appName: 'Invoice Manager',
       distribution_type: 'private' as const,
       logoUri: '',
       version: '1.0.0',
-      auth: { type: 'none' as const },
+      auth: {},
       ui_app: UI_APP,
     };
 
@@ -495,33 +495,23 @@ describe('app/upload', () => {
     // The auth block's shape follows the app type; a mismatch is a hard error
     // rather than a silent ignore — the CLI is the only layer that will ever
     // tell the partner (validateAuthShape).
-    it('rejects a UI app whose auth is not { type: "none" }', async () => {
+    it('rejects a UI app config with no auth block', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        auth: { scopes: ['contacts:read'] },
+        auth: undefined,
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/"type": "none"/);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/set `auth` to `\{\}`/);
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    it('rejects a UI app whose auth carries scopes next to type none', async () => {
+    it('rejects a UI app whose auth still carries OAuth fields', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        auth: { type: 'none', scopes: [] },
+        auth: { scopes: [] },
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/don't use OAuth/i);
-      expect(appService.uploadApp).not.toHaveBeenCalled();
-    });
-
-    it('rejects auth type none on an OAuth app', async () => {
-      (readProjectConfig as jest.Mock).mockReturnValue({
-        ...BASE_CONFIG,
-        auth: { type: 'none' },
-      });
-
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/no `ui_app` block/i);
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
@@ -535,12 +525,10 @@ describe('app/upload', () => {
       expect(payload).not.toHaveProperty('auth');
     });
 
-    it('writes auth back as exactly { type: "none" }', async () => {
+    it('writes auth back as exactly the empty object', async () => {
       await uploadCommand({ yes: true });
 
-      expect(writeProjectConfig).toHaveBeenCalledWith(
-        expect.objectContaining({ auth: { type: 'none' } }),
-      );
+      expect(writeProjectConfig).toHaveBeenCalledWith(expect.objectContaining({ auth: {} }));
     });
 
     // The regression this guards: `hasNoChanges` compared every field *except*

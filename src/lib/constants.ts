@@ -157,8 +157,8 @@ export const DEFAULT_SCOPES: readonly string[] = [
 ] as const;
 
 // ──────────────── UI apps (BEX-290) ────────────────
-// A UI app has no OAuth block at all — its config carries `auth: { "type":
-// "none" }`, so there is no per-type default scope set (BEX-290 follow-up).
+// A UI app has no OAuth block at all — its config carries an empty
+// `auth: {}`, so there is no per-type default scope set (BEX-290 follow-up).
 
 /**
  * Extension-point slot grammar: `<location>.<place>.<kind>` (BEX-350).

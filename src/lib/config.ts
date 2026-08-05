@@ -410,18 +410,19 @@ export interface ProjectConfig {
   /** Distribution type of the app: 'private' or 'public' */
   distribution_type: 'private' | 'public';
   /**
-   * OAuth apps carry `{ scopes, redirectUris }`. UI apps carry exactly
-   * `{ type: 'none' }` — no scopes, no redirect URIs, no jwtSecret (nothing is
+   * OAuth apps carry `{ scopes, redirectUris }`. UI apps carry exactly the
+   * empty object `{}` — no scopes, no redirect URIs, no jwtSecret (nothing is
    * issued for them today). Enforced in `app upload` (see validateAuthShape),
    * not here, so unrelated commands that merely read config keep working on a
    * half-edited file.
    *
-   * Caution: `auth.type` also existed briefly as an *interim distribution*
-   * carrier ('private' | 'public') — the read path folds those legacy values
-   * into `distribution_type` and drops them, while preserving 'none'.
+   * Caution: an `auth.type` key existed twice historically — briefly as an
+   * *interim distribution* carrier ('private' | 'public'), then as the UI-app
+   * marker `'none'`. The read path folds distribution values into
+   * `distribution_type` and drops every `type`, so dev-era configs migrate to
+   * the empty shape on their next write.
    */
   auth: {
-    type?: 'none';
     scopes?: string[];
     // Absent for UI apps: an action link has no OAuth callback to register.
     // OAuth apps still require at least one (enforced in `app upload`).
@@ -510,19 +511,17 @@ export function readProjectConfig(): ProjectConfig | null {
     } else {
       distributionType = 'private';
     }
-    // Legacy auth.type (the interim distribution carrier, 'private'/'public')
-    // is folded into distributionType above and dropped here so it doesn't
-    // leak into authOverride. `auth.type: "none"` is different — it is the
-    // *current* auth marker for UI apps (no OAuth, no scopes, no redirect
-    // URIs) and must survive the read untouched.
-    const isAuthTypeNone = legacyAuthType === 'none';
-    if (!isAuthTypeNone) {
-      if (authOverride && 'type' in authOverride) {
-        delete authOverride.type;
-      } else if (rawAuth && typeof rawAuth === 'object' && 'type' in rawAuth) {
-        authOverride = { ...rawAuth };
-        delete (authOverride as Record<string, unknown>).type;
-      }
+    // Legacy auth.type is always dropped: the interim distribution carrier
+    // ('private'/'public') is folded into distributionType above, and the
+    // dev-era UI-app marker 'none' is obsolete — a UI app's auth is now the
+    // empty object `{}` (the `ui_app` block alone discriminates the app type).
+    // Callers that write the config back to disk migrate old files on their
+    // next write.
+    if (authOverride && 'type' in authOverride) {
+      delete authOverride.type;
+    } else if (rawAuth && typeof rawAuth === 'object' && 'type' in rawAuth) {
+      authOverride = { ...rawAuth };
+      delete (authOverride as Record<string, unknown>).type;
     }
     // Drop the legacy top-level `distribution` key from the returned config —
     // it's already folded into distribution_type above. `permittedUrls` and
@@ -637,8 +636,8 @@ export function backfillProjectConfigFromServer(
   const hasDistribution =
     isNonEmptyString(rawRecord.distribution_type) ||
     isNonEmptyString(rawRecord.distribution) ||
-    // auth.type carried the distribution only in its interim shape —
-    // 'none' is the UI-app auth marker and says nothing about distribution.
+    // auth.type carried the distribution only in its interim shape — 'none'
+    // was the dev-era UI-app auth marker and says nothing about distribution.
     (isNonEmptyString(legacyAuthType) && legacyAuthType !== 'none');
   if (!hasDistribution) {
     next.distribution_type = server.distribution_type ?? normalized.distribution_type;

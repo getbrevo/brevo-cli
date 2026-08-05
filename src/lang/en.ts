@@ -181,12 +181,10 @@ export const messages = {
   APP_UPLOAD_UI_APP_SUMMARY: 'UI app:',
   // Auth-shape mismatches are hard errors, not silent ignores — the CLI is the
   // only layer that will ever tell the partner (see validateAuthShape).
-  APP_UPLOAD_UI_APP_AUTH_TYPE_REQUIRED:
-    'This is a UI app (app-config.json has a `ui_app` block), so it uses no OAuth — set `auth` to `{ "type": "none" }`.',
+  APP_UPLOAD_UI_APP_AUTH_EMPTY_REQUIRED:
+    'This is a UI app (app-config.json has a `ui_app` block), so it uses no OAuth — set `auth` to `{}`.',
   APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS:
-    'UI apps don\'t use OAuth — remove `scopes` and `redirectUris` from `auth` and keep only `{ "type": "none" }`.',
-  APP_UPLOAD_AUTH_NONE_WITHOUT_UI_APP:
-    'app-config.json has `auth: { "type": "none" }` but no `ui_app` block. OAuth apps need `auth.scopes` and `auth.redirectUris`; if this is meant to be a UI app, add its `ui_app` block.',
+    "UI apps don't use OAuth — remove `scopes` and `redirectUris` from `auth` and keep it empty (`{}`).",
 
   // App deploy / remove — per-account availability for UI apps (BEX-290)
   APP_DEPLOY_SELECT: 'Select an app to deploy:',

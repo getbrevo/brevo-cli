@@ -174,8 +174,8 @@ describe('app-config.json template branching', () => {
     const parsed = JSON.parse(out);
 
     expect(parsed.ui_app).toEqual(uiApp);
-    // A UI app has no OAuth block: auth is exactly { type: 'none' }.
-    expect(parsed.auth).toEqual({ type: 'none' });
+    // A UI app has no OAuth block: auth is exactly the empty object.
+    expect(parsed.auth).toEqual({});
   });
 
   // Dropped from the scaffolded config (nothing ever read them) — their

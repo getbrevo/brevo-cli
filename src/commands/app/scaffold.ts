@@ -251,7 +251,7 @@ function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDif
   }
 
   // Scopes are OAuth-only too: a UI app's config carries no scopes by design
-  // (`auth: { "type": "none" }`), so comparing against whatever the server
+  // (`auth: {}`), so comparing against whatever the server
   // reports would flag drift on every refresh.
   if (!isUiAppConfig(localConfig)) {
     const localScopes = [...(localConfig.auth?.scopes ?? [])].sort((a, b) => a.localeCompare(b));
@@ -334,7 +334,7 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
   // Never propagate the deprecated legacy 'all' scope into a fresh
   // app-config.json — keep the app's granular scopes, fall back to the
   // defaults when 'all' was the only scope, and tell the user (BEX-214).
-  // UI apps have no OAuth block at all (`auth: { "type": "none" }`), so their
+  // UI apps have no OAuth block at all (`auth: {}`), so their
   // scopes resolve to [] — the ui_app template branch never renders them.
   const remoteScopes = ctx.appDetails?.scopes;
   const legacyAllSubstituted = !ctx.uiApp && containsLegacyAllScope(remoteScopes);
