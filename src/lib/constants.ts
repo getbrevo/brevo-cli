@@ -262,7 +262,7 @@ export const UI_APP_SURFACES: readonly string[] = Object.keys(UI_APP_SURFACE_TO_
 export const DEFAULT_UI_APP_SURFACE = 'contact';
 
 /**
- * `extensionType` values, camelCase per BEX-350 — the same casing as the
+ * `extension_type` values, camelCase per BEX-350 — the same casing as the
  * extension-point grammar. Source of truth is `FEATURE_TYPES` in the
  * extensibility UI kit (integrations-common-frontend
  * `shared/constants/global.ts`); the kit routes on an exact match against these
@@ -279,12 +279,12 @@ export const EXTENSION_TYPE_IFRAME = 'iframeExtension';
 export const EXTENSION_TYPE_LEGACY = 'legacyComponent';
 
 export const LINK_TARGETS: readonly string[] = ['_blank', '_self'] as const;
-// The CLI always writes linkTarget explicitly, so the authored file is complete
+// The CLI always writes link_target explicitly, so the authored file is complete
 // and never depends on a server- or client-side default being applied.
 export const DEFAULT_LINK_TARGET = '_blank';
 
 /**
- * The only linkTarget uploads accept today. `_self` is refused server-side even though
+ * The only link_target uploads accept today. `_self` is refused server-side even though
  * both the platform and the UI kit handle it, so the CLI writes `_blank` unconditionally
  * rather than prompting for a choice one of whose options would 400.
  *

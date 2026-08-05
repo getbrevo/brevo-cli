@@ -211,14 +211,14 @@ function renderUploadDiff(diff: UploadDiff): void {
 function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   const changed = canonicalizeUiApp(next) !== canonicalizeUiApp(current);
   logInfo(`  ${messages.APP_UPLOAD_UI_APP_SUMMARY}${changed ? ' (changed)' : ''}`);
-  logInfo(`    Extension type: ${next.extensionType}`);
-  next.surfacePointList.forEach((point, i) => {
+  logInfo(`    Extension type: ${next.extension_type}`);
+  next.surface_point_list.forEach((point, i) => {
     logInfo(`    ${i === 0 ? 'Extension point:' : '                '} ${point}`);
   });
   logInfo(`    Heading:        ${next.heading ?? ''}`);
   if (next.subheading) logInfo(`    Subheading:     ${next.subheading}`);
-  logInfo(`    Redirect link:  ${next.redirectLink ?? ''}`);
-  logInfo(`    Link target:    ${next.linkTarget ?? ''}`);
+  logInfo(`    Redirect link:  ${next.redirect_link ?? ''}`);
+  logInfo(`    Link target:    ${next.link_target ?? ''}`);
 }
 
 function diffToJson(diff: UploadDiff) {

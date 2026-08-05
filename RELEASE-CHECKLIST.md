@@ -104,8 +104,8 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 
 - [x] **`ui_app` field names — RESOLVED.** Confirmed against both of the platform's
       consumers — the manifest read path and the extensibility UI kit
-      (BEX-308 / BEX-350). The block is the stored app snapshot verbatim: `extensionType`,
-      `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget`.
+      (BEX-308 / BEX-350). The block is the stored app snapshot verbatim: `extension_type`,
+      `surface_point_list`, `heading`, `subheading`, `redirect_link`, `link_target`.
       The UIApp Support Spec's `properties`/`trigger` vocabulary is not read
       anywhere and has been dropped.
 - [ ] **Coordinate the BEX-350 registry reseed.** The twelve-point
@@ -161,7 +161,7 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       upload diff and the scaffold-refresh path both read `ui_app` opportunistically
       and degrade safely when absent (the block reads as new / is carried forward
       locally), but the diff is only fully accurate once the server echoes it —
-      notably `linkTarget`, which the backend defaults to `_blank` server-side.
+      notably `link_target`, which the backend defaults to `_blank` server-side.
       Server-side echo fix is planned in app-store-bo-be's `/cli/apps/{id}` handler
       (the latest app_versions.snapshot row already carries the block).
 - [ ] Decide whether the CLI should guard the UI-app path at runtime, the same open
@@ -269,8 +269,8 @@ distribution value to a flag set.
       message. `app undeploy` has no gate and exits `0` when not deployed. Covered by
       `deploy.test.ts` / `undeploy.test.ts`.
 - [x] The `ui_app` block matches the platform's stored app-snapshot shape field for
-      field (`extensionType`, `surfacePointList`, `heading`, `subheading`,
-      `redirectLink`, `linkTarget`), verified against both of the platform's
+      field (`extension_type`, `surface_point_list`, `heading`, `subheading`,
+      `redirect_link`, `link_target`), verified against both of the platform's
       consumers (BEX-308 / BEX-350). Covered by
       `builds the ui_app shape the platform consumes` and
       `sends the block under the ui_app key`.
@@ -312,7 +312,7 @@ distribution value to a flag set.
       registry + backend). A CLI release ahead of the reseed authors names that resolve
       to nothing, silently. Confirm the sequencing.
 
-### UI-app create is prompt-only; `extensionType` is camelCase
+### UI-app create is prompt-only; `extension_type` values are camelCase
 
 - [x] `brevo app create` exposes **no** `--type`, `--surface`, `--heading`,
       `--subheading`, `--redirect-link` or `--link-target`. Covered by lint (the dead
@@ -330,16 +330,16 @@ distribution value to a flag set.
       `never prompts for a delivery path and always authors an actionLink`.
       (History: the prompt was disabled-choices at first, briefly offered
       `iframeExtension`, and was removed on the 2026-08-03 actionLink-only decision.)
-- [x] The authored `extensionType` is `actionLink`, and `action_link` is rejected on
+- [x] The authored `extension_type` is `actionLink`, and `action_link` is rejected on
       upload. Covered by `builds the snapshot shape the platform consumes` and the
       `validateUiApp` type cases.
 - [ ] Manual: with a UI project created via the prompts, confirm `brevo app upload`
       renders `Extension type: actionLink` in the diff and sends that value under
       the `ui_app` wire key. Then hand-edit the file to `action_link` and confirm the
       upload is rejected locally with exit `1` and no API call.
-- [ ] Reviewer: the platform's server-side `linkTarget` default is gated on the literal
+- [ ] Reviewer: the platform's server-side `link_target` default is gated on the literal
       `"action_link"`, so it no longer fires for CLI-authored apps. Confirm this stays
-      harmless — the CLI always writes `linkTarget` explicitly, and the UI kit defaults
+      harmless — the CLI always writes `link_target` explicitly, and the UI kit defaults
       an absent/unrecognised value to `_blank` client-side.
 
 ### `remove` → `undeploy` rename + actionLink-only prompts (2026-08-03)
@@ -362,11 +362,11 @@ it).
 - [x] `undeploy` behaves exactly as `remove` did: no upload gate, 422 → informational
       NOT_DEPLOYED exit `0`, `--force`/`--json` unchanged. Covered by
       `undeploy.test.ts`.
-- [x] The UI-app create flow asks no `extensionType` question and always writes
-      `actionLink` + `redirectLink` + `linkTarget: "_blank"`. Covered by
+- [x] The UI-app create flow asks no `extension_type` question and always writes
+      `actionLink` + `redirect_link` + `link_target: "_blank"`. Covered by
       `never prompts for a delivery path and always authors an actionLink`.
 - [x] `validateUiApp` still accepts a hand-authored `iframeExtension` block
-      (`modalIframeUrl` required, `redirectLink`/`linkTarget` rejected) — the
+      (`modal_iframe_url` required, `redirect_link`/`link_target` rejected) — the
       prompts are gated, not the wire. Covered by the existing `validateUiApp`
       iframe cases.
 - [ ] Manual: `brevo app --help` lists `undeploy` (not `remove`), and
@@ -777,7 +777,7 @@ them from legacy files so the next write migrates. The read path also carves
 `GET /v3/app-store/surface-points?extensionType=actionLink` before any placement
 prompt (fetch-only, NO local-mirror fallback — failure aborts with an actionable
 message) and builds pages/kind/positions/context choices from the fetched rows;
-`surfacePointList` is the selected rows' `extension_point` names, validated
+`surface_point_list` is the selected rows' `extension_point` names, validated
 against the fetched list (`validateUiApp` gained an optional `allowedPoints`
 param; upload still defaults to the local mirror). New integration-type prompt:
 External link selectable, Modal iframe disabled ("coming soon"). Context prompt
@@ -793,7 +793,7 @@ render as (heading = link label, subheading = tooltip, redirect = URL).
       rows; a registry-only point validates at create (allowed-points threading).
       Covered in `create.test.ts`.
 - [x] Modal iframe choice is disabled and unselectable; the answer threads into
-      `extensionType`. Covered in `create.test.ts`.
+      `extension_type`. Covered in `create.test.ts`.
 - [x] `app upload` pre-flight is unchanged (local mirror; no fetch). Full suite
       green: 901/901, lint clean.
 - [ ] Manual (needs BEX-361 deployed): run the UI-app flow end-to-end against a
@@ -861,3 +861,43 @@ create endpoint must accept the nested block — and the upload endpoint the
       that accepts nested `auth` — verify scopes and redirect URIs land on the
       app. Then `brevo app upload` — verify the server accepts `version` and
       the confirmed version is written back.
+
+### `ui_app` field names renamed to snake_case (keys only; values stay camelCase)
+
+**Change:** Every field NAME in the `ui_app` block is now snake_case, in
+`app-config.json` and on the wire (the upload payload carries the block
+verbatim, so both change together): `extensionType` → `extension_type`,
+`surfacePointList` → `surface_point_list`, `redirectLink` → `redirect_link`,
+`linkTarget` → `link_target`, `modalIframeUrl` → `modal_iframe_url`
+(`heading`, `subheading`, `context`, `version` were already single words).
+Field VALUES are unchanged — `extension_type: "actionLink"`, slot names like
+`contactDetails.headerMenu.action`, `_blank`. The
+`GET /v3/app-store/surface-points?extensionType=` query parameter is a
+separate endpoint contract (BEX-361) and is deliberately NOT renamed. There is
+no read-path alias for the old camelCase keys — no config exists in the wild
+while the feature is pre-GA, same stance as the BEX-350 value-casing decision.
+Validation error messages now name the snake_case fields. Docs
+(`SKILL.md`/`AGENTS.md`/`QA-TESTCASES.md`/changeset) updated in the same
+change.
+
+**⚠️ Server dependency — same caveat as the unified payload above.** The
+snake_case block must be what the upload endpoint binds and what the manifest
+read path / UI kit consume. Confirm against the platform before GA.
+
+**Must hold true:**
+
+- [x] `brevo app create` (UI path) writes a `ui_app` block with only
+      snake_case keys; the created-app box renders from the renamed fields.
+      Covered in `create.test.ts` (`builds the ui_app shape the platform
+      consumes`).
+- [x] `brevo app upload` sends the snake_case block under the `ui_app` wire
+      key and validates the renamed fields (`ui_app.extension_type`,
+      `ui_app.surface_point_list`, …) with messages naming the new keys.
+      Covered in `upload.test.ts` / `validators.test.ts`.
+- [x] `fetchSurfacePoints` still queries `?extensionType=` (unrenamed).
+      Covered in `services/app.test.ts`.
+- [x] Full suite green: 899/899; `tsc --noEmit` clean.
+- [ ] Manual (blocked on backend): upload a UI app against a server build and
+      confirm the snake_case block is accepted and echoed back; deploy and
+      confirm the action link renders (proves the manifest/UI-kit path reads
+      the snake_case names).

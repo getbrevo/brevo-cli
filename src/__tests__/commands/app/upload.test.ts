@@ -424,12 +424,12 @@ describe('app/upload', () => {
   // The block mirrors the platform's stored app snapshot field for field.
   describe('UI apps', () => {
     const UI_APP = {
-      extensionType: 'actionLink' as const,
-      surfacePointList: ['contactDetails.headerMenu.action'],
+      extension_type: 'actionLink' as const,
+      surface_point_list: ['contactDetails.headerMenu.action'],
       heading: 'Invoice Manager',
       subheading: 'Review invoice history for this contact',
-      redirectLink: 'https://example.com/brevo',
-      linkTarget: '_blank' as const,
+      redirect_link: 'https://example.com/brevo',
+      link_target: '_blank' as const,
     };
 
     // A UI app carries no OAuth block at all — `auth` is exactly the empty
@@ -563,12 +563,12 @@ describe('app/upload', () => {
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         ...UI_REMOTE,
         ui_app: {
-          linkTarget: '_blank' as const,
-          redirectLink: 'https://example.com/brevo',
+          link_target: '_blank' as const,
+          redirect_link: 'https://example.com/brevo',
           subheading: 'Review invoice history for this contact',
           heading: 'Invoice Manager',
-          surfacePointList: ['contactDetails.headerMenu.action'],
-          extensionType: 'actionLink' as const,
+          surface_point_list: ['contactDetails.headerMenu.action'],
+          extension_type: 'actionLink' as const,
         },
       });
 
@@ -583,7 +583,7 @@ describe('app/upload', () => {
     it('rejects an extension point that is not in the registry', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, surfacePointList: ['contact.headerMenu.action'] },
+        ui_app: { ...UI_APP, surface_point_list: ['contact.headerMenu.action'] },
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/Unknown extension point/i);
@@ -596,7 +596,7 @@ describe('app/upload', () => {
     it('accepts a widget slot for an action link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, surfacePointList: ['contactDetails.overviewMain.widget'] },
+        ui_app: { ...UI_APP, surface_point_list: ['contactDetails.overviewMain.widget'] },
       });
 
       await uploadCommand({ yes: true });
@@ -604,10 +604,10 @@ describe('app/upload', () => {
       expect(appService.uploadApp).toHaveBeenCalled();
     });
 
-    it('rejects an empty surfacePointList', async () => {
+    it('rejects an empty surface_point_list', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, surfacePointList: [] },
+        ui_app: { ...UI_APP, surface_point_list: [] },
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/at least one extension point/i);
@@ -618,7 +618,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          surfacePointList: [
+          surface_point_list: [
             'contactDetails.headerMenu.action',
             'dealDetails.headerMenu.action',
             'companyDetails.headerMenu.action',
@@ -629,7 +629,7 @@ describe('app/upload', () => {
       await uploadCommand({ yes: true });
 
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
-      expect(payload.ui_app.surfacePointList).toHaveLength(3);
+      expect(payload.ui_app.surface_point_list).toHaveLength(3);
     });
 
     it('rejects duplicate extension points', async () => {
@@ -637,7 +637,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          surfacePointList: [
+          surface_point_list: [
             'contactDetails.headerMenu.action',
             'contactDetails.headerMenu.action',
           ],
@@ -650,7 +650,7 @@ describe('app/upload', () => {
     it('rejects an insecure redirect link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, redirectLink: 'http://example.com/brevo' },
+        ui_app: { ...UI_APP, redirect_link: 'http://example.com/brevo' },
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/must use https/i);
@@ -666,13 +666,13 @@ describe('app/upload', () => {
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/Heading cannot be empty/i);
     });
 
-    it('rejects an invalid linkTarget', async () => {
+    it('rejects an invalid link_target', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, linkTarget: '_top' },
+        ui_app: { ...UI_APP, link_target: '_top' },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Invalid ui_app.linkTarget/i);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Invalid ui_app.link_target/i);
     });
 
     // legacyComponent is the pre-extensibility interpreter path, driven by the UI kit's own
@@ -680,28 +680,28 @@ describe('app/upload', () => {
     // snake_case spellings are refused too: the CLI only ever writes canonical camelCase.
     it.each([['legacyComponent'], ['action_link'], ['iframe_extension']])(
       'rejects the non-authorable %s type',
-      async (extensionType) => {
+      async (extension_type) => {
         (readProjectConfig as jest.Mock).mockReturnValue({
           ...UI_CONFIG,
-          ui_app: { ...UI_APP, extensionType },
+          ui_app: { ...UI_APP, extension_type },
         });
 
         await expect(uploadCommand({ yes: true })).rejects.toThrow(
-          /Unsupported ui_app.extensionType/i,
+          /Unsupported ui_app.extension_type/i,
         );
       },
     );
 
     // iframeExtension uploads now — the UI kit ships modal rendering on both the card and
     // the header-menu path, so the surface the old block cited as missing exists.
-    it('uploads an iframeExtension with a modalIframeUrl', async () => {
+    it('uploads an iframeExtension with a modal_iframe_url', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: {
-          extensionType: 'iframeExtension',
-          surfacePointList: ['contactDetails.headerMenu.action'],
+          extension_type: 'iframeExtension',
+          surface_point_list: ['contactDetails.headerMenu.action'],
           heading: 'Invoice Manager',
-          modalIframeUrl: 'https://example.com/embed',
+          modal_iframe_url: 'https://example.com/embed',
         },
       });
 
@@ -710,15 +710,15 @@ describe('app/upload', () => {
       expect(appService.uploadApp).toHaveBeenCalled();
     });
 
-    it('rejects an iframeExtension carrying a redirectLink', async () => {
+    it('rejects an iframeExtension carrying a redirect_link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: {
-          extensionType: 'iframeExtension',
-          surfacePointList: ['contactDetails.headerMenu.action'],
+          extension_type: 'iframeExtension',
+          surface_point_list: ['contactDetails.headerMenu.action'],
           heading: 'Invoice Manager',
-          modalIframeUrl: 'https://example.com/embed',
-          redirectLink: 'https://example.com/go',
+          modal_iframe_url: 'https://example.com/embed',
+          redirect_link: 'https://example.com/go',
         },
       });
 
@@ -754,20 +754,20 @@ describe('app/upload', () => {
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    // The UI kit drops modalIframeUrl for anything that isn't an
+    // The UI kit drops modal_iframe_url for anything that isn't an
     // iframeExtension, so authoring one on an action link is a silent no-op.
-    it('rejects modalIframeUrl on an action link', async () => {
+    it('rejects modal_iframe_url on an action link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, modalIframeUrl: 'https://example.com/modal' },
+        ui_app: { ...UI_APP, modal_iframe_url: 'https://example.com/modal' },
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/only used by "iframeExtension"/i);
     });
 
     it('writes the ui_app block back into app-config.json, preferring the server copy', async () => {
-      // The server defaults linkTarget, so its copy is the authority.
-      const serverNormalized = { ...UI_APP, linkTarget: '_self' as const };
+      // The server defaults link_target, so its copy is the authority.
+      const serverNormalized = { ...UI_APP, link_target: '_self' as const };
       (appService.uploadApp as jest.Mock).mockResolvedValue({
         ...BASE_UPLOAD_RESPONSE,
         name: 'Invoice Manager',

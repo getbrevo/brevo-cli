@@ -1211,16 +1211,17 @@ describe('app/create', () => {
     });
 
     // Field names and casing must match the platform's stored app snapshot
-    // exactly — `extensionType` is camelCase since BEX-350.
+    // exactly — keys are snake_case, while `extension_type` VALUES stay
+    // camelCase per BEX-350.
     it('builds the ui_app shape the platform consumes', async () => {
       await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp()).toEqual({
-        extensionType: 'actionLink',
-        surfacePointList: ['contactDetails.headerMenu.action'],
+        extension_type: 'actionLink',
+        surface_point_list: ['contactDetails.headerMenu.action'],
         heading: 'Invoice Manager',
-        redirectLink: 'https://example.com/brevo',
-        linkTarget: '_blank',
+        redirect_link: 'https://example.com/brevo',
+        link_target: '_blank',
       });
     });
 
@@ -1231,7 +1232,7 @@ describe('app/create', () => {
 
       // Registry order, not pick order: the list is the selected registry rows'
       // extension_point names, and the registry lists company before deal.
-      expect(collectedUiApp().surfacePointList).toEqual([
+      expect(collectedUiApp().surface_point_list).toEqual([
         'companyDetails.headerMenu.action',
         'dealDetails.headerMenu.action',
       ]);
@@ -1242,7 +1243,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().surfacePointList).toEqual(['contactDetails.headerMenu.action']);
+      expect(collectedUiApp().surface_point_list).toEqual(['contactDetails.headerMenu.action']);
     });
 
     // Widget slots are authorable now: the UI kit renders both extension types on both
@@ -1253,7 +1254,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().surfacePointList).toEqual([
+      expect(collectedUiApp().surface_point_list).toEqual([
         'contactDetails.overviewMain.widget',
         'contactDetails.overviewSidebar.widget',
       ]);
@@ -1270,7 +1271,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().surfacePointList).toEqual([
+      expect(collectedUiApp().surface_point_list).toEqual([
         'contactDetails.overviewMain.widget',
         'contactDetails.overviewSidebar.widget',
         'dealDetails.overviewMain.widget',
@@ -1294,7 +1295,7 @@ describe('app/create', () => {
     // The place prompt can't produce an invalid pair, because kind decides which places it
     // offers. Since BEX-361 the selection maps back to real registry rows, so an answer
     // crossing a place with the wrong kind matches NO row — the assembled block has an
-    // empty surfacePointList and fails loudly rather than composing a slot name the
+    // empty surface_point_list and fails loudly rather than composing a slot name the
     // platform silently drops.
     it('rejects a place crossed with the wrong kind', async () => {
       answerPrompts({ kind: 'widget', places: ['headerMenu'] });
@@ -1323,13 +1324,13 @@ describe('app/create', () => {
       expect(collectedUiApp().subheading).toBe('Review invoice history');
     });
 
-    // linkTarget is no longer asked: the server refuses _self, so offering a choice one of
+    // link_target is no longer asked: the server refuses _self, so offering a choice one of
     // whose options would 400 is worse than writing the only accepted value.
     it('writes _blank without prompting for a link target', async () => {
       await createCommand(CLI_OPTIONS);
 
-      expect(questionNamed('linkTarget')).toBeUndefined();
-      expect(collectedUiApp().linkTarget).toBe('_blank');
+      expect(questionNamed('link_target')).toBeUndefined();
+      expect(collectedUiApp().link_target).toBe('_blank');
     });
 
     // The per-field flags are gone, so these prompt `validate` callbacks are now
@@ -1376,7 +1377,7 @@ describe('app/create', () => {
       expect(external).toBeDefined();
       expect(external?.disabled).toBeUndefined();
       expect(iframe?.disabled).toBe('coming soon');
-      expect(collectedUiApp().extensionType).toBe('actionLink');
+      expect(collectedUiApp().extension_type).toBe('actionLink');
     });
 
     it('asks the integration type after placement and before the heading', async () => {
@@ -1437,7 +1438,7 @@ describe('app/create', () => {
 
       // The point is registry-only (not in the local mirror), so this also
       // proves validateUiApp ran against the fetched list, not the mirror.
-      expect(collectedUiApp().surfacePointList).toEqual(['orderDetails.headerMenu.action']);
+      expect(collectedUiApp().surface_point_list).toEqual(['orderDetails.headerMenu.action']);
     });
 
     it('labels a position with the registry surface_point_name when present', async () => {
@@ -1462,7 +1463,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().surfacePointList).toEqual(['contactDetails.headerMenu.action']);
+      expect(collectedUiApp().surface_point_list).toEqual(['contactDetails.headerMenu.action']);
     });
 
     // ──────── BEX-361: context prompt is driven by allowed_context_field ────────

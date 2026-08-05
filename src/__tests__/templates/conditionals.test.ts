@@ -160,12 +160,12 @@ describe('app-config.json template branching', () => {
     // The platform's app-snapshot shape — nested one level deep, which is
     // what the template's indent handling has to survive.
     const uiApp = {
-      extensionType: 'actionLink',
-      surfacePointList: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+      extension_type: 'actionLink',
+      surface_point_list: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
       heading: 'Invoice Manager',
       subheading: 'Review invoice history',
-      redirectLink: 'https://example.com/brevo',
-      linkTarget: '_blank',
+      redirect_link: 'https://example.com/brevo',
+      link_target: '_blank',
     };
     const out = renderConfig(
       { '{{UI_APP_JSON}}': JSON.stringify(uiApp, null, 2).split('\n').join('\n  ') },

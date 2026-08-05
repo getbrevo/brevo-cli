@@ -112,12 +112,12 @@ The block is the app snapshot the platform stores **field for field** — the sa
 ```json
 {
   "ui_app": {
-    "extensionType": "actionLink",
-    "surfacePointList": ["contactDetails.headerMenu.action"],
+    "extension_type": "actionLink",
+    "surface_point_list": ["contactDetails.headerMenu.action"],
     "heading": "Invoice Manager",
     "subheading": "Review invoice history for this contact",
-    "redirectLink": "https://example.com/brevo",
-    "linkTarget": "_blank",
+    "redirect_link": "https://example.com/brevo",
+    "link_target": "_blank",
     "context": ["contactId"]
   }
 }
@@ -125,13 +125,13 @@ The block is the app snapshot the platform stores **field for field** — the sa
 
 `context` is optional: absent means the app receives whatever record context each location allows; when present it narrows that allow-list to the named fields.
 
-**`surfacePointList` entries follow the grammar `<location>.<place>.<kind>`.** `brevo app create` reads the valid names live from the platform registry (BEX-361), so what it offers is always authorable. The twelve-name mirror below is what `brevo app upload` still pre-flights against — three record pages (`contactDetails`, `companyDetails`, `dealDetails`) × three widget places (`overviewAttributes`, `overviewMain`, `overviewSidebar`, kind `widget`) plus one action place (`headerMenu`, kind `action`).
+**`surface_point_list` entries follow the grammar `<location>.<place>.<kind>`.** `brevo app create` reads the valid names live from the platform registry (BEX-361), so what it offers is always authorable. The twelve-name mirror below is what `brevo app upload` still pre-flights against — three record pages (`contactDetails`, `companyDetails`, `dealDetails`) × three widget places (`overviewAttributes`, `overviewMain`, `overviewSidebar`, kind `widget`) plus one action place (`headerMenu`, kind `action`).
 
 **Both kinds render an action link** — an `.action` slot shows it as a menu entry in the page's "More" menu, a `.widget` slot as a card in that page region. **Get a name even slightly wrong and it fails silently**: the platform drops an unregistered name and the UI kit matches by exact string equality, so you get an empty slot, a 200, and no error anywhere. The CLI validates names locally for exactly this reason — trust its error rather than assuming the server would have complained.
 
-`brevo app upload` sends the block under the `ui_app` wire key and validates it locally first: `extensionType` must be `actionLink` — camelCase since BEX-350; the old snake_case `action_link` is rejected (and `iframeExtension` / `legacyComponent` are not CLI-authorable, though a hand-edited `iframeExtension` block still validates and uploads); `surfacePointList` non-empty, registered, no duplicates; `heading` non-empty; `redirectLink` an **https** URL (`http://` only for `localhost`/`127.0.0.1`, since the UI kit drops non-http(s) URLs outright); `linkTarget` only `_blank` (the server refuses `_self` today); `context` (optional) a list of unique, non-blank field names — whether a name is actually allowed is decided server-side against the slot's allow-list, where the 400 enumerates what is allowed; and `modalIframeUrl` rejected on an `actionLink`, because the UI kit keeps it only for an `iframeExtension` item and would silently discard it here. It also enforces the auth shape: a UI app's `auth` must be exactly the empty object `{}`, and the upload payload carries **no `auth` key at all** (the OAuth block is omitted, not sent empty). For OAuth apps no `ui_app` key is sent.
+`brevo app upload` sends the block under the `ui_app` wire key and validates it locally first: `extension_type` must be `actionLink` — camelCase since BEX-350; the old snake_case `action_link` is rejected (and `iframeExtension` / `legacyComponent` are not CLI-authorable, though a hand-edited `iframeExtension` block still validates and uploads); `surface_point_list` non-empty, registered, no duplicates; `heading` non-empty; `redirect_link` an **https** URL (`http://` only for `localhost`/`127.0.0.1`, since the UI kit drops non-http(s) URLs outright); `link_target` only `_blank` (the server refuses `_self` today); `context` (optional) a list of unique, non-blank field names — whether a name is actually allowed is decided server-side against the slot's allow-list, where the 400 enumerates what is allowed; and `modal_iframe_url` rejected on an `actionLink`, because the UI kit keeps it only for an `iframeExtension` item and would silently discard it here. It also enforces the auth shape: a UI app's `auth` must be exactly the empty object `{}`, and the upload payload carries **no `auth` key at all** (the OAuth block is omitted, not sent empty). For OAuth apps no `ui_app` key is sent.
 
-Fields that do **not** exist — don't add them: a per-action label (the app name is the label), `contextProperties` (the record context an action receives is an allow-list on the platform's extension-point registry; the optional `context` list can only *narrow* it), and any `surface`/`placement`/`trigger` keys (superseded by `surfacePointList`).
+Fields that do **not** exist — don't add them: a per-action label (the app name is the label), `contextProperties` (the record context an action receives is an allow-list on the platform's extension-point registry; the optional `context` list can only *narrow* it), and any `surface`/`placement`/`trigger` keys (superseded by `surface_point_list`).
 
 Editing only the `ui_app` block still counts as a change — `upload` diffs it (ignoring key order) rather than reporting "already up to date". Redirect URLs are required for OAuth apps only.
 

@@ -310,20 +310,20 @@ describe('parseAccountId', () => {
 
 describe('validateUiApp', () => {
   const VALID = {
-    extensionType: 'actionLink',
-    surfacePointList: ['contactDetails.headerMenu.action'],
+    extension_type: 'actionLink',
+    surface_point_list: ['contactDetails.headerMenu.action'],
     heading: 'Invoice Manager',
     subheading: 'Review invoice history for this contact',
-    redirectLink: 'https://example.com/brevo',
-    linkTarget: '_blank',
+    redirect_link: 'https://example.com/brevo',
+    link_target: '_blank',
   };
 
   it('accepts a well-formed action link', () => {
     expect(() => validateUiApp(VALID)).not.toThrow();
   });
 
-  it('accepts one without a subheading or linkTarget', () => {
-    const { subheading: _s, linkTarget: _l, ...rest } = VALID;
+  it('accepts one without a subheading or link_target', () => {
+    const { subheading: _s, link_target: _l, ...rest } = VALID;
     expect(() => validateUiApp(rest)).not.toThrow();
   });
 
@@ -331,7 +331,7 @@ describe('validateUiApp', () => {
     expect(() =>
       validateUiApp({
         ...VALID,
-        surfacePointList: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+        surface_point_list: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
       }),
     ).not.toThrow();
   });
@@ -339,24 +339,30 @@ describe('validateUiApp', () => {
   it.each([
     ['not an object', 'nope'],
     ['null', null],
-    ['a missing extensionType', { ...VALID, extensionType: undefined }],
-    ['an empty surfacePointList', { ...VALID, surfacePointList: [] }],
-    ['a missing surfacePointList', { ...VALID, surfacePointList: undefined }],
-    ['an unregistered point', { ...VALID, surfacePointList: ['contact.header.action'] }],
+    ['a missing extension_type', { ...VALID, extension_type: undefined }],
+    ['an empty surface_point_list', { ...VALID, surface_point_list: [] }],
+    ['a missing surface_point_list', { ...VALID, surface_point_list: undefined }],
+    ['an unregistered point', { ...VALID, surface_point_list: ['contact.header.action'] }],
     [
       'duplicate points',
       {
         ...VALID,
-        surfacePointList: ['contactDetails.headerMenu.action', 'contactDetails.headerMenu.action'],
+        surface_point_list: [
+          'contactDetails.headerMenu.action',
+          'contactDetails.headerMenu.action',
+        ],
       },
     ],
     ['an empty heading', { ...VALID, heading: '  ' }],
-    ['a missing redirectLink', { ...VALID, redirectLink: undefined }],
-    ['an insecure redirectLink', { ...VALID, redirectLink: 'http://example.com' }],
-    ['an unknown linkTarget', { ...VALID, linkTarget: '_top' }],
+    ['a missing redirect_link', { ...VALID, redirect_link: undefined }],
+    ['an insecure redirect_link', { ...VALID, redirect_link: 'http://example.com' }],
+    ['an unknown link_target', { ...VALID, link_target: '_top' }],
     // _self is refused because the server refuses it. Accepting it locally would only
     // move the failure to upload time.
-    ['the _self linkTarget while uploads are pinned to _blank', { ...VALID, linkTarget: '_self' }],
+    [
+      'the _self link_target while uploads are pinned to _blank',
+      { ...VALID, link_target: '_self' },
+    ],
     ['a non-array context', { ...VALID, context: 'contactId' }],
     ['an empty context field name', { ...VALID, context: ['contactId', ''] }],
     ['a duplicated context field name', { ...VALID, context: ['contactId', 'contactId'] }],
@@ -369,7 +375,7 @@ describe('validateUiApp', () => {
   // enforce here.
   it('accepts a widget slot', () => {
     expect(() =>
-      validateUiApp({ ...VALID, surfacePointList: ['contactDetails.overviewMain.widget'] }),
+      validateUiApp({ ...VALID, surface_point_list: ['contactDetails.overviewMain.widget'] }),
     ).not.toThrow();
   });
 
@@ -386,17 +392,17 @@ describe('validateUiApp', () => {
   // snake_case spellings fail here too, by design: the CLI only writes canonical camelCase.
   it.each([['legacyComponent'], ['action_link'], ['iframe_extension']])(
     'rejects the %s type',
-    (extensionType) => {
-      expect(() => validateUiApp({ ...VALID, extensionType })).toThrow(/Unsupported/i);
+    (extension_type) => {
+      expect(() => validateUiApp({ ...VALID, extension_type })).toThrow(/Unsupported/i);
     },
   );
 
-  // The UI kit keeps modalIframeUrl only for iframeExtension, so one on an
+  // The UI kit keeps modal_iframe_url only for iframeExtension, so one on an
   // action link is silently discarded.
-  it('rejects modalIframeUrl on an action link', () => {
-    expect(() => validateUiApp({ ...VALID, modalIframeUrl: 'https://example.com/modal' })).toThrow(
-      /only used by/i,
-    );
+  it('rejects modal_iframe_url on an action link', () => {
+    expect(() =>
+      validateUiApp({ ...VALID, modal_iframe_url: 'https://example.com/modal' }),
+    ).toThrow(/only used by/i);
   });
 });
 
@@ -404,10 +410,10 @@ describe('validateUiApp', () => {
 // delivery paths (the modal card layout, and the header-menu action + its modal).
 describe('validateUiApp — iframeExtension', () => {
   const VALID_IFRAME = {
-    extensionType: 'iframeExtension',
-    surfacePointList: ['contactDetails.headerMenu.action'],
+    extension_type: 'iframeExtension',
+    surface_point_list: ['contactDetails.headerMenu.action'],
     heading: 'Invoice Manager',
-    modalIframeUrl: 'https://example.com/embed',
+    modal_iframe_url: 'https://example.com/embed',
   };
 
   it('accepts a valid iframe extension', () => {
@@ -418,30 +424,30 @@ describe('validateUiApp — iframeExtension', () => {
     expect(() =>
       validateUiApp({
         ...VALID_IFRAME,
-        surfacePointList: ['contactDetails.overviewMain.widget'],
+        surface_point_list: ['contactDetails.overviewMain.widget'],
       }),
     ).not.toThrow();
   });
 
   it.each([
-    ['a missing modalIframeUrl', { ...VALID_IFRAME, modalIframeUrl: undefined }],
-    ['an insecure modalIframeUrl', { ...VALID_IFRAME, modalIframeUrl: 'http://example.com' }],
+    ['a missing modal_iframe_url', { ...VALID_IFRAME, modal_iframe_url: undefined }],
+    ['an insecure modal_iframe_url', { ...VALID_IFRAME, modal_iframe_url: 'http://example.com' }],
     ['an empty heading', { ...VALID_IFRAME, heading: ' ' }],
   ])('rejects %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(CliError);
   });
 
   // The two delivery paths disagree about which URL wins when both are set: the card path
-  // pairs strictly by extensionType and opens the modal, while the header-menu path routes
-  // on redirectLink first and never opens it. Same app, different behaviour per slot.
-  it('rejects redirectLink alongside modalIframeUrl', () => {
+  // pairs strictly by extension_type and opens the modal, while the header-menu path routes
+  // on redirect_link first and never opens it. Same app, different behaviour per slot.
+  it('rejects redirect_link alongside modal_iframe_url', () => {
     expect(() =>
-      validateUiApp({ ...VALID_IFRAME, redirectLink: 'https://example.com/go' }),
+      validateUiApp({ ...VALID_IFRAME, redirect_link: 'https://example.com/go' }),
     ).toThrow(/cannot be combined/i);
   });
 
-  // linkTarget governs where a redirect opens; a modal embeds its URL instead.
-  it('rejects linkTarget', () => {
-    expect(() => validateUiApp({ ...VALID_IFRAME, linkTarget: '_blank' })).toThrow(/no effect/i);
+  // link_target governs where a redirect opens; a modal embeds its URL instead.
+  it('rejects link_target', () => {
+    expect(() => validateUiApp({ ...VALID_IFRAME, link_target: '_blank' })).toThrow(/no effect/i);
   });
 });

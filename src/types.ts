@@ -35,10 +35,10 @@ export interface AccountResponse {
  * the extension-point grammar; the pre-BEX-350 snake_case spellings are not
  * accepted (see the note on the constants in `lib/constants.ts`).
  *
- * - `actionLink` — a redirect-only CTA driven by `redirectLink`. The only type
+ * - `actionLink` — a redirect-only CTA driven by `redirect_link`. The only type
  *   the CLI authors today.
- * - `iframeExtension` — opens `modalIframeUrl` in a modal iframe. The UI kit
- *   keeps `modalIframeUrl` *only* for this type, so authoring one on any other
+ * - `iframeExtension` — opens `modal_iframe_url` in a modal iframe. The UI kit
+ *   keeps `modal_iframe_url` *only* for this type, so authoring one on any other
  *   type is silently dropped.
  * - `legacyComponent` — the pre-extensibility interpreter path used by earlier
  *   integrations. Never CLI-authored; listed so a hand-edited config round-trips.
@@ -74,7 +74,7 @@ export type ExtensionKind = 'widget' | 'action';
 /**
  * A slot in the BEX-350 grammar `<location>.<place>.<kind>` — e.g.
  * `contactDetails.headerMenu.action`. Named for the field it types
- * (`surfacePointList`); the platform calls the same value `extensionPoint` when
+ * (`surface_point_list`); the platform calls the same value `extensionPoint` when
  * it serves it back on the manifest.
  *
  * Casing and spelling are part of the contract: the UI kit matches
@@ -116,33 +116,33 @@ export interface SurfacePointsResponse {
 }
 
 export interface UiApp {
-  extensionType: ExtensionType;
+  extension_type: ExtensionType;
   /**
    * The slots this app mounts on. An app may target several (e.g. the same action
    * link on contact, company and deal pages). An empty/absent list makes the
    * backend fall back to a default widget slot list, which is not what an
    * action-link author wants — so the CLI always writes at least one.
    */
-  surfacePointList: SurfacePoint[];
+  surface_point_list: SurfacePoint[];
   /** Primary CTA text rendered by the kit. */
   heading?: string;
   /** Secondary CTA text rendered beneath the heading. */
   subheading?: string;
   /**
    * Destination for an `actionLink`. Non-http(s) values are dropped by the kit.
-   * Refused on an `iframeExtension`: the widget-card path opens `modalIframeUrl`
-   * while the header-menu path routes on `redirectLink` first, so an app carrying
+   * Refused on an `iframeExtension`: the widget-card path opens `modal_iframe_url`
+   * while the header-menu path routes on `redirect_link` first, so an app carrying
    * both behaves differently depending on which slot renders it.
    */
-  redirectLink?: string;
+  redirect_link?: string;
   /**
    * `actionLink` only. Written explicitly rather than relying on any default, and
    * currently always `_blank` — the server refuses `_self` for now, so the CLI does
    * not prompt for it.
    */
-  linkTarget?: LinkTarget;
+  link_target?: LinkTarget;
   /** `iframeExtension` only — dropped by the kit for any other type. */
-  modalIframeUrl?: string;
+  modal_iframe_url?: string;
   /**
    * The record-context field NAMES this app wants forwarded to it, e.g.
    * `['contactId']`. A REQUEST to narrow, never a grant: the platform intersects it
@@ -270,7 +270,7 @@ export interface UploadAppResponse {
     redirect_uris?: string[] | null;
   };
   // Echoed back for UI apps so the local config can be reconciled with whatever
-  // the server normalized (notably `linkTarget`, which it defaults to `_blank`).
+  // the server normalized (notably `link_target`, which it defaults to `_blank`).
   // Tolerated as absent: server builds that accept the block on write but
   // don't return it leave the locally-sent block in place.
   ui_app?: UiApp;

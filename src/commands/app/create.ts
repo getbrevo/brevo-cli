@@ -459,7 +459,7 @@ async function promptSurfacePointList(
  * Modal iframe is rendered as a disabled "coming soon" choice so partners see
  * the roadmap without being able to author a block the kit can't serve yet.
  */
-async function promptIntegrationType(): Promise<UiApp['extensionType']> {
+async function promptIntegrationType(): Promise<UiApp['extension_type']> {
   const { integrationType } = await inquirer.prompt([
     {
       type: 'list',
@@ -478,7 +478,7 @@ async function promptIntegrationType(): Promise<UiApp['extensionType']> {
       ],
     },
   ]);
-  return integrationType as UiApp['extensionType'];
+  return integrationType as UiApp['extension_type'];
 }
 
 /**
@@ -565,16 +565,16 @@ async function resolveUiApp(): Promise<UiApp> {
   const context = await promptUiAppContext(selectedRows);
 
   const uiApp: UiApp = {
-    extensionType,
-    surfacePointList,
+    extension_type: extensionType,
+    surface_point_list: surfacePointList,
     heading: String(heading ?? '').trim(),
     // Omitted rather than written empty: the kit only renders it when set, and an
     // empty string would show up as a spurious diff on every upload.
     ...(String(subheading ?? '').trim() ? { subheading: String(subheading).trim() } : {}),
-    // linkTarget is written explicitly, and only as _blank: the server refuses
+    // link_target is written explicitly, and only as _blank: the server refuses
     // _self today, so there is nothing to prompt for.
-    redirectLink: String(url ?? '').trim(),
-    linkTarget: DEFAULT_LINK_TARGET as UiApp['linkTarget'],
+    redirect_link: String(url ?? '').trim(),
+    link_target: DEFAULT_LINK_TARGET as UiApp['link_target'],
     ...(context.length ? { context } : {}),
   };
 
@@ -734,14 +734,14 @@ function renderCreatedUiApp(
     `App ID:         ${result.app_id}`,
     `Client ID:      ${result.client_id}`,
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
-    `Extension type: ${uiApp.extensionType}`,
-    ...uiApp.surfacePointList.map(
+    `Extension type: ${uiApp.extension_type}`,
+    ...uiApp.surface_point_list.map(
       (point, i) => `${i === 0 ? 'Extension point:' : '                '} ${point}`,
     ),
     `Heading:        ${uiApp.heading ?? ''}`,
     ...(uiApp.subheading ? [`Subheading:     ${uiApp.subheading}`] : []),
-    `Redirect link:  ${uiApp.redirectLink ?? ''}`,
-    `Link target:    ${uiApp.linkTarget ?? DEFAULT_LINK_TARGET}`,
+    `Redirect link:  ${uiApp.redirect_link ?? ''}`,
+    `Link target:    ${uiApp.link_target ?? DEFAULT_LINK_TARGET}`,
     // Only shown when narrowed. Absent means "whatever each location allows", which is
     // not something to render as a blank field.
     ...(uiApp.context?.length ? [`Record context: ${uiApp.context.join(', ')}`] : []),

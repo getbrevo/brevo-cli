@@ -629,7 +629,7 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Priority:** High
 **Preconditions:** BEX-361 endpoint available.
 **Steps:** Complete the UI-app flow — pick one or more record pages, the integration type (External link), then heading, subheading, redirect link (`https://…`), and the record-context prompt (a checkbox of allowed fields when the registry declares them, free text otherwise).
-**Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extensionType: "actionLink"`, `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth` is exactly the empty object `{}` — **no** `scopes`, **no** `redirectUris`, **no** `type` key — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
+**Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extension_type: "actionLink"`, `surface_point_list`, `heading`, `subheading`, `redirect_link`, `link_target` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth` is exactly the empty object `{}` — **no** `scopes`, **no** `redirectUris`, **no** `type` key — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
 
 ### TC-12.4 — Upload sends the snapshot and is accepted
 **Priority:** High
@@ -645,7 +645,7 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 ### TC-12.6 — Extension-point validation (the silent-failure guard)
 **Priority:** High
 **Why this matters:** the platform *drops* an unregistered slot name and the UI kit matches names by exact string equality — both silently. These rejections are the only place a bad name is ever reported.
-**Steps:** For each, set `ui_app.surfacePointList` and run `brevo app upload`:
+**Steps:** For each, set `ui_app.surface_point_list` and run `brevo app upload`:
 1. `["contact.header.action"]` — the pre-BEX-350 grammar
 2. `["contact.headerMenu.action"]` — record type instead of the page name
 3. `["contactdetails.headerMenu.action"]` — wrong casing
@@ -658,12 +658,12 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Priority:** High
 **Preconditions:** TC-12.4 succeeded; a test account ID; the BEX-350 registry reseed has run.
 **Steps:** `brevo app deploy <account-id>`, confirm the prompt. Open a contact record in that account and open the header **More** (•••) menu.
-**Expected:** "App … deployed to account …". A menu entry appears **labelled with the app name**, and clicking it opens the redirect link in a new tab (or the same tab when `linkTarget` is `_self`), carrying the record context the slot's registry row allows. Then `brevo app remove <account-id>` and confirm it disappears.
+**Expected:** "App … deployed to account …". A menu entry appears **labelled with the app name**, and clicking it opens the redirect link in a new tab (or the same tab when `link_target` is `_self`), carrying the record context the slot's registry row allows. Then `brevo app remove <account-id>` and confirm it disappears.
 
 ### TC-12.8 — Multiple record pages from one app
 **Priority:** Medium
 **Steps:** `brevo app create`, choose **UI app**, tick **all three** record pages at the multi-select, finish the prompts, then upload and deploy.
-**Expected:** `surfacePointList` has all three `<location>.headerMenu.action` names; the entry appears in the More menu on contact, deal **and** company records.
+**Expected:** `surface_point_list` has all three `<location>.headerMenu.action` names; the entry appears in the More menu on contact, deal **and** company records.
 
 ### TC-12.9 — Deploy refuses before an upload
 **Priority:** High
@@ -677,8 +677,8 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 
 ### TC-12.11 — Field validation and account-ID validation
 **Priority:** Medium
-**Steps:** (a) set `ui_app.redirectLink` to `http://example.com/x` and upload; (b) set it to `http://localhost:3000/x` and upload; (c) blank `ui_app.heading` and upload; (d) set `ui_app.linkTarget` to `_top` and upload; (e) add `ui_app.modalIframeUrl` and upload; (f) `brevo app deploy abc`; (g) `brevo app deploy` with no argument.
-**Expected:** (a) rejected — must use https; (b) **accepted** (loopback exemption); (c) rejected — heading cannot be empty; (d) rejected — invalid linkTarget; (e) rejected — only used by `iframeExtension`; (f) "not a numeric Brevo account ID"; (g) "Missing account ID" + usage. All rejections exit `1` with no API call.
+**Steps:** (a) set `ui_app.redirect_link` to `http://example.com/x` and upload; (b) set it to `http://localhost:3000/x` and upload; (c) blank `ui_app.heading` and upload; (d) set `ui_app.link_target` to `_top` and upload; (e) add `ui_app.modal_iframe_url` and upload; (f) `brevo app deploy abc`; (g) `brevo app deploy` with no argument.
+**Expected:** (a) rejected — must use https; (b) **accepted** (loopback exemption); (c) rejected — heading cannot be empty; (d) rejected — invalid link_target; (e) rejected — only used by `iframeExtension`; (f) "not a numeric Brevo account ID"; (g) "Missing account ID" + usage. All rejections exit `1` with no API call.
 
 ### TC-12.12 — A UI app cannot be created non-interactively
 **Priority:** High

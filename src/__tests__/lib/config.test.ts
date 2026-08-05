@@ -565,7 +565,7 @@ describe('config', () => {
         writeConfig({
           appId: '42',
           auth: { type: 'none' },
-          ui_app: { extensionType: 'actionLink' },
+          ui_app: { extension_type: 'actionLink' },
         });
         const cfg = readProjectConfig();
         expect(cfg?.auth).toEqual({});

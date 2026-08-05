@@ -8,7 +8,7 @@ into `main` — anything that must outlive the branch belongs in
 
 ### BEX-290 follow-ups
 
-- [ ] **Make `app upload` validate `surfacePointList` against the fetched BEX-361
+- [ ] **Make `app upload` validate `surface_point_list` against the fetched BEX-361
       registry** instead of the local `EXTENSION_POINTS` mirror, then delete the
       mirror (`EXTENSION_POINTS`, `EXTENSION_PLACE_LABELS`, `EXTENSION_PLACES_BY_KIND`
       in `src/lib/constants.ts`). Until then there is a documented split: create
@@ -78,7 +78,7 @@ into `main` — anything that must outlive the branch belongs in
       Worth considering a local harness that renders the action menu and forwards
       context params to the external URL.
 - [ ] `permittedUrls` is scaffolded empty and never validated or populated from
-      `ui_app.redirectLink`. Harmless for action links (they open a new tab), but it
+      `ui_app.redirect_link`. Harmless for action links (they open a new tab), but it
       becomes load-bearing for `iframeExtension` modals.
 - [ ] Consider whether `brevo app list` should show the app type. Right now an OAuth
       app and a UI app are indistinguishable in the list output.

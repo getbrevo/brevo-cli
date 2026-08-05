@@ -151,7 +151,7 @@ export function containsLegacyAllScope(scopes: string[] | undefined): boolean {
 /**
  * Whether an HTTP(S) URL is safe as a UI-app destination.
  *
- * The extensibility UI kit drops any non-http(s) `redirectLink` outright
+ * The extensibility UI kit drops any non-http(s) `redirect_link` outright
  * (`isHttpUrl` in its shared utils), so anything else would be authored and then
  * silently ignored. On top of that, Brevo opens this URL from an authenticated
  * CRM page, so plain http would downgrade the session — https is required, with
@@ -193,7 +193,7 @@ export function validateUiAppHeading(value: string): true | string {
 }
 
 /**
- * Validate a `surfacePointList` entry against the known registry.
+ * Validate a `surface_point_list` entry against the known registry.
  *
  * This is the highest-value local check in the UI-app flow. The backend silently
  * DROPS an authored value with no registry entry, and the UI kit matches by exact
@@ -274,15 +274,15 @@ export function validateUiApp(uiApp: unknown, allowedPoints?: readonly string[])
     );
   }
   const block = uiApp as Record<string, unknown>;
-  const extensionType = String(block.extensionType ?? '');
+  const extensionType = String(block.extension_type ?? '');
 
   if (!AUTHORABLE_EXTENSION_TYPES.includes(extensionType)) {
     throw new CliError(
-      `Unsupported ui_app.extensionType "${extensionType}". Must be one of: ${AUTHORABLE_EXTENSION_TYPES.join(', ')}.`,
+      `Unsupported ui_app.extension_type "${extensionType}". Must be one of: ${AUTHORABLE_EXTENSION_TYPES.join(', ')}.`,
     );
   }
 
-  validateSurfacePointList(block.surfacePointList, allowedPoints);
+  validateSurfacePointList(block.surface_point_list, allowedPoints);
 
   const headingCheck = validateUiAppHeading(String(block.heading ?? ''));
   if (headingCheck !== true) throw new CliError(`ui_app.heading: ${headingCheck}`);
@@ -310,61 +310,61 @@ export function validateUiApp(uiApp: unknown, allowedPoints?: readonly string[])
 function validateSurfacePointList(points: unknown, allowedPoints?: readonly string[]): void {
   if (!Array.isArray(points) || points.length === 0) {
     throw new CliError(
-      'ui_app.surfacePointList must list at least one extension point (e.g. ["contactDetails.headerMenu.action"]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
+      'ui_app.surface_point_list must list at least one extension point (e.g. ["contactDetails.headerMenu.action"]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
     );
   }
   for (const point of points) {
     const check = validateSurfacePoint(String(point), allowedPoints);
-    if (check !== true) throw new CliError(`ui_app.surfacePointList: ${check}`);
+    if (check !== true) throw new CliError(`ui_app.surface_point_list: ${check}`);
   }
   if (new Set(points.map((p) => String(p).trim())).size !== points.length) {
-    throw new CliError('ui_app.surfacePointList contains duplicate extension points.');
+    throw new CliError('ui_app.surface_point_list contains duplicate extension points.');
   }
 }
 
 function validateActionLinkFields(block: Record<string, unknown>): void {
-  const urlCheck = validateUiAppUrl(String(block.redirectLink ?? ''));
-  if (urlCheck !== true) throw new CliError(`ui_app.redirectLink: ${urlCheck}`);
+  const urlCheck = validateUiAppUrl(String(block.redirect_link ?? ''));
+  if (urlCheck !== true) throw new CliError(`ui_app.redirect_link: ${urlCheck}`);
 
   // _self is refused server-side for now, so accepting it here would only move the
   // failure to upload time. See UPLOADABLE_LINK_TARGETS.
   if (
-    block.linkTarget !== undefined &&
-    !UPLOADABLE_LINK_TARGETS.includes(String(block.linkTarget))
+    block.link_target !== undefined &&
+    !UPLOADABLE_LINK_TARGETS.includes(String(block.link_target))
   ) {
     throw new CliError(
-      `Invalid ui_app.linkTarget "${String(block.linkTarget)}". Must be one of: ${UPLOADABLE_LINK_TARGETS.join(', ')}.`,
+      `Invalid ui_app.link_target "${String(block.link_target)}". Must be one of: ${UPLOADABLE_LINK_TARGETS.join(', ')}.`,
     );
   }
 
-  // The UI kit keeps `modalIframeUrl` only for an `iframeExtension` item, so one
+  // The UI kit keeps `modal_iframe_url` only for an `iframeExtension` item, so one
   // carried by an actionLink is dropped without a word. Reject rather than let a
   // partner ship a URL that will never open.
-  if (block.modalIframeUrl !== undefined && String(block.modalIframeUrl).trim()) {
+  if (block.modal_iframe_url !== undefined && String(block.modal_iframe_url).trim()) {
     throw new CliError(
-      `ui_app.modalIframeUrl is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirectLink instead.`,
+      `ui_app.modal_iframe_url is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
     );
   }
 }
 
 function validateIframeExtensionFields(block: Record<string, unknown>): void {
-  const urlCheck = validateUiAppUrl(String(block.modalIframeUrl ?? ''));
-  if (urlCheck !== true) throw new CliError(`ui_app.modalIframeUrl: ${urlCheck}`);
+  const urlCheck = validateUiAppUrl(String(block.modal_iframe_url ?? ''));
+  if (urlCheck !== true) throw new CliError(`ui_app.modal_iframe_url: ${urlCheck}`);
 
   // Refused because the two delivery paths disagree about which URL wins: the
-  // widget-card path pairs strictly by extensionType and opens the modal, while the
-  // header-menu path routes on redirectLink first and never opens it. The same app would
+  // widget-card path pairs strictly by extension_type and opens the modal, while the
+  // header-menu path routes on redirect_link first and never opens it. The same app would
   // behave differently depending on the slot it rendered on.
-  if (block.redirectLink !== undefined && String(block.redirectLink).trim()) {
+  if (block.redirect_link !== undefined && String(block.redirect_link).trim()) {
     throw new CliError(
-      `ui_app.redirectLink cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the modal, while a card would open the modal. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
+      `ui_app.redirect_link cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the modal, while a card would open the modal. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
     );
   }
 
-  // linkTarget only governs where a redirectLink opens; a modal embeds its URL.
-  if (block.linkTarget !== undefined && String(block.linkTarget).trim()) {
+  // link_target only governs where a redirect_link opens; a modal embeds its URL.
+  if (block.link_target !== undefined && String(block.link_target).trim()) {
     throw new CliError(
-      `ui_app.linkTarget has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL in a modal rather than navigating to it. Remove it.`,
+      `ui_app.link_target has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL in a modal rather than navigating to it. Remove it.`,
     );
   }
 }

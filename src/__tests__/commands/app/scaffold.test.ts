@@ -626,14 +626,14 @@ describe('app/scaffold', () => {
   // ──────────────── UI apps (BEX-290) ────────────────
   describe('UI apps', () => {
     const uiApp = {
-      extensionType: 'actionLink' as const,
-      surfacePointList: ['contactDetails.headerMenu.action'],
+      extension_type: 'actionLink' as const,
+      surface_point_list: ['contactDetails.headerMenu.action'],
       heading: 'Invoice Manager',
       // A value the server does not know about — the whole point of the
       // preservation test below.
       subheading: 'Hand-edited subheading',
-      redirectLink: 'https://example.com/brevo',
-      linkTarget: '_blank' as const,
+      redirect_link: 'https://example.com/brevo',
+      link_target: '_blank' as const,
     };
 
     // Drifts from serverApp on appName so the refresh path (a full overwrite of

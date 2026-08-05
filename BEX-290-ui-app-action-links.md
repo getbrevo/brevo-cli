@@ -11,11 +11,11 @@ branch; this file records the shape of the change and the decisions behind it.
 >   extension types on both kinds: a widget slot gets a card
 >   (`buildExtensionCardConfig.ts`), an action slot a menu entry
 >   (`getExtensionActions.ts`). All twelve registered slots are now authorable.
-> - **`modalIframeUrl` "not authorable"** — now authorable, via `iframeExtension`. The
+> - **`modal_iframe_url` "not authorable"** — now authorable, via `iframeExtension`. The
 >   modal surface this cited as missing ships in the kit on both delivery paths. An
->   `iframeExtension` may not carry `redirectLink` (the two paths disagree about which URL
->   wins) or `linkTarget` (inert for a modal).
-> - **`linkTarget` is no longer prompted.** Uploads are pinned to `_blank`; `_self` is
+>   `iframeExtension` may not carry `redirect_link` (the two paths disagree about which URL
+>   wins) or `link_target` (inert for a modal).
+> - **`link_target` is no longer prompted.** Uploads are pinned to `_blank`; `_self` is
 >   refused server-side for now, so there is no choice to offer.
 > - **"`contextProperties` … not declared by the partner"** — true when written. The
 >   platform since added `context`: the partner may now *narrow* the slot's context
@@ -48,12 +48,12 @@ names it stores, serves and renders. There is no mapping layer, so nothing can d
 ```json
 {
   "ui_app": {
-    "extensionType": "actionLink",
-    "surfacePointList": ["contactDetails.headerMenu.action"],
+    "extension_type": "actionLink",
+    "surface_point_list": ["contactDetails.headerMenu.action"],
     "heading": "Invoice Manager",
     "subheading": "Review invoice history for this contact",
-    "redirectLink": "https://example.com/brevo",
-    "linkTarget": "_blank"
+    "redirect_link": "https://example.com/brevo",
+    "link_target": "_blank"
   }
 }
 ```
@@ -73,7 +73,7 @@ contributor) will look for:
   platform's extension-point registry entry — a property of the *slot*, chosen by the
   platform, not declared by the partner.
 
-`modalIframeUrl` also exists on the wire but only applies to the `iframeExtension` type;
+`modal_iframe_url` also exists on the wire but only applies to the `iframeExtension` type;
 the UI kit discards it for anything else, so the CLI rejects it on an action link rather
 than let a partner ship a URL that never opens.
 
@@ -119,13 +119,13 @@ export type ExtensionType = 'actionLink' | 'iframeExtension' | 'legacyComponent'
 export type LinkTarget = '_blank' | '_self';
 
 export interface UiApp {
-  extensionType: ExtensionType;
-  surfacePointList: string[]; // `<location>.<place>.<kind>`, registry-validated
+  extension_type: ExtensionType;
+  surface_point_list: string[]; // `<location>.<place>.<kind>`, registry-validated
   heading?: string;
   subheading?: string;
-  redirectLink?: string;
-  linkTarget?: LinkTarget;
-  modalIframeUrl?: string; // iframeExtension only — not authorable
+  redirect_link?: string;
+  link_target?: LinkTarget;
+  modal_iframe_url?: string; // iframeExtension only — not authorable
   version?: string; // server-managed
 }
 ```
@@ -152,7 +152,7 @@ Then the paths diverge:
 - **`oauth`** → the existing redirect-URL + logo path, byte-for-byte unchanged.
 - **`ui`** → `resolveUiApp()` prompts for one or more record pages, then heading,
   subheading, redirect link and link target. The multi-select maps `contact|company|deal`
-  onto `<location>.headerMenu.action`. Defaults: record page `contact`, `linkTarget`
+  onto `<location>.headerMenu.action`. Defaults: record page `contact`, `link_target`
   `_blank`, scopes `contacts:read`/`contacts:write` (narrower than the OAuth defaults). No
   description length cap — the platform enforces none, and inventing one would reject valid
   configs.
@@ -202,13 +202,13 @@ falls back to a default — otherwise every UI-app scaffold would report a phant
 ### 6. `app upload` — `src/commands/app/upload.ts`
 
 - The block is sent under the `snapshot` key; `UploadAppResponse` reads it back so the
-  server's normalisation (notably `linkTarget`) wins on write-back.
+  server's normalisation (notably `link_target`) wins on write-back.
 - **The redirect-URL requirement is now OAuth-only.** A UI app legitimately has none.
 - Local validation runs before the request, deliberately stricter than the wire — the
   platform degrades a bad snapshot silently rather than rejecting it, so this is the only
   enforcement point. Covers extension type, slot names (registered / action-only / no
   duplicates), non-empty heading, https redirect link (loopback exempt), link target, and
-  the `modalIframeUrl` rejection.
+  the `modal_iframe_url` rejection.
 - **Non-obvious:** `hasNoChanges` compared every field *except* the block, so editing only
   `ui_app` reported "Already up to date" and never pushed. Now included, with a canonical
   key-order-insensitive comparison so a reformatted file isn't reported as drift.
