@@ -187,9 +187,37 @@ export function validateUiAppUrl(value: string): true | string {
   return true;
 }
 
-/** Validate a UI-app heading. Returns `true` or an error string. */
-export function validateUiAppHeading(value: string): true | string {
-  return value.trim() ? true : 'Heading cannot be empty.';
+// Length ceilings for the two authored text fields. Both are enforced server-side, so
+// without a local check the partner gets an opaque 400 from the upload endpoint — exactly
+// the failure mode this pre-flight exists to prevent. `label` shares the app-name ceiling
+// because it occupies the same one-line menu row.
+const UI_APP_LABEL_MAX_LENGTH = 48;
+const UI_APP_MORE_INFO_MAX_LENGTH = 255;
+
+/**
+ * Validate a UI-app `label` — the menu entry's text on an `.action` slot, the card's CTA
+ * button text on a `.widget` slot. Returns `true` or an error string, so it can back an
+ * inquirer `validate` directly.
+ */
+export function validateUiAppLabel(value: string): true | string {
+  const trimmed = value.trim();
+  if (!trimmed) return 'Label cannot be empty.';
+  if (trimmed.length > UI_APP_LABEL_MAX_LENGTH) {
+    return `Label must be at most ${UI_APP_LABEL_MAX_LENGTH} characters (got ${trimmed.length}).`;
+  }
+  return true;
+}
+
+/**
+ * Validate a UI-app `more_info` — the menu entry's `subText`, the card's description.
+ * Optional, so blank passes; only the length ceiling is enforced.
+ */
+export function validateUiAppMoreInfo(value: string): true | string {
+  const trimmed = value.trim();
+  if (trimmed.length > UI_APP_MORE_INFO_MAX_LENGTH) {
+    return `More info must be at most ${UI_APP_MORE_INFO_MAX_LENGTH} characters (got ${trimmed.length}).`;
+  }
+  return true;
 }
 
 /**
@@ -282,42 +310,94 @@ export function validateUiApp(uiApp: unknown, allowedPoints?: readonly string[])
     );
   }
 
+  rejectPreBex290Fields(block);
+
   validateSurfacePointList(block.surface_point_list, allowedPoints);
 
-  const headingCheck = validateUiAppHeading(String(block.heading ?? ''));
-  if (headingCheck !== true) throw new CliError(`ui_app.heading: ${headingCheck}`);
+  const labelCheck = validateUiAppLabel(String(block.label ?? ''));
+  if (labelCheck !== true) throw new CliError(`ui_app.label: ${labelCheck}`);
+
+  const moreInfoCheck = validateUiAppMoreInfo(String(block.more_info ?? ''));
+  if (moreInfoCheck !== true) throw new CliError(`ui_app.more_info: ${moreInfoCheck}`);
 
   if (extensionType === EXTENSION_TYPE_IFRAME) {
     validateIframeExtensionFields(block);
   } else {
     validateActionLinkFields(block);
   }
+}
 
+/**
+ * Refuse the pre-BEX-290 field names with a migration hint rather than a mystery.
+ *
+ * These are a local diagnostic, not a claim about the wire: the deployed upload endpoint
+ * accepts a top-level `context` with a 200 and simply ignores it, and it no longer reads
+ * `heading`/`subheading` at all. So a config written by an earlier build of this branch
+ * would upload "successfully" and render an app with no text and no record context. The
+ * generic "label cannot be empty" this would otherwise produce points at the wrong thing —
+ * the label IS there, under its old name.
+ *
+ * No read-path alias, deliberately, for the same reason the snake_case rename didn't get
+ * one: UI apps aren't live, so there is no partner config in the wild to migrate. These
+ * files only exist on developer machines, and a two-line rename is cheaper to explain than
+ * an alias map that has to be removed later.
+ */
+function rejectPreBex290Fields(block: Record<string, unknown>): void {
+  if (block.heading !== undefined) {
+    throw new CliError(
+      "ui_app.heading was renamed to ui_app.label (it is the menu entry's text and the card's CTA). Rename the field in app-config.json.",
+    );
+  }
+  if (block.subheading !== undefined) {
+    throw new CliError(
+      "ui_app.subheading was renamed to ui_app.more_info (it is the menu entry's second line and the card's description). Rename the field in app-config.json.",
+    );
+  }
   if (block.context !== undefined) {
-    if (!Array.isArray(block.context)) {
-      throw new CliError('ui_app.context must be an array of field names, e.g. ["contactId"].');
-    }
-    const contextCheck = validateUiAppContext(block.context.map((field) => String(field)));
-    if (contextCheck !== true) throw new CliError(`ui_app.context: ${contextCheck}`);
+    throw new CliError(
+      'ui_app.context is no longer a top-level field — record context is now per placement. Move each field list into the matching `surface_point_list` entry, e.g. [{ "surface_point": "contactDetails.headerMenu.action", "context": ["recordId"] }].',
+    );
   }
 }
 
 /**
  * Validate the slot list. Both extension types render on both kinds — a widget slot gets
- * a card, an action slot a menu entry — so the only rules are that the list is non-empty,
- * every name is registered, and no name repeats.
+ * a card, an action slot a menu entry — so the rules are that the list is non-empty, every
+ * entry is an object naming a registered slot, no slot repeats, and each entry's `context`
+ * (when present) is a well-formed list of field names.
  */
-function validateSurfacePointList(points: unknown, allowedPoints?: readonly string[]): void {
-  if (!Array.isArray(points) || points.length === 0) {
+function validateSurfacePointList(entries: unknown, allowedPoints?: readonly string[]): void {
+  if (!Array.isArray(entries) || entries.length === 0) {
     throw new CliError(
-      'ui_app.surface_point_list must list at least one extension point (e.g. ["contactDetails.headerMenu.action"]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
+      'ui_app.surface_point_list must list at least one placement (e.g. [{ "surface_point": "contactDetails.headerMenu.action", "context": ["recordId"] }]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
     );
   }
-  for (const point of points) {
-    const check = validateSurfacePoint(String(point), allowedPoints);
+  const names: string[] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new CliError(
+        'ui_app.surface_point_list entries must be objects, e.g. { "surface_point": "contactDetails.headerMenu.action", "context": ["recordId"] }. A bare string is the pre-BEX-290 shape.',
+      );
+    }
+    const row = entry as Record<string, unknown>;
+    const check = validateSurfacePoint(String(row.surface_point ?? ''), allowedPoints);
     if (check !== true) throw new CliError(`ui_app.surface_point_list: ${check}`);
+    const name = String(row.surface_point).trim();
+    names.push(name);
+
+    if (row.context !== undefined) {
+      if (!Array.isArray(row.context)) {
+        throw new CliError(
+          `ui_app.surface_point_list["${name}"].context must be an array of field names, e.g. ["recordId"].`,
+        );
+      }
+      const contextCheck = validateUiAppContext(row.context.map((field) => String(field)));
+      if (contextCheck !== true) {
+        throw new CliError(`ui_app.surface_point_list["${name}"].context: ${contextCheck}`);
+      }
+    }
   }
-  if (new Set(points.map((p) => String(p).trim())).size !== points.length) {
+  if (new Set(names).size !== names.length) {
     throw new CliError('ui_app.surface_point_list contains duplicate extension points.');
   }
 }

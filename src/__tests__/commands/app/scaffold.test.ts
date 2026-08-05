@@ -627,13 +627,14 @@ describe('app/scaffold', () => {
   describe('UI apps', () => {
     const uiApp = {
       extension_type: 'actionLink' as const,
-      surface_point_list: ['contactDetails.headerMenu.action'],
-      heading: 'Invoice Manager',
+      surface_point_list: [
+        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+      ],
+      label: 'View in CRM',
       // A value the server does not know about — the whole point of the
       // preservation test below.
-      subheading: 'Hand-edited subheading',
+      more_info: 'Hand-edited more_info',
       redirect_link: 'https://example.com/brevo',
-      link_target: '_blank' as const,
     };
 
     // Drifts from serverApp on appName so the refresh path (a full overwrite of
@@ -661,7 +662,7 @@ describe('app/scaffold', () => {
       const { loadBaseTemplates } = require('../../../templates');
       expect(loadBaseTemplates).toHaveBeenCalled();
       const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
-      expect(vars['{{UI_APP_JSON}}']).toContain('Hand-edited subheading');
+      expect(vars['{{UI_APP_JSON}}']).toContain('Hand-edited more_info');
       expect(JSON.parse(vars['{{UI_APP_JSON}}'].replaceAll('\n  ', '\n'))).toEqual(uiApp);
     });
 

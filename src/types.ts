@@ -21,14 +21,25 @@ export interface AccountResponse {
 // on either side of the platform reads those names. Keeping the CLI's authored
 // file 1:1 with the consumed shape means there is no mapping layer to drift.
 //
-// One field the spec described has no counterpart in the implementation and is
-// therefore not authorable: a per-action label. The menu entry is labelled with the
-// *app name*, so there is nothing to author. (`heading` is not that label — it is the
-// card title on a widget slot, and unused on an action slot.)
+// The partner-authored text is two fields, `label` and `more_info`, and each one is
+// rendered in two places:
 //
-// The record context an app receives IS partly authorable, via `context` — but only
-// downwards. The ceiling is the extension-point registry entry's allow-list, chosen by
-// the platform; `context` narrows it and can never widen it. See the field below.
+//   - `label`     — the menu entry's text on an `.action` slot, and the CTA button's
+//                   text on a `.widget` slot's card.
+//   - `more_info` — the menu entry's `subText` on an `.action` slot, and the card's
+//                   description on a `.widget` slot.
+//
+// A widget card's TITLE has no field: it is the *app name*. That is the only piece of
+// rendered text a partner changes by renaming the app rather than by editing this block.
+//
+// (Before BEX-290 these two were named `heading`/`subheading` and the menu entry was
+// labelled with the app name. Both changed together: the menu entry is now labelled from
+// `label`, so a per-action label IS authorable and the old "there is nothing to author"
+// note no longer holds.)
+//
+// The record context an app receives IS partly authorable, via each slot entry's
+// `context` — but only downwards. The ceiling is that extension-point registry row's
+// allow-list, chosen by the platform; `context` narrows it and can never widen it.
 
 /**
  * The delivery path an extension renders through. camelCase per BEX-350, matching
@@ -86,6 +97,28 @@ export type ExtensionKind = 'widget' | 'action';
 export type SurfacePoint = string;
 
 /**
+ * One entry of `surface_point_list`: a slot, plus the record-context field names this app
+ * wants forwarded to it *on that slot*.
+ *
+ * Nested rather than a single top-level `context` array because the allow-list is a
+ * property of the registry ROW, not of the app: a deal page and a contact page can expose
+ * different fields, and one flat list cannot express "recordId on the contact page,
+ * recordId + recordName on the deal page".
+ *
+ * `context` is a REQUEST to narrow, never a grant: the platform intersects it with that
+ * slot's own allow-list, so an app can only ever receive fewer fields than the slot
+ * permits. Absent or empty means "no narrowing" — the slot's whole allow-list is
+ * forwarded. `brevo app create` seeds it from the row's `default_context_field`.
+ *
+ * The fields reach the partner's endpoint as QUERY PARAMETERS on `redirect_link` — there
+ * is no path templating, so an app cannot receive `/contacts/123`; it must read params.
+ */
+export interface SurfacePointEntry {
+  surface_point: SurfacePoint;
+  context?: string[];
+}
+
+/**
  * One registry row from `GET /v3/app-store/surface-points` (BEX-361).
  *
  * The server parses `location`/`place`/`kind` out of the slot name so the CLI
@@ -123,11 +156,23 @@ export interface UiApp {
    * backend fall back to a default widget slot list, which is not what an
    * action-link author wants — so the CLI always writes at least one.
    */
-  surface_point_list: SurfacePoint[];
-  /** Primary CTA text rendered by the kit. */
-  heading?: string;
-  /** Secondary CTA text rendered beneath the heading. */
-  subheading?: string;
+  surface_point_list: SurfacePointEntry[];
+  /**
+   * The app's own text: the menu entry's label on an `.action` slot, the card's CTA
+   * button text on a `.widget` slot. Required in practice — `validateUiApp` refuses an
+   * empty one — but optional at the type level because the read path tolerates a
+   * partial block (the backend degrades a malformed snapshot rather than erroring).
+   */
+  label?: string;
+  /**
+   * Supporting text: the menu entry's `subText` on an `.action` slot, the card's
+   * description on a `.widget` slot. Optional — the kit renders it only when set.
+   *
+   * Not a hover tooltip: `ActionListItem` in the design system destructures a fixed
+   * prop list with no rest-spread, so a native `title` attribute never reaches the DOM.
+   * It is always-visible second-line text, which is also the accessible choice.
+   */
+  more_info?: string;
   /**
    * Destination for an `actionLink`. Non-http(s) values are dropped by the kit.
    * Refused on an `iframeExtension`: the widget-card path opens `modal_iframe_url`
@@ -136,24 +181,19 @@ export interface UiApp {
    */
   redirect_link?: string;
   /**
-   * `actionLink` only. Written explicitly rather than relying on any default, and
-   * currently always `_blank` — the server refuses `_self` for now, so the CLI does
-   * not prompt for it.
+   * `actionLink` only, and NOT authored into `app-config.json` (BEX-290): `brevo app
+   * upload` injects `_blank` into the payload, and `brevo app create` never writes it.
+   * There was never a choice to make — the server refuses `_self` — so a field in the
+   * file only invited a partner to edit it into a value that 400s.
+   *
+   * Still on the type for two reasons: the upload payload carries it, and the server's
+   * `ui_app` echo may carry it back. The write-back strips it so it cannot creep back
+   * into the file, and the upload diff ignores it so its presence server-side is not
+   * reported as local drift.
    */
   link_target?: LinkTarget;
   /** `iframeExtension` only — dropped by the kit for any other type. */
   modal_iframe_url?: string;
-  /**
-   * The record-context field NAMES this app wants forwarded to it, e.g.
-   * `['contactId']`. A REQUEST to narrow, never a grant: the platform intersects it
-   * with the slot's own allow-list, so an app can only ever receive fewer fields than
-   * the slot permits.
-   *
-   * Absent or empty means "no narrowing" — the slot's whole allow-list is forwarded.
-   * A name no authored slot allows is refused at upload, because the serving path
-   * would otherwise drop it without a word.
-   */
-  context?: string[];
   /** Snapshot version, surfaced at the manifest item root. Server-managed. */
   version?: string;
 }
@@ -270,8 +310,12 @@ export interface UploadAppResponse {
     redirect_uris?: string[] | null;
   };
   // Echoed back for UI apps so the local config can be reconciled with whatever
-  // the server normalized (notably `link_target`, which it defaults to `_blank`).
-  // Tolerated as absent: server builds that accept the block on write but
-  // don't return it leave the locally-sent block in place.
+  // the server normalized. Tolerated as absent: server builds that accept the
+  // block on write but don't return it leave the locally-sent block in place.
+  //
+  // `link_target` is stripped from this echo before the write-back (BEX-290) —
+  // the server defaults it to `_blank`, and the CLI deliberately stopped
+  // authoring it, so echoing it straight through would silently re-add to
+  // app-config.json the one field the file is not supposed to carry.
   ui_app?: UiApp;
 }

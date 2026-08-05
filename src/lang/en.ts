@@ -123,12 +123,14 @@ export const messages = {
   APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Modal iframe    (Embeds your page in a modal)',
   APP_CREATE_UI_INTEGRATION_COMING_SOON: 'coming soon',
   // Each field says what it renders as, so a partner filling the form knows what
-  // they are writing (heading = link label, subheading = tooltip, link = URL).
-  APP_CREATE_UI_HEADING_PROMPT:
-    'Heading — the link label shown for your app (header-menu entries display the app name):',
-  APP_CREATE_UI_SUBHEADING_PROMPT: 'Subheading — tooltip text (optional):',
+  // they are writing. Both fields render in two places, and the prompt names both:
+  // `label` is the menu entry's text AND a card's CTA button, `more_info` is the
+  // menu entry's second line AND a card's description.
+  APP_CREATE_UI_LABEL_PROMPT: 'Label — the menu entry text, and the button text on a card:',
+  APP_CREATE_UI_MORE_INFO_PROMPT:
+    'More info — supporting text under the menu entry, and a card’s description (optional):',
   APP_CREATE_UI_REDIRECT_LINK_PROMPT:
-    'Redirect link — the destination URL your app opens (record context is passed to it):',
+    'Redirect link — the destination URL your app opens (record context arrives as query parameters):',
   // Choices come from the union of the selected placements' allow-lists
   // (allowed_context_field, BEX-361). Free text only when no placement declares one.
   APP_CREATE_UI_CONTEXT_CHECKBOX_PROMPT:
@@ -136,10 +138,16 @@ export const messages = {
   APP_CREATE_UI_CONTEXT_PROMPT:
     'Record context fields to receive, comma-separated (optional — blank receives whatever each location allows):',
   APP_CREATE_UI_BOX_TITLE: 'UI app created',
-  // The action-menu entry is labelled with the app name — there is no per-action
-  // label field on the platform, so say so rather than let a partner hunt for one.
-  APP_CREATE_UI_BOX_LABEL_NOTE: (appName: string) =>
-    `The menu entry is labelled with the app name ("${appName}") — rename the app to change it.`,
+  // `label` labels the menu entry (BEX-290). The one piece of rendered text that has
+  // no field is a CARD's title, which is the app name — worth saying, since it is now
+  // the only place a partner might hunt for a field that doesn't exist.
+  APP_CREATE_UI_BOX_LABEL_NOTE: (label: string, appName: string) =>
+    `The menu entry is labelled "${label}". On a card that text becomes the button, and the card's title is the app name ("${appName}").`,
+  // Record context reaches the partner's endpoint as query parameters only — there is
+  // no path templating — so the summary prints the exact URL shape to build against.
+  APP_CREATE_UI_BOX_EXAMPLE_URL_LABEL: 'Brevo will open, for example:',
+  APP_CREATE_UI_BOX_EXAMPLE_URL_NOTE:
+    'Values are placeholders. Read them as query parameters — the path is never templated.',
   APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this, then run \`${CLI.APP_UPLOAD}\`.`,
   APP_CREATE_UI_NEXT: (cdDir?: string): string[] => [
     ...(cdDir ? [`1. cd ${cdDir}`] : []),
@@ -179,6 +187,9 @@ export const messages = {
   APP_UPLOAD_NO_REDIRECT_URLS_OAUTH:
     'app-config.json has no redirect URLs configured. OAuth apps need at least one — add it to `auth.redirectUris`.',
   APP_UPLOAD_UI_APP_SUMMARY: 'UI app:',
+  // app-config.json does not carry link_target — upload injects it — so the diff row
+  // says where the value comes from rather than implying there is a field to edit.
+  APP_UPLOAD_UI_LINK_TARGET_NOTE: '(added on upload; not a field in app-config.json)',
   // Auth-shape mismatches are hard errors, not silent ignores — the CLI is the
   // only layer that will ever tell the partner (see validateAuthShape).
   APP_UPLOAD_UI_APP_AUTH_EMPTY_REQUIRED:

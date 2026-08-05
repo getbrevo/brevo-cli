@@ -1116,8 +1116,8 @@ describe('app/create', () => {
         // places), then the places themselves.
         kind: 'action',
         places: ['headerMenu'],
-        heading: 'Invoice Manager',
-        subheading: '',
+        label: 'View in CRM',
+        more_info: '',
         url: 'https://example.com/brevo',
         context: '',
         logoUrl: '',
@@ -1181,6 +1181,11 @@ describe('app/create', () => {
     });
 
     const collectedUiApp = () => (fetchAppContext as jest.Mock).mock.calls[0][2];
+    /** Just the slot names of the collected block, for the placement assertions. */
+    const surfacePointNames = () =>
+      collectedUiApp().surface_point_list.map(
+        (entry: { surface_point: string }) => entry.surface_point,
+      );
 
     // A UI app has no OAuth block (`auth: {}` in its config) — the whole
     // auth key is omitted from the wire entirely, not sent empty.
@@ -1218,10 +1223,9 @@ describe('app/create', () => {
 
       expect(collectedUiApp()).toEqual({
         extension_type: 'actionLink',
-        surface_point_list: ['contactDetails.headerMenu.action'],
-        heading: 'Invoice Manager',
+        surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
+        label: 'View in CRM',
         redirect_link: 'https://example.com/brevo',
-        link_target: '_blank',
       });
     });
 
@@ -1232,7 +1236,7 @@ describe('app/create', () => {
 
       // Registry order, not pick order: the list is the selected registry rows'
       // extension_point names, and the registry lists company before deal.
-      expect(collectedUiApp().surface_point_list).toEqual([
+      expect(surfacePointNames()).toEqual([
         'companyDetails.headerMenu.action',
         'dealDetails.headerMenu.action',
       ]);
@@ -1243,7 +1247,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().surface_point_list).toEqual(['contactDetails.headerMenu.action']);
+      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
     });
 
     // Widget slots are authorable now: the UI kit renders both extension types on both
@@ -1254,7 +1258,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().surface_point_list).toEqual([
+      expect(surfacePointNames()).toEqual([
         'contactDetails.overviewMain.widget',
         'contactDetails.overviewSidebar.widget',
       ]);
@@ -1271,7 +1275,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().surface_point_list).toEqual([
+      expect(surfacePointNames()).toEqual([
         'contactDetails.overviewMain.widget',
         'contactDetails.overviewSidebar.widget',
         'dealDetails.overviewMain.widget',
@@ -1300,7 +1304,7 @@ describe('app/create', () => {
     it('rejects a place crossed with the wrong kind', async () => {
       answerPrompts({ kind: 'widget', places: ['headerMenu'] });
 
-      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/at least one extension point/);
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/at least one placement/);
       expect(appService.createApp).not.toHaveBeenCalled();
     });
 
@@ -1310,38 +1314,46 @@ describe('app/create', () => {
       expect(questionNamed('places')?.default).toEqual(['headerMenu']);
     });
 
-    it('omits subheading when left blank rather than writing an empty string', async () => {
+    it('omits more_info when left blank rather than writing an empty string', async () => {
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp()).not.toHaveProperty('subheading');
+      expect(collectedUiApp()).not.toHaveProperty('more_info');
     });
 
-    it('includes subheading when entered', async () => {
-      answerPrompts({ subheading: 'Review invoice history' });
+    it('includes more_info when entered', async () => {
+      answerPrompts({ more_info: 'Review invoice history' });
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().subheading).toBe('Review invoice history');
+      expect(collectedUiApp().more_info).toBe('Review invoice history');
     });
 
-    // link_target is no longer asked: the server refuses _self, so offering a choice one of
-    // whose options would 400 is worse than writing the only accepted value.
-    it('writes _blank without prompting for a link target', async () => {
+    // link_target is neither asked nor authored: `brevo app upload` injects `_blank`.
+    // The server refuses `_self`, so a field in the file would only invite a partner to
+    // edit it into a value that 400s.
+    it('never prompts for or writes a link target', async () => {
       await createCommand(CLI_OPTIONS);
 
       expect(questionNamed('link_target')).toBeUndefined();
-      expect(collectedUiApp().link_target).toBe('_blank');
+      expect(collectedUiApp()).not.toHaveProperty('link_target');
     });
 
     // The per-field flags are gone, so these prompt `validate` callbacks are now
     // the only thing standing between a typo and a silently unrenderable action
     // link. Assert they're still wired up.
-    it('validates the heading and URL answers at the prompt', async () => {
+    it('validates the label and URL answers at the prompt', async () => {
       await createCommand(CLI_OPTIONS);
 
-      const heading = questionNamed('heading');
-      expect(typeof heading?.validate).toBe('function');
-      expect((heading?.validate as (v: string) => unknown)('  ')).toMatch(/cannot be empty/i);
+      const label = questionNamed('label');
+      expect(typeof label?.validate).toBe('function');
+      expect((label?.validate as (v: string) => unknown)('  ')).toMatch(/cannot be empty/i);
+      expect((label?.validate as (v: string) => unknown)('x'.repeat(49))).toMatch(/at most 48/);
+
+      const moreInfo = questionNamed('more_info');
+      expect((moreInfo?.validate as (v: string) => unknown)('')).toBe(true);
+      expect((moreInfo?.validate as (v: string) => unknown)('x'.repeat(256))).toMatch(
+        /at most 255/,
+      );
 
       const url = questionNamed('url');
       expect(typeof url?.validate).toBe('function');
@@ -1385,7 +1397,7 @@ describe('app/create', () => {
 
       const order = askedQuestions.map((q) => String(q.name));
       expect(order.indexOf('integrationType')).toBeGreaterThan(order.indexOf('places'));
-      expect(order.indexOf('integrationType')).toBeLessThan(order.indexOf('heading'));
+      expect(order.indexOf('integrationType')).toBeLessThan(order.indexOf('label'));
     });
 
     // ──────── BEX-361: prompts are driven by the fetched registry ────────
@@ -1438,7 +1450,7 @@ describe('app/create', () => {
 
       // The point is registry-only (not in the local mirror), so this also
       // proves validateUiApp ran against the fetched list, not the mirror.
-      expect(collectedUiApp().surface_point_list).toEqual(['orderDetails.headerMenu.action']);
+      expect(surfacePointNames()).toEqual(['orderDetails.headerMenu.action']);
     });
 
     it('labels a position with the registry surface_point_name when present', async () => {
@@ -1463,7 +1475,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().surface_point_list).toEqual(['contactDetails.headerMenu.action']);
+      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
     });
 
     // ──────── BEX-361: context prompt is driven by allowed_context_field ────────
@@ -1471,60 +1483,69 @@ describe('app/create', () => {
     it('offers the union of the selected placements allow-lists as a checkbox', async () => {
       (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
-          allowed_context_field: ['contactId', 'email'],
+          allowed_context_field: ['recordId', 'recordName'],
         }),
         REGISTRY_ROW('dealDetails', 'headerMenu', 'action', {
-          allowed_context_field: ['dealId', 'email'],
+          allowed_context_field: ['accountId', 'recordName'],
         }),
       ]);
-      answerPrompts({ surfaces: ['contact', 'deal'], context: ['contactId', 'dealId'] });
+      answerPrompts({ surfaces: ['contact', 'deal'], context: ['recordId', 'accountId'] });
 
       await createCommand(CLI_OPTIONS);
 
       const question = questionNamed('context');
       expect(question?.type).toBe('checkbox');
-      expect(question?.choices).toEqual(['contactId', 'email', 'dealId']);
-      expect(collectedUiApp().context).toEqual(['contactId', 'dealId']);
+      expect(question?.choices).toEqual(['recordId', 'recordName', 'accountId']);
+      // The answer lands on every entry: context is per placement now, so the
+      // narrowing is written into each entry rather than shared at the top level.
+      expect(collectedUiApp().surface_point_list).toEqual([
+        {
+          surface_point: 'contactDetails.headerMenu.action',
+          context: ['recordId', 'accountId'],
+        },
+        { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'accountId'] },
+      ]);
+      expect(collectedUiApp()).not.toHaveProperty('context');
     });
 
     it('omits context when nothing is ticked on the checkbox', async () => {
       (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
-          allowed_context_field: ['contactId'],
+          allowed_context_field: ['recordId'],
         }),
       ]);
       answerPrompts({ context: [] });
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp()).not.toHaveProperty('context');
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('context');
     });
 
     // context is a REQUEST to narrow, never a grant — the platform intersects it with the
     // slot's own allow-list — so an unknown name is refused server-side, where the error
     // can enumerate what is allowed.
     it('includes the context fields when entered', async () => {
-      answerPrompts({ context: 'contactId, clientId' });
+      answerPrompts({ context: 'recordId, recordName' });
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().context).toEqual(['contactId', 'clientId']);
+      expect(collectedUiApp().surface_point_list[0].context).toEqual(['recordId', 'recordName']);
     });
 
     it('omits context when left blank rather than writing an empty array', async () => {
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp()).not.toHaveProperty('context');
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('context');
     });
 
     it('rejects a blank or duplicated context field at the prompt', async () => {
       await createCommand(CLI_OPTIONS);
 
       const validate = questionNamed('context')?.validate as (v: string) => unknown;
-      expect(validate('contactId, contactId')).toMatch(/duplicate/i);
+      expect(validate('recordId, recordId')).toMatch(/duplicate/i);
       // Blank entries are dropped rather than rejected, so an answer with a stray comma
       // still passes and yields the one real field.
-      expect(validate('contactId, ')).toBe(true);
+      expect(validate('recordId, ')).toBe(true);
       expect(validate('')).toBe(true);
     });
 
@@ -1545,13 +1566,60 @@ describe('app/create', () => {
       expect(output).not.toContain('Redirect URL');
     });
 
-    // There is no per-action label on the platform — the menu entry uses the app
-    // name — so the box says so explicitly.
-    it('explains that the menu label comes from the app name', async () => {
+    // `label` labels the menu entry (BEX-290). The one piece of rendered text with no
+    // field is a CARD's title, which is the app name — so the box says that instead.
+    it('explains where the label renders and that a card title is the app name', async () => {
       await createCommand(CLI_OPTIONS);
 
       const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
-      expect(output).toMatch(/labelled with the app name/i);
+      expect(output).toMatch(/the menu entry is labelled "View in CRM"/i);
+      expect(output).toMatch(/card's title is the app name \("Invoice Manager"\)/i);
+    });
+
+    // Record context reaches the partner's endpoint as query parameters and nothing else —
+    // no path templating — so the box prints the exact URL shape to build against.
+    it('prints an example URL carrying the seeded context as query parameters', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          allowed_context_field: ['recordId', 'recordName'],
+        }),
+      ]);
+      answerPrompts({ context: ['recordId', 'recordName'] });
+
+      await createCommand(CLI_OPTIONS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).toContain(
+        'https://example.com/brevo?recordId=RECORD_ID&recordName=RECORD_NAME',
+      );
+    });
+
+    // Built with URL semantics rather than string concatenation: redirect_link may
+    // already carry a query string and a fragment, and params must merge into the
+    // existing `?` and land BEFORE the `#`. A hand-rolled `url + '?' + params` gets
+    // both wrong, and a wrong example is worse than none.
+    it('merges the example params into an existing query string, before any fragment', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          allowed_context_field: ['recordId'],
+        }),
+      ]);
+      answerPrompts({
+        url: 'https://example.com/brevo?tenant=acme#section',
+        context: ['recordId'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).toContain('https://example.com/brevo?tenant=acme&recordId=RECORD_ID#section');
+    });
+
+    it('prints no example URL when no placement declares a record context', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).not.toContain('Brevo will open, for example');
     });
 
     // ──────── A UI app needs an interactive terminal ────────

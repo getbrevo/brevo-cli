@@ -423,14 +423,20 @@ describe('app/upload', () => {
   // ──────────────── UI apps (BEX-290) ────────────────
   // The block mirrors the platform's stored app snapshot field for field.
   describe('UI apps', () => {
+    // `surface_point_list` is a list of objects and each entry carries its own record
+    // context (BEX-290). `link_target` is deliberately absent — `upload` injects it.
     const UI_APP = {
       extension_type: 'actionLink' as const,
-      surface_point_list: ['contactDetails.headerMenu.action'],
-      heading: 'Invoice Manager',
-      subheading: 'Review invoice history for this contact',
+      surface_point_list: [
+        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+      ],
+      label: 'View in CRM',
+      more_info: 'Open this contact in your connected CRM to see full activity history.',
       redirect_link: 'https://example.com/brevo',
-      link_target: '_blank' as const,
     };
+
+    // What the wire carries: the authored block plus the injected link_target.
+    const UI_APP_PAYLOAD = { ...UI_APP, link_target: '_blank' as const };
 
     // A UI app carries no OAuth block at all — `auth` is exactly the empty
     // object `{}`, and that absence of scopes/redirectUris is the point of the
@@ -473,8 +479,21 @@ describe('app/upload', () => {
       await uploadCommand({ yes: true });
 
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
-      expect(payload.ui_app).toEqual(UI_APP);
+      expect(payload.ui_app).toEqual(UI_APP_PAYLOAD);
       expect(payload).not.toHaveProperty('snapshot');
+    });
+
+    // link_target is not a field in app-config.json (BEX-290): there was never a choice
+    // to make, since the server refuses _self, so a field in the file would only invite a
+    // partner to edit it into a value that 400s. It is still sent explicitly rather than
+    // left to the server default, which is gated on the pre-BEX-350 extension_type
+    // spelling and so never fires for a CLI-authored app.
+    it('injects link_target into the payload without it being in the config', async () => {
+      await uploadCommand({ yes: true });
+
+      expect(UI_CONFIG.ui_app).not.toHaveProperty('link_target');
+      const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+      expect(payload.ui_app.link_target).toBe('_blank');
     });
 
     it('does not require redirect URLs', async () => {
@@ -537,18 +556,25 @@ describe('app/upload', () => {
     it('uploads when only the ui_app block changed', async () => {
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         ...UI_REMOTE,
-        ui_app: { ...UI_APP, heading: 'Old Heading' },
+        ui_app: { ...UI_APP, label: 'Old Label' },
       });
 
       await uploadCommand({ yes: true });
 
       expect(appService.uploadApp).toHaveBeenCalled();
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
-      expect(payload.ui_app.heading).toBe('Invoice Manager');
+      expect(payload.ui_app.label).toBe('View in CRM');
     });
 
-    it('reports up to date when the ui_app block matches the server', async () => {
-      (appService.fetchApp as jest.Mock).mockResolvedValue({ ...UI_REMOTE, ui_app: UI_APP });
+    // The server echoes the block it stored, which carries the link_target IT defaulted
+    // and the local file deliberately does not. Comparing that field would make the block
+    // read as changed on every upload and "Already up to date" would never print again for
+    // a UI app — so the diff normalizes it away on both sides.
+    it('reports up to date when the server echo only adds link_target', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        ...UI_REMOTE,
+        ui_app: { ...UI_APP, link_target: '_blank' as const, version: '1.0.0' },
+      });
 
       await uploadCommand({ json: true });
 
@@ -557,17 +583,31 @@ describe('app/upload', () => {
       expect(parsed.upToDate).toBe(true);
     });
 
-    // Key order in app-config.json varies with how it was edited; a raw
-    // stringify comparison would report phantom drift.
+    // Key order in app-config.json varies with how it was edited, and the server returns
+    // surface_point_list in registry order rather than the order the partner picked their
+    // pages in. Neither is a change; a raw stringify comparison would call both drift.
     it('treats a reordered ui_app block as unchanged', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: {
+          ...UI_APP,
+          surface_point_list: [
+            { surface_point: 'dealDetails.headerMenu.action', context: ['recordId'] },
+            { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+          ],
+        },
+      });
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         ...UI_REMOTE,
         ui_app: {
           link_target: '_blank' as const,
           redirect_link: 'https://example.com/brevo',
-          subheading: 'Review invoice history for this contact',
-          heading: 'Invoice Manager',
-          surface_point_list: ['contactDetails.headerMenu.action'],
+          more_info: 'Open this contact in your connected CRM to see full activity history.',
+          label: 'View in CRM',
+          surface_point_list: [
+            { context: ['recordId'], surface_point: 'contactDetails.headerMenu.action' },
+            { context: ['recordId'], surface_point: 'dealDetails.headerMenu.action' },
+          ],
           extension_type: 'actionLink' as const,
         },
       });
@@ -583,7 +623,10 @@ describe('app/upload', () => {
     it('rejects an extension point that is not in the registry', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, surface_point_list: ['contact.headerMenu.action'] },
+        ui_app: {
+          ...UI_APP,
+          surface_point_list: [{ surface_point: 'contact.headerMenu.action' }],
+        },
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/Unknown extension point/i);
@@ -596,7 +639,10 @@ describe('app/upload', () => {
     it('accepts a widget slot for an action link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, surface_point_list: ['contactDetails.overviewMain.widget'] },
+        ui_app: {
+          ...UI_APP,
+          surface_point_list: [{ surface_point: 'contactDetails.overviewMain.widget' }],
+        },
       });
 
       await uploadCommand({ yes: true });
@@ -610,7 +656,7 @@ describe('app/upload', () => {
         ui_app: { ...UI_APP, surface_point_list: [] },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/at least one extension point/i);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/at least one placement/i);
     });
 
     it('accepts multiple record pages', async () => {
@@ -619,9 +665,9 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            'contactDetails.headerMenu.action',
-            'dealDetails.headerMenu.action',
-            'companyDetails.headerMenu.action',
+            { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+            { surface_point: 'dealDetails.headerMenu.action', context: ['recordId'] },
+            { surface_point: 'companyDetails.headerMenu.action', context: ['recordId'] },
           ],
         },
       });
@@ -638,8 +684,8 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            'contactDetails.headerMenu.action',
-            'contactDetails.headerMenu.action',
+            { surface_point: 'contactDetails.headerMenu.action' },
+            { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
           ],
         },
       });
@@ -657,13 +703,36 @@ describe('app/upload', () => {
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    it('rejects an empty heading', async () => {
+    it('rejects an empty label', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, heading: '  ' },
+        ui_app: { ...UI_APP, label: '  ' },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Heading cannot be empty/i);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Label cannot be empty/i);
+    });
+
+    // The pre-BEX-290 field names and the flat surface_point_list fail with a migration
+    // hint rather than a mystery: the deployed upload endpoint 200s on a top-level
+    // `context` and no longer reads heading/subheading, so an unmigrated config would
+    // otherwise upload "successfully" and render an app with no text at all.
+    it.each([
+      ['heading', { heading: 'View in CRM' }, /heading was renamed/i],
+      ['subheading', { subheading: 'Some detail' }, /subheading was renamed/i],
+      ['a top-level context', { context: ['recordId'] }, /no longer a top-level field/i],
+      [
+        'a flat surface_point_list',
+        { surface_point_list: ['contactDetails.headerMenu.action'] },
+        /must be objects/i,
+      ],
+    ])('rejects the pre-BEX-290 %s with a migration hint', async (_label, patch, expected) => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, ...patch },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(expected);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
     it('rejects an invalid link_target', async () => {
@@ -699,8 +768,8 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           extension_type: 'iframeExtension',
-          surface_point_list: ['contactDetails.headerMenu.action'],
-          heading: 'Invoice Manager',
+          surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
+          label: 'View in CRM',
           modal_iframe_url: 'https://example.com/embed',
         },
       });
@@ -715,8 +784,8 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           extension_type: 'iframeExtension',
-          surface_point_list: ['contactDetails.headerMenu.action'],
-          heading: 'Invoice Manager',
+          surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
+          label: 'View in CRM',
           modal_iframe_url: 'https://example.com/embed',
           redirect_link: 'https://example.com/go',
         },
@@ -727,30 +796,45 @@ describe('app/upload', () => {
     });
 
     // context is a request to narrow, checked locally only for shape. Whether a name is
-    // ALLOWED is a server-side check against the extension-point registry, whose allow-list
-    // the CLI cannot read.
-    it('uploads a context narrowing', async () => {
+    // ALLOWED is a server-side check against that slot's own allow-list, whose value the
+    // CLI cannot read at upload time.
+    it('uploads a different context narrowing per placement', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, context: ['contactId'] },
+        ui_app: {
+          ...UI_APP,
+          surface_point_list: [
+            { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+            {
+              surface_point: 'dealDetails.headerMenu.action',
+              context: ['recordId', 'recordName'],
+            },
+          ],
+        },
       });
 
       await uploadCommand({ yes: true });
 
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
-      expect(payload.ui_app.context).toEqual(['contactId']);
+      expect(payload.ui_app.surface_point_list).toEqual([
+        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+        { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'recordName'] },
+      ]);
     });
 
     it.each([
-      ['a duplicated context field', ['contactId', 'contactId']],
-      ['an empty context field name', ['contactId', '']],
+      ['a duplicated context field', ['recordId', 'recordId']],
+      ['an empty context field name', ['recordId', '']],
     ])('rejects %s', async (_label, context) => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, context },
+        ui_app: {
+          ...UI_APP,
+          surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action', context }],
+        },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/ui_app.context/i);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/\.context/i);
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
@@ -766,8 +850,9 @@ describe('app/upload', () => {
     });
 
     it('writes the ui_app block back into app-config.json, preferring the server copy', async () => {
-      // The server defaults link_target, so its copy is the authority.
-      const serverNormalized = { ...UI_APP, link_target: '_self' as const };
+      // The server normalizes the block, so its copy is the authority for everything
+      // except link_target — see the next test.
+      const serverNormalized = { ...UI_APP, more_info: 'Server-normalized copy' };
       (appService.uploadApp as jest.Mock).mockResolvedValue({
         ...BASE_UPLOAD_RESPONSE,
         name: 'Invoice Manager',
@@ -780,6 +865,25 @@ describe('app/upload', () => {
       expect(writeProjectConfig).toHaveBeenCalledWith(
         expect.objectContaining({ ui_app: serverNormalized }),
       );
+    });
+
+    // The regression this guards: the server defaults link_target and echoes it back, so
+    // passing the echo through verbatim would write into app-config.json the very field
+    // this command injects on the partner's behalf — undoing, on the first successful
+    // upload, the decision to keep it out of the file.
+    it('strips the server-defaulted link_target from the write-back', async () => {
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Invoice Manager',
+        auth: { distribution_type: 'private' as const, scopes: ['contacts:read'] },
+        ui_app: { ...UI_APP, link_target: '_blank' as const },
+      });
+
+      await uploadCommand({ yes: true });
+
+      const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+      expect(written.ui_app).not.toHaveProperty('link_target');
+      expect(written.ui_app).toEqual(UI_APP);
     });
 
     it('keeps the locally sent ui_app block when the server does not echo one', async () => {
@@ -807,7 +911,12 @@ describe('app/upload', () => {
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       expect(output).toContain('contactDetails.headerMenu.action');
-      expect(output).toContain('Link target');
+      // Per-placement context renders alongside its slot, not as a shared row.
+      expect(output).toContain('(context: recordId)');
+      expect(output).toContain('Label:');
+      expect(output).toContain('More info:');
+      // link_target is stated as injected rather than shown as an editable field.
+      expect(output).toContain('_blank (added on upload; not a field in app-config.json)');
       expect(output).not.toContain('Redirect URLs');
     });
   });

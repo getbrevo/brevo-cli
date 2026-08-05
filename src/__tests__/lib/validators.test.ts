@@ -8,7 +8,8 @@ import {
   containsLegacyAllScope,
   parseAccountId,
   validateUiApp,
-  validateUiAppHeading,
+  validateUiAppLabel,
+  validateUiAppMoreInfo,
   validateUiAppUrl,
   validateSurfacePoint,
 } from '../../lib/validators';
@@ -258,10 +259,25 @@ describe('validateUiAppUrl', () => {
   });
 });
 
-describe('validateUiAppHeading', () => {
-  it('accepts a non-empty heading and rejects whitespace-only', () => {
-    expect(validateUiAppHeading('Invoice Manager')).toBe(true);
-    expect(validateUiAppHeading('  ')).not.toBe(true);
+describe('validateUiAppLabel', () => {
+  it('accepts a non-empty label and rejects whitespace-only', () => {
+    expect(validateUiAppLabel('View in CRM')).toBe(true);
+    expect(validateUiAppLabel('  ')).not.toBe(true);
+  });
+
+  // Enforced server-side too; without the local check the partner gets an opaque 400.
+  it('rejects a label over 48 characters', () => {
+    expect(validateUiAppLabel('x'.repeat(48))).toBe(true);
+    expect(validateUiAppLabel('x'.repeat(49))).toMatch(/at most 48/);
+  });
+});
+
+describe('validateUiAppMoreInfo', () => {
+  // Optional field, so blank passes — only the ceiling is enforced.
+  it('accepts blank and rejects over 255 characters', () => {
+    expect(validateUiAppMoreInfo('')).toBe(true);
+    expect(validateUiAppMoreInfo('x'.repeat(255))).toBe(true);
+    expect(validateUiAppMoreInfo('x'.repeat(256))).toMatch(/at most 255/);
   });
 });
 
@@ -308,30 +324,51 @@ describe('parseAccountId', () => {
   });
 });
 
+// The only context field names that exist in the platform's registry today:
+// recordId, recordName, userId, locale, accountId. Fixtures use nothing else.
+const VALID_POINT = 'contactDetails.headerMenu.action';
+
 describe('validateUiApp', () => {
+  // The BEX-290 block: `surface_point_list` is a list of objects, the two text fields are
+  // `label`/`more_info`, and `link_target` is not authored (upload injects it).
   const VALID = {
     extension_type: 'actionLink',
-    surface_point_list: ['contactDetails.headerMenu.action'],
-    heading: 'Invoice Manager',
-    subheading: 'Review invoice history for this contact',
+    surface_point_list: [
+      { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+    ],
+    label: 'View in CRM',
+    more_info: 'Open this contact in your connected CRM to see full activity history.',
     redirect_link: 'https://example.com/brevo',
-    link_target: '_blank',
   };
 
   it('accepts a well-formed action link', () => {
     expect(() => validateUiApp(VALID)).not.toThrow();
   });
 
-  it('accepts one without a subheading or link_target', () => {
-    const { subheading: _s, link_target: _l, ...rest } = VALID;
-    expect(() => validateUiApp(rest)).not.toThrow();
+  it('accepts one without more_info or a per-entry context', () => {
+    const { more_info: _m, ...rest } = VALID;
+    expect(() =>
+      validateUiApp({
+        ...rest,
+        surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
+      }),
+    ).not.toThrow();
+  });
+
+  // Tolerated rather than rejected: a leftover `_blank` in a hand-edited file is exactly
+  // what upload injects anyway, so failing on it would be pedantry.
+  it('accepts a leftover _blank link_target', () => {
+    expect(() => validateUiApp({ ...VALID, link_target: '_blank' })).not.toThrow();
   });
 
   it('accepts several action slots', () => {
     expect(() =>
       validateUiApp({
         ...VALID,
-        surface_point_list: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+        surface_point_list: [
+          { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+          { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'recordName'] },
+        ],
       }),
     ).not.toThrow();
   });
@@ -342,18 +379,24 @@ describe('validateUiApp', () => {
     ['a missing extension_type', { ...VALID, extension_type: undefined }],
     ['an empty surface_point_list', { ...VALID, surface_point_list: [] }],
     ['a missing surface_point_list', { ...VALID, surface_point_list: undefined }],
-    ['an unregistered point', { ...VALID, surface_point_list: ['contact.header.action'] }],
+    [
+      'an unregistered point',
+      { ...VALID, surface_point_list: [{ surface_point: 'contact.header.action' }] },
+    ],
     [
       'duplicate points',
       {
         ...VALID,
         surface_point_list: [
-          'contactDetails.headerMenu.action',
-          'contactDetails.headerMenu.action',
+          { surface_point: 'contactDetails.headerMenu.action' },
+          { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
         ],
       },
     ],
-    ['an empty heading', { ...VALID, heading: '  ' }],
+    ['an empty label', { ...VALID, label: '  ' }],
+    ['a missing label', { ...VALID, label: undefined }],
+    ['an over-long label', { ...VALID, label: 'x'.repeat(49) }],
+    ['an over-long more_info', { ...VALID, more_info: 'x'.repeat(256) }],
     ['a missing redirect_link', { ...VALID, redirect_link: undefined }],
     ['an insecure redirect_link', { ...VALID, redirect_link: 'http://example.com' }],
     ['an unknown link_target', { ...VALID, link_target: '_top' }],
@@ -363,9 +406,21 @@ describe('validateUiApp', () => {
       'the _self link_target while uploads are pinned to _blank',
       { ...VALID, link_target: '_self' },
     ],
-    ['a non-array context', { ...VALID, context: 'contactId' }],
-    ['an empty context field name', { ...VALID, context: ['contactId', ''] }],
-    ['a duplicated context field name', { ...VALID, context: ['contactId', 'contactId'] }],
+    [
+      'a non-array per-entry context',
+      { ...VALID, surface_point_list: [{ surface_point: VALID_POINT, context: 'recordId' }] },
+    ],
+    [
+      'an empty per-entry context field name',
+      { ...VALID, surface_point_list: [{ surface_point: VALID_POINT, context: ['recordId', ''] }] },
+    ],
+    [
+      'a duplicated per-entry context field name',
+      {
+        ...VALID,
+        surface_point_list: [{ surface_point: VALID_POINT, context: ['recordId', 'recordId'] }],
+      },
+    ],
   ])('rejects %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(CliError);
   });
@@ -375,16 +430,42 @@ describe('validateUiApp', () => {
   // enforce here.
   it('accepts a widget slot', () => {
     expect(() =>
-      validateUiApp({ ...VALID, surface_point_list: ['contactDetails.overviewMain.widget'] }),
+      validateUiApp({
+        ...VALID,
+        surface_point_list: [{ surface_point: 'contactDetails.overviewMain.widget' }],
+      }),
     ).not.toThrow();
   });
 
-  it('accepts an omitted context', () => {
-    expect(() => validateUiApp({ ...VALID, context: undefined })).not.toThrow();
+  // ──────── The pre-BEX-290 shape fails with a migration hint, not a mystery ────────
+  // These are a LOCAL diagnostic. The deployed upload endpoint 200s on a top-level
+  // `context` and ignores it, and no longer reads heading/subheading at all — so without
+  // these three, an old config uploads "successfully" and renders no text.
+
+  it('rejects a bare-string surface_point_list, naming the new shape', () => {
+    expect(() =>
+      validateUiApp({ ...VALID, surface_point_list: ['contactDetails.headerMenu.action'] }),
+    ).toThrow(/must be objects/i);
   });
 
-  it('accepts context field names', () => {
-    expect(() => validateUiApp({ ...VALID, context: ['contactId'] })).not.toThrow();
+  it('rejects the renamed heading field with a hint', () => {
+    const { label: _l, ...rest } = VALID;
+    expect(() => validateUiApp({ ...rest, heading: 'View in CRM' })).toThrow(
+      /heading was renamed to ui_app\.label/i,
+    );
+  });
+
+  it('rejects the renamed subheading field with a hint', () => {
+    const { more_info: _m, ...rest } = VALID;
+    expect(() => validateUiApp({ ...rest, subheading: 'Some detail' })).toThrow(
+      /subheading was renamed to ui_app\.more_info/i,
+    );
+  });
+
+  it('rejects a top-level context, pointing at the per-entry field', () => {
+    expect(() => validateUiApp({ ...VALID, context: ['recordId'] })).toThrow(
+      /no longer a top-level field/i,
+    );
   });
 
   // legacyComponent is the pre-extensibility interpreter path, driven by the UI kit's own
@@ -411,8 +492,8 @@ describe('validateUiApp', () => {
 describe('validateUiApp — iframeExtension', () => {
   const VALID_IFRAME = {
     extension_type: 'iframeExtension',
-    surface_point_list: ['contactDetails.headerMenu.action'],
-    heading: 'Invoice Manager',
+    surface_point_list: [{ surface_point: VALID_POINT, context: ['recordId'] }],
+    label: 'View in CRM',
     modal_iframe_url: 'https://example.com/embed',
   };
 
@@ -424,7 +505,7 @@ describe('validateUiApp — iframeExtension', () => {
     expect(() =>
       validateUiApp({
         ...VALID_IFRAME,
-        surface_point_list: ['contactDetails.overviewMain.widget'],
+        surface_point_list: [{ surface_point: 'contactDetails.overviewMain.widget' }],
       }),
     ).not.toThrow();
   });
@@ -432,7 +513,7 @@ describe('validateUiApp — iframeExtension', () => {
   it.each([
     ['a missing modal_iframe_url', { ...VALID_IFRAME, modal_iframe_url: undefined }],
     ['an insecure modal_iframe_url', { ...VALID_IFRAME, modal_iframe_url: 'http://example.com' }],
-    ['an empty heading', { ...VALID_IFRAME, heading: ' ' }],
+    ['an empty label', { ...VALID_IFRAME, label: ' ' }],
   ])('rejects %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(CliError);
   });

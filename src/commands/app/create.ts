@@ -6,7 +6,6 @@ import {
   DEFAULT_PORT,
   DEFAULT_REDIRECT_URI,
   DEFAULT_SCOPES,
-  DEFAULT_LINK_TARGET,
   DEFAULT_UI_APP_SURFACE,
   EXTENSION_KIND_ACTION,
   EXTENSION_KIND_WIDGET,
@@ -26,7 +25,8 @@ import {
   validateAppName,
   validateUiApp,
   validateUiAppContext,
-  validateUiAppHeading,
+  validateUiAppLabel,
+  validateUiAppMoreInfo,
   validateUiAppUrl,
   parseUiAppContext,
 } from '../../lib/validators';
@@ -45,7 +45,7 @@ import {
 } from './scaffold';
 import { appService } from '../../container';
 import { FeatureType } from '../../templates';
-import { CreateAppResponse, SurfacePointRow, UiApp } from '../../types';
+import { CreateAppResponse, SurfacePointEntry, SurfacePointRow, UiApp } from '../../types';
 
 function validateHttpUrl(trimmed: string, invalidMessage: string): true | string {
   try {
@@ -354,8 +354,7 @@ async function fetchSurfacePointRegistry(): Promise<UsableSurfacePoint[]> {
 }
 
 interface SurfacePointSelection {
-  surfacePointList: string[];
-  /** The selected registry rows — carried so the context prompt can offer their allow-lists. */
+  /** The selected registry rows — the wire identity and the allow-list source for context. */
   selectedRows: UsableSurfacePoint[];
 }
 
@@ -449,9 +448,7 @@ async function promptSurfacePointList(
   ]);
   const pickedPlaces = new Set((places as string[]) ?? []);
 
-  const selectedRows = matchingKind.filter((row) => pickedPlaces.has(row.place));
-  const surfacePointList = [...new Set(selectedRows.map((row) => row.extension_point))];
-  return { surfacePointList, selectedRows };
+  return { selectedRows: matchingKind.filter((row) => pickedPlaces.has(row.place)) };
 }
 
 /**
@@ -533,23 +530,24 @@ async function promptUiAppContext(selectedRows: UsableSurfacePoint[]): Promise<s
  */
 async function resolveUiApp(): Promise<UiApp> {
   const registry = await fetchSurfacePointRegistry();
-  const { surfacePointList, selectedRows } = await promptSurfacePointList(registry);
+  const { selectedRows } = await promptSurfacePointList(registry);
   const extensionType = await promptIntegrationType();
 
-  const { heading } = await inquirer.prompt([
+  const { label } = await inquirer.prompt([
     {
       type: 'input',
-      name: 'heading',
-      message: messages.APP_CREATE_UI_HEADING_PROMPT,
-      validate: validateUiAppHeading,
+      name: 'label',
+      message: messages.APP_CREATE_UI_LABEL_PROMPT,
+      validate: validateUiAppLabel,
     },
   ]);
 
-  const { subheading } = await inquirer.prompt([
+  const { more_info } = await inquirer.prompt([
     {
       type: 'input',
-      name: 'subheading',
-      message: messages.APP_CREATE_UI_SUBHEADING_PROMPT,
+      name: 'more_info',
+      message: messages.APP_CREATE_UI_MORE_INFO_PROMPT,
+      validate: validateUiAppMoreInfo,
     },
   ]);
 
@@ -566,16 +564,18 @@ async function resolveUiApp(): Promise<UiApp> {
 
   const uiApp: UiApp = {
     extension_type: extensionType,
-    surface_point_list: surfacePointList,
-    heading: String(heading ?? '').trim(),
+    // One entry per selected placement, deduplicated by slot name. `context` is
+    // per entry: the allow-list is a property of the registry row, not of the
+    // app, so two pages can forward different fields.
+    surface_point_list: buildSurfacePointList(selectedRows, () => context),
+    label: String(label ?? '').trim(),
     // Omitted rather than written empty: the kit only renders it when set, and an
     // empty string would show up as a spurious diff on every upload.
-    ...(String(subheading ?? '').trim() ? { subheading: String(subheading).trim() } : {}),
-    // link_target is written explicitly, and only as _blank: the server refuses
-    // _self today, so there is nothing to prompt for.
+    ...(String(more_info ?? '').trim() ? { more_info: String(more_info).trim() } : {}),
     redirect_link: String(url ?? '').trim(),
-    link_target: DEFAULT_LINK_TARGET as UiApp['link_target'],
-    ...(context.length ? { context } : {}),
+    // No link_target: `brevo app upload` injects `_blank`. See the field's note in
+    // types.ts — the server refuses `_self`, so a field in the file would only
+    // invite a partner to edit it into a value that 400s.
   };
 
   // Belt and braces: the per-prompt validators cover each answer in isolation,
@@ -587,6 +587,34 @@ async function resolveUiApp(): Promise<UiApp> {
     registry.map((row) => row.extension_point),
   );
   return uiApp;
+}
+
+/**
+ * Turn selected registry rows into `surface_point_list` entries, deduplicated by slot
+ * name and keeping registry order (which is deterministic server-side, so the upload
+ * diff doesn't churn).
+ *
+ * `contextFor` decides each entry's own context; an empty result omits the key rather
+ * than writing `[]`, which would read as "narrow to nothing" instead of "no narrowing".
+ */
+function buildSurfacePointList(
+  rows: UsableSurfacePoint[],
+  contextFor: (row: UsableSurfacePoint) => string[],
+): SurfacePointEntry[] {
+  const entries: SurfacePointEntry[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (seen.has(row.extension_point)) continue;
+    seen.add(row.extension_point);
+    const context = contextFor(row)
+      .map((field) => String(field).trim())
+      .filter(Boolean);
+    entries.push({
+      surface_point: row.extension_point,
+      ...(context.length ? { context } : {}),
+    });
+  }
+  return entries;
 }
 
 type CreateDirectoryResult =
@@ -721,6 +749,54 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
   printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 }
 
+/**
+ * Build the URL Brevo will actually open for a placement, with placeholder values for the
+ * record-context fields.
+ *
+ * Uses `URL`/`URLSearchParams` rather than string concatenation because `redirect_link`
+ * may already carry a query string or a fragment: params must merge into an existing `?`
+ * and be inserted BEFORE any `#`, which is exactly what the UI kit's own builder does.
+ * A hand-rolled `url + '?' + params` gets both wrong, and a wrong example is worse than no
+ * example when the whole point is showing the partner the exact shape.
+ *
+ * Placeholder values are SCREAMING_SNAKE of the field name — URL-safe, so nothing is
+ * percent-encoded into noise, and obviously not a real value.
+ */
+function buildExampleContextUrl(redirectLink: string, context: readonly string[]): string | null {
+  let url: URL;
+  try {
+    url = new URL(redirectLink);
+  } catch {
+    return null;
+  }
+  for (const field of context) {
+    url.searchParams.set(field, field.replaceAll(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase());
+  }
+  return url.toString();
+}
+
+/**
+ * The example-URL lines for the created-app box, or none at all.
+ *
+ * Built from the FIRST placement that declares a context: entries can differ, but they are
+ * seeded from the registry and in practice all carry the same fields, so one example makes
+ * the point without turning the box into a list. Nothing is printed when no placement
+ * declares a context — the plain `redirect_link` row above already says everything there
+ * is to say in that case.
+ */
+function renderExampleContextUrlLines(uiApp: UiApp): string[] {
+  const withContext = uiApp.surface_point_list.find((entry) => entry.context?.length);
+  if (!withContext || !uiApp.redirect_link) return [];
+  const example = buildExampleContextUrl(uiApp.redirect_link, withContext.context ?? []);
+  if (!example) return [];
+  return [
+    '',
+    `${messages.APP_CREATE_UI_BOX_EXAMPLE_URL_LABEL}`,
+    `  ${example}`,
+    messages.APP_CREATE_UI_BOX_EXAMPLE_URL_NOTE,
+  ];
+}
+
 // UI apps get their own summary box: there is no OAuth callback to list, and the
 // placement/trigger fields are what the partner actually needs to verify.
 function renderCreatedUiApp(
@@ -735,22 +811,23 @@ function renderCreatedUiApp(
     `Client ID:      ${result.client_id}`,
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
     `Extension type: ${uiApp.extension_type}`,
-    ...uiApp.surface_point_list.map(
-      (point, i) => `${i === 0 ? 'Extension point:' : '                '} ${point}`,
-    ),
-    `Heading:        ${uiApp.heading ?? ''}`,
-    ...(uiApp.subheading ? [`Subheading:     ${uiApp.subheading}`] : []),
+    // Each placement carries its own record context, so they print together — a
+    // single shared "Record context" row would hide that they can differ.
+    ...uiApp.surface_point_list.map((entry, i) => {
+      const context = entry.context?.length ? `  (context: ${entry.context.join(', ')})` : '';
+      return `${i === 0 ? 'Placement:      ' : '                '} ${entry.surface_point}${context}`;
+    }),
+    `Label:          ${uiApp.label ?? ''}`,
+    ...(uiApp.more_info ? [`More info:      ${uiApp.more_info}`] : []),
     `Redirect link:  ${uiApp.redirect_link ?? ''}`,
-    `Link target:    ${uiApp.link_target ?? DEFAULT_LINK_TARGET}`,
-    // Only shown when narrowed. Absent means "whatever each location allows", which is
-    // not something to render as a blank field.
-    ...(uiApp.context?.length ? [`Record context: ${uiApp.context.join(', ')}`] : []),
     ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
+    // Record context reaches the partner's endpoint as query parameters and nothing
+    // else — no path templating — so show the exact URL shape rather than leaving
+    // them to discover it from a request log after the fact.
+    ...renderExampleContextUrlLines(uiApp),
     '',
-    // The menu entry is labelled with the app name, not a per-action label —
-    // worth stating, since it's the one place a partner might expect a field.
-    messages.APP_CREATE_UI_BOX_LABEL_NOTE(appName),
+    messages.APP_CREATE_UI_BOX_LABEL_NOTE(uiApp.label ?? '', appName),
     messages.APP_CREATE_UI_BOX_HINT,
   ];
   printBox(messages.APP_CREATE_UI_BOX_TITLE, boxLines);

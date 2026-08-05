@@ -16,6 +16,7 @@ import {
   ProjectConfig,
 } from '../../lib/config';
 import { validateScopes, containsLegacyAllScope, validateUiApp } from '../../lib/validators';
+import { DEFAULT_LINK_TARGET } from '../../lib/constants';
 import { OAuthApp, UiApp, UploadAppResponse } from '../../types';
 
 interface UploadOptions {
@@ -145,9 +146,31 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
   };
 }
 
-// Stable serialization for equality checks: key order in app-config.json depends
-// on how the file was edited, so a raw JSON.stringify comparison would report
-// drift for a semantically identical block.
+// Keys that exist on one side of the comparison only, and so can never signal a real
+// local edit (BEX-290):
+//
+//   - `link_target` — injected into the payload by this command and defaulted by the
+//     server, but deliberately absent from app-config.json. Comparing it would make the
+//     block read as changed on every single upload, and "Already up to date" would never
+//     print for a UI app again.
+//   - `version`     — the server-managed snapshot version. Same asymmetry.
+const UPLOAD_INJECTED_UI_APP_KEYS: readonly string[] = ['link_target', 'version'] as const;
+
+/** Drop `link_target` from a block — used on both the payload echo and the diff inputs. */
+function withoutLinkTarget(uiApp: UiApp): UiApp {
+  if (uiApp.link_target === undefined) return uiApp;
+  const { link_target: _injected, ...rest } = uiApp;
+  return rest;
+}
+
+// Stable serialization for equality checks. Three things vary without the block having
+// changed, and all three are normalized away here:
+//
+//   1. Key order in app-config.json depends on how the file was edited.
+//   2. `surface_point_list` ORDER is not meaningful — the server returns registry order,
+//      which need not match the order the partner picked their pages in. Without sorting,
+//      an authored [deal, contact] against an echoed [contact, deal] is phantom drift.
+//   3. The injected/server-managed keys above exist on one side only.
 function canonicalizeUiApp(uiApp: UiApp | undefined): string {
   if (!uiApp) return '';
   const sortDeep = (value: unknown): unknown => {
@@ -155,13 +178,21 @@ function canonicalizeUiApp(uiApp: UiApp | undefined): string {
     if (value && typeof value === 'object') {
       return Object.fromEntries(
         Object.entries(value as Record<string, unknown>)
+          .filter(([key]) => !UPLOAD_INJECTED_UI_APP_KEYS.includes(key))
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([k, v]) => [k, sortDeep(v)]),
       );
     }
     return value;
   };
-  return JSON.stringify(sortDeep(uiApp));
+  const normalized = sortDeep(uiApp) as Record<string, unknown>;
+  const entries = normalized.surface_point_list;
+  if (Array.isArray(entries)) {
+    normalized.surface_point_list = [...entries].sort((a, b) =>
+      JSON.stringify(a).localeCompare(JSON.stringify(b)),
+    );
+  }
+  return JSON.stringify(normalized);
 }
 
 function renderUploadDiff(diff: UploadDiff): void {
@@ -212,13 +243,22 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   const changed = canonicalizeUiApp(next) !== canonicalizeUiApp(current);
   logInfo(`  ${messages.APP_UPLOAD_UI_APP_SUMMARY}${changed ? ' (changed)' : ''}`);
   logInfo(`    Extension type: ${next.extension_type}`);
-  next.surface_point_list.forEach((point, i) => {
-    logInfo(`    ${i === 0 ? 'Extension point:' : '                '} ${point}`);
+  // Each placement prints its own context, because the two are per-entry now: a
+  // partner targeting a contact page and a deal page can be forwarded different
+  // fields on each, and one shared row would hide that.
+  next.surface_point_list.forEach((entry, i) => {
+    const context = entry.context?.length ? `  (context: ${entry.context.join(', ')})` : '';
+    logInfo(
+      `    ${i === 0 ? 'Placement:      ' : '                '} ${entry.surface_point}${context}`,
+    );
   });
-  logInfo(`    Heading:        ${next.heading ?? ''}`);
-  if (next.subheading) logInfo(`    Subheading:     ${next.subheading}`);
+  logInfo(`    Label:          ${next.label ?? ''}`);
+  if (next.more_info) logInfo(`    More info:      ${next.more_info}`);
   logInfo(`    Redirect link:  ${next.redirect_link ?? ''}`);
-  logInfo(`    Link target:    ${next.link_target ?? ''}`);
+  // Stated rather than shown as a config row: app-config.json does not carry
+  // link_target, this command injects it, so a partner should not go looking for
+  // a field to edit.
+  logInfo(`    Link target:    ${DEFAULT_LINK_TARGET} ${messages.APP_UPLOAD_UI_LINK_TARGET_NOTE}`);
 }
 
 function diffToJson(diff: UploadDiff) {
@@ -319,7 +359,21 @@ export async function uploadProjectConfig(
           }),
       // Spread rather than a fixed key so OAuth uploads keep their exact
       // historical payload shape — `ui_app` is absent, not `undefined`.
-      ...(isUiApp && config.ui_app ? { ui_app: config.ui_app } : {}),
+      //
+      // `link_target` is injected here rather than authored into app-config.json
+      // (BEX-290): there was never a choice to make, since the server refuses
+      // `_self`, so a field in the file only invited a partner to edit it into a
+      // value that 400s. It is still sent explicitly rather than left to the
+      // server's own default, which is gated on the pre-BEX-350 spelling of
+      // extension_type and therefore no longer fires for CLI-authored apps.
+      ...(isUiApp && config.ui_app
+        ? {
+            ui_app: {
+              ...config.ui_app,
+              link_target: DEFAULT_LINK_TARGET as UiApp['link_target'],
+            },
+          }
+        : {}),
     });
   } finally {
     spinner.stop();
@@ -350,8 +404,14 @@ export async function uploadProjectConfig(
           redirectUris: response.auth.redirect_uris ?? redirectUris,
         },
     // Prefer the server's normalized block when it echoes one back, otherwise
-    // keep what we just sent.
-    ...(isUiApp ? { ui_app: response.ui_app ?? config.ui_app } : {}),
+    // keep what we just sent — with `link_target` stripped either way. The
+    // server defaults that field and echoes it, so passing the echo through
+    // verbatim would write back into app-config.json the one field this command
+    // just injected on the partner's behalf, undoing the decision to keep it out
+    // of the file on the very first successful upload.
+    ...(isUiApp && (response.ui_app ?? config.ui_app)
+      ? { ui_app: withoutLinkTarget((response.ui_app ?? config.ui_app)!) }
+      : {}),
   });
 
   return { confirmedVersion, finalName };

@@ -161,11 +161,13 @@ describe('app-config.json template branching', () => {
     // what the template's indent handling has to survive.
     const uiApp = {
       extension_type: 'actionLink',
-      surface_point_list: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
-      heading: 'Invoice Manager',
-      subheading: 'Review invoice history',
+      surface_point_list: [
+        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+        { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'recordName'] },
+      ],
+      label: 'View in CRM',
+      more_info: 'Open this contact in your connected CRM.',
       redirect_link: 'https://example.com/brevo',
-      link_target: '_blank',
     };
     const out = renderConfig(
       { '{{UI_APP_JSON}}': JSON.stringify(uiApp, null, 2).split('\n').join('\n  ') },
