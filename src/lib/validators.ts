@@ -323,12 +323,12 @@ export function validateUiApp(uiApp: unknown, allowedPoints?: readonly string[])
 /**
  * Refuse the pre-BEX-290 field names with a migration hint rather than a mystery.
  *
- * These are a local diagnostic, not a claim about the wire: the deployed upload endpoint
- * accepts a top-level `context` with a 200 and simply ignores it, and it no longer reads
- * `heading`/`subheading` at all. So a config written by an earlier build of this branch
- * would upload "successfully" and render an app with no text and no record context. The
- * generic "label cannot be empty" this would otherwise produce points at the wrong thing —
- * the label IS there, under its old name.
+ * These are a local diagnostic and claim nothing about how the upload endpoint treats an
+ * unmigrated block. They earn their place on the message alone: `label`, `more_info` and a
+ * per-placement `context` are the only names any consumer reads, so a config written by an
+ * earlier build of this branch is wrong whatever the server does with it, and the generic
+ * "label cannot be empty" the checks below pre-empt points at the wrong thing — the label
+ * IS there, under its old name.
  *
  * No read-path alias, deliberately, for the same reason the snake_case rename didn't get
  * one: UI apps aren't live, so there is no partner config in the wild to migrate. These

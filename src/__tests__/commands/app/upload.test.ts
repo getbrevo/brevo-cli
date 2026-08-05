@@ -713,9 +713,10 @@ describe('app/upload', () => {
     });
 
     // The pre-BEX-290 field names and the flat surface_point_list fail with a migration
-    // hint rather than a mystery: the deployed upload endpoint 200s on a top-level
-    // `context` and no longer reads heading/subheading, so an unmigrated config would
-    // otherwise upload "successfully" and render an app with no text at all.
+    // hint rather than a mystery. Purely a local diagnostic — no claim about how the
+    // upload endpoint reacts to an unmigrated block; `label`/`more_info` and per-placement
+    // `context` are the only names any consumer reads, so the old shape is wrong either
+    // way, and the hint is what stops the failure reading as "label cannot be empty".
     it.each([
       ['heading', { heading: 'View in CRM' }, /heading was renamed/i],
       ['subheading', { subheading: 'Some detail' }, /subheading was renamed/i],
@@ -763,20 +764,42 @@ describe('app/upload', () => {
 
     // iframeExtension uploads now — the UI kit ships modal rendering on both the card and
     // the header-menu path, so the surface the old block cited as missing exists.
+    const IFRAME_UI_APP = {
+      extension_type: 'iframeExtension' as const,
+      surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
+      label: 'View in CRM',
+      modal_iframe_url: 'https://example.com/embed',
+    };
+
     it('uploads an iframeExtension with a modal_iframe_url', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: {
-          extension_type: 'iframeExtension',
-          surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
-          label: 'View in CRM',
-          modal_iframe_url: 'https://example.com/embed',
-        },
+        ui_app: IFRAME_UI_APP,
       });
 
       await uploadCommand({ yes: true });
 
       expect(appService.uploadApp).toHaveBeenCalled();
+    });
+
+    // link_target is injected for an actionLink only. An iframeExtension embeds its URL
+    // rather than navigating, and `validateUiApp` REFUSES the field in its authored block
+    // (`rejects link_target` in validators.test.ts) — so injecting it here would send the
+    // one field the CLI just told the partner not to write, and print a diff row naming a
+    // field the payload doesn't carry.
+    it('does not inject link_target for an iframeExtension', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: IFRAME_UI_APP,
+      });
+
+      await uploadCommand({ yes: true });
+
+      const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+      expect(payload.ui_app).not.toHaveProperty('link_target');
+      expect(payload.ui_app).toEqual(IFRAME_UI_APP);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).not.toContain('Link target:');
     });
 
     it('rejects an iframeExtension carrying a redirect_link', async () => {
@@ -884,6 +907,28 @@ describe('app/upload', () => {
       const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
       expect(written.ui_app).not.toHaveProperty('link_target');
       expect(written.ui_app).toEqual(UI_APP);
+    });
+
+    // `version` inside the block is server-managed, exists on the server's side of the
+    // comparison only, and is already normalized away by the diff — so the write-back
+    // strips it for exactly the same reason as link_target. Leaving it in put a key the
+    // partner cannot usefully edit into a file the CLI keeps deliberately minimal.
+    it('strips the server-managed version from the write-back', async () => {
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Invoice Manager',
+        auth: { distribution_type: 'private' as const, scopes: ['contacts:read'] },
+        ui_app: { ...UI_APP, link_target: '_blank' as const, version: '1.0.1' },
+      });
+
+      await uploadCommand({ yes: true });
+
+      const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+      expect(written.ui_app).not.toHaveProperty('version');
+      expect(written.ui_app).toEqual(UI_APP);
+      // The app's OWN version still tracks the server's confirmed value — only the
+      // block's copy is dropped.
+      expect(written.version).toBe(BASE_UPLOAD_RESPONSE.version);
     });
 
     it('keeps the locally sent ui_app block when the server does not echo one', async () => {

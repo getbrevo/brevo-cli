@@ -204,6 +204,45 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 Append an entry per change that needs verifying. Clear this section (keep the
 heading) before merging into `main`.
 
+### BEX-290 — review fixes on the reshape + prompt reorder
+
+**Change:** Two behavioural fixes and a round of accuracy corrections on the two commits
+below. (1) The grouped placement prompt's per-page rule is measured against the pages that
+actually produced a group, not the pages that were picked — the old rule was unsatisfiable
+whenever the narrowed registry read covered only some picked pages, and a picked page the
+registry offers nothing on is now a warning printed before the prompt. (2) `link_target` is
+injected into the upload payload for an `actionLink` only, and the upload diff prints no
+link-target row for an `iframeExtension`. Plus: the write-back strips the block's
+server-managed `version` alongside `link_target`, placement rows align with every other row
+in the created-app box and the upload diff, and several comments/checklist items that
+asserted stale or unverifiable behaviour are corrected.
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn test && yarn build` green.
+- [x] Pick two record pages where the registry only returns rows for one, and the
+      placement prompt is still answerable: the missing page is warned about and dropped,
+      and ticking the offered spot passes `validate`. Covered by
+      `warns about a picked page the registry offers no placements on` and
+      `does not require a placement on a page that offered none`.
+- [x] The pages-that-did-offer rule still fires: two pages both offering rows, spots
+      ticked on one only, refuses with *nothing selected for: deal*. Covered by
+      `requires at least one placement on every page that was picked` (unchanged).
+- [x] An `iframeExtension` block uploads with **no** `link_target` in the payload, and an
+      `actionLink` still uploads with `_blank`. Covered by
+      `does not inject link_target for an iframeExtension` and the existing
+      `injects link_target into the payload without it being in the config`.
+- [x] The write-back never writes `link_target` **or** `version` into the `ui_app` block
+      of app-config.json, even when the server echoes both. Covered by
+      `strips the server-managed version from the write-back`.
+- [ ] Manual: run `brevo app create` → *UI app* and confirm the `Placement:` rows in the
+      created-app box, and the `Placement:` rows in `brevo app upload`'s diff, start in the
+      same column as `App name:` / `Extension type:`.
+- [ ] Reviewer: the changeset is published to a public changelog. Confirm the migration-hint
+      paragraph and the pre-BEX-290 rejection comment in `validators.ts` describe only the
+      LOCAL diagnostic and assert nothing about how the upload endpoint reacts to an
+      unmigrated block.
+
 ### BEX-290 — `ui_app` schema reshape + reordered `app create` prompts
 
 **Change:** Two commits. (1) `surface_point_list` becomes a list of
@@ -351,12 +390,13 @@ distribution value to a flag set.
 - [x] `app deploy` refuses before an upload, and maps the server's 422 to the same
       message. `app undeploy` has no gate and exits `0` when not deployed. Covered by
       `deploy.test.ts` / `undeploy.test.ts`.
-- [x] The `ui_app` block matches the platform's stored app-snapshot shape field for
+- [x] ~~The `ui_app` block matches the platform's stored app-snapshot shape field for
       field (`extension_type`, `surface_point_list`, `heading`, `subheading`,
       `redirect_link`, `link_target`), verified against both of the platform's
-      consumers (BEX-308 / BEX-350). Covered by
-      `builds the ui_app shape the platform consumes` and
-      `sends the block under the ui_app key`.
+      consumers (BEX-308 / BEX-350).~~ **Superseded** by the schema reshape — see
+      *BEX-290 — `ui_app` schema reshape* above. The field list is now
+      `extension_type`, `surface_point_list` (objects with a per-entry `context`),
+      `label`, `more_info`, `redirect_link`; `link_target` is not authored at all.
 - [x] An unregistered, mis-cased, stale-grammar, or widget-slot extension point is
       rejected locally — the platform would drop it silently. Covered by
       `validateSurfacePoint` cases and the upload-level rejections.
@@ -376,11 +416,14 @@ distribution value to a flag set.
 - [ ] Manual: `brevo app create` interactively on an existing OAuth project directory
       and confirm the new app-type prompt appears first and that choosing *OAuth app*
       reproduces the previous flow exactly.
-- [ ] Manual: confirm the UI-app create flow has **no delivery-path prompt** — it goes
-      straight to placement — and the written block is always `actionLink` (decision
-      2026-08-03: iframeExtension stays off the prompts until the iframe-embed RFC).
-- [ ] Manual: confirm the created-app box states that the menu entry is labelled with
-      the app name — partners will otherwise look for a label field that doesn't exist.
+- [ ] ~~Manual: confirm the UI-app create flow has **no delivery-path prompt** — it goes
+      straight to placement.~~ **Superseded** by the prompt reorder: the flow now opens
+      with an integration-type prompt (*Link* selectable, *Iframe* shown disabled), and
+      the written block is still always `actionLink`.
+- [ ] ~~Manual: confirm the created-app box states that the menu entry is labelled with
+      the app name.~~ **Superseded** by the reshape: `label` labels the menu entry now.
+      The box states that the app name is a *card's title* — that is the text with no
+      field a partner would otherwise hunt for.
 - [ ] Reviewer: `agent-context/SKILL.md` and `agent-context/AGENTS.md` both document
       the new commands, the prompt-only UI-app create path (and that no `--type` or
       UI-field flags exist), the `ui_app` block, and both carry the
@@ -409,10 +452,10 @@ distribution value to a flag set.
       gone — they are the only remaining input check. Covered by
       `validates the heading and redirect-link answers at the prompt` and
       `requires at least one record page`.
-- [x] There is no delivery-path prompt; the block is always `actionLink`. Covered by
-      `never prompts for a delivery path and always authors an actionLink`.
-      (History: the prompt was disabled-choices at first, briefly offered
-      `iframeExtension`, and was removed on the 2026-08-03 actionLink-only decision.)
+- [x] ~~There is no delivery-path prompt; the block is always `actionLink`.~~
+      **Superseded** by the prompt reorder: the integration-type prompt is back as the
+      FIRST question, with *Iframe* disabled, so only `actionLink` is still authorable.
+      Covered by `offers the integration-type prompt with Iframe disabled`.
 - [x] The authored `extension_type` is `actionLink`, and `action_link` is rejected on
       upload. Covered by `builds the snapshot shape the platform consumes` and the
       `validateUiApp` type cases.
@@ -422,8 +465,10 @@ distribution value to a flag set.
       upload is rejected locally with exit `1` and no API call.
 - [ ] Reviewer: the platform's server-side `link_target` default is gated on the literal
       `"action_link"`, so it no longer fires for CLI-authored apps. Confirm this stays
-      harmless — the CLI always writes `link_target` explicitly, and the UI kit defaults
-      an absent/unrecognised value to `_blank` client-side.
+      harmless — the CLI does not author the field, but `brevo app upload` still sends it
+      explicitly for an `actionLink`, and the UI kit defaults an absent/unrecognised
+      value to `_blank` client-side. (Amended: the CLI stopped *writing* it into
+      `app-config.json` in the reshape; it injects it into the payload instead.)
 
 ### `remove` → `undeploy` rename + actionLink-only prompts (2026-08-03)
 

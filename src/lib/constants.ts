@@ -270,8 +270,9 @@ export const EXTENSION_TYPE_IFRAME = 'iframeExtension';
 export const EXTENSION_TYPE_LEGACY = 'legacyComponent';
 
 export const LINK_TARGETS: readonly string[] = ['_blank', '_self'] as const;
-// The CLI always writes link_target explicitly, so the authored file is complete
-// and never depends on a server- or client-side default being applied.
+// NOT authored into app-config.json (BEX-290) — `brevo app upload` injects this value
+// into an actionLink's upload payload, and `brevo app create` never writes it. Sent
+// explicitly rather than left to a default, so the payload is unambiguous.
 export const DEFAULT_LINK_TARGET = '_blank';
 
 /**

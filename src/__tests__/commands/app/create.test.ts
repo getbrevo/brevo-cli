@@ -1447,6 +1447,46 @@ describe('app/create', () => {
       );
     });
 
+    // The regression these two guard: the per-page rule used to be measured against the
+    // pages that were PICKED rather than the pages that produced a group, so when the
+    // narrowed read covered only some picked pages no answer satisfied the prompt —
+    // ticking the offered spot reported "nothing selected for: deal", ticking nothing
+    // reported "Pick at least one spot" — and Ctrl-C was the only way out, discarding the
+    // name, distribution and type answers already given.
+    describe('a picked page the narrowed registry read returns nothing for', () => {
+      // A real early-build behaviour: the endpoint honours only the first CSV value.
+      const onlyFirstLocation = () =>
+        (appService.fetchSurfacePoints as jest.Mock)
+          .mockResolvedValueOnce(FULL_REGISTRY)
+          .mockResolvedValueOnce([REGISTRY_ROW('contactDetails', 'headerMenu', 'action')]);
+
+      beforeEach(() => {
+        answerPrompts({
+          surfaces: ['contact', 'deal'],
+          placements: ['contactDetails.headerMenu.action'],
+        });
+        onlyFirstLocation();
+      });
+
+      it('warns about a picked page the registry offers no placements on', async () => {
+        await createCommand(CLI_OPTIONS);
+
+        const stdout = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+        expect(stdout).toMatch(/No placements are available on: deal/);
+      });
+
+      it('does not require a placement on a page that offered none', async () => {
+        await createCommand(CLI_OPTIONS);
+
+        const validate = questionNamed('placements')?.validate as (v: unknown[]) => unknown;
+        // The one answer the prompt actually offers must be accepted.
+        expect(validate(['contactDetails.headerMenu.action'])).toBe(true);
+        // And the prompt still refuses an empty answer, so it is not simply toothless.
+        expect(validate([])).toMatch(/at least one spot/i);
+        expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+      });
+    });
+
     // Labels are CLI-owned. `surface_point_name` on the registry is a kebab-case SLUG
     // (`contactdetails-headermenu` in these fixtures), not display text, so it must never
     // reach a partner.

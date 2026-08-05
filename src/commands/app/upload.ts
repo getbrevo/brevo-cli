@@ -16,7 +16,7 @@ import {
   ProjectConfig,
 } from '../../lib/config';
 import { validateScopes, containsLegacyAllScope, validateUiApp } from '../../lib/validators';
-import { DEFAULT_LINK_TARGET } from '../../lib/constants';
+import { DEFAULT_LINK_TARGET, EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
 import { OAuthApp, UiApp, UploadAppResponse } from '../../types';
 
 interface UploadOptions {
@@ -156,11 +156,17 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
 //   - `version`     — the server-managed snapshot version. Same asymmetry.
 const UPLOAD_INJECTED_UI_APP_KEYS: readonly string[] = ['link_target', 'version'] as const;
 
-/** Drop `link_target` from a block — used on both the payload echo and the diff inputs. */
-function withoutLinkTarget(uiApp: UiApp): UiApp {
-  if (uiApp.link_target === undefined) return uiApp;
-  const { link_target: _injected, ...rest } = uiApp;
-  return rest;
+/**
+ * Drop the wire-only keys above from a block, before it is written back to
+ * app-config.json. Both are stripped for the same reason and by the same list the diff
+ * normalizes with: neither is authored, both come back on the server's echo, and writing
+ * either one into the file would put a key the partner cannot usefully edit into the
+ * file this command just decided to keep it out of.
+ */
+function withoutInjectedKeys(uiApp: UiApp): UiApp {
+  return Object.fromEntries(
+    Object.entries(uiApp).filter(([key]) => !UPLOAD_INJECTED_UI_APP_KEYS.includes(key)),
+  ) as UiApp;
 }
 
 // Stable serialization for equality checks. Three things vary without the block having
@@ -249,7 +255,7 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   next.surface_point_list.forEach((entry, i) => {
     const context = entry.context?.length ? `  (context: ${entry.context.join(', ')})` : '';
     logInfo(
-      `    ${i === 0 ? 'Placement:      ' : '                '} ${entry.surface_point}${context}`,
+      `    ${i === 0 ? 'Placement:      ' : '                '}${entry.surface_point}${context}`,
     );
   });
   logInfo(`    Label:          ${next.label ?? ''}`);
@@ -257,8 +263,13 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   logInfo(`    Redirect link:  ${next.redirect_link ?? ''}`);
   // Stated rather than shown as a config row: app-config.json does not carry
   // link_target, this command injects it, so a partner should not go looking for
-  // a field to edit.
-  logInfo(`    Link target:    ${DEFAULT_LINK_TARGET} ${messages.APP_UPLOAD_UI_LINK_TARGET_NOTE}`);
+  // a field to edit. Only an actionLink has one — an iframeExtension embeds its
+  // URL, so the row would name a field its upload never sends.
+  if (next.extension_type === EXTENSION_TYPE_ACTION_LINK) {
+    logInfo(
+      `    Link target:    ${DEFAULT_LINK_TARGET} ${messages.APP_UPLOAD_UI_LINK_TARGET_NOTE}`,
+    );
+  }
 }
 
 function diffToJson(diff: UploadDiff) {
@@ -366,11 +377,18 @@ export async function uploadProjectConfig(
       // value that 400s. It is still sent explicitly rather than left to the
       // server's own default, which is gated on the pre-BEX-350 spelling of
       // extension_type and therefore no longer fires for CLI-authored apps.
+      //
+      // Only for an `actionLink`. An `iframeExtension` embeds its URL in a modal
+      // instead of navigating, has no link target to set, and `validateUiApp`
+      // refuses the field in the authored file — so injecting it would send the
+      // one field the CLI just told the partner not to write.
       ...(isUiApp && config.ui_app
         ? {
             ui_app: {
               ...config.ui_app,
-              link_target: DEFAULT_LINK_TARGET as UiApp['link_target'],
+              ...(config.ui_app.extension_type === EXTENSION_TYPE_ACTION_LINK
+                ? { link_target: DEFAULT_LINK_TARGET as UiApp['link_target'] }
+                : {}),
             },
           }
         : {}),
@@ -404,13 +422,13 @@ export async function uploadProjectConfig(
           redirectUris: response.auth.redirect_uris ?? redirectUris,
         },
     // Prefer the server's normalized block when it echoes one back, otherwise
-    // keep what we just sent — with `link_target` stripped either way. The
-    // server defaults that field and echoes it, so passing the echo through
-    // verbatim would write back into app-config.json the one field this command
-    // just injected on the partner's behalf, undoing the decision to keep it out
-    // of the file on the very first successful upload.
+    // keep what we just sent — with the wire-only keys stripped either way. The
+    // server defaults `link_target` and manages the block's `version`, and
+    // echoes both, so passing the echo through verbatim would write back into
+    // app-config.json fields the partner never authored — undoing, on the very
+    // first successful upload, the decision to keep them out of the file.
     ...(isUiApp && (response.ui_app ?? config.ui_app)
-      ? { ui_app: withoutLinkTarget((response.ui_app ?? config.ui_app)!) }
+      ? { ui_app: withoutInjectedKeys((response.ui_app ?? config.ui_app)!) }
       : {}),
   });
 

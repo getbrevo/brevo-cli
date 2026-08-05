@@ -15,7 +15,7 @@ import {
   UI_APP_SURFACE_TO_LOCATION,
 } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
-import { logInfo, logError } from '../../lib/logger';
+import { logInfo, logError, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { ApiError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
@@ -502,6 +502,19 @@ async function promptSurfacePointList(
     const forLocation = rows.filter((row) => row.location_name === location);
     if (forLocation.length > 0) grouped.push({ location, rows: forLocation });
   }
+  // A picked page the narrowed read produced no rows for is REPORTED and dropped, never
+  // enforced. Enforcing it made the prompt unsatisfiable: `validate` demanded a spot on a
+  // page with no choice to tick, so every answer was refused — including ticking nothing —
+  // and Ctrl-C was the only way out, discarding the name, distribution and type answers
+  // already given. This happens for real when the endpoint honours only the first value of
+  // the `location` CSV, or when a page's rows all come back inactive.
+  const dropped = pickedLocations.filter(
+    (location) => !grouped.some((group) => group.location === location),
+  );
+  if (dropped.length > 0) {
+    logWarn(messages.APP_CREATE_UI_PLACEMENT_PAGES_DROPPED(dropped.map(surfaceValueForLocation)));
+  }
+
   const choices: unknown[] = [];
   const preselected: string[] = [];
   for (const group of grouped) {
@@ -524,11 +537,17 @@ async function promptSurfacePointList(
       // Two rules, because one grouped prompt can fail in two ways: nothing ticked at
       // all, or — the quiet one — pages chosen whose groups were then left empty, which
       // would silently author fewer placements than the partner asked for.
+      //
+      // The second rule is measured against the pages that actually produced a GROUP, not
+      // the pages that were picked: a rule the offered choices cannot satisfy would lock
+      // the prompt. Pages with no group were warned about above.
       validate: (picked: unknown[]) => {
         const names = (picked as string[]) ?? [];
         if (names.length === 0) return messages.APP_CREATE_UI_PLACEMENT_REQUIRED;
         const covered = new Set(names.map((name) => byName.get(name)?.location_name));
-        const missing = pickedLocations.filter((location) => !covered.has(location));
+        const missing = grouped
+          .map((group) => group.location)
+          .filter((location) => !covered.has(location));
         if (missing.length > 0) {
           return messages.APP_CREATE_UI_PLACEMENT_PAGE_MISSING(
             missing.map(surfaceValueForLocation),
@@ -871,7 +890,7 @@ function renderCreatedUiApp(
     // single shared "Record context" row would hide that they can differ.
     ...uiApp.surface_point_list.map((entry, i) => {
       const context = entry.context?.length ? `  (context: ${entry.context.join(', ')})` : '';
-      return `${i === 0 ? 'Placement:      ' : '                '} ${entry.surface_point}${context}`;
+      return `${i === 0 ? 'Placement:      ' : '                '}${entry.surface_point}${context}`;
     }),
     `Label:          ${uiApp.label ?? ''}`,
     ...(uiApp.more_info ? [`More info:      ${uiApp.more_info}`] : []),

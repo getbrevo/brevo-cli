@@ -125,6 +125,10 @@ export const messages = {
   // for: picking three pages and then ticking spots on only one.
   APP_CREATE_UI_PLACEMENT_PAGE_MISSING: (pages: string[]) =>
     `Pick at least one spot on every page you chose — nothing selected for: ${pages.join(', ')}.`,
+  // Printed BEFORE the prompt, as a warning, when the registry offers no spot on a page
+  // that was picked. It cannot be a prompt rule: no answer would satisfy one.
+  APP_CREATE_UI_PLACEMENT_PAGES_DROPPED: (pages: string[]) =>
+    `No placements are available on: ${pages.join(', ')}. Those pages are skipped — the registry offers no spot there for this integration type.`,
   // Suffixes on each placement choice, so the shape a slot renders as is visible while
   // choosing rather than a surprise afterwards.
   APP_CREATE_UI_PLACEMENT_MENU_SUFFIX: 'menu entry',
