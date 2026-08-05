@@ -21,6 +21,30 @@ branch; this file records the shape of the change and the decisions behind it.
 >   platform since added `context`: the partner may now *narrow* the slot's context
 >   allow-list, though never widen it.
 
+> **Superseded again — second BEX-290 round.** Five more statements below no longer hold:
+>
+> - **`heading` / `subheading` are now `label` / `more_info`.** Not just a rename: `label`
+>   labels the header-menu entry, which previously showed the *app name*, and doubles as
+>   the CTA button on a widget card. `more_info` is the menu entry's second line and the
+>   card's description. The only rendered text with no field is a card's *title*, which is
+>   the app name.
+> - **"There is no per-action label"** — false, see above. What remains fieldless is the
+>   card title.
+> - **`surface_point_list` is a list of objects**, `{ surface_point, context? }`, and the
+>   top-level `context` is gone. The allow-list belongs to the registry row rather than to
+>   the app, so a flat list could not express different context per page.
+> - **`link_target` is not written into `app-config.json` at all.** `brevo app upload`
+>   injects `_blank`. (The line above about it no longer being prompted still stands; this
+>   goes further.)
+> - **The create prompts are reordered**, and three are gone. Order is now: link-or-iframe
+>   → record pages → one grouped placement prompt → `label` → `more_info` → redirect link.
+>   The kind prompt, the separate place prompt, and the record-context prompt were all
+>   removed; each entry's `context` is seeded from that registry row's own default.
+>
+> Anything below describing the old prompt order, the old field names, or a flat
+> `surface_point_list` is history. The current shape is in `src/types.ts`, and the
+> reasoning is in the changeset.
+
 **Branch base:** cut from `features_set_public_cli`, not `main`. The change extends
 `applyConditionals` in `src/templates/index.ts`, which the PKCE work introduced on that
 branch and which does not exist in `main` yet.

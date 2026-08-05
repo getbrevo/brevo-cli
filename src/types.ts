@@ -119,32 +119,70 @@ export interface SurfacePointEntry {
 }
 
 /**
- * One registry row from `GET /v3/app-store/surface-points` (BEX-361).
+ * One registry row from `GET /v3/app-store/surface-points` (BEX-361), normalized.
  *
- * The server parses `location`/`place`/`kind` out of the slot name so the CLI
- * never re-implements the grammar, and `surface_point_name` is the registry's
- * own display text for the slot. `allowed_context_field` is field NAMES only,
- * never values. Everything but `extension_point` is optional at the type level
- * because the read path tolerates partial rows (see fetchSurfacePoints).
+ * Field names follow the registry's own columns: the server serves the slot name and its
+ * three decomposed segments (`location_name` / `section_name` / `component_type`) so the
+ * CLI never re-implements the grammar. Note `section_name` and `component_type` rather
+ * than "place" and "kind" — those are the CLI's own vocabulary for the same two segments,
+ * kept in `ExtensionPlace`/`ExtensionKind` and in the prompt labels, but the wire uses the
+ * column names.
+ *
+ * `allowed_context_field` and `default_context_field` are field NAMES only, never values.
+ * Everything but `surface_point` is optional because the read path tolerates partial rows
+ * (see `fetchSurfacePoints`) — a registry seeded before a column existed still yields
+ * usable prompts.
  */
 export interface SurfacePointRow {
   /** Slot name in the `<location>.<place>.<kind>` grammar — the wire identity. */
-  extension_point: string;
-  /** The registry's display text for the slot (`surface_point_name` column). */
+  surface_point: string;
+  /**
+   * The registry's own identifier for the slot — a kebab-case SLUG
+   * (`contact-details-header-menu`), NOT display text. Never render it to a partner: the
+   * prompt labels come from `EXTENSION_PLACE_LABELS` in `lib/constants.ts`.
+   */
   surface_point_name?: string;
+  location_name?: string;
+  section_name?: string;
+  component_type?: string;
+  /** Where in the product the slot lives, e.g. a CRM record-detail URL shape. */
+  url_pattern?: string;
+  /** The CEILING: every context field name this slot is able to forward. */
+  allowed_context_field?: string[];
+  /**
+   * The SEED: what `brevo app create` writes into a new entry's `context`. A subset of
+   * `allowed_context_field` — the registry enforces that, so a default can never exceed
+   * the ceiling and make the CLI author a config its own upload rejects.
+   */
+  default_context_field?: string[];
+  /** Which `extension_type` values this slot can serve. */
+  extension_type_list?: string[];
+  /** Registry lifecycle marker; anything other than `active` is not offerable. */
+  status?: string;
+}
+
+/**
+ * The row as it may arrive on the wire, before normalization.
+ *
+ * Both spellings are tolerated on read because the endpoint is specified but NOT BUILT
+ * (see `RELEASE-CHECKLIST.md` → Before UI-apps GA), and the two candidate namings are the
+ * registry's column names (above) and the pre-BEX-361 draft's `extension_point` /
+ * `location` / `place` / `kind` / `supported_extension_types`. Keying strictly on either
+ * one would fail CLOSED against the other: every row gets dropped, and the partner is told
+ * the registry "has not been seeded" — pointing them at a data problem that doesn't exist.
+ * Cheap to tolerate now, and the alias branch can go once the endpoint ships.
+ */
+export interface RawSurfacePointRow extends Partial<SurfacePointRow> {
+  extension_point?: string;
   location?: string;
   place?: string;
   kind?: string;
-  /** Where in the product the slot lives, e.g. a CRM record-detail URL shape. */
-  url_pattern?: string;
-  /** Context field names this slot may forward — the upload-time allow-list. */
-  allowed_context_field?: string[];
   supported_extension_types?: string[];
 }
 
 /** Wire shape of GET /v3/app-store/surface-points (BEX-361). */
 export interface SurfacePointsResponse {
-  surface_points: SurfacePointRow[];
+  surface_points: RawSurfacePointRow[];
   count?: number;
 }
 

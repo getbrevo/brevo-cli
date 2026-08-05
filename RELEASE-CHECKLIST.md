@@ -104,10 +104,17 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 
 - [x] **`ui_app` field names — RESOLVED.** Confirmed against both of the platform's
       consumers — the manifest read path and the extensibility UI kit
-      (BEX-308 / BEX-350). The block is the stored app snapshot verbatim: `extension_type`,
-      `surface_point_list`, `heading`, `subheading`, `redirect_link`, `link_target`.
-      The UIApp Support Spec's `properties`/`trigger` vocabulary is not read
+      (BEX-308 / BEX-350). The block is the stored app snapshot verbatim:
+      `extension_type`, `surface_point_list` (a list of
+      `{ surface_point, context? }` objects), `label`, `more_info`, `redirect_link`.
+      `heading`/`subheading` were the pre-BEX-290 names for `label`/`more_info`, and
+      `link_target` is no longer authored into the file at all — `app upload` injects
+      `_blank`. The UIApp Support Spec's `properties`/`trigger` vocabulary is not read
       anywhere and has been dropped.
+- [ ] **Ship the UI-kit rendering change before or with this CLI.** `label` labels the
+      header-menu item and `more_info` renders as its second line; until the frontend
+      does that, a partner authors a `label` the menu never shows. This is a sequencing
+      requirement, not a CLI change — the CLI is the producer and is ready.
 - [ ] **Coordinate the BEX-350 registry reseed.** The twelve-point
       extension-point registry (three record pages x three widget places + one
       action place, `.widget`/`.action` kinds) has to be seeded before a
@@ -115,16 +122,21 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       a CLI release ahead of the reseed produces action links that render nothing.
       The CLI's local registry copy lives in `src/lib/constants.ts`
       (`EXTENSION_POINTS`) and must be updated in lockstep if the registry changes.
-      `EXTENSION_PLACE_LABELS` in the same file mirrors the registry's
-      `surface_point_name` column and needs the same treatment. Both mirrors go
-      away once the registry is exposed over HTTP and the CLI reads it at prompt
-      time.
-- [ ] **Seed `extension_points.allowed_context_field` before shipping the context
-      prompt.** `ui_app.context` narrows this per-slot allow-list, and the upload
-      endpoint validates each authored field against it. If the column is NULL on
-      every row, every `context` value is refused — so a CLI release that prompts
-      for it ahead of the seed offers partners a field they cannot use. Leaving the
-      prompt blank is unaffected.
+      `EXTENSION_PLACE_LABELS` in the same file is **CLI-owned display text and
+      stays** — an earlier version of this line claimed it mirrors the registry's
+      `surface_point_name` column, which is false: that column holds kebab-case slugs
+      (`contact-details-header-menu`), not partner-facing labels. The registry exposes
+      no display-name column, so either the CLI keeps this map or the platform adds
+      one. `EXTENSION_POINTS` goes away once upload also reads the registry over HTTP.
+- [ ] **Confirm the per-slot context columns are seeded.** There is no context prompt
+      any more: `brevo app create` seeds each `surface_point_list` entry's `context`
+      from that registry row's own default, and the upload endpoint validates each
+      entry against that row's allow-list. Two consequences: a row with no default
+      yields an entry with no `context` (which means "no narrowing", so it degrades
+      safely), and a default outside its own allow-list would make the CLI author a
+      config its own upload rejects — which reads as a CLI bug. The registry is
+      expected to keep each default inside its allow-list; worth confirming that is
+      enforced rather than true by luck.
 - [x] **Snapshot write path confirmed.** The platform's upload endpoint
       (app-store-bo-be `POST /cli/apps/{app_id}/upload`, branch
       feat/bex-355-cli-snapshot-contract) binds the block under `ui_app` and
@@ -132,18 +144,30 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       (`src/types.ts` `UploadAppPayload` and `upload.ts`). "snapshot" on the
       platform means the whole stored app config; this block is only its UI
       subset, hence the key.
-- [ ] **Ship BEX-361 and confirm its /v3 mapping.** `brevo app create`'s UI-app
-      path now reads the extension-point registry live from
-      `GET /v3/app-store/surface-points?extensionType=actionLink` — fetch-only,
-      no local fallback — so **UI-app creation is unusable until the endpoint
-      ships**. The backend route and response shape are specified in BEX-361
-      (app-store-bo-be `GET /cli/surface-points`: `surface_points[]` rows with
-      `extension_point`, `surface_point_name`, parsed `location`/`place`/`kind`,
-      `allowed_context_field`, `supported_extension_types`); only the public
-      `/v3/app-store/surface-points` mapping is the CLI's assumption
-      (`ENDPOINTS.APP_STORE_SURFACE_POINTS`, `appService.fetchSurfacePoints`).
-      Once upload also reads it, the local mirrors go away entirely (see
-      TODO.md).
+- [ ] **Ship BEX-361 and confirm its /v3 mapping.** `brevo app create`'s UI-app path
+      reads the extension-point registry live — fetch-only, no local fallback — so
+      **UI-app creation is unusable until the endpoint ships**. It now calls the
+      endpoint TWICE per run: once unfiltered for the record-page prompt, then
+      `?location=<comma-separated>` for the placements on the pages that were picked.
+      There is deliberately no extension-type filter; the CLI checks each row's own
+      `extension_type_list` and `status` instead, since both extension types render on
+      both kinds and a server-side type filter would hide authorable placements.
+      Confirm on the real endpoint:
+      - [ ] The response rows carry `surface_point`, `location_name`, `section_name`,
+            `component_type`, `default_context_field`, `allowed_context_field`,
+            `extension_type_list`, `status`. The CLI ALSO tolerates the pre-BEX-361
+            spellings (`extension_point`, `location`, `place`, `kind`,
+            `supported_extension_types`) on read, because keying strictly on either
+            naming would fail closed against the other — every row dropped, and the
+            partner told the registry "has not been seeded". Drop the alias branch in
+            `appService.fetchSurfacePoints` once the real shape is confirmed.
+      - [ ] `?location=` is honoured, and an unknown value 400s rather than being
+            silently dropped. Not fatal either way: the second call falls back to the
+            rows from the first, which are a superset.
+      - [ ] Row order is deterministic. The CLI writes placements in registry order,
+            and the upload diff sorts before comparing, so churn here is contained —
+            but the prompt order is the partner's mental model of the page.
+      Once upload also reads the registry, the local mirror goes away (see TODO.md).
 - [ ] **Confirm the no-auth wire contract for UI apps.** A UI app's config now
       carries an empty `auth: {}` (no scopes, no redirect URIs, no jwtSecret —
       nothing OAuth is issued for it). The CLI therefore omits the whole `auth`
@@ -160,8 +184,11 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 - [ ] Confirm whether `GET /v3/app-store/apps/{id}` returns the `ui_app` block. The
       upload diff and the scaffold-refresh path both read `ui_app` opportunistically
       and degrade safely when absent (the block reads as new / is carried forward
-      locally), but the diff is only fully accurate once the server echoes it —
-      notably `link_target`, which the backend defaults to `_blank` server-side.
+      locally), but the diff is only fully accurate once the server echoes it. When it
+      does, two normalizations must keep working: the write-back strips the
+      server-defaulted `link_target` so it never lands back in app-config.json, and the
+      diff ignores `link_target`/`version` and sorts `surface_point_list` so a server
+      echo is never reported as local drift.
       Server-side echo fix is planned in app-store-bo-be's `/cli/apps/{id}` handler
       (the latest app_versions.snapshot row already carries the block).
 - [ ] Decide whether the CLI should guard the UI-app path at runtime, the same open
@@ -176,6 +203,62 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 
 Append an entry per change that needs verifying. Clear this section (keep the
 heading) before merging into `main`.
+
+### BEX-290 — `ui_app` schema reshape + reordered `app create` prompts
+
+**Change:** Two commits. (1) `surface_point_list` becomes a list of
+`{ surface_point, context? }`, `heading`/`subheading` become `label`/`more_info`,
+the top-level `context` is gone, `link_target` is no longer authored into
+`app-config.json` (upload injects `_blank`), and `label`/`more_info` gain the
+server's length ceilings (48 / 255). (2) `brevo app create`'s UI-app flow is
+reordered — integration type first, then record pages, then ONE grouped placement
+prompt built from real registry rows — and each entry's `context` is seeded from
+that row's `default_context_field` instead of being prompted for. The registry
+endpoint is now called twice (unfiltered, then `?location=<csv>`) and rows the
+chosen extension type can't be hosted on are filtered client-side.
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn test && yarn build` green (46 suites / 927 tests).
+- [x] Upload of an unchanged UI app still prints *Already up to date* when the
+      server echo differs from the file only by `link_target` / `version` or by
+      `surface_point_list` order. Regression-tested; without the normalization the
+      block reads as changed on every upload.
+- [x] A successful upload does not write `link_target` back into `app-config.json`.
+      Regression-tested — the server defaults and echoes it, so passing the echo
+      through verbatim would undo the decision on the first upload.
+- [x] The pre-BEX-290 shape (`heading`, `subheading`, top-level `context`, a
+      bare-string `surface_point_list`) fails `brevo app upload` with a migration
+      hint rather than a generic "label cannot be empty".
+- [ ] Manual, once BEX-361 ships: run `brevo app create` → *UI app* end to end and
+      confirm the prompt order is integration type → record pages → placements →
+      label → more info → redirect link, with no kind, place or record-context
+      question anywhere.
+- [ ] Manual: pick two record pages, tick spots on only one, and confirm the
+      placement prompt refuses with *nothing selected for: <page>* rather than
+      silently authoring fewer placements than were asked for.
+- [ ] Manual: pick a page whose registry offers exactly one placement and confirm it
+      is pre-ticked.
+- [ ] Manual: confirm the placement labels read as page regions
+      (*Header "More" (•••) menu — menu entry*, *Sidebar — card*) and that no
+      kebab-case slug from `surface_point_name` ever appears in the prompt.
+- [ ] Manual: confirm the created-app box prints an example URL whose query
+      parameters are exactly the seeded context fields, and that it merges correctly
+      into a `redirect_link` that already has a `?` and a `#`.
+- [ ] Manual: point `BREVO_API_URL` at an environment whose registry endpoint 400s
+      on `?location=` and confirm creation still completes on the rows from the first
+      call, rather than dying after the page prompt.
+- [ ] Manual: with the endpoint absent entirely, confirm creation aborts with the
+      actionable *Could not load the available placements* message and that OAuth
+      creation is unaffected.
+- [ ] Reviewer: confirm the registry read path still tolerates BOTH row namings
+      (`surface_point`/`location_name`/… and `extension_point`/`location`/`place`/
+      `kind`). Keying on one only would drop every row and misreport it as an
+      unseeded registry.
+- [ ] Reviewer: `EXTENSION_POINTS` must stay — upload still pre-flights against the
+      mirror while create validates against the live registry (see TODO.md).
+- [ ] Reviewer: no fixture, example or seed anywhere uses a context field name
+      outside `recordId`, `recordName`, `userId`, `locale`, `accountId`.
 
 ### Public-apps-not-available notice
 

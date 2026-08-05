@@ -24,11 +24,9 @@ import {
   validateEnum,
   validateAppName,
   validateUiApp,
-  validateUiAppContext,
   validateUiAppLabel,
   validateUiAppMoreInfo,
   validateUiAppUrl,
-  parseUiAppContext,
 } from '../../lib/validators';
 import { printBox, createSpinner } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
@@ -274,18 +272,35 @@ async function resolveLogoUri(
 }
 
 // 4b. UI-app configuration (BEX-290) — replaces the redirect-URL step for UI
-//     apps. Placement choices are read from the platform's extension-point
-//     registry at prompt time (BEX-361) — fetch-only, with NO local-mirror
-//     fallback, so a partner can never author a slot the platform doesn't
-//     have. Only `actionLink` is selectable at the integration-type prompt:
-//     the 2026-08-03 decision keeps `iframeExtension` un-authorable until the
-//     iframe-embed RFC lands, but it now shows as a disabled "coming soon"
-//     choice rather than being hidden (the platform's upload endpoint still
-//     accepts a hand-edited block — see validateUiApp).
+//     apps. Prompt order, and why:
 //
-//     The collected block is the app snapshot the platform stores, verbatim, so
-//     there is no vocabulary translation between what a partner authors and what
-//     the platform renders.
+//       1. link or iframe   → sets `extension_type`. Asked FIRST because it is the
+//                             decision a partner arrives with, and because it decides
+//                             which single URL question is asked at the end. It does NOT
+//                             filter the placement list.
+//       2. record pages     → multi-select of the registry's distinct locations.
+//       3. placements       → ONE prompt of real registry rows, grouped by page.
+//       4. label            → menu entry text / card CTA.
+//       5. more_info        → optional supporting line.
+//       6. redirect link    → the destination.
+//
+//     Five questions, one optional, two registry loads. The old kind-then-place pair is
+//     gone: kind is a property of a slot, not a question — a partner picking "Header
+//     menu" has already said they want a menu entry — and asking it up front made cards
+//     and menu entries mutually exclusive within one app, which the platform does not
+//     require. The record-context prompt is gone too: context is seeded per placement
+//     from that row's `default_context_field`.
+//
+//     Placement choices are read from the platform's extension-point registry (BEX-361),
+//     fetch-only with NO local-mirror fallback, so a partner can never author a slot the
+//     platform doesn't have. Only `actionLink` is selectable at the integration-type
+//     prompt: `iframeExtension` shows as a disabled "coming soon" choice rather than
+//     being hidden (the upload endpoint still accepts a hand-edited block — see
+//     validateUiApp).
+//
+//     The collected block is the app snapshot the platform stores, verbatim, so there is
+//     no vocabulary translation between what a partner authors and what the platform
+//     renders.
 
 /** Reverse of UI_APP_SURFACE_TO_LOCATION, for labelling fetched locations. */
 const LOCATION_TO_UI_APP_SURFACE: Readonly<Record<string, string>> = Object.fromEntries(
@@ -297,7 +312,7 @@ const LOCATION_TO_UI_APP_SURFACE: Readonly<Record<string, string>> = Object.from
  * `company` / `deal` names where the mapping exists, otherwise derived by
  * stripping a trailing `Details` (`orderDetails` → `order`), raw token as the
  * last resort. Values only need to be stable within one prompt run — the wire
- * identity is always the row's `extension_point`.
+ * identity is always the row's `surface_point`.
  */
 function surfaceValueForLocation(location: string): string {
   const known = LOCATION_TO_UI_APP_SURFACE[location];
@@ -307,75 +322,156 @@ function surfaceValueForLocation(location: string): string {
 }
 
 /**
- * A registry row whose location/place/kind are guaranteed present — either
- * parsed server-side (the BEX-361 contract) or backfilled from the slot name.
+ * A registry row whose three slot segments are guaranteed present — either served
+ * decomposed (the BEX-361 contract) or backfilled from the slot name.
  */
 interface UsableSurfacePoint extends SurfacePointRow {
-  location: string;
-  place: string;
-  kind: string;
+  location_name: string;
+  section_name: string;
+  component_type: string;
+}
+
+/** Turn raw registry rows into offerable ones, dropping any that can't be placed. */
+function toUsableRows(rows: SurfacePointRow[]): UsableSurfacePoint[] {
+  const usable: UsableSurfacePoint[] = [];
+  for (const row of rows) {
+    const segments = row.surface_point.split('.');
+    const [locationToken, placeToken, kindToken] = segments.length === 3 ? segments : ['', '', ''];
+    const location = (row.location_name ?? '').trim() || locationToken;
+    const section = (row.section_name ?? '').trim() || placeToken;
+    const component = (row.component_type ?? '').trim() || kindToken;
+    if (!location || !section || !component) continue;
+    usable.push({
+      ...row,
+      location_name: location,
+      section_name: section,
+      component_type: component,
+    });
+  }
+  return usable;
 }
 
 /**
- * Fetch the extension-point registry rows an actionLink can mount on.
+ * Whether a registry row can actually host the chosen extension type.
  *
- * Fetch-only by decision: a failure aborts UI-app creation with an actionable
- * message rather than falling back to the local mirror — offering a slot the
- * platform doesn't actually have would reproduce exactly the silent-drop
- * failure this flow exists to prevent. Rows the server didn't parse are
- * backfilled from the `<location>.<place>.<kind>` name; rows that still lack a
- * segment are dropped (not offerable).
+ * Checked CLIENT-side rather than by asking the server to filter, because both extension
+ * types render on both kinds and a server-side type filter would hide authorable
+ * placements. `extension_type_list` and `status` are each honoured only when the row
+ * declares them: a registry seeded before either column existed must stay usable, and
+ * treating a missing column as a rejection would empty the prompt.
+ *
+ * Without this check the unfiltered fetch reintroduces exactly the failure the whole flow
+ * exists to prevent — a partner authors a slot that cannot serve their type, upload 200s,
+ * and the slot renders nothing.
  */
-async function fetchSurfacePointRegistry(): Promise<UsableSurfacePoint[]> {
-  const spinner = createSpinner(messages.APP_CREATE_UI_POINTS_SPINNER);
+function rowSupportsExtensionType(row: SurfacePointRow, extensionType: string): boolean {
+  if (row.status !== undefined && row.status.trim() && row.status.trim() !== 'active') {
+    return false;
+  }
+  const types = row.extension_type_list;
+  if (!types || types.length === 0) return true;
+  return types.includes(extensionType);
+}
+
+/**
+ * Load the whole registry, for the record-page prompt.
+ *
+ * Fetch-only by decision: a failure aborts UI-app creation with an actionable message
+ * rather than falling back to the local mirror — offering a slot the platform doesn't
+ * actually have would reproduce exactly the silent-drop failure this flow exists to
+ * prevent. Unfiltered, per the BEX-361 endpoint design; the type check above is what
+ * keeps un-hostable rows out of the prompts.
+ */
+async function fetchAllSurfacePoints(extensionType: string): Promise<UsableSurfacePoint[]> {
+  const spinner = createSpinner(messages.APP_CREATE_UI_PAGES_SPINNER);
   let rows: SurfacePointRow[];
   try {
-    rows = await appService.fetchSurfacePoints(EXTENSION_TYPE_ACTION_LINK);
+    rows = await appService.fetchSurfacePoints();
   } catch {
     throw new CliError(messages.APP_CREATE_UI_POINTS_FETCH_FAILED);
   } finally {
     spinner.stop();
   }
 
-  const usable: UsableSurfacePoint[] = [];
-  for (const row of rows) {
-    const segments = row.extension_point.split('.');
-    const [locationToken, placeToken, kindToken] = segments.length === 3 ? segments : ['', '', ''];
-    const location = (row.location ?? '').trim() || locationToken;
-    const place = (row.place ?? '').trim() || placeToken;
-    const kind = (row.kind ?? '').trim() || kindToken;
-    if (!location || !place || !kind) continue;
-    usable.push({ ...row, location, place, kind });
-  }
+  const usable = toUsableRows(rows);
   if (usable.length === 0) {
     throw new CliError(messages.APP_CREATE_UI_POINTS_EMPTY);
   }
-  return usable;
-}
-
-interface SurfacePointSelection {
-  /** The selected registry rows — the wire identity and the allow-list source for context. */
-  selectedRows: UsableSurfacePoint[];
+  const hostable = usable.filter((row) => rowSupportsExtensionType(row, extensionType));
+  if (hostable.length === 0) {
+    throw new CliError(messages.APP_CREATE_UI_POINTS_NONE_FOR_TYPE(extensionType));
+  }
+  return hostable;
 }
 
 /**
- * Ask which record pages the app appears on, then whether it is a menu entry or a card,
- * then which positions — every choice built from the fetched registry rows, and the
- * selection mapping back to the rows themselves so `surfacePointList` is always a set of
- * real `extension_point` names (nothing is string-composed client-side).
+ * Load the placements for the pages the partner picked.
  *
- * Kind is asked before place, and asked as a single choice, because it decides which
- * places exist — same UX shape as before BEX-361, only the data source changed.
+ * A second, narrowed round trip — the endpoint takes `?location=<comma-separated>` — so
+ * that the placement prompt reflects the registry at the moment it is shown rather than
+ * whatever the first call happened to return.
+ *
+ * It falls back to the rows already held instead of aborting. The narrowed response is a
+ * strict SUBSET of the first call's, so nothing is lost by reusing it, and dying here
+ * would throw away the answer the partner just gave to a prompt they cannot be re-asked.
+ * That matters more than usual while the endpoint is unbuilt: an early build may well not
+ * implement the `location` filter, and a 400 on it should not be fatal.
+ */
+async function fetchSurfacePointsForPages(
+  allRows: UsableSurfacePoint[],
+  locations: readonly string[],
+  extensionType: string,
+): Promise<UsableSurfacePoint[]> {
+  const onPickedPages = allRows.filter((row) => locations.includes(row.location_name));
+  const spinner = createSpinner(messages.APP_CREATE_UI_POINTS_SPINNER);
+  let rows: SurfacePointRow[];
+  try {
+    rows = await appService.fetchSurfacePoints(locations);
+  } catch {
+    return onPickedPages;
+  } finally {
+    spinner.stop();
+  }
+
+  const hostable = toUsableRows(rows)
+    .filter((row) => locations.includes(row.location_name))
+    .filter((row) => rowSupportsExtensionType(row, extensionType));
+  // An empty narrowed response is also treated as "the filter didn't work" rather than
+  // "these pages have no placements" — the first call already proved they do.
+  return hostable.length > 0 ? hostable : onPickedPages;
+}
+
+/** Partner-facing label for one placement: the page region, plus the shape it renders as. */
+function placementLabel(row: UsableSurfacePoint): string {
+  // NOT row.surface_point_name — that column holds a kebab-case slug
+  // (`contact-details-header-menu`), not display text. See EXTENSION_PLACE_LABELS.
+  const place = EXTENSION_PLACE_LABELS[row.section_name] ?? row.section_name;
+  if (row.component_type === EXTENSION_KIND_ACTION) {
+    return `${place} — ${messages.APP_CREATE_UI_PLACEMENT_MENU_SUFFIX}`;
+  }
+  if (row.component_type === EXTENSION_KIND_WIDGET) {
+    return `${place} — ${messages.APP_CREATE_UI_PLACEMENT_CARD_SUFFIX}`;
+  }
+  return `${place} — ${row.component_type}`;
+}
+
+/**
+ * Ask which record pages the app appears on, then — in ONE prompt — which placements on
+ * those pages, grouped under a separator per page.
+ *
+ * Every choice is a real registry row and the answer maps straight back to it, so the
+ * authored `surface_point` values are never string-composed client-side.
  */
 async function promptSurfacePointList(
-  registry: UsableSurfacePoint[],
-): Promise<SurfacePointSelection> {
+  allRows: UsableSurfacePoint[],
+  extensionType: string,
+): Promise<UsableSurfacePoint[]> {
   // Pages — unique locations in registry order, shown under their friendly names.
   const surfaceChoices: Array<{ name: string; value: string; location: string }> = [];
-  for (const row of registry) {
-    if (!surfaceChoices.some((choice) => choice.location === row.location)) {
-      const value = surfaceValueForLocation(row.location);
-      surfaceChoices.push({ name: value, value, location: row.location });
+  for (const row of allRows) {
+    if (!surfaceChoices.some((choice) => choice.location === row.location_name)) {
+      const value = surfaceValueForLocation(row.location_name);
+      surfaceChoices.push({ name: value, value, location: row.location_name });
     }
   }
   const { surfaces } = await inquirer.prompt([
@@ -392,69 +488,67 @@ async function promptSurfacePointList(
     },
   ]);
   const pickedSurfaces = (surfaces as string[]) ?? [];
-  const pickedLocations = new Set(
-    surfaceChoices
-      .filter((choice) => pickedSurfaces.includes(choice.value))
-      .map((choice) => choice.location),
-  );
-  const onPickedPages = registry.filter((row) => pickedLocations.has(row.location));
+  const pickedLocations = surfaceChoices
+    .filter((choice) => pickedSurfaces.includes(choice.value))
+    .map((choice) => choice.location);
 
-  // Kind — unique kinds available on the picked pages, `action` first to match
-  // the historical ordering. Unknown kinds are offered under their raw token:
-  // they exist in the registry, so they are authorable.
-  const kinds = [...new Set(onPickedPages.map((row) => row.kind))].sort((a, b) => {
-    if (a === EXTENSION_KIND_ACTION) return -1;
-    if (b === EXTENSION_KIND_ACTION) return 1;
-    return 0;
-  });
-  const kindLabel = (kind: string): string => {
-    if (kind === EXTENSION_KIND_ACTION) return messages.APP_CREATE_UI_KIND_ACTION;
-    if (kind === EXTENSION_KIND_WIDGET) return messages.APP_CREATE_UI_KIND_WIDGET;
-    return kind;
-  };
-  const { kind } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'kind',
-      message: messages.APP_CREATE_UI_KIND_PROMPT,
-      choices: kinds.map((value) => ({ name: kindLabel(value), value })),
-    },
-  ]);
+  const rows = await fetchSurfacePointsForPages(allRows, pickedLocations, extensionType);
+  const byName = new Map(rows.map((row) => [row.surface_point, row]));
 
-  // Positions — the matching rows' places, labelled by the registry's own
-  // surface_point_name when it carries one, falling back to the local label
-  // mirror, then the raw token.
-  const matchingKind = onPickedPages.filter((row) => row.kind === String(kind));
-  const placeChoices: Array<{ name: string; value: string }> = [];
-  for (const row of matchingKind) {
-    if (!placeChoices.some((choice) => choice.value === row.place)) {
-      placeChoices.push({
-        name: row.surface_point_name?.trim() || EXTENSION_PLACE_LABELS[row.place] || row.place,
-        value: row.place,
-      });
-    }
+  // Placements — one flat checkbox, grouped by page with a separator heading each group.
+  // Values are slot names, which are globally unique, so grouping is presentation only.
+  const grouped: Array<{ location: string; rows: UsableSurfacePoint[] }> = [];
+  for (const location of pickedLocations) {
+    const forLocation = rows.filter((row) => row.location_name === location);
+    if (forLocation.length > 0) grouped.push({ location, rows: forLocation });
   }
-  const { places } = await inquirer.prompt([
+  const choices: unknown[] = [];
+  const preselected: string[] = [];
+  for (const group of grouped) {
+    choices.push(new inquirer.Separator(`  ${surfaceValueForLocation(group.location)}`));
+    for (const row of group.rows) {
+      choices.push({ name: placementLabel(row), value: row.surface_point });
+    }
+    // A page offering exactly one placement gets pre-ticked rather than making the
+    // partner confirm a lone box they had no alternative to.
+    if (group.rows.length === 1) preselected.push(group.rows[0]!.surface_point);
+  }
+
+  const { placements } = await inquirer.prompt([
     {
       type: 'checkbox',
-      name: 'places',
-      message: messages.APP_CREATE_UI_PLACE_PROMPT,
-      choices: placeChoices,
-      // A single available position gets pre-selected rather than making the
-      // partner tick a lone box.
-      default: placeChoices.length === 1 ? [placeChoices[0]!.value] : [],
-      validate: (picked: unknown[]) => picked.length > 0 || messages.APP_CREATE_UI_PLACE_REQUIRED,
+      name: 'placements',
+      message: messages.APP_CREATE_UI_PLACEMENT_PROMPT,
+      choices,
+      default: preselected,
+      // Two rules, because one grouped prompt can fail in two ways: nothing ticked at
+      // all, or — the quiet one — pages chosen whose groups were then left empty, which
+      // would silently author fewer placements than the partner asked for.
+      validate: (picked: unknown[]) => {
+        const names = (picked as string[]) ?? [];
+        if (names.length === 0) return messages.APP_CREATE_UI_PLACEMENT_REQUIRED;
+        const covered = new Set(names.map((name) => byName.get(name)?.location_name));
+        const missing = pickedLocations.filter((location) => !covered.has(location));
+        if (missing.length > 0) {
+          return messages.APP_CREATE_UI_PLACEMENT_PAGE_MISSING(
+            missing.map(surfaceValueForLocation),
+          );
+        }
+        return true;
+      },
     },
   ]);
-  const pickedPlaces = new Set((places as string[]) ?? []);
 
-  return { selectedRows: matchingKind.filter((row) => pickedPlaces.has(row.place)) };
+  // Registry order, not tick order, so the authored list is deterministic and the upload
+  // diff doesn't churn on a re-run that picked the same slots in a different sequence.
+  const picked = new Set((placements as string[]) ?? []);
+  return rows.filter((row) => picked.has(row.surface_point));
 }
 
 /**
- * Ask how the app opens. Only External link (`actionLink`) is selectable —
- * Modal iframe is rendered as a disabled "coming soon" choice so partners see
- * the roadmap without being able to author a block the kit can't serve yet.
+ * Ask whether the app is a link or an iframe. Only Link (`actionLink`) is selectable —
+ * Iframe is rendered as a disabled "coming soon" choice so partners see the roadmap
+ * without being able to author a block the kit can't serve yet.
  */
 async function promptIntegrationType(): Promise<UiApp['extension_type']> {
   const { integrationType } = await inquirer.prompt([
@@ -479,49 +573,6 @@ async function promptIntegrationType(): Promise<UiApp['extension_type']> {
 }
 
 /**
- * Ask for the record-context fields the app wants forwarded to it.
- *
- * Choices are the union of the selected placements' `allowed_context_field`
- * allow-lists (BEX-361) — a checkbox, so a partner can only request fields at
- * least one chosen slot can forward. Selecting nothing means "no narrowing",
- * the behaviour every app had before narrowing existed. Free text remains only
- * for the case where no selected row declares an allow-list (e.g. a registry
- * seeded before BEX-349) — there, the server refuses unknown names at upload,
- * where the 400 enumerates what is allowed.
- */
-async function promptUiAppContext(selectedRows: UsableSurfacePoint[]): Promise<string[]> {
-  const union: string[] = [];
-  for (const row of selectedRows) {
-    for (const field of row.allowed_context_field ?? []) {
-      const trimmed = String(field ?? '').trim();
-      if (trimmed && !union.includes(trimmed)) union.push(trimmed);
-    }
-  }
-
-  if (union.length > 0) {
-    const { context } = await inquirer.prompt([
-      {
-        type: 'checkbox',
-        name: 'context',
-        message: messages.APP_CREATE_UI_CONTEXT_CHECKBOX_PROMPT,
-        choices: union,
-      },
-    ]);
-    return ((context as string[]) ?? []).map((field) => String(field).trim()).filter(Boolean);
-  }
-
-  const { context } = await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'context',
-      message: messages.APP_CREATE_UI_CONTEXT_PROMPT,
-      validate: (value: string) => validateUiAppContext(parseUiAppContext(value)),
-    },
-  ]);
-  return parseUiAppContext(String(context ?? ''));
-}
-
-/**
  * Collect the `ui_app` block interactively. Only reachable when the app-type
  * prompt returned `ui`, which already implies an interactive terminal — so every
  * field is asked for, with no flag or default fallback path. (That also means
@@ -529,9 +580,11 @@ async function promptUiAppContext(selectedRows: UsableSurfacePoint[]): Promise<s
  * under `--json`.)
  */
 async function resolveUiApp(): Promise<UiApp> {
-  const registry = await fetchSurfacePointRegistry();
-  const { selectedRows } = await promptSurfacePointList(registry);
+  // Integration type first: it is the decision a partner arrives with, and it decides
+  // which registry rows can host the app at all.
   const extensionType = await promptIntegrationType();
+  const registry = await fetchAllSurfacePoints(extensionType);
+  const selectedRows = await promptSurfacePointList(registry, extensionType);
 
   const { label } = await inquirer.prompt([
     {
@@ -560,14 +613,17 @@ async function resolveUiApp(): Promise<UiApp> {
     },
   ]);
 
-  const context = await promptUiAppContext(selectedRows);
-
   const uiApp: UiApp = {
     extension_type: extensionType,
-    // One entry per selected placement, deduplicated by slot name. `context` is
-    // per entry: the allow-list is a property of the registry row, not of the
-    // app, so two pages can forward different fields.
-    surface_point_list: buildSurfacePointList(selectedRows, () => context),
+    // One entry per selected placement, deduplicated by slot name, each seeded from
+    // THAT row's `default_context_field`. Not prompted: the allow-list and its default
+    // are properties of the registry row, chosen by the platform, and asking a partner
+    // to pick from a list they can only narrow was a question with no good wrong answer.
+    // A row that declares no default gets no `context` key, which means "no narrowing".
+    surface_point_list: buildSurfacePointList(
+      selectedRows,
+      (row) => row.default_context_field ?? [],
+    ),
     label: String(label ?? '').trim(),
     // Omitted rather than written empty: the kit only renders it when set, and an
     // empty string would show up as a spurious diff on every upload.
@@ -584,7 +640,7 @@ async function resolveUiApp(): Promise<UiApp> {
   // mirror that lags the platform must not fail a selection the platform has.
   validateUiApp(
     uiApp,
-    registry.map((row) => row.extension_point),
+    registry.map((row) => row.surface_point),
   );
   return uiApp;
 }
@@ -604,13 +660,13 @@ function buildSurfacePointList(
   const entries: SurfacePointEntry[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
-    if (seen.has(row.extension_point)) continue;
-    seen.add(row.extension_point);
+    if (seen.has(row.surface_point)) continue;
+    seen.add(row.surface_point);
     const context = contextFor(row)
       .map((field) => String(field).trim())
       .filter(Boolean);
     entries.push({
-      surface_point: row.extension_point,
+      surface_point: row.surface_point,
       ...(context.length ? { context } : {}),
     });
   }

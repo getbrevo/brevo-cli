@@ -10,6 +10,7 @@ import {
   OAuthApp,
   CreateAppResponse,
   AppStateResponse,
+  RawSurfacePointRow,
   SurfacePointRow,
   SurfacePointsResponse,
   UploadAppPayload,
@@ -17,6 +18,23 @@ import {
 } from '../types';
 import { getAppCredentials, saveAppCredentials } from '../lib/config';
 import { normalizeAppId } from './normalize-app-id';
+
+/** First of the candidates that is a non-blank string, trimmed; `undefined` if none is. */
+function firstNonEmptyString(...candidates: unknown[]): string | undefined {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return undefined;
+}
+
+/**
+ * `{ key: value }` when the value is present, `{}` when it is not — so a row missing a
+ * column stays missing rather than gaining an explicit `undefined`, which would survive
+ * `JSON.stringify` differently and show up in the upload diff.
+ */
+function pick<K extends string, V>(key: K, value: V | undefined): Partial<Record<K, V>> {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
+}
 
 function rethrowNotFound(err: unknown, appId: string): never {
   if (err instanceof ApiError && err.statusCode === 404) {
@@ -44,21 +62,29 @@ export function createAppService(client: ApiClient) {
 
     /**
      * Read the extension-point registry for UI-app slot authoring (BEX-361).
-     * `extensionType` narrows to slots that support that type — the create flow
-     * passes `actionLink` so everything offered is authorable.
      *
-     * The backend route is specified (app-store-bo-be GET /cli/surface-points)
-     * but not built yet; only the public /v3 mapping is assumed. See
-     * RELEASE-CHECKLIST.md → Before UI-apps GA. Errors propagate — the caller
-     * owns the actionable message, since 404 currently just means "endpoint
-     * not built".
+     * `locations` narrows to the given `location_name` values (comma-separated on the
+     * wire), which is how `app create` fetches the placements for the pages a partner
+     * actually picked. Omit it for the whole registry.
      *
-     * Normalization: rows without a usable `extension_point` are dropped and
-     * duplicates (by name) deduped, so callers can trust every row's identity.
+     * There is deliberately NO extension-type filter. Both extension types render on both
+     * kinds, so filtering server-side would hide authorable placements; the create flow
+     * checks each row's own `extension_type_list` instead.
+     *
+     * The backend route is specified (app-store-bo-be GET /cli/surface-points) but not
+     * built yet; only the public /v3 mapping is assumed. See RELEASE-CHECKLIST.md → Before
+     * UI-apps GA. Errors propagate — the caller owns the actionable message, since a 404
+     * currently just means "endpoint not built".
+     *
+     * Normalization: rows are keyed on `surface_point`, falling back to the pre-BEX-361
+     * `extension_point` spelling, and the three decomposed segments accept either naming
+     * (see RawSurfacePointRow for why both are tolerated). Rows with no usable name are
+     * dropped and duplicates deduped, so callers can trust every row's identity.
      */
-    async fetchSurfacePoints(extensionType?: string): Promise<SurfacePointRow[]> {
-      const query = extensionType ? `?extensionType=${encodeURIComponent(extensionType)}` : '';
-      const res = await client.get<SurfacePointsResponse | SurfacePointRow[] | null>(
+    async fetchSurfacePoints(locations?: readonly string[]): Promise<SurfacePointRow[]> {
+      const filter = (locations ?? []).map((l) => String(l).trim()).filter(Boolean);
+      const query = filter.length ? `?location=${encodeURIComponent(filter.join(','))}` : '';
+      const res = await client.get<SurfacePointsResponse | RawSurfacePointRow[] | null>(
         `${ENDPOINTS.APP_STORE_SURFACE_POINTS}${query}`,
       );
       const rows = Array.isArray(res) ? res : (res?.surface_points ?? []);
@@ -66,10 +92,27 @@ export function createAppService(client: ApiClient) {
       const normalized: SurfacePointRow[] = [];
       for (const row of rows) {
         if (!row || typeof row !== 'object') continue;
-        const name = typeof row.extension_point === 'string' ? row.extension_point.trim() : '';
+        const name = firstNonEmptyString(row.surface_point, row.extension_point);
         if (!name || seen.has(name)) continue;
         seen.add(name);
-        normalized.push({ ...row, extension_point: name });
+        const {
+          extension_point: _legacyName,
+          location: legacyLocation,
+          place: legacyPlace,
+          kind: legacyKind,
+          supported_extension_types: legacySupportedTypes,
+          ...rest
+        } = row;
+        normalized.push({
+          ...rest,
+          surface_point: name,
+          ...pick('location_name', firstNonEmptyString(row.location_name, legacyLocation)),
+          ...pick('section_name', firstNonEmptyString(row.section_name, legacyPlace)),
+          ...pick('component_type', firstNonEmptyString(row.component_type, legacyKind)),
+          ...((row.extension_type_list ?? legacySupportedTypes)
+            ? { extension_type_list: row.extension_type_list ?? legacySupportedTypes }
+            : {}),
+        });
       }
       return normalized;
     },

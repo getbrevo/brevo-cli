@@ -3,9 +3,16 @@ import { ApiError, ErrorCode } from '../../../lib/errors';
 
 jest.mock('inquirer', () => ({
   prompt: jest.fn(),
-  // The UI-app delivery-path prompt renders a separator between the action link
-  // and the not-yet-supported choices.
-  Separator: class {},
+  // The grouped placement prompt puts one separator above each page's placements.
+  // Mirrors inquirer 8's own Separator, which carries `type: 'separator'` and the
+  // rendered `line` — the tests read both to assert the grouping.
+  Separator: class {
+    type = 'separator';
+    line: string;
+    constructor(line: string) {
+      this.line = line;
+    }
+  },
 }));
 
 jest.mock('../../../lib/config', () => ({
@@ -1110,16 +1117,14 @@ describe('app/create', () => {
       const answers: Record<string, unknown> = {
         distribution: 'private',
         appType: 'ui',
+        // The flow asks the integration type FIRST, then the pages, then ONE grouped
+        // placement prompt whose values are real slot names.
         integrationType: 'actionLink',
         surfaces: ['contact'],
-        // Placement is three prompts: pages, then kind (which decides the available
-        // places), then the places themselves.
-        kind: 'action',
-        places: ['headerMenu'],
+        placements: ['contactDetails.headerMenu.action'],
         label: 'View in CRM',
         more_info: '',
         url: 'https://example.com/brevo',
-        context: '',
         logoUrl: '',
         // Only reached when a test forces the OAuth path (non-TTY / --json), but
         // kept here so those tests don't need their own mock wiring.
@@ -1138,23 +1143,30 @@ describe('app/create', () => {
 
     const questionNamed = (name: string) => askedQuestions.find((q) => q.name === name);
 
+    // The context field names the platform's registry actually allows. Nothing else is a
+    // real name, so nothing else appears in a fixture.
+    const DEFAULT_CONTEXT = ['recordId', 'recordName', 'accountId', 'locale'];
+
     /**
-     * The twelve-point registry in the BEX-361 wire shape. Rows deliberately
-     * carry NO allowed_context_field by default, so the context prompt takes
-     * its free-text fallback and the long-standing context tests keep meaning
-     * what they meant; the checkbox path has its own tests below.
+     * One registry row in the BEX-361 wire shape, using the registry's own column names.
+     * `default_context_field` is present by default because every seeded production row
+     * carries it — it is what each authored entry's `context` is seeded from.
      */
     const REGISTRY_ROW = (
       location: string,
-      place: string,
-      kind: string,
+      section: string,
+      component: string,
       extra: Record<string, unknown> = {},
     ) => ({
-      extension_point: `${location}.${place}.${kind}`,
-      location,
-      place,
-      kind,
-      supported_extension_types: ['actionLink'],
+      surface_point: `${location}.${section}.${component}`,
+      location_name: location,
+      section_name: section,
+      component_type: component,
+      surface_point_name: `${location}-${section}`.toLowerCase(),
+      extension_type_list: ['actionLink', 'iframeExtension'],
+      default_context_field: DEFAULT_CONTEXT,
+      allowed_context_field: [...DEFAULT_CONTEXT, 'userId'],
+      status: 'active',
       ...extra,
     });
 
@@ -1186,6 +1198,11 @@ describe('app/create', () => {
       collectedUiApp().surface_point_list.map(
         (entry: { surface_point: string }) => entry.surface_point,
       );
+    /** Values of a checkbox/list question's choices, skipping inquirer Separators. */
+    const choiceValuesOf = (name: string) =>
+      ((questionNamed(name)?.choices ?? []) as Array<{ value?: string; type?: string }>)
+        .filter((choice) => choice.type !== 'separator' && choice.value !== undefined)
+        .map((choice) => choice.value);
 
     // A UI app has no OAuth block (`auth: {}` in its config) — the whole
     // auth key is omitted from the wire entirely, not sent empty.
@@ -1215,104 +1232,398 @@ describe('app/create', () => {
       expect(payload).not.toHaveProperty('ui_app');
     });
 
-    // Field names and casing must match the platform's stored app snapshot
-    // exactly — keys are snake_case, while `extension_type` VALUES stay
-    // camelCase per BEX-350.
+    // Field names and casing must match the platform's stored app snapshot exactly — keys
+    // are snake_case, `extension_type` VALUES stay camelCase per BEX-350 — and each
+    // placement carries its own seeded context.
     it('builds the ui_app shape the platform consumes', async () => {
       await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp()).toEqual({
         extension_type: 'actionLink',
-        surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
+        surface_point_list: [
+          { surface_point: 'contactDetails.headerMenu.action', context: DEFAULT_CONTEXT },
+        ],
         label: 'View in CRM',
         redirect_link: 'https://example.com/brevo',
       });
     });
 
-    it('maps the picked record pages onto action slot names', async () => {
-      answerPrompts({ surfaces: ['deal', 'company'] });
+    // ──────── Prompt order (the BEX-290 reorder) ────────
+
+    it('asks the integration type first, before any placement prompt', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const order = askedQuestions.map((q) => String(q.name));
+      expect(order.indexOf('integrationType')).toBeLessThan(order.indexOf('surfaces'));
+      expect(order.indexOf('surfaces')).toBeLessThan(order.indexOf('placements'));
+      expect(order.indexOf('placements')).toBeLessThan(order.indexOf('label'));
+      expect(order.indexOf('label')).toBeLessThan(order.indexOf('more_info'));
+      expect(order.indexOf('more_info')).toBeLessThan(order.indexOf('url'));
+    });
+
+    // Kind is a property of a slot, not a question — a partner picking "Header menu" has
+    // already said they want a menu entry. Asking it up front also made cards and menu
+    // entries mutually exclusive within one app, which the platform does not require.
+    // Record context is seeded from the registry, so it is not asked either.
+    it.each([['kind'], ['places'], ['context']])('no longer asks the %s question', async (name) => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed(name)).toBeUndefined();
+    });
+
+    // Decision 2026-08-03, still current: only actionLink is authorable until the
+    // iframe-embed RFC lands, but the prompt exists — Iframe is shown as a DISABLED
+    // "coming soon" choice so partners see the roadmap where the decision is being made.
+    // (The platform still accepts a hand-edited iframeExtension block at upload.)
+    it('offers the integration-type prompt with Iframe disabled', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const question = questionNamed('integrationType');
+      expect(question).toBeDefined();
+      const choices = (question?.choices ?? []) as Array<{ value?: string; disabled?: unknown }>;
+      const link = choices.find((c) => c.value === 'actionLink');
+      const iframe = choices.find((c) => c.value === 'iframeExtension');
+      expect(link).toBeDefined();
+      expect(link?.disabled).toBeUndefined();
+      expect(iframe?.disabled).toBe('coming soon');
+      expect(collectedUiApp().extension_type).toBe('actionLink');
+    });
+
+    // ──────── Two registry loads ────────
+
+    it('loads the whole registry unfiltered, then the picked pages by location', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+      });
 
       await createCommand(CLI_OPTIONS);
 
-      // Registry order, not pick order: the list is the selected registry rows'
-      // extension_point names, and the registry lists company before deal.
-      expect(surfacePointNames()).toEqual([
-        'companyDetails.headerMenu.action',
-        'dealDetails.headerMenu.action',
+      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(1);
+      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(2, [
+        'contactDetails',
+        'dealDetails',
       ]);
     });
 
-    it('deduplicates repeated record pages', async () => {
-      answerPrompts({ surfaces: ['contact', 'contact'] });
+    // The narrowed response is a strict subset of the first call's, so nothing is lost by
+    // reusing what we already hold — and aborting here would throw away the page answer
+    // the partner just gave. Matters while the endpoint is unbuilt: an early build may not
+    // implement the location filter at all, and a 400 on it must not be fatal.
+    it('falls back to the already-loaded rows when the narrowed load fails', async () => {
+      (appService.fetchSurfacePoints as jest.Mock)
+        .mockResolvedValueOnce(FULL_REGISTRY)
+        .mockRejectedValueOnce(new ApiError('no location filter here', 400));
 
       await createCommand(CLI_OPTIONS);
 
       expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
     });
 
-    // Widget slots are authorable now: the UI kit renders both extension types on both
-    // kinds — a widget slot gets a card, an action slot a menu entry — so restricting the
-    // CLI to `.action` left nine of the twelve registered slots unreachable.
-    it('composes widget slot names when the card kind is chosen', async () => {
-      answerPrompts({ kind: 'widget', places: ['overviewMain', 'overviewSidebar'] });
+    it('falls back when the narrowed load comes back empty', async () => {
+      (appService.fetchSurfacePoints as jest.Mock)
+        .mockResolvedValueOnce(FULL_REGISTRY)
+        .mockResolvedValueOnce([]);
 
       await createCommand(CLI_OPTIONS);
 
-      expect(surfacePointNames()).toEqual([
-        'contactDetails.overviewMain.widget',
-        'contactDetails.overviewSidebar.widget',
-      ]);
+      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
     });
 
-    // The cross-product is pages x places, so a partner reaches several slots in one pass
-    // without the prompts multiplying.
-    it('crosses every picked page with every picked place', async () => {
+    // ──────── The single grouped placement prompt ────────
+
+    it('groups the placement choices by page with a separator per page', async () => {
       answerPrompts({
         surfaces: ['contact', 'deal'],
-        kind: 'widget',
-        places: ['overviewMain', 'overviewSidebar'],
+        placements: ['contactDetails.headerMenu.action', 'dealDetails.overviewMain.widget'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      const choices = (questionNamed('placements')?.choices ?? []) as Array<{
+        type?: string;
+        line?: string;
+        value?: string;
+      }>;
+      const separatorLines = choices
+        .filter((choice) => choice.type === 'separator')
+        .map((choice) => String(choice.line).trim());
+      expect(separatorLines).toEqual(['contact', 'deal']);
+      // Eight rows: four placements on each of the two picked pages.
+      expect(choices.filter((c) => c.value !== undefined)).toHaveLength(8);
+    });
+
+    // The whole point of one grouped prompt: an app can put a menu entry on one page and a
+    // card on another. The old kind-then-place pair made that unauthorable.
+    it('mixes menu entries and cards across pages in one app', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contactDetails.headerMenu.action', 'dealDetails.overviewSidebar.widget'],
       });
 
       await createCommand(CLI_OPTIONS);
 
       expect(surfacePointNames()).toEqual([
-        'contactDetails.overviewMain.widget',
-        'contactDetails.overviewSidebar.widget',
-        'dealDetails.overviewMain.widget',
+        'contactDetails.headerMenu.action',
         'dealDetails.overviewSidebar.widget',
       ]);
     });
 
-    // Kind is asked before place precisely so the place list contains no invalid pair:
-    // headerMenu exists only as an action, the overview regions only as widgets.
-    it('offers only the places that exist for the chosen kind', async () => {
-      answerPrompts({ kind: 'widget', places: ['overviewMain'] });
+    it('offers only the placements on the picked pages', async () => {
       await createCommand(CLI_OPTIONS);
 
-      const widgetPlaces = ((questionNamed('places')?.choices ?? []) as Array<{ value?: string }>)
-        .map((c) => c.value)
-        .filter(Boolean);
-      // Order comes from the fetched registry now, not the local mirror.
-      expect(widgetPlaces).toEqual(['overviewMain', 'overviewSidebar', 'overviewAttributes']);
+      expect(choiceValuesOf('placements')).toEqual([
+        'contactDetails.headerMenu.action',
+        'contactDetails.overviewMain.widget',
+        'contactDetails.overviewSidebar.widget',
+        'contactDetails.overviewAttributes.widget',
+      ]);
     });
 
-    // The place prompt can't produce an invalid pair, because kind decides which places it
-    // offers. Since BEX-361 the selection maps back to real registry rows, so an answer
-    // crossing a place with the wrong kind matches NO row — the assembled block has an
-    // empty surface_point_list and fails loudly rather than composing a slot name the
-    // platform silently drops.
-    it('rejects a place crossed with the wrong kind', async () => {
-      answerPrompts({ kind: 'widget', places: ['headerMenu'] });
+    // Registry order, not tick order, so a re-run that picked the same slots in a
+    // different sequence doesn't churn the upload diff.
+    it('writes the placements in registry order regardless of tick order', async () => {
+      answerPrompts({
+        surfaces: ['contact'],
+        placements: ['contactDetails.overviewSidebar.widget', 'contactDetails.headerMenu.action'],
+      });
 
-      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/at least one placement/);
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual([
+        'contactDetails.headerMenu.action',
+        'contactDetails.overviewSidebar.widget',
+      ]);
+    });
+
+    it('deduplicates a repeated placement', async () => {
+      answerPrompts({
+        placements: ['contactDetails.headerMenu.action', 'contactDetails.headerMenu.action'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+    });
+
+    it('pre-selects a page that offers only one placement', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('placements')?.default).toEqual(['contactDetails.headerMenu.action']);
+    });
+
+    it('pre-selects nothing on a page that offers several placements', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('placements')?.default).toEqual([]);
+    });
+
+    it('requires at least one placement', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const validate = questionNamed('placements')?.validate as (v: unknown[]) => unknown;
+      expect(validate([])).toMatch(/at least one spot/i);
+      expect(validate(['contactDetails.headerMenu.action'])).toBe(true);
+    });
+
+    // The quiet failure of one grouped prompt: pick three pages, tick spots on one, and
+    // the other two page choices silently do nothing.
+    it('requires at least one placement on every page that was picked', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      const validate = questionNamed('placements')?.validate as (v: unknown[]) => unknown;
+      expect(validate(['contactDetails.headerMenu.action'])).toMatch(/nothing selected for: deal/i);
+      expect(validate(['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'])).toBe(
+        true,
+      );
+    });
+
+    // Labels are CLI-owned. `surface_point_name` on the registry is a kebab-case SLUG
+    // (`contactdetails-headermenu` in these fixtures), not display text, so it must never
+    // reach a partner.
+    it('labels placements from the local label map, never from surface_point_name', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const names = (
+        (questionNamed('placements')?.choices ?? []) as Array<{ name?: string; value?: string }>
+      )
+        .filter((choice) => choice.value !== undefined)
+        .map((choice) => String(choice.name));
+      expect(names).toEqual([
+        'Header "More" (•••) menu — menu entry',
+        'Main column — card',
+        'Sidebar — card',
+        'Attributes panel — card',
+      ]);
+      expect(names.join(' ')).not.toContain('contactdetails-headermenu');
+    });
+
+    // ──────── Client-side filtering of un-hostable rows ────────
+    // The unfiltered fetch is deliberate — a server-side extension-type filter would hide
+    // authorable placements — so the CLI checks each row itself. Without this, a partner
+    // authors a slot that cannot serve their type, upload 200s, and the slot renders
+    // nothing: exactly the silent failure this flow exists to prevent.
+
+    it('hides rows whose extension_type_list cannot host the chosen type', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
+        REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', {
+          extension_type_list: ['legacyComponent'],
+        }),
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(choiceValuesOf('placements')).toEqual(['contactDetails.headerMenu.action']);
+    });
+
+    it('hides rows that are not active', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
+        REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', { status: 'deprecated' }),
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(choiceValuesOf('placements')).toEqual(['contactDetails.headerMenu.action']);
+    });
+
+    // A registry seeded before either column existed must stay usable — treating a missing
+    // column as a rejection would empty the prompt against every older environment.
+    it('keeps rows that declare neither extension_type_list nor status', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        {
+          surface_point: 'contactDetails.headerMenu.action',
+          location_name: 'contactDetails',
+          section_name: 'headerMenu',
+          component_type: 'action',
+        },
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+    });
+
+    // Distinct from the empty-registry case: the fix is a different integration type, not
+    // waiting for a seed, so the message says so.
+    it('aborts when no placement can host the chosen type', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          extension_type_list: ['legacyComponent'],
+        }),
+      ]);
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+        /none of the available placements can host a "actionLink"/i,
+      );
       expect(appService.createApp).not.toHaveBeenCalled();
     });
 
-    it('pre-selects the only action place instead of asking for a single tick', async () => {
+    // ──────── Registry read path ────────
+
+    it('aborts with an actionable error when the registry fetch fails', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockRejectedValue(new ApiError('boom', 500));
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+        /could not load the available placements/i,
+      );
+      expect(questionNamed('surfaces')).toBeUndefined();
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    it('aborts when the registry has no usable rows', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        { surface_point: 'not-a-slot' }, // no decomposed columns, name not 3 segments
+      ]);
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/no available placements/i);
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    it('offers only the pages the registry actually has', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue(
+        FULL_REGISTRY.filter((row) => row.location_name === 'contactDetails'),
+      );
+
       await createCommand(CLI_OPTIONS);
 
-      expect(questionNamed('places')?.default).toEqual(['headerMenu']);
+      expect(choiceValuesOf('surfaces')).toEqual(['contact']);
     });
+
+    it('offers an unknown location under a derived name and accepts it', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('orderDetails', 'headerMenu', 'action'),
+      ]);
+      answerPrompts({ surfaces: ['order'], placements: ['orderDetails.headerMenu.action'] });
+
+      await createCommand(CLI_OPTIONS);
+
+      // The point is registry-only (not in the local mirror), so this also
+      // proves validateUiApp ran against the fetched list, not the mirror.
+      expect(surfacePointNames()).toEqual(['orderDetails.headerMenu.action']);
+    });
+
+    it('backfills the slot segments from the name when the server omits them', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        { surface_point: 'contactDetails.headerMenu.action' },
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+    });
+
+    // ──────── Record context is seeded per placement, not prompted ────────
+
+    it('seeds each entry from that row own default_context_field', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          default_context_field: ['recordId'],
+        }),
+        REGISTRY_ROW('dealDetails', 'headerMenu', 'action', {
+          default_context_field: ['recordId', 'recordName'],
+        }),
+      ]);
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list).toEqual([
+        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+        { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'recordName'] },
+      ]);
+    });
+
+    // No context key rather than an empty array: `[]` would read as "narrow to nothing"
+    // where absent means "no narrowing".
+    it('omits context for a row that declares no default', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          default_context_field: undefined,
+        }),
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list).toEqual([
+        { surface_point: 'contactDetails.headerMenu.action' },
+      ]);
+    });
+
+    // ──────── The rest of the block ────────
 
     it('omits more_info when left blank rather than writing an empty string', async () => {
       await createCommand(CLI_OPTIONS);
@@ -1341,7 +1652,7 @@ describe('app/create', () => {
     // The per-field flags are gone, so these prompt `validate` callbacks are now
     // the only thing standing between a typo and a silently unrenderable action
     // link. Assert they're still wired up.
-    it('validates the label and URL answers at the prompt', async () => {
+    it('validates the label, more_info and URL answers at the prompt', async () => {
       await createCommand(CLI_OPTIONS);
 
       const label = questionNamed('label');
@@ -1370,185 +1681,6 @@ describe('app/create', () => {
       expect((surfaces?.validate as (v: unknown[]) => unknown)(['contact'])).toBe(true);
     });
 
-    // Decision 2026-08-03, expressed as UI since BEX-361: only actionLink is
-    // authorable until the iframe-embed RFC lands, but the integration-type
-    // prompt now exists — Modal iframe is shown as a DISABLED "coming soon"
-    // choice so partners see the roadmap without being able to pick it. (The
-    // platform still accepts a hand-edited iframeExtension block at upload.)
-    it('offers the integration-type prompt with Modal iframe disabled', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      const question = questionNamed('integrationType');
-      expect(question).toBeDefined();
-      const choices = (question?.choices ?? []) as Array<{
-        value?: string;
-        disabled?: unknown;
-      }>;
-      const external = choices.find((c) => c.value === 'actionLink');
-      const iframe = choices.find((c) => c.value === 'iframeExtension');
-      expect(external).toBeDefined();
-      expect(external?.disabled).toBeUndefined();
-      expect(iframe?.disabled).toBe('coming soon');
-      expect(collectedUiApp().extension_type).toBe('actionLink');
-    });
-
-    it('asks the integration type after placement and before the heading', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      const order = askedQuestions.map((q) => String(q.name));
-      expect(order.indexOf('integrationType')).toBeGreaterThan(order.indexOf('places'));
-      expect(order.indexOf('integrationType')).toBeLessThan(order.indexOf('label'));
-    });
-
-    // ──────── BEX-361: prompts are driven by the fetched registry ────────
-
-    it('fetches actionLink surface points before any placement prompt', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      expect(appService.fetchSurfacePoints).toHaveBeenCalledWith('actionLink');
-    });
-
-    it('aborts with an actionable error when the registry fetch fails', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockRejectedValue(new ApiError('boom', 500));
-
-      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
-        /could not load the available placements/i,
-      );
-      expect(questionNamed('surfaces')).toBeUndefined();
-      expect(appService.createApp).not.toHaveBeenCalled();
-    });
-
-    it('aborts when the registry has no usable rows', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        { extension_point: 'not-a-slot' }, // no parsed fields, name not 3 segments
-      ]);
-
-      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/no available placements/i);
-      expect(appService.createApp).not.toHaveBeenCalled();
-    });
-
-    it('offers only the pages the registry actually has', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue(
-        FULL_REGISTRY.filter((row) => row.location === 'contactDetails'),
-      );
-
-      await createCommand(CLI_OPTIONS);
-
-      const surfaceValues = (
-        (questionNamed('surfaces')?.choices ?? []) as Array<{ value?: string }>
-      ).map((c) => c.value);
-      expect(surfaceValues).toEqual(['contact']);
-    });
-
-    it('offers an unknown location under a derived name and accepts it', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        REGISTRY_ROW('orderDetails', 'headerMenu', 'action'),
-      ]);
-      answerPrompts({ surfaces: ['order'] });
-
-      await createCommand(CLI_OPTIONS);
-
-      // The point is registry-only (not in the local mirror), so this also
-      // proves validateUiApp ran against the fetched list, not the mirror.
-      expect(surfacePointNames()).toEqual(['orderDetails.headerMenu.action']);
-    });
-
-    it('labels a position with the registry surface_point_name when present', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
-          surface_point_name: 'Header "More" menu',
-        }),
-      ]);
-
-      await createCommand(CLI_OPTIONS);
-
-      const placeNames = ((questionNamed('places')?.choices ?? []) as Array<{ name?: string }>).map(
-        (c) => c.name,
-      );
-      expect(placeNames).toEqual(['Header "More" menu']);
-    });
-
-    it('backfills parsed fields from the slot name when the server omits them', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        { extension_point: 'contactDetails.headerMenu.action' },
-      ]);
-
-      await createCommand(CLI_OPTIONS);
-
-      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
-    });
-
-    // ──────── BEX-361: context prompt is driven by allowed_context_field ────────
-
-    it('offers the union of the selected placements allow-lists as a checkbox', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
-          allowed_context_field: ['recordId', 'recordName'],
-        }),
-        REGISTRY_ROW('dealDetails', 'headerMenu', 'action', {
-          allowed_context_field: ['accountId', 'recordName'],
-        }),
-      ]);
-      answerPrompts({ surfaces: ['contact', 'deal'], context: ['recordId', 'accountId'] });
-
-      await createCommand(CLI_OPTIONS);
-
-      const question = questionNamed('context');
-      expect(question?.type).toBe('checkbox');
-      expect(question?.choices).toEqual(['recordId', 'recordName', 'accountId']);
-      // The answer lands on every entry: context is per placement now, so the
-      // narrowing is written into each entry rather than shared at the top level.
-      expect(collectedUiApp().surface_point_list).toEqual([
-        {
-          surface_point: 'contactDetails.headerMenu.action',
-          context: ['recordId', 'accountId'],
-        },
-        { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'accountId'] },
-      ]);
-      expect(collectedUiApp()).not.toHaveProperty('context');
-    });
-
-    it('omits context when nothing is ticked on the checkbox', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
-          allowed_context_field: ['recordId'],
-        }),
-      ]);
-      answerPrompts({ context: [] });
-
-      await createCommand(CLI_OPTIONS);
-
-      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('context');
-    });
-
-    // context is a REQUEST to narrow, never a grant — the platform intersects it with the
-    // slot's own allow-list — so an unknown name is refused server-side, where the error
-    // can enumerate what is allowed.
-    it('includes the context fields when entered', async () => {
-      answerPrompts({ context: 'recordId, recordName' });
-
-      await createCommand(CLI_OPTIONS);
-
-      expect(collectedUiApp().surface_point_list[0].context).toEqual(['recordId', 'recordName']);
-    });
-
-    it('omits context when left blank rather than writing an empty array', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('context');
-    });
-
-    it('rejects a blank or duplicated context field at the prompt', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      const validate = questionNamed('context')?.validate as (v: string) => unknown;
-      expect(validate('recordId, recordId')).toMatch(/duplicate/i);
-      // Blank entries are dropped rather than rejected, so an answer with a stray comma
-      // still passes and yields the one real field.
-      expect(validate('recordId, ')).toBe(true);
-      expect(validate('')).toBe(true);
-    });
-
     it('never offers the OAuth feature scaffold', async () => {
       await createCommand(CLI_OPTIONS);
 
@@ -1556,7 +1688,7 @@ describe('app/create', () => {
       expect(runFeatureScaffold).not.toHaveBeenCalled();
     });
 
-    it('renders the UI-app box with the extension point, not redirect URLs', async () => {
+    it('renders the UI-app box with the placement, not redirect URLs', async () => {
       await createCommand(CLI_OPTIONS);
 
       const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
@@ -1579,18 +1711,11 @@ describe('app/create', () => {
     // Record context reaches the partner's endpoint as query parameters and nothing else —
     // no path templating — so the box prints the exact URL shape to build against.
     it('prints an example URL carrying the seeded context as query parameters', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
-          allowed_context_field: ['recordId', 'recordName'],
-        }),
-      ]);
-      answerPrompts({ context: ['recordId', 'recordName'] });
-
       await createCommand(CLI_OPTIONS);
 
       const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
       expect(output).toContain(
-        'https://example.com/brevo?recordId=RECORD_ID&recordName=RECORD_NAME',
+        'https://example.com/brevo?recordId=RECORD_ID&recordName=RECORD_NAME&accountId=ACCOUNT_ID&locale=LOCALE',
       );
     });
 
@@ -1601,13 +1726,10 @@ describe('app/create', () => {
     it('merges the example params into an existing query string, before any fragment', async () => {
       (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
-          allowed_context_field: ['recordId'],
+          default_context_field: ['recordId'],
         }),
       ]);
-      answerPrompts({
-        url: 'https://example.com/brevo?tenant=acme#section',
-        context: ['recordId'],
-      });
+      answerPrompts({ url: 'https://example.com/brevo?tenant=acme#section' });
 
       await createCommand(CLI_OPTIONS);
 
@@ -1616,6 +1738,12 @@ describe('app/create', () => {
     });
 
     it('prints no example URL when no placement declares a record context', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          default_context_field: undefined,
+        }),
+      ]);
+
       await createCommand(CLI_OPTIONS);
 
       const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');

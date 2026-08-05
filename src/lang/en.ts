@@ -99,28 +99,42 @@ export const messages = {
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
 
   // App create — UI app (BEX-290)
-  // The placement choices are read from the platform's extension-point registry
-  // at prompt time (BEX-361) — fetch-only, no local fallback, so a partner can
-  // never author a slot the platform doesn't have.
-  APP_CREATE_UI_POINTS_SPINNER: 'Loading available placements...',
+  // Placement choices are read from the platform's extension-point registry at prompt
+  // time (BEX-361) — fetch-only, no local fallback, so a partner can never author a slot
+  // the platform doesn't have. Two loads: the record pages, then the placements on the
+  // pages that were picked.
+  APP_CREATE_UI_PAGES_SPINNER: 'Loading record pages...',
+  APP_CREATE_UI_POINTS_SPINNER: 'Loading placements...',
   APP_CREATE_UI_POINTS_FETCH_FAILED:
     'Could not load the available placements from the Brevo API — the UI-app flow needs them to offer where your app can appear. Check your connection and try again. Creating an OAuth app does not need this and still works.',
   APP_CREATE_UI_POINTS_EMPTY:
     'The Brevo API returned no available placements for UI apps. This usually means the extension-point registry has not been seeded in this environment — try again later.',
+  // Raised when the registry has rows, but none of them can serve the chosen extension
+  // type. Distinct from the empty case: the fix is a different integration type, not
+  // waiting for a seed.
+  APP_CREATE_UI_POINTS_NONE_FOR_TYPE: (extensionType: string) =>
+    `None of the available placements can host a "${extensionType}" extension. This environment's extension-point registry may predate it — try again later.`,
   APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
   APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
-  // Kind before place, because it decides which places exist. Phrased as what the
-  // partner sees rather than as the wire's `action`/`widget`.
-  APP_CREATE_UI_KIND_PROMPT: 'How should it appear on those pages?',
-  APP_CREATE_UI_KIND_ACTION: 'Menu entry      (An item in the page’s "More" menu)',
-  APP_CREATE_UI_KIND_WIDGET: 'Card            (A card rendered in a page region)',
-  APP_CREATE_UI_PLACE_PROMPT: 'Where on those pages?',
-  APP_CREATE_UI_PLACE_REQUIRED: 'Pick at least one location.',
-  // Integration type — only External link is authorable today; Modal iframe is
-  // shown disabled so partners can see what's coming without being able to pick it.
-  APP_CREATE_UI_INTEGRATION_PROMPT: 'How should your app open?',
-  APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'External link   (Opens your URL in a new tab)',
-  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Modal iframe    (Embeds your page in a modal)',
+  // One prompt for every placement on every picked page, grouped by page. Replaces the
+  // old kind-then-place pair: kind is a property of the slot, not a question — a partner
+  // picking "Header menu" has already said they want a menu entry.
+  APP_CREATE_UI_PLACEMENT_PROMPT: 'Where should it appear on those pages?',
+  APP_CREATE_UI_PLACEMENT_REQUIRED: 'Pick at least one spot.',
+  // Guards the one way the grouped prompt can quietly do less than the partner asked
+  // for: picking three pages and then ticking spots on only one.
+  APP_CREATE_UI_PLACEMENT_PAGE_MISSING: (pages: string[]) =>
+    `Pick at least one spot on every page you chose — nothing selected for: ${pages.join(', ')}.`,
+  // Suffixes on each placement choice, so the shape a slot renders as is visible while
+  // choosing rather than a surprise afterwards.
+  APP_CREATE_UI_PLACEMENT_MENU_SUFFIX: 'menu entry',
+  APP_CREATE_UI_PLACEMENT_CARD_SUFFIX: 'card',
+  // Integration type — asked SECOND, before any placement, because it is the decision a
+  // partner arrives with. Only Link is selectable; Iframe is shown disabled so the
+  // roadmap is visible where the choice is being made rather than hidden.
+  APP_CREATE_UI_INTEGRATION_PROMPT: 'Do you want to add a link or an iframe?',
+  APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link            (Opens your URL in a new tab)',
+  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe          (Embeds your page in a modal)',
   APP_CREATE_UI_INTEGRATION_COMING_SOON: 'coming soon',
   // Each field says what it renders as, so a partner filling the form knows what
   // they are writing. Both fields render in two places, and the prompt names both:
@@ -131,12 +145,6 @@ export const messages = {
     'More info — supporting text under the menu entry, and a card’s description (optional):',
   APP_CREATE_UI_REDIRECT_LINK_PROMPT:
     'Redirect link — the destination URL your app opens (record context arrives as query parameters):',
-  // Choices come from the union of the selected placements' allow-lists
-  // (allowed_context_field, BEX-361). Free text only when no placement declares one.
-  APP_CREATE_UI_CONTEXT_CHECKBOX_PROMPT:
-    'Record context fields to receive (optional — none selected receives whatever each location allows):',
-  APP_CREATE_UI_CONTEXT_PROMPT:
-    'Record context fields to receive, comma-separated (optional — blank receives whatever each location allows):',
   APP_CREATE_UI_BOX_TITLE: 'UI app created',
   // `label` labels the menu entry (BEX-290). The one piece of rendered text that has
   // no field is a CARD's title, which is the app name — worth saying, since it is now

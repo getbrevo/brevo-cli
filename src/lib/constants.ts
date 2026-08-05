@@ -202,24 +202,15 @@ export const EXTENSION_KIND_ACTION = 'action';
 export const EXTENSION_KIND_WIDGET = 'widget';
 
 /**
- * Which places are available for each kind. This is what makes the page x place
- * cross-product always valid: `headerMenu` pairs only with `action` and the three
- * `overview*` places only with `widget`, so choosing the kind first removes every
- * invalid combination from the place prompt.
- */
-export const EXTENSION_PLACES_BY_KIND: Readonly<Record<string, readonly string[]>> = {
-  [EXTENSION_KIND_ACTION]: [EXTENSION_ACTION_PLACE],
-  [EXTENSION_KIND_WIDGET]: EXTENSION_WIDGET_PLACES,
-} as const;
-
-/**
- * Friendly labels for the place prompt — partners think in page regions, the wire wants
- * the `place` segment.
+ * Friendly labels for the placement prompt — partners think in page regions, the wire
+ * wants the `place` segment (served as `section_name`).
  *
- * These mirror `extension_points.surface_point_name`, which is the platform's own
- * display text for each slot. The CLI cannot read that column until the registry is
- * exposed over HTTP; once it is, these labels come from the server and this map goes
- * away along with EXTENSION_POINTS.
+ * These are CLI-OWNED and stay that way. An earlier version of this comment claimed they
+ * mirror `extension_points.surface_point_name`, "the platform's own display text" — that
+ * is false: the seeded values of that column are kebab-case slugs
+ * (`contact-details-header-menu`), so rendering them to a partner would be worse than
+ * these. The registry exposes no display-name column, so until it does, this map is the
+ * only source of partner-facing placement labels.
  */
 export const EXTENSION_PLACE_LABELS: Readonly<Record<string, string>> = {
   headerMenu: 'Header "More" (•••) menu',

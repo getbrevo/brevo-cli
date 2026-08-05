@@ -53,57 +53,110 @@ describe('services/app', () => {
   });
 
   describe('fetchSurfacePoints', () => {
+    // The registry's own column names. `surface_point_name` is a kebab-case SLUG, not
+    // display text — the CLI never renders it (see EXTENSION_PLACE_LABELS).
     const ROW = {
-      extension_point: 'contactDetails.headerMenu.action',
-      surface_point_name: 'Header "More" menu',
-      location: 'contactDetails',
-      place: 'headerMenu',
-      kind: 'action',
-      allowed_context_field: ['contactId'],
-      supported_extension_types: ['actionLink'],
+      surface_point: 'contactDetails.headerMenu.action',
+      surface_point_name: 'contact-details-header-menu',
+      location_name: 'contactDetails',
+      section_name: 'headerMenu',
+      component_type: 'action',
+      allowed_context_field: ['recordId', 'recordName', 'userId', 'locale', 'accountId'],
+      default_context_field: ['recordId', 'recordName', 'accountId', 'locale'],
+      extension_type_list: ['actionLink', 'iframeExtension'],
+      status: 'active',
     };
 
-    it('GETs the surface-points endpoint with the extensionType filter', async () => {
+    // No extensionType filter: both extension types render on both kinds, so filtering
+    // server-side would hide authorable placements. The create flow checks each row's
+    // own extension_type_list instead.
+    it('GETs the unfiltered endpoint when no locations are given', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [ROW], count: 1 });
-      const result = await service.fetchSurfacePoints('actionLink');
-      expect(mockClient.get).toHaveBeenCalledWith(
-        '/v3/app-store/surface-points?extensionType=actionLink',
-      );
+      const result = await service.fetchSurfacePoints();
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/surface-points');
       expect(result).toEqual([ROW]);
     });
 
-    it('omits the query when no extensionType is given', async () => {
+    it('passes selected locations as a comma-separated location filter', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [ROW] });
+      await service.fetchSurfacePoints(['contactDetails', 'dealDetails']);
+      expect(mockClient.get).toHaveBeenCalledWith(
+        '/v3/app-store/surface-points?location=contactDetails%2CdealDetails',
+      );
+    });
+
+    it('omits the filter for an empty or blank location list', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [] });
-      await service.fetchSurfacePoints();
-      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/surface-points');
+      await service.fetchSurfacePoints([]);
+      await service.fetchSurfacePoints(['  ']);
+      expect(mockClient.get).toHaveBeenNthCalledWith(1, '/v3/app-store/surface-points');
+      expect(mockClient.get).toHaveBeenNthCalledWith(2, '/v3/app-store/surface-points');
     });
 
     it('tolerates a bare-array response', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue([ROW]);
-      expect(await service.fetchSurfacePoints('actionLink')).toEqual([ROW]);
+      expect(await service.fetchSurfacePoints()).toEqual([ROW]);
     });
 
-    it('drops rows without a usable extension_point and dedupes by name', async () => {
+    // The endpoint is specified but NOT BUILT, and two namings are in play: the registry's
+    // columns and the pre-BEX-361 draft's extension_point / location / place / kind. Keying
+    // strictly on either would fail CLOSED against the other — every row dropped, and the
+    // partner told the registry "has not been seeded", a data problem that doesn't exist.
+    it('normalizes the pre-BEX-361 field spellings onto the registry column names', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        surface_points: [
+          {
+            extension_point: 'dealDetails.overviewSidebar.widget',
+            location: 'dealDetails',
+            place: 'overviewSidebar',
+            kind: 'widget',
+            supported_extension_types: ['actionLink'],
+            default_context_field: ['recordId'],
+          },
+        ],
+      });
+
+      expect(await service.fetchSurfacePoints()).toEqual([
+        {
+          surface_point: 'dealDetails.overviewSidebar.widget',
+          location_name: 'dealDetails',
+          section_name: 'overviewSidebar',
+          component_type: 'widget',
+          extension_type_list: ['actionLink'],
+          default_context_field: ['recordId'],
+        },
+      ]);
+    });
+
+    it('prefers the registry column names when a row carries both spellings', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        surface_points: [{ ...ROW, extension_point: 'stale.value.here', location: 'stale' }],
+      });
+
+      expect(await service.fetchSurfacePoints()).toEqual([ROW]);
+    });
+
+    it('drops rows without a usable slot name and dedupes by name', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue({
         surface_points: [
           ROW,
-          { ...ROW, extension_point: '  contactDetails.headerMenu.action  ' }, // dupe after trim
+          { ...ROW, surface_point: '  contactDetails.headerMenu.action  ' }, // dupe after trim
           { surface_point_name: 'nameless' },
-          { extension_point: '   ' },
+          { surface_point: '   ' },
           null,
         ],
       });
-      expect(await service.fetchSurfacePoints('actionLink')).toEqual([ROW]);
+      expect(await service.fetchSurfacePoints()).toEqual([ROW]);
     });
 
     it('returns [] for a null response body', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue(null);
-      expect(await service.fetchSurfacePoints('actionLink')).toEqual([]);
+      expect(await service.fetchSurfacePoints()).toEqual([]);
     });
 
     it('propagates ApiError unchanged (the command owns the actionable message)', async () => {
       (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
-      await expect(service.fetchSurfacePoints('actionLink')).rejects.toThrow(ApiError);
+      await expect(service.fetchSurfacePoints()).rejects.toThrow(ApiError);
     });
   });
 

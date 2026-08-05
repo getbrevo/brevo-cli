@@ -600,12 +600,27 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 > and the action link won't render — silently, with a 200. Confirm the reseed has run in
 > your environment before treating a non-rendering link as a CLI defect.
 >
-> **The whole UI-app create flow now depends on BEX-361** (`GET /cli/surface-points`,
-> served to the CLI as `/v3/app-store/surface-points`). The placement prompts are built
-> from that endpoint with **no offline fallback** — until it ships in your environment,
-> choosing **UI app** at the app-type prompt fails at "Loading available placements..."
-> with an actionable error. That is the expected pre-BEX-361 behaviour, not a CLI bug
-> (see TC-12.2b). OAuth-app creation is unaffected.
+> **The whole UI-app create flow depends on BEX-361** (`GET /cli/surface-points`, served
+> to the CLI as `/v3/app-store/surface-points`). The placement prompts are built from that
+> endpoint with **no offline fallback** — until it ships in your environment, choosing
+> **UI app** fails at "Loading record pages..." with an actionable error. That is the
+> expected pre-BEX-361 behaviour, not a CLI bug (see TC-12.2b). OAuth-app creation is
+> unaffected.
+>
+> The flow calls that endpoint **twice**: once unfiltered (for the record-page prompt),
+> then `?location=<comma-separated>` for the placements on the pages that were picked. A
+> failure or an empty response on the **second** call is *not* fatal — the CLI falls back
+> to the rows it already holds, which are a superset. Only the first call aborts.
+>
+> **The block shape changed (BEX-290).** `surface_point_list` is now a list of
+> `{ surface_point, context? }` objects, the text fields are `label` / `more_info` (was
+> `heading` / `subheading`), there is no top-level `context`, and `link_target` is no
+> longer in `app-config.json` at all — `brevo app upload` injects `_blank`. A config
+> written by an earlier build of this branch is **rejected** by upload with a migration
+> hint; that is deliberate, see TC-12.5b.
+>
+> **Only five context field names exist** on the platform's registry: `recordId`,
+> `recordName`, `userId`, `locale`, `accountId`. Anything else is refused at upload.
 
 ### TC-12.1 — Interactive create asks for the app type after name and distribution
 **Priority:** High
@@ -613,57 +628,87 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Steps:** Run `brevo app create`.
 **Expected:** Prompt order is "App name:" → "Distribution type?" → "What type of app are you building?" with **OAuth app** and **UI app**. Choosing **OAuth app** reproduces the previous flow from there (redirect URL → logo → scaffold prompt).
 
-### TC-12.2 — Integration-type prompt shows Modal iframe as disabled
-**Priority:** Medium
+### TC-12.2 — Prompt order, and the Iframe choice shown as disabled
+**Priority:** High
 **Preconditions:** BEX-361 endpoint available (see the section preamble).
-**Steps:** `brevo app create`, choose **UI app**, answer the placement prompts.
-**Expected:** After placement, "How should your app open?" lists **External link** as selectable and **Modal iframe** as visibly disabled ("coming soon"). The disabled entry cannot be selected. The placement prompts before it are populated from the fetched registry (a position row shows the registry's `surface_point_name` when present).
+**Steps:** `brevo app create`, choose **UI app**, and walk the whole flow.
+**Expected:** The order is **"Do you want to add a link or an iframe?"** → "Which record pages should it appear on?" → "Where should it appear on those pages?" → "Label — …" → "More info — … (optional)" → "Redirect link — …". Five questions, one optional. The first lists **Link** as selectable and **Iframe** as visibly disabled ("coming soon"), and the disabled entry cannot be selected. There is **no** "How should it appear on those pages?" (kind) question, **no** separate "Where on those pages?" (place) question, and **no** record-context question anywhere.
+
+### TC-12.2c — The single grouped placement prompt
+**Priority:** High
+**Preconditions:** BEX-361 endpoint available.
+**Steps:** `brevo app create` → **UI app** → **Link** → tick **contact** and **deal** at the pages prompt.
+**Expected:** ONE placement prompt listing every placement on both pages, grouped under a separator per page (`contact`, then `deal`). Choices read as page regions plus the shape they render as — e.g. `Header "More" (•••) menu — menu entry`, `Sidebar — card`. **No kebab-case slug** (like `contact-details-header-menu`) appears anywhere in the prompt. Ticking a menu entry on one page and a card on the other is allowed — one app can mix both. Submitting with nothing ticked is refused ("Pick at least one spot"), and ticking spots on only *one* of the two pages is also refused, naming the page with nothing selected. If a page offers exactly one placement, it comes pre-ticked.
 
 ### TC-12.2b — UI-app create aborts when the surface-points fetch fails
 **Priority:** High
 **Preconditions:** BEX-361 endpoint absent or unreachable (e.g. point `BREVO_API_URL` at a dead host, or run against an environment without the endpoint).
-**Steps:** `brevo app create`, choose **UI app**.
-**Expected:** The flow stops at "Loading available placements..." with an error explaining the UI-app flow needs the platform's placements and that OAuth apps still work. Exit non-zero, **no app is created** (no create request goes out). Re-running and choosing **OAuth app** completes normally.
+**Steps:** `brevo app create`, choose **UI app**, then **Link**.
+**Expected:** The flow stops at "Loading record pages..." with an error explaining the UI-app flow needs the platform's placements and that OAuth apps still work. Exit non-zero, **no app is created** (no create request goes out). Re-running and choosing **OAuth app** completes normally.
 
-### TC-12.3 — UI-app create writes the snapshot shape and no redirect URLs
+### TC-12.2d — A failing narrowed load is not fatal
+**Priority:** Medium
+**Preconditions:** An environment whose surface-points endpoint answers the unfiltered call but 400s (or returns `[]`) for `?location=…` — the likely shape of an early build.
+**Steps:** `brevo app create` → **UI app** → **Link** → pick pages → continue.
+**Expected:** "Loading placements..." completes and the placement prompt still lists the placements for the picked pages, built from the first call's rows. The run finishes normally; the partner is never sent back to re-answer the page prompt.
+
+### TC-12.3 — UI-app create writes the block shape and no redirect URLs
 **Priority:** High
 **Preconditions:** BEX-361 endpoint available.
-**Steps:** Complete the UI-app flow — pick one or more record pages, the integration type (External link), then heading, subheading, redirect link (`https://…`), and the record-context prompt (a checkbox of allowed fields when the registry declares them, free text otherwise).
-**Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extension_type: "actionLink"`, `surface_point_list`, `heading`, `subheading`, `redirect_link`, `link_target` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth` is exactly the empty object `{}` — **no** `scopes`, **no** `redirectUris`, **no** `type` key — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
+**Steps:** Complete the UI-app flow — **Link**, one or more record pages, one or more placements, then a label, a `more_info` line and a redirect link (`https://…`).
+**Expected:** A "UI app created" box shows extension type, each placement with its seeded record context, the label, more info and redirect link — and **no** `Redirect URL` lines. It states that the menu entry is labelled with **the label you typed**, and that on a card that text becomes the button while the card's *title* is the app name. It also prints an **example URL** — the redirect link with the seeded context fields as query parameters and placeholder values. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extension_type: "actionLink"`, `surface_point_list` (a list of `{ surface_point, context? }` **objects**), `label`, `more_info`, `redirect_link` — and **no** `link_target`, `heading`, `subheading`, top-level `context`, `properties`, `trigger`, `surface`, `placement` or `contextProperties` keys. Every context field name is one of `recordId`, `recordName`, `userId`, `locale`, `accountId`. `auth` is exactly the empty object `{}` — **no** `scopes`, **no** `redirectUris`, **no** `type` key — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
 
-### TC-12.4 — Upload sends the snapshot and is accepted
+### TC-12.3b — Record context is seeded per placement, and reaches the URL as query params
+**Priority:** High
+**Preconditions:** TC-12.3 done against a registry whose rows carry `default_context_field`.
+**Steps:** Inspect `ui_app.surface_point_list` in `app-config.json`; compare each entry's `context` against the registry row for that slot. Then follow the example URL printed by create.
+**Expected:** Each entry's `context` equals that slot's own `default_context_field` (rows can differ), and an entry whose row declares no default has **no** `context` key at all (not `[]`). The example URL carries exactly those names as query parameters, merged after any `?` already in the redirect link and inserted **before** any `#` fragment. The path is never templated.
+
+### TC-12.4 — Upload sends the block, injects link_target, and is accepted
 **Priority:** High
 **Preconditions:** TC-12.3 done; ability to observe the request.
 **Steps:** `brevo app upload` from the project directory.
-**Expected:** The summary includes a `UI app:` block listing extension type / point(s) / heading / subheading / redirect link / link target, and **no** "Redirect URLs" row. The payload carries the block under the **`ui_app`** key alongside `version`/`name`/`logo_uri` and has **no `auth` key at all** (UI apps carry no OAuth block). The server accepts it; `Version:` is printed and written back to `app-config.json` with `auth` restored as exactly the empty object `{}`.
+**Expected:** The summary includes a `UI app:` block listing extension type, each placement with its context, label, more info and redirect link, plus a `Link target: _blank (added on upload; not a field in app-config.json)` row — and **no** "Redirect URLs" row. The payload carries the block under the **`ui_app`** key **with `link_target: "_blank"` added**, alongside `version`/`name`/`logo_uri`, and has **no `auth` key at all** (UI apps carry no OAuth block). The server accepts it; `Version:` is printed and written back to `app-config.json` with `auth` restored as exactly the empty object `{}`. **Critically: `app-config.json` must still have no `link_target` afterwards** — the server defaults and echoes that field, and the write-back strips it.
 
-### TC-12.5 — Editing only the snapshot is detected as a change
+### TC-12.5 — Editing only the block is detected as a change
 **Priority:** High
-**Steps:** After a successful upload, change only `ui_app.heading`, then `brevo app upload`.
-**Expected:** The diff shows the UI-app block as `(changed)` and the upload proceeds. It must **not** say "Already up to date". Reordering keys without changing values must report up to date.
+**Steps:** After a successful upload, (a) run `brevo app upload` again with nothing changed; (b) change only `ui_app.label` and upload; (c) reorder the keys inside `ui_app` and reorder the `surface_point_list` entries, without changing any value, and upload.
+**Expected:** (a) "Already up to date" — this is the regression to watch: the server echo carries a `link_target` (and possibly a `version`) the file does not, and those must not read as drift. (b) The diff shows the UI-app block as `(changed)` and the upload proceeds. (c) "Already up to date" — neither key order nor placement order is a change.
+
+### TC-12.5b — The pre-BEX-290 block shape is rejected with a migration hint
+**Priority:** High
+**Why this matters:** the deployed upload endpoint 200s on a top-level `context` and ignores it, and no longer reads `heading`/`subheading` at all — so an unmigrated config would upload "successfully" and render an app with no text and no record context. The CLI is the only layer that will report it.
+**Steps:** For each, hand-edit `app-config.json` and run `brevo app upload`:
+1. rename `label` back to `heading`
+2. add a `subheading`
+3. add a top-level `ui_app.context: ["recordId"]`
+4. replace `surface_point_list` with a list of bare strings
+**Expected:** Each fails before any network call, exit `1`, naming the field and the fix — (1) renamed to `ui_app.label`; (2) renamed to `ui_app.more_info`; (3) move it into each `surface_point_list` entry; (4) entries must be objects.
 
 ### TC-12.6 — Extension-point validation (the silent-failure guard)
 **Priority:** High
 **Why this matters:** the platform *drops* an unregistered slot name and the UI kit matches names by exact string equality — both silently. These rejections are the only place a bad name is ever reported.
 **Steps:** For each, set `ui_app.surface_point_list` and run `brevo app upload`:
-1. `["contact.header.action"]` — the pre-BEX-350 grammar
-2. `["contact.headerMenu.action"]` — record type instead of the page name
-3. `["contactdetails.headerMenu.action"]` — wrong casing
-4. `["contactDetails.overviewMain.widget"]` — a widget slot for an action link
+1. `[{"surface_point":"contact.header.action"}]` — the pre-BEX-350 grammar
+2. `[{"surface_point":"contact.headerMenu.action"}]` — record type instead of the page name
+3. `[{"surface_point":"contactdetails.headerMenu.action"}]` — wrong casing
+4. `[{"surface_point":"contactDetails.overviewMain.widget"}]` — a widget slot for an action link
 5. `[]` — empty list
-6. `["contactDetails.headerMenu.action","contactDetails.headerMenu.action"]` — duplicates
-**Expected:** Each fails before any network call, naming the field; exit `1`. Cases 1–3 report "Unknown extension point" and list the valid registry; case 4 explains an action link renders as a menu action.
+6. the same `surface_point` twice — duplicates
+7. `[{"surface_point":"contactDetails.headerMenu.action","context":"recordId"}]` — context not an array
+8. `[{"surface_point":"contactDetails.headerMenu.action","context":["recordId","recordId"]}]` — duplicated context field
+**Expected:** Each fails before any network call, naming the field; exit `1`. Cases 1–3 report "Unknown extension point" and list the valid registry. Case 4 is **accepted** — a widget slot renders an action link as a card, so there is no kind rule to break. Case 5 asks for at least one placement; 6 reports duplicates; 7–8 name the offending entry's `context`.
 
 ### TC-12.7 — Deploy to an account, and the action link renders
 **Priority:** High
 **Preconditions:** TC-12.4 succeeded; a test account ID; the BEX-350 registry reseed has run.
 **Steps:** `brevo app deploy <account-id>`, confirm the prompt. Open a contact record in that account and open the header **More** (•••) menu.
-**Expected:** "App … deployed to account …". A menu entry appears **labelled with the app name**, and clicking it opens the redirect link in a new tab (or the same tab when `link_target` is `_self`), carrying the record context the slot's registry row allows. Then `brevo app remove <account-id>` and confirm it disappears.
+**Expected:** "App … deployed to account …". A menu entry appears **labelled with `ui_app.label`**, with `ui_app.more_info` as its second line, and clicking it opens the redirect link in a new tab, carrying that entry's `context` fields as **query parameters**. On a `.widget` slot the same app renders as a card whose title is the app name, whose description is `more_info`, and whose button is `label`. Then `brevo app undeploy <account-id>` and confirm it disappears. **Note the sequencing:** labelling the menu entry from `label` is a frontend change — if the menu entry still shows the app name, check that the UI-kit change has shipped in your environment before filing it as a CLI defect.
 
 ### TC-12.8 — Multiple record pages from one app
 **Priority:** Medium
 **Steps:** `brevo app create`, choose **UI app**, tick **all three** record pages at the multi-select, finish the prompts, then upload and deploy.
-**Expected:** `surface_point_list` has all three `<location>.headerMenu.action` names; the entry appears in the More menu on contact, deal **and** company records.
+**Expected:** `surface_point_list` has one entry per selected placement, covering all three `<location>.headerMenu.action` names, each with its own seeded `context`; the entry appears in the More menu on contact, deal **and** company records.
 
 ### TC-12.9 — Deploy refuses before an upload
 **Priority:** High
@@ -677,17 +722,17 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 
 ### TC-12.11 — Field validation and account-ID validation
 **Priority:** Medium
-**Steps:** (a) set `ui_app.redirect_link` to `http://example.com/x` and upload; (b) set it to `http://localhost:3000/x` and upload; (c) blank `ui_app.heading` and upload; (d) set `ui_app.link_target` to `_top` and upload; (e) add `ui_app.modal_iframe_url` and upload; (f) `brevo app deploy abc`; (g) `brevo app deploy` with no argument.
-**Expected:** (a) rejected — must use https; (b) **accepted** (loopback exemption); (c) rejected — heading cannot be empty; (d) rejected — invalid link_target; (e) rejected — only used by `iframeExtension`; (f) "not a numeric Brevo account ID"; (g) "Missing account ID" + usage. All rejections exit `1` with no API call.
+**Steps:** (a) set `ui_app.redirect_link` to `http://example.com/x` and upload; (b) set it to `http://localhost:3000/x` and upload; (c) blank `ui_app.label` and upload; (d) set `ui_app.label` to 49 characters and upload; (e) set `ui_app.more_info` to 256 characters and upload; (f) add `ui_app.modal_iframe_url` and upload; (g) `brevo app deploy abc`; (h) `brevo app deploy` with no argument.
+**Expected:** (a) rejected — must use https; (b) **accepted** (loopback exemption); (c) rejected — label cannot be empty; (d) rejected — at most 48 characters; (e) rejected — at most 255 characters; (f) rejected — only used by `iframeExtension`; (g) "not a numeric Brevo account ID"; (h) "Missing account ID" + usage. All rejections exit `1` with no API call. Also check the prompts themselves reject (c)–(e) during `brevo app create`, before anything is written.
 
 ### TC-12.12 — A UI app cannot be created non-interactively
 **Priority:** High
 **Steps:** (a) `brevo app create --name "QA Link" --distribution private --json`; (b) the same command piped from `/dev/null` (non-TTY); (c) `brevo app create --type ui`; (d) `brevo app create --surface contact`.
-**Expected:** (a) and (b) create an **OAuth** app without ever showing the app-type prompt — JSON reports `appType: "oauth"`, includes `redirectUri`, and has **no** `uiApp` key; no `ui_app` block is written to `app-config.json`. (c) and (d) fail with commander's `unknown option` and exit non-zero — neither flag exists. `brevo app create --help` lists neither, nor `--heading`/`--subheading`/`--redirect-link`/`--link-target`.
+**Expected:** (a) and (b) create an **OAuth** app without ever showing the app-type prompt — JSON reports `appType: "oauth"`, includes `redirectUri`, and has **no** `uiApp` key; no `ui_app` block is written to `app-config.json`. (c) and (d) fail with commander's `unknown option` and exit non-zero — neither flag exists. `brevo app create --help` lists neither, nor `--label`/`--more-info`/`--redirect-link`/`--link-target`.
 
 ### TC-12.13 — `app scaffold` in a UI-app project
 **Priority:** High
-**Steps:** From a UI-app project, hand-edit `ui_app.subheading`, then force drift (rename the app locally or on the server) and run `brevo app scaffold`, consenting to the refresh.
+**Steps:** From a UI-app project, hand-edit `ui_app.more_info`, then force drift (rename the app locally or on the server) and run `brevo app scaffold`, consenting to the refresh.
 **Expected:** No feature-type prompt, no `src/oauth/` files, and a message that there are no features to scaffold. **Critically: the hand-edited `ui_app` block survives the refresh** — still present and unchanged in `app-config.json` afterwards.
 
 ### TC-12.14 — OAuth regression sweep

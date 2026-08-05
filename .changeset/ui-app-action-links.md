@@ -27,3 +27,48 @@ The upload write path's wire contract (`ui_app` key) is confirmed against the pl
 UI apps are **not live on the Brevo platform yet**. As with public apps, `agent-context/SKILL.md` and `agent-context/AGENTS.md` carry a notice telling AI agents not to create one or drive the deploy lifecycle, with the same internal-Brevo-account exception so dogfooding still works.
 
 Unify the create and upload request payloads. `POST /v3/app-store/apps` now carries OAuth fields inside the same `auth: { scopes, redirect_uris }` block the upload endpoint takes (UI apps omit the block entirely on both endpoints), and the upload request's version field is renamed `app_version` → `version`, matching the response and every app object. A UI app's `app-config.json` now marks its lack of OAuth with an empty `auth: {}` instead of `auth: { "type": "none" }`; dev-era configs carrying the old marker are migrated on their next write. Requires the matching server-side payload change — do not release ahead of it.
+
+Reshape the `ui_app` block and reorder the `brevo app create` prompts (BEX-290, second round). This supersedes several paragraphs above — where they disagree, this one is current.
+
+The block a partner authors is now:
+
+```json
+{
+  "ui_app": {
+    "extension_type": "actionLink",
+    "surface_point_list": [
+      { "surface_point": "contactDetails.headerMenu.action", "context": ["recordId"] },
+      { "surface_point": "dealDetails.headerMenu.action", "context": ["recordId", "recordName"] }
+    ],
+    "label": "View in CRM",
+    "more_info": "Open this contact in your connected CRM to see full activity history.",
+    "redirect_link": "https://example.com/view"
+  }
+}
+```
+
+Four changes to that shape. `surface_point_list` went from a list of slot names to a list of `{ surface_point, context? }` objects, and the top-level `context` is gone: the record-context allow-list is a property of the registry ROW, not of the app, so one flat list could never express "recordId on the contact page, recordId + recordName on the deal page". `heading` and `subheading` became `label` and `more_info`, which is a rename *and* a rendering change — `label` now labels the header-menu entry (it used to show the app name) and doubles as the CTA button on a widget card, while `more_info` is the menu entry's second line and the card's description. A card's *title* is the app name and has no field, which makes it the only piece of rendered text a partner changes by renaming the app. And `link_target` is no longer written into `app-config.json` at all: `brevo app upload` injects `_blank` into the payload instead. There was never a choice to make there — the server refuses `_self` — so a field in the file only invited a partner to edit it into a value that 400s.
+
+`label` and `more_info` also pick up the length ceilings the server enforces (48 and 255 characters), checked at the prompt and again at upload, so an over-long value fails with a precise local message instead of an opaque 400.
+
+**A config written by an earlier build of this branch is rejected, with a migration hint naming the fix** — `heading` → `label`, `subheading` → `more_info`, a top-level `context` → move it into each entry, bare strings in `surface_point_list` → wrap each as `{ "surface_point": … }`. This is a local diagnostic rather than a claim about the wire: the upload endpoint accepts a top-level `context` with a 200 and simply ignores it, and no longer reads `heading`/`subheading` at all, so an unmigrated config would otherwise upload "successfully" and render an app with no text and no record context. There is deliberately no read-path alias, for the same reason the earlier snake_case rename didn't get one: the feature isn't live, so these files only exist on developer machines.
+
+Dropping `link_target` from the file needed two changes the rename alone doesn't imply, both of which the upload diff and write-back now handle: the server defaults the field and echoes it back, so the write-back strips it (otherwise the first successful upload writes straight back into `app-config.json` the one field the file is not supposed to carry), and the diff normalizes it away on both sides (otherwise the block reads as changed on every upload and "Already up to date" never prints for a UI app again). The diff also sorts `surface_point_list` before comparing, since the server returns registry order and that need not match the order a partner picked their pages in.
+
+`brevo app create`'s UI-app flow is reordered to five questions, one optional:
+
+1. **"Do you want to add a link or an iframe?"** — sets `extension_type`. **Link** is selectable; **Iframe** is listed but disabled ("coming soon"). Asked first because it is the decision a partner arrives with, and because it decides which single URL question is asked at the end.
+2. **Which record pages should it appear on?** — multi-select of the registry's record pages.
+3. **Where should it appear on those pages?** — ONE prompt listing every placement on the pages that were picked, grouped under a heading per page, each choice reading as a page region plus the shape it renders as (*Header "More" (•••) menu — menu entry*, *Sidebar — card*). A page offering exactly one placement comes pre-ticked, and the prompt refuses if any page you picked ends up with nothing selected.
+4. **Label**, 5. **More info** (optional), 6. **Redirect link**.
+
+Three prompts are gone. The kind question ("menu entry or card?") went because kind is a property of a slot rather than a question — a partner picking *Header menu* has already said they want a menu entry — and asking it up front made menu entries and cards mutually exclusive within one app, which the platform never required. The separate place question folded into the grouped placement prompt. And the record-context prompt went because each entry's `context` is now seeded from that registry row's own default: it was a question whose only honest answer was "whatever the platform allows", since the list can only ever be narrowed.
+
+The created-app box prints an **example URL** — the redirect link with the seeded context fields as query parameters and placeholder values — because query parameters are the only way context reaches a partner's endpoint. There is no path templating, so an app cannot receive `/contacts/123`; it has to read the query string, and seeing the exact shape before building the endpoint beats discovering it from a request log afterwards.
+
+Placement choices are still read live from the platform's extension-point registry, fetch-only with no offline fallback, but the read changed. The registry is fetched twice — unfiltered for the page prompt, then narrowed by `?location=<comma-separated>` for the placements on the pages that were picked — and there is no longer an extension-type filter on the request, because both extension types render on both kinds and filtering server-side would hide authorable placements. The CLI checks each row's own capability and lifecycle instead, so a row that cannot host the chosen type never reaches the prompt (the alternative being an authored slot that uploads with a 200 and renders nothing). A failure on the *second* fetch is not fatal: it falls back to the rows already held, which are a superset, rather than discarding a page answer the partner cannot be re-asked for. Only the first fetch aborts, with the same actionable message as before.
+
+Two smaller corrections. The registry read path now keys on the registry's own column names and tolerates the earlier draft's spellings as aliases — keying strictly on either one would fail closed against the other, dropping every row and reporting it to the partner as an unseeded registry. And placement labels are CLI-owned: the registry's `surface_point_name` column holds kebab-case slugs like `contact-details-header-menu`, not display text, so it is never rendered to a partner.
+
+**Sequencing:** labelling the header-menu entry from `label` is a rendering change on the Brevo side. Until that ships, a partner can author a `label` the menu does not yet show. The CLI is the producer and is ready; nothing here is blocked on it.
+

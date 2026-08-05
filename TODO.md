@@ -17,6 +17,27 @@ into `main` — anything that must outlive the branch belongs in
 - [ ] **Consider surfacing `url_pattern` from the BEX-361 rows** in the placement
       prompt (e.g. as a choice hint) so partners see where in the product a slot
       renders before picking it.
+- [ ] **Drop the pre-BEX-361 row-name aliases** in `appService.fetchSurfacePoints`
+      (`extension_point`, `location`, `place`, `kind`,
+      `supported_extension_types`) once the real endpoint's response shape is
+      confirmed. They exist only because keying strictly on either candidate naming
+      would fail closed against the other — every row dropped, and the partner told
+      the registry "has not been seeded".
+- [ ] **Reconsider the second registry call.** `app create` fetches the registry
+      unfiltered, then again with `?location=<csv>`. The narrowed response is a
+      strict subset of the first, so the second call buys freshness and nothing else
+      while doubling latency; `ApiClient.get` has no ETag/cache support, so the
+      endpoint's caching headers don't mitigate it. If freshness turns out not to
+      matter, filter the first call's rows in memory instead.
+- [ ] **Per-placement `label` / `more_info` / `redirect_link`.** One set is shared
+      across every chosen placement today, so an app cannot say *menu entry → link
+      X* alongside *sidebar card → link Y*. The nested `surface_point_list` makes
+      this cheap to add later — per-entry text would be new fields on an existing
+      object rather than a reshape.
+- [ ] **Per-entry context narrowing is structural only for now.** Every registry row
+      currently carries the same default, so every authored entry gets an identical
+      list, and the upload endpoint does not yet validate context per entry. The
+      shape is forward-compatible; nothing enforces narrowing anywhere yet.
 - [ ] **Blocking before release: server-side unified-payload change.** The CLI now
       sends the create payload with OAuth fields nested under `auth` (same block as
       upload) and the upload payload with `version` instead of `app_version`.

@@ -256,12 +256,13 @@ const AUTHORABLE_EXTENSION_TYPES: readonly string[] = [
 ] as const;
 
 /**
- * Validate a `context` list: field names must be non-empty and unique. Returns `true` or
- * an error string, so it can back an inquirer `validate` directly.
+ * Validate one placement's `context` list: field names must be non-empty and unique.
  *
- * Whether the platform actually ALLOWS a given name is not checkable locally — the
- * allow-list lives on the extension-point registry row — so that check happens
- * server-side at upload, where the 400 enumerates the allowed set.
+ * Shape only. Whether the platform actually ALLOWS a given name is not checkable locally —
+ * the allow-list lives on that extension-point registry row — so it is checked server-side
+ * at upload, where the 400 enumerates the allowed set. `brevo app create` never produces a
+ * disallowed name anyway: it seeds each entry from the row's own `default_context_field`,
+ * which the registry keeps inside the row's allow-list.
  */
 export function validateUiAppContext(fields: readonly string[]): true | string {
   const seen = new Set<string>();
@@ -272,14 +273,6 @@ export function validateUiAppContext(fields: readonly string[]): true | string {
     seen.add(trimmed);
   }
   return true;
-}
-
-/** Parse a comma-separated context answer into trimmed field names. */
-export function parseUiAppContext(value: string): string[] {
-  return String(value ?? '')
-    .split(',')
-    .map((field) => field.trim())
-    .filter((field) => field.length > 0);
 }
 
 /**
