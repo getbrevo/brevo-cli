@@ -10,6 +10,8 @@ import {
   OAuthApp,
   CreateAppResponse,
   AppStateResponse,
+  SurfacePointRow,
+  SurfacePointsResponse,
   UploadAppPayload,
   UploadAppResponse,
 } from '../types';
@@ -39,6 +41,38 @@ export function createAppService(client: ApiClient) {
 
   return {
     fetchAppsList,
+
+    /**
+     * Read the extension-point registry for UI-app slot authoring (BEX-361).
+     * `extensionType` narrows to slots that support that type — the create flow
+     * passes `actionLink` so everything offered is authorable.
+     *
+     * The backend route is specified (app-store-bo-be GET /cli/surface-points)
+     * but not built yet; only the public /v3 mapping is assumed. See
+     * RELEASE-CHECKLIST.md → Before UI-apps GA. Errors propagate — the caller
+     * owns the actionable message, since 404 currently just means "endpoint
+     * not built".
+     *
+     * Normalization: rows without a usable `extension_point` are dropped and
+     * duplicates (by name) deduped, so callers can trust every row's identity.
+     */
+    async fetchSurfacePoints(extensionType?: string): Promise<SurfacePointRow[]> {
+      const query = extensionType ? `?extensionType=${encodeURIComponent(extensionType)}` : '';
+      const res = await client.get<SurfacePointsResponse | SurfacePointRow[] | null>(
+        `${ENDPOINTS.APP_STORE_SURFACE_POINTS}${query}`,
+      );
+      const rows = Array.isArray(res) ? res : (res?.surface_points ?? []);
+      const seen = new Set<string>();
+      const normalized: SurfacePointRow[] = [];
+      for (const row of rows) {
+        if (!row || typeof row !== 'object') continue;
+        const name = typeof row.extension_point === 'string' ? row.extension_point.trim() : '';
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        normalized.push({ ...row, extension_point: name });
+      }
+      return normalized;
+    },
 
     async fetchApp(appId: string): Promise<OAuthApp | null> {
       let app: OAuthApp;

@@ -8,6 +8,16 @@ into `main` — anything that must outlive the branch belongs in
 
 ### BEX-290 follow-ups
 
+- [ ] **Make `app upload` validate `surfacePointList` against the fetched BEX-361
+      registry** instead of the local `EXTENSION_POINTS` mirror, then delete the
+      mirror (`EXTENSION_POINTS`, `EXTENSION_PLACE_LABELS`, `EXTENSION_PLACES_BY_KIND`
+      in `src/lib/constants.ts`). Until then there is a documented split: create
+      validates against the live registry, upload pre-flights against the mirror —
+      a live-only slot authors fine at create but trips upload's pre-flight.
+- [ ] **Consider surfacing `url_pattern` from the BEX-361 rows** in the placement
+      prompt (e.g. as a choice hint) so partners see where in the product a slot
+      renders before picking it.
+
 - [x] **`ui_app` field names — resolved.** Aligned with the platform's manifest read path and its
       extensibility UI kit (BEX-308 / BEX-350). The block is the stored app snapshot
       verbatim.

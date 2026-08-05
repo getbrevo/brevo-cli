@@ -201,11 +201,17 @@ export function validateUiAppHeading(value: string): true | string {
  * `contactDetails.headerMenu.widget` produces an empty slot, a 200, and no error
  * anywhere. Catching it here is the only place a partner gets told.
  */
-export function validateSurfacePoint(point: string): true | string {
+export function validateSurfacePoint(
+  point: string,
+  // Defaults to the local mirror (the `app upload` pre-flight registry).
+  // `app create` passes the list it just fetched from the platform (BEX-361),
+  // so create-time validation always matches what the prompts offered.
+  allowedPoints: readonly string[] = EXTENSION_POINTS,
+): true | string {
   const trimmed = String(point ?? '').trim();
   if (!trimmed) return 'Extension point cannot be empty.';
-  if (EXTENSION_POINTS.includes(trimmed)) return true;
-  return `Unknown extension point "${trimmed}". Must be one of: ${EXTENSION_POINTS.join(', ')}.`;
+  if (allowedPoints.includes(trimmed)) return true;
+  return `Unknown extension point "${trimmed}". Must be one of: ${allowedPoints.join(', ')}.`;
 }
 
 /**
@@ -261,7 +267,7 @@ export function parseUiAppContext(value: string): string[] {
  *
  * Throws CliError on the first problem found.
  */
-export function validateUiApp(uiApp: unknown): void {
+export function validateUiApp(uiApp: unknown, allowedPoints?: readonly string[]): void {
   if (!uiApp || typeof uiApp !== 'object') {
     throw new CliError(
       'app-config.json has an invalid "ui_app" block — expected an object. Fix the file, or recreate the app with `brevo app create` and choose "UI app".',
@@ -276,7 +282,7 @@ export function validateUiApp(uiApp: unknown): void {
     );
   }
 
-  validateSurfacePointList(block.surfacePointList);
+  validateSurfacePointList(block.surfacePointList, allowedPoints);
 
   const headingCheck = validateUiAppHeading(String(block.heading ?? ''));
   if (headingCheck !== true) throw new CliError(`ui_app.heading: ${headingCheck}`);
@@ -301,14 +307,14 @@ export function validateUiApp(uiApp: unknown): void {
  * a card, an action slot a menu entry — so the only rules are that the list is non-empty,
  * every name is registered, and no name repeats.
  */
-function validateSurfacePointList(points: unknown): void {
+function validateSurfacePointList(points: unknown, allowedPoints?: readonly string[]): void {
   if (!Array.isArray(points) || points.length === 0) {
     throw new CliError(
       'ui_app.surfacePointList must list at least one extension point (e.g. ["contactDetails.headerMenu.action"]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
     );
   }
   for (const point of points) {
-    const check = validateSurfacePoint(String(point));
+    const check = validateSurfacePoint(String(point), allowedPoints);
     if (check !== true) throw new CliError(`ui_app.surfacePointList: ${check}`);
   }
   if (new Set(points.map((p) => String(p).trim())).size !== points.length) {

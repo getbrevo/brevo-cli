@@ -599,6 +599,13 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 > extension-point registry carries the twelve `.widget`/`.action` entries, an authored slot name resolves to nothing
 > and the action link won't render — silently, with a 200. Confirm the reseed has run in
 > your environment before treating a non-rendering link as a CLI defect.
+>
+> **The whole UI-app create flow now depends on BEX-361** (`GET /cli/surface-points`,
+> served to the CLI as `/v3/app-store/surface-points`). The placement prompts are built
+> from that endpoint with **no offline fallback** — until it ships in your environment,
+> choosing **UI app** at the app-type prompt fails at "Loading available placements..."
+> with an actionable error. That is the expected pre-BEX-361 behaviour, not a CLI bug
+> (see TC-12.2b). OAuth-app creation is unaffected.
 
 ### TC-12.1 — Interactive create asks for the app type after name and distribution
 **Priority:** High
@@ -606,14 +613,22 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Steps:** Run `brevo app create`.
 **Expected:** Prompt order is "App name:" → "Distribution type?" → "What type of app are you building?" with **OAuth app** and **UI app**. Choosing **OAuth app** reproduces the previous flow from there (redirect URL → logo → scaffold prompt).
 
-### TC-12.2 — Delivery prompt shows unsupported options as disabled
+### TC-12.2 — Integration-type prompt shows Modal iframe as disabled
 **Priority:** Medium
+**Preconditions:** BEX-361 endpoint available (see the section preamble).
+**Steps:** `brevo app create`, choose **UI app**, answer the placement prompts.
+**Expected:** After placement, "How should your app open?" lists **External link** as selectable and **Modal iframe** as visibly disabled ("coming soon"). The disabled entry cannot be selected. The placement prompts before it are populated from the fetched registry (a position row shows the registry's `surface_point_name` when present).
+
+### TC-12.2b — UI-app create aborts when the surface-points fetch fails
+**Priority:** High
+**Preconditions:** BEX-361 endpoint absent or unreachable (e.g. point `BREVO_API_URL` at a dead host, or run against an environment without the endpoint).
 **Steps:** `brevo app create`, choose **UI app**.
-**Expected:** "How should your app be delivered?" lists **Action link** as selectable, and **Iframe modal** / **Inline widget** as visibly disabled ("not yet supported"). Neither can be selected.
+**Expected:** The flow stops at "Loading available placements..." with an error explaining the UI-app flow needs the platform's placements and that OAuth apps still work. Exit non-zero, **no app is created** (no create request goes out). Re-running and choosing **OAuth app** completes normally.
 
 ### TC-12.3 — UI-app create writes the snapshot shape and no redirect URLs
 **Priority:** High
-**Steps:** Complete the UI-app flow — pick one or more record pages, then heading, subheading, redirect link (`https://…`), link target.
+**Preconditions:** BEX-361 endpoint available.
+**Steps:** Complete the UI-app flow — pick one or more record pages, the integration type (External link), then heading, subheading, redirect link (`https://…`), and the record-context prompt (a checkbox of allowed fields when the registry declares them, free text otherwise).
 **Expected:** A "UI app created" box shows extension type, extension point(s), heading, subheading, redirect link and link target — and **no** `Redirect URL` lines. It also states that the menu entry is labelled with the app name. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extensionType: "actionLink"`, `surfacePointList`, `heading`, `subheading`, `redirectLink`, `linkTarget` — **no** `properties`, `trigger`, `surface`, `placement`, `contextProperties` or label keys. `auth` is exactly `{ "type": "none" }` — **no** `scopes`, **no** `redirectUris` — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
 
 ### TC-12.4 — Upload sends the snapshot and is accepted

@@ -85,6 +85,36 @@ export type ExtensionKind = 'widget' | 'action';
  */
 export type SurfacePoint = string;
 
+/**
+ * One registry row from `GET /v3/app-store/surface-points` (BEX-361).
+ *
+ * The server parses `location`/`place`/`kind` out of the slot name so the CLI
+ * never re-implements the grammar, and `surface_point_name` is the registry's
+ * own display text for the slot. `allowed_context_field` is field NAMES only,
+ * never values. Everything but `extension_point` is optional at the type level
+ * because the read path tolerates partial rows (see fetchSurfacePoints).
+ */
+export interface SurfacePointRow {
+  /** Slot name in the `<location>.<place>.<kind>` grammar — the wire identity. */
+  extension_point: string;
+  /** The registry's display text for the slot (`surface_point_name` column). */
+  surface_point_name?: string;
+  location?: string;
+  place?: string;
+  kind?: string;
+  /** Where in the product the slot lives, e.g. a CRM record-detail URL shape. */
+  url_pattern?: string;
+  /** Context field names this slot may forward — the upload-time allow-list. */
+  allowed_context_field?: string[];
+  supported_extension_types?: string[];
+}
+
+/** Wire shape of GET /v3/app-store/surface-points (BEX-361). */
+export interface SurfacePointsResponse {
+  surface_points: SurfacePointRow[];
+  count?: number;
+}
+
 export interface UiApp {
   extensionType: ExtensionType;
   /**

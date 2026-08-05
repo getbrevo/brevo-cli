@@ -99,6 +99,14 @@ export const messages = {
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
 
   // App create — UI app (BEX-290)
+  // The placement choices are read from the platform's extension-point registry
+  // at prompt time (BEX-361) — fetch-only, no local fallback, so a partner can
+  // never author a slot the platform doesn't have.
+  APP_CREATE_UI_POINTS_SPINNER: 'Loading available placements...',
+  APP_CREATE_UI_POINTS_FETCH_FAILED:
+    'Could not load the available placements from the Brevo API — the UI-app flow needs them to offer where your app can appear. Check your connection and try again. Creating an OAuth app does not need this and still works.',
+  APP_CREATE_UI_POINTS_EMPTY:
+    'The Brevo API returned no available placements for UI apps. This usually means the extension-point registry has not been seeded in this environment — try again later.',
   APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
   APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
   // Kind before place, because it decides which places exist. Phrased as what the
@@ -108,13 +116,23 @@ export const messages = {
   APP_CREATE_UI_KIND_WIDGET: 'Card            (A card rendered in a page region)',
   APP_CREATE_UI_PLACE_PROMPT: 'Where on those pages?',
   APP_CREATE_UI_PLACE_REQUIRED: 'Pick at least one location.',
-  APP_CREATE_UI_HEADING_PROMPT: 'Heading (primary text shown on the action):',
-  APP_CREATE_UI_SUBHEADING_PROMPT: 'Subheading (optional secondary text):',
-  APP_CREATE_UI_REDIRECT_LINK_PROMPT: 'Redirect link (where record context is passed):',
-  // Free text rather than a checklist: the allow-list this narrows lives on the
-  // platform's extension-point registry, which the CLI cannot read yet, so there is
-  // nothing to offer as choices. A field no chosen slot allows is refused at upload,
-  // where the error lists what is allowed.
+  // Integration type — only External link is authorable today; Modal iframe is
+  // shown disabled so partners can see what's coming without being able to pick it.
+  APP_CREATE_UI_INTEGRATION_PROMPT: 'How should your app open?',
+  APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'External link   (Opens your URL in a new tab)',
+  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Modal iframe    (Embeds your page in a modal)',
+  APP_CREATE_UI_INTEGRATION_COMING_SOON: 'coming soon',
+  // Each field says what it renders as, so a partner filling the form knows what
+  // they are writing (heading = link label, subheading = tooltip, link = URL).
+  APP_CREATE_UI_HEADING_PROMPT:
+    'Heading — the link label shown for your app (header-menu entries display the app name):',
+  APP_CREATE_UI_SUBHEADING_PROMPT: 'Subheading — tooltip text (optional):',
+  APP_CREATE_UI_REDIRECT_LINK_PROMPT:
+    'Redirect link — the destination URL your app opens (record context is passed to it):',
+  // Choices come from the union of the selected placements' allow-lists
+  // (allowed_context_field, BEX-361). Free text only when no placement declares one.
+  APP_CREATE_UI_CONTEXT_CHECKBOX_PROMPT:
+    'Record context fields to receive (optional — none selected receives whatever each location allows):',
   APP_CREATE_UI_CONTEXT_PROMPT:
     'Record context fields to receive, comma-separated (optional — blank receives whatever each location allows):',
   APP_CREATE_UI_BOX_TITLE: 'UI app created',

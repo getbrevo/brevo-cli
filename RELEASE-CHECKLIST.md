@@ -132,6 +132,18 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       (`src/types.ts` `UploadAppPayload` and `upload.ts`). "snapshot" on the
       platform means the whole stored app config; this block is only its UI
       subset, hence the key.
+- [ ] **Ship BEX-361 and confirm its /v3 mapping.** `brevo app create`'s UI-app
+      path now reads the extension-point registry live from
+      `GET /v3/app-store/surface-points?extensionType=actionLink` — fetch-only,
+      no local fallback — so **UI-app creation is unusable until the endpoint
+      ships**. The backend route and response shape are specified in BEX-361
+      (app-store-bo-be `GET /cli/surface-points`: `surface_points[]` rows with
+      `extension_point`, `surface_point_name`, parsed `location`/`place`/`kind`,
+      `allowed_context_field`, `supported_extension_types`); only the public
+      `/v3/app-store/surface-points` mapping is the CLI's assumption
+      (`ENDPOINTS.APP_STORE_SURFACE_POINTS`, `appService.fetchSurfacePoints`).
+      Once upload also reads it, the local mirrors go away entirely (see
+      TODO.md).
 - [ ] **Confirm the no-auth wire contract for UI apps.** A UI app's config now
       carries `auth: { "type": "none" }` (no scopes, no redirect URIs, no
       jwtSecret — nothing OAuth is issued for it). The CLI therefore omits the
@@ -758,3 +770,34 @@ them from legacy files so the next write migrates. The read path also carves
 - [ ] Manual: `brevo app upload` in an OAuth project scaffolded by an older
       build (file still has `permittedUrls`/`support`) — upload succeeds and
       the write-back drops both sections.
+
+### UI-app create: registry-driven prompts (BEX-361) + integration-type prompt
+
+**Change:** `brevo app create`'s UI-app path now fetches
+`GET /v3/app-store/surface-points?extensionType=actionLink` before any placement
+prompt (fetch-only, NO local-mirror fallback — failure aborts with an actionable
+message) and builds pages/kind/positions/context choices from the fetched rows;
+`surfacePointList` is the selected rows' `extension_point` names, validated
+against the fetched list (`validateUiApp` gained an optional `allowedPoints`
+param; upload still defaults to the local mirror). New integration-type prompt:
+External link selectable, Modal iframe disabled ("coming soon"). Context prompt
+becomes a checkbox of the selected rows' `allowed_context_field` union, with
+free text only when no row declares one. Field prompts now describe what they
+render as (heading = link label, subheading = tooltip, redirect = URL).
+
+**Must hold true:**
+
+- [x] Fetch failure / empty registry aborts before any placement prompt, no app
+      created, OAuth path unaffected. Covered in `create.test.ts`.
+- [x] Choices (pages, positions, labels, context union) come from the fetched
+      rows; a registry-only point validates at create (allowed-points threading).
+      Covered in `create.test.ts`.
+- [x] Modal iframe choice is disabled and unselectable; the answer threads into
+      `extensionType`. Covered in `create.test.ts`.
+- [x] `app upload` pre-flight is unchanged (local mirror; no fetch). Full suite
+      green: 901/901, lint clean.
+- [ ] Manual (needs BEX-361 deployed): run the UI-app flow end-to-end against a
+      seeded registry — verify labels, the context checkbox, and that the
+      created `app-config.json` carries the selected `extension_point` names.
+- [ ] Manual: run `brevo app create` → UI app against an environment WITHOUT
+      BEX-361 — verify the actionable abort (QA TC-12.2b).

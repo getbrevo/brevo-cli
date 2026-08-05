@@ -100,6 +100,7 @@ export const ENDPOINTS = {
   APP_STORE_APP_DEPLOY: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/deploy`,
   APP_STORE_APP_UNDEPLOY: (appId: string) =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/undeploy`,
+  APP_STORE_SURFACE_POINTS: '/v3/app-store/surface-points',
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;

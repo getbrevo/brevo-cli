@@ -52,6 +52,61 @@ describe('services/app', () => {
     });
   });
 
+  describe('fetchSurfacePoints', () => {
+    const ROW = {
+      extension_point: 'contactDetails.headerMenu.action',
+      surface_point_name: 'Header "More" menu',
+      location: 'contactDetails',
+      place: 'headerMenu',
+      kind: 'action',
+      allowed_context_field: ['contactId'],
+      supported_extension_types: ['actionLink'],
+    };
+
+    it('GETs the surface-points endpoint with the extensionType filter', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [ROW], count: 1 });
+      const result = await service.fetchSurfacePoints('actionLink');
+      expect(mockClient.get).toHaveBeenCalledWith(
+        '/v3/app-store/surface-points?extensionType=actionLink',
+      );
+      expect(result).toEqual([ROW]);
+    });
+
+    it('omits the query when no extensionType is given', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [] });
+      await service.fetchSurfacePoints();
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/surface-points');
+    });
+
+    it('tolerates a bare-array response', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue([ROW]);
+      expect(await service.fetchSurfacePoints('actionLink')).toEqual([ROW]);
+    });
+
+    it('drops rows without a usable extension_point and dedupes by name', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        surface_points: [
+          ROW,
+          { ...ROW, extension_point: '  contactDetails.headerMenu.action  ' }, // dupe after trim
+          { surface_point_name: 'nameless' },
+          { extension_point: '   ' },
+          null,
+        ],
+      });
+      expect(await service.fetchSurfacePoints('actionLink')).toEqual([ROW]);
+    });
+
+    it('returns [] for a null response body', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue(null);
+      expect(await service.fetchSurfacePoints('actionLink')).toEqual([]);
+    });
+
+    it('propagates ApiError unchanged (the command owns the actionable message)', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      await expect(service.fetchSurfacePoints('actionLink')).rejects.toThrow(ApiError);
+    });
+  });
+
   describe('fetchApp', () => {
     it('should normalize numeric app_id on a legacy response', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue({ app_id: 42, name: 'test' });
