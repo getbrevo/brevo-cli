@@ -211,6 +211,69 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 Append an entry per change that needs verifying. Clear this section (keep the
 heading) before merging into `main`.
 
+### BEX-290 — slot-name validation moves to the server (2026-08-06)
+
+**Change:** The CLI no longer holds a list of valid extension-point names.
+`EXTENSION_POINTS` and the constants that fed only it (`EXTENSION_LOCATIONS`,
+`EXTENSION_WIDGET_PLACES`, `EXTENSION_ACTION_PLACE`, `actionPointForLocation`,
+`extensionPointName`) are deleted from `src/lib/constants.ts`, and
+`validateSurfacePoint` is now shape-only — a slot name must be a non-blank string,
+and nothing else is asserted about it locally.
+
+The mirror existed so `app upload` could pre-flight a hand-edited
+`surface_point_list` without a round trip. It was the wrong place for the check: a
+hardcoded copy can only lag the platform's `extension_points` table, and it failed
+in **both** directions — rejecting a slot the registry had gained (a partner who
+authored it through `app create`, which reads the live registry, then could not
+upload the file `create` had just written), and passing one the registry had
+dropped (straight back to the silent empty slot the check was meant to prevent).
+
+Both paths now read the real registry. `app create` already prompted from
+`GET /v3/app-store/surface-points`, so its entries are built from rows the platform
+just returned and its `validateUiApp` call no longer passes an allow-list. `app
+upload` sends the block and lets the upload endpoint answer: `checkExtensionPoints`
+(app-store-bo-be `cmd/app-store-bo-be/http_cli_upload_app.go:423-448`, branch
+`BEX-361_surface-points-endpoint-and-default-context`) reads the registry
+in one indexed query and returns **400** naming every unregistered slot, before the
+app is even loaded. Verified present on that branch — no server-side work was
+needed for this.
+
+**`EXTENSION_PLACE_LABELS` is deliberately kept.** It is CLI-owned partner-facing
+display text, not a mirror of anything: the registry has no display-name column,
+and `surface_point_name` holds kebab slugs (`contact-details-header-menu`) that
+would be worse to show a partner. `TODO.md` previously listed it for deletion
+alongside the mirror; that was wrong and is corrected.
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn test && yarn build` green (47 suites / 971 tests).
+- [x] An unregistered slot name passes `validateUiApp` and reaches the upload
+      payload instead of failing locally. Covered by `passes an unregistered slot
+      name through for the server to reject` (`validators.test.ts`) and `uploads an
+      unregistered extension point for the server to reject` (`upload.test.ts`).
+      Both exist to fail if a local allow-list is ever added back.
+- [x] Shape checks that don't need the registry still fail locally without a round
+      trip — blank/missing `surface_point`, duplicate slots, bare-string entries,
+      pre-BEX-290 field names. Covered by `rejects a blank extension point without a
+      round trip` and the `validateUiApp` rejection table.
+- [x] No reference to `EXTENSION_POINTS` remains in `src/`. Verified by repo-wide
+      grep.
+- [ ] Manual: hand-edit `app-config.json` to a bogus slot
+      (`contact.headerMenu.action`), run `brevo app upload`, and confirm the server
+      returns a 400 that **names the offending slot** and that the CLI surfaces that
+      message legibly. This is the whole point of the change — if the server's error
+      doesn't reach the partner readably, the local check was carrying more weight
+      than this entry assumes.
+- [ ] Manual: confirm the 400 arrives before any partial write, i.e. a rejected
+      upload leaves the stored version untouched.
+- [ ] Reviewer: this changes an error message scripts could match on — the local
+      `Unknown extension point "…". Must be one of: …` is gone. UI apps are pre-GA
+      and `upload` never shipped for them, so no alias or deprecation is proposed;
+      confirm that reasoning holds.
+- [ ] Reviewer: `agent-context/SKILL.md` and `agent-context/AGENTS.md` are both
+      updated and still in sync (CLAUDE.md requires it), along with `CLAUDE.md`,
+      `TODO.md` and the changeset.
+
 ### BEX-290 — `undeploy` → `rollback` rename (2026-08-06)
 
 **Change:** `brevo app undeploy` is now `brevo app rollback`. Third name for this

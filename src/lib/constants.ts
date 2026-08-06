@@ -161,35 +161,20 @@ export const DEFAULT_SCOPES: readonly string[] = [
 /**
  * Extension-point slot grammar: `<location>.<place>.<kind>` (BEX-350).
  *
- * These values are a hard contract with two consumers. The extensibility UI kit
- * matches an item's `extensionPoint` against a slot name by **exact string
- * equality**, and the platform **drops** an authored name that has no entry in
- * its extension-point registry. Both failures are silent — the slot renders
- * nothing, with a 200 and no error — so a typo here is invisible in production.
- * That is why the CLI validates authored names locally against the registry
- * below rather than trusting the server to complain.
+ * The CLI holds no list of valid slot names. It used to mirror the platform's
+ * twelve-row `extension_points` registry here so `app upload` could pre-flight a
+ * hand-edited `surface_point_list` offline, but that mirror could only ever be a
+ * lagging copy: a slot the platform had and the mirror didn't failed an upload the
+ * server would have accepted, and a slot the platform had dropped still passed.
  *
- * Mirrored from the platform's registry and its UI kit's slot helpers
- * (BEX-350). Keep in lockstep: see RELEASE-CHECKLIST.md.
+ * The registry is now the only authority, read at the two points that need it:
+ * `app create` prompts from `GET /v3/app-store/surface-points`, and the upload
+ * endpoint checks every authored name against `extension_points` in one indexed
+ * read, answering 400 with the offending names (`checkExtensionPoints`, BEX-361).
+ * Neither the UI kit's exact-match rendering nor the platform's silent drop of an
+ * unregistered name has changed — a bad slot is still invisible in production —
+ * but the partner is now told by the layer that actually knows.
  */
-export const EXTENSION_LOCATIONS: readonly string[] = [
-  'contactDetails',
-  'companyDetails',
-  'dealDetails',
-] as const;
-
-// `place` is a ROLE within the page, not a layout coordinate — columns stack on
-// mobile, so encoding left/center/right would invalidate every registration on a
-// redesign. The owning tab is folded in as a prefix.
-export const EXTENSION_WIDGET_PLACES: readonly string[] = [
-  'overviewAttributes',
-  'overviewMain',
-  'overviewSidebar',
-] as const;
-
-// The only action place in the current registry: the record page's header "More"
-// (•••) overflow menu.
-export const EXTENSION_ACTION_PLACE = 'headerMenu';
 
 /**
  * The `kind` segment. Both extension types render on both kinds — a widget slot gets a
@@ -216,25 +201,6 @@ export const EXTENSION_PLACE_LABELS: Readonly<Record<string, string>> = {
   overviewSidebar: 'Sidebar',
   overviewAttributes: 'Attributes panel',
 } as const;
-
-/** Build a slot name in the `<location>.<place>.<kind>` grammar. */
-export function extensionPointName(location: string, place: string, kind: string): string {
-  return `${location}.${place}.${kind}`;
-}
-
-/** Build an action slot name for a record page. */
-export function actionPointForLocation(location: string): string {
-  return extensionPointName(location, EXTENSION_ACTION_PLACE, EXTENSION_KIND_ACTION);
-}
-
-/**
- * The full twelve-point registry — three record pages x (three widget places +
- * one action place). Mirrors the platform's seeded extension-point registry.
- */
-export const EXTENSION_POINTS: readonly string[] = EXTENSION_LOCATIONS.flatMap((location) => [
-  ...EXTENSION_WIDGET_PLACES.map((place) => `${location}.${place}.widget`),
-  actionPointForLocation(location),
-]);
 
 /**
  * Friendly record-type choices (the values offered at the UI-app record-page

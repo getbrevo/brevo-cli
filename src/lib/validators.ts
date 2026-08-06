@@ -1,7 +1,6 @@
 import { CliError } from './errors';
 import {
   LEGACY_ALL_SCOPE,
-  EXTENSION_POINTS,
   EXTENSION_TYPE_ACTION_LINK,
   EXTENSION_TYPE_IFRAME,
   UPLOADABLE_LINK_TARGETS,
@@ -221,25 +220,27 @@ export function validateUiAppMoreInfo(value: string): true | string {
 }
 
 /**
- * Validate a `surface_point_list` entry against the known registry.
+ * Validate the SHAPE of a `surface_point_list` entry's slot name — present and
+ * non-blank. Whether the name is registered is deliberately NOT checked here.
  *
- * This is the highest-value local check in the UI-app flow. The backend silently
- * DROPS an authored value with no registry entry, and the UI kit matches by exact
- * string equality — so a near-miss like `contact.headerMenu.action` or
- * `contactDetails.headerMenu.widget` produces an empty slot, a 200, and no error
- * anywhere. Catching it here is the only place a partner gets told.
+ * The registry is the platform's, and only the platform can answer against it
+ * without lagging. `app upload` sends the block and the upload endpoint checks
+ * every name against `extension_points` in one read, answering 400 with the
+ * offending names (`checkExtensionPoints`, BEX-361). `app create` cannot author
+ * an unregistered name in the first place: every entry it writes is built from a
+ * row the registry just returned.
+ *
+ * The failure this guards against is still real — the platform DROPS an
+ * unregistered name and the UI kit matches by exact string equality, so a
+ * near-miss like `contact.headerMenu.action` renders nothing with a 200 — but a
+ * local allow-list was the wrong place to catch it. It could only ever be a stale
+ * copy, and it failed in both directions: rejecting a slot the platform had added,
+ * and passing one the platform had removed.
  */
-export function validateSurfacePoint(
-  point: string,
-  // Defaults to the local mirror (the `app upload` pre-flight registry).
-  // `app create` passes the list it just fetched from the platform (BEX-361),
-  // so create-time validation always matches what the prompts offered.
-  allowedPoints: readonly string[] = EXTENSION_POINTS,
-): true | string {
+export function validateSurfacePoint(point: string): true | string {
   const trimmed = String(point ?? '').trim();
   if (!trimmed) return 'Extension point cannot be empty.';
-  if (allowedPoints.includes(trimmed)) return true;
-  return `Unknown extension point "${trimmed}". Must be one of: ${allowedPoints.join(', ')}.`;
+  return true;
 }
 
 /**
@@ -288,7 +289,7 @@ export function validateUiAppContext(fields: readonly string[]): true | string {
  *
  * Throws CliError on the first problem found.
  */
-export function validateUiApp(uiApp: unknown, allowedPoints?: readonly string[]): void {
+export function validateUiApp(uiApp: unknown): void {
   if (!uiApp || typeof uiApp !== 'object') {
     throw new CliError(
       'app-config.json has an invalid "ui_app" block — expected an object. Fix the file, or recreate the app with `brevo app create` and choose "UI app".',
@@ -305,7 +306,7 @@ export function validateUiApp(uiApp: unknown, allowedPoints?: readonly string[])
 
   rejectPreBex290Fields(block);
 
-  validateSurfacePointList(block.surface_point_list, allowedPoints);
+  validateSurfacePointList(block.surface_point_list);
 
   const labelCheck = validateUiAppLabel(String(block.label ?? ''));
   if (labelCheck !== true) throw new CliError(`ui_app.label: ${labelCheck}`);
@@ -356,10 +357,13 @@ function rejectPreBex290Fields(block: Record<string, unknown>): void {
 /**
  * Validate the slot list. Both extension types render on both kinds — a widget slot gets
  * a card, an action slot a menu entry — so the rules are that the list is non-empty, every
- * entry is an object naming a registered slot, no slot repeats, and each entry's `context`
- * (when present) is a well-formed list of field names.
+ * entry is an object naming a slot, no slot repeats, and each entry's `context` (when
+ * present) is a well-formed list of field names.
+ *
+ * Shape only: whether a name is registered, and whether its context is within that slot's
+ * allow-list, are both the upload endpoint's answer to give (see `validateSurfacePoint`).
  */
-function validateSurfacePointList(entries: unknown, allowedPoints?: readonly string[]): void {
+function validateSurfacePointList(entries: unknown): void {
   if (!Array.isArray(entries) || entries.length === 0) {
     throw new CliError(
       'ui_app.surface_point_list must list at least one placement (e.g. [{ "surface_point": "contactDetails.headerMenu.action", "context": ["recordId"] }]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
@@ -373,7 +377,7 @@ function validateSurfacePointList(entries: unknown, allowedPoints?: readonly str
       );
     }
     const row = entry as Record<string, unknown>;
-    const check = validateSurfacePoint(String(row.surface_point ?? ''), allowedPoints);
+    const check = validateSurfacePoint(String(row.surface_point ?? ''));
     if (check !== true) throw new CliError(`ui_app.surface_point_list: ${check}`);
     const name = String(row.surface_point).trim();
     names.push(name);

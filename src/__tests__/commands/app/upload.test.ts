@@ -618,9 +618,12 @@ describe('app/upload', () => {
     });
 
     // Slot names are matched by exact string equality and an unregistered name is
-    // silently DROPPED by the backend, so these two are the highest-value checks
-    // in the whole UI-app flow — nothing downstream would ever report them.
-    it('rejects an extension point that is not in the registry', async () => {
+    // silently DROPPED by the backend — but the registry that says which names exist is
+    // the platform's, so the upload endpoint is what reports it (`checkExtensionPoints`
+    // → 400 naming the offenders). The CLI used to pre-flight against a hardcoded copy
+    // of the twelve rows; that copy could only lag the registry, so it was removed. This
+    // asserts the name now travels rather than being rejected locally.
+    it('uploads an unregistered extension point for the server to reject', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: {
@@ -629,7 +632,27 @@ describe('app/upload', () => {
         },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Unknown extension point/i);
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
+      const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+      expect(payload.ui_app.surface_point_list).toEqual([
+        { surface_point: 'contact.headerMenu.action' },
+      ]);
+    });
+
+    // The shape checks that DON'T need the registry stay local — they are statements
+    // about the file, not about the platform.
+    it('rejects a blank extension point without a round trip', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: {
+          ...UI_APP,
+          surface_point_list: [{ surface_point: '   ' }],
+        },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/cannot be empty/i);
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 

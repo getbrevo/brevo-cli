@@ -8,12 +8,19 @@ into `main` — anything that must outlive the branch belongs in
 
 ### BEX-290 follow-ups
 
-- [ ] **Make `app upload` validate `surface_point_list` against the fetched BEX-361
-      registry** instead of the local `EXTENSION_POINTS` mirror, then delete the
-      mirror (`EXTENSION_POINTS`, `EXTENSION_PLACE_LABELS`, `EXTENSION_PLACES_BY_KIND`
-      in `src/lib/constants.ts`). Until then there is a documented split: create
-      validates against the live registry, upload pre-flights against the mirror —
-      a live-only slot authors fine at create but trips upload's pre-flight.
+- [x] **Slot-name validation moved to the server — DONE.** Resolved by deleting the
+      local check rather than by fetching the registry at upload time: the upload
+      endpoint already validates every authored name against `extension_points` and
+      400s naming the offenders (`checkExtensionPoints`, app-store-bo-be
+      `http_cli_upload_app.go:423`), so a second opinion in the CLI could only be a
+      lagging one. `EXTENSION_POINTS` and its feeders (`EXTENSION_LOCATIONS`,
+      `EXTENSION_WIDGET_PLACES`, `EXTENSION_ACTION_PLACE`, `actionPointForLocation`,
+      `extensionPointName`) are gone from `src/lib/constants.ts`; `validateSurfacePoint`
+      is shape-only. **`EXTENSION_PLACE_LABELS` was NOT deleted** — the earlier wording
+      of this item was wrong to list it. It is CLI-owned partner-facing display text
+      and the registry has no display-name column (`surface_point_name` holds kebab
+      slugs like `contact-details-header-menu`). `EXTENSION_PLACES_BY_KIND` did not
+      exist; that name was stale.
 - [ ] **Consider surfacing `url_pattern` from the BEX-361 rows** in the placement
       prompt (e.g. as a choice hint) so partners see where in the product a slot
       renders before picking it.
@@ -76,13 +83,10 @@ into `main` — anything that must outlive the branch belongs in
             Scope note (2026-08-03): interactive account selection is only needed for
             deploy/rollback against **sub-accounts** — plain accounts keep the explicit
             `<account-id>` argument.
-- [ ] **Keep `EXTENSION_POINTS` in lockstep with the registry.** `src/lib/constants.ts`
-      hard-codes the twelve-point registry so slot names can be validated offline. If
-      the platform's registry gains or renames an entry (e.g. a `quoteDetails`
-      location, or a second action place), the CLI will reject a legitimate name until
-      it is updated. **Next up:** adopt the planned `GET /cli/surface-points` endpoint
-      once it lands server-side and retire this hardcoded mirror (prompt with live slot
-      names; keep the offline list only as a fallback).
+- [x] **Keep `EXTENSION_POINTS` in lockstep with the registry — MOOT, the mirror is
+      gone.** This item described the maintenance burden that justified deleting it: a
+      hardcoded copy silently rejects a legitimate name the moment the platform adds a
+      location or a second action place. There is nothing left to keep in lockstep.
 - [ ] **BEX-350 requires a coordinated release.** The kit, the reseeded registry and
       the backend have to land together; a CLI authoring `.widget`/`.action` names
       against a `.region`-era registry produces extensions that render nothing, with no

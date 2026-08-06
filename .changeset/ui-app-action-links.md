@@ -72,3 +72,11 @@ Two smaller corrections. The registry read path now keys on the registry's own c
 
 **Sequencing:** labelling the header-menu entry from `label` is a rendering change on the Brevo side. Until that ships, a partner can author a `label` the menu does not yet show. The CLI is the producer and is ready; nothing here is blocked on it.
 
+
+Move extension-point validation to the platform (BEX-290, third round). This supersedes the "Extension-point validation is the most load-bearing part of that list" paragraph above and the phrase "drawn from the twelve-point extension-point registry" before it — where they disagree, this one is current.
+
+The CLI no longer carries a list of valid slot names. It used to hard-code the platform's twelve `extension_points` rows so `brevo app upload` could pre-flight a hand-edited `surface_point_list` without a round trip. That copy could only ever lag the registry, and it was wrong in both directions: it rejected a slot the platform had added — including one a partner had just authored through `brevo app create`, which reads the live registry, so the CLI refused to upload the file it had itself written — and it accepted a slot the platform had removed, which is exactly the silent empty slot the check existed to prevent.
+
+The registry is now read only from the platform. `brevo app create` prompts from `GET /v3/app-store/surface-points`, so every entry it writes is built from a row the registry just returned. `brevo app upload` sends the block and the upload endpoint validates it, answering `400` with the name of every slot it doesn't recognise. Local validation keeps the checks that are statements about the *file* rather than about the platform — a `surface_point` must be a non-blank string, entries must be objects, slots must not repeat, `context` names must be unique and non-blank, and the pre-BEX-290 field names are still rejected with a migration hint — so a malformed config still fails immediately, without a request.
+
+For anyone hand-editing `app-config.json`: a mistyped slot name is no longer caught locally. It now fails on upload with a server error naming it, instead of a CLI error listing the twelve valid names. Nothing that authors through `brevo app create` is affected.

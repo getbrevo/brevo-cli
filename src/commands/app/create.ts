@@ -654,13 +654,10 @@ async function resolveUiApp(): Promise<UiApp> {
   };
 
   // Belt and braces: the per-prompt validators cover each answer in isolation,
-  // but nothing else checks the assembled block. Validated against the FETCHED
-  // registry, not the local mirror — the prompts offered fetched points, so a
-  // mirror that lags the platform must not fail a selection the platform has.
-  validateUiApp(
-    uiApp,
-    registry.map((row) => row.surface_point),
-  );
+  // but nothing else checks the assembled block. Shape only — the slot names came
+  // straight off registry rows, so there is nothing local left to check them
+  // against, and the upload endpoint is the authority either way.
+  validateUiApp(uiApp);
   return uiApp;
 }
 

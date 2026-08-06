@@ -281,9 +281,11 @@ describe('validateUiAppMoreInfo', () => {
   });
 });
 
-// Slot names are matched by exact string equality by the UI kit, and an authored
-// name with no registry row is silently dropped by the backend — so this is the
-// only place a typo ever surfaces.
+// The check is shape-only. Whether a slot name is REGISTERED is the upload
+// endpoint's answer (`checkExtensionPoints` reads `extension_points` and 400s naming
+// the offenders) — the CLI deliberately holds no copy of that registry, because a
+// copy could only lag it, rejecting slots the platform had added and passing ones it
+// had removed.
 describe('validateSurfacePoint', () => {
   it.each([
     ['contactDetails.headerMenu.action'],
@@ -296,6 +298,9 @@ describe('validateSurfacePoint', () => {
     expect(validateSurfacePoint(name)).toBe(true);
   });
 
+  // These are all wrong, and every one of them still renders nothing in production —
+  // but they are wrong against the platform's registry, not against anything the CLI
+  // knows, so the CLI now passes them through for the server to reject by name.
   it.each([
     ['the pre-BEX-350 region grammar', 'contact.center.region'],
     ['the pre-BEX-350 action grammar', 'contact.header.action'],
@@ -303,8 +308,14 @@ describe('validateSurfacePoint', () => {
     ['a wrong kind for the place', 'contactDetails.headerMenu.widget'],
     ['a location not in the registry', 'quoteDetails.headerMenu.action'],
     ['wrong casing', 'contactdetails.headerMenu.action'],
+  ])('no longer rejects %s locally — the upload endpoint does', (_label, name) => {
+    expect(validateSurfacePoint(name)).toBe(true);
+  });
+
+  it.each([
     ['an empty value', ''],
-  ])('rejects %s', (_label, name) => {
+    ['whitespace only', '   '],
+  ])('still rejects %s', (_label, name) => {
     expect(validateSurfacePoint(name)).not.toBe(true);
   });
 });
@@ -373,16 +384,27 @@ describe('validateUiApp', () => {
     ).not.toThrow();
   });
 
+  // The handover to the server, asserted so it cannot be undone by accident: an
+  // unregistered slot name passes the local pre-flight and travels, and the upload
+  // endpoint's `checkExtensionPoints` is what answers 400 naming it. Re-adding a local
+  // allow-list would fail this test.
+  it('passes an unregistered slot name through for the server to reject', () => {
+    expect(() =>
+      validateUiApp({
+        ...VALID,
+        surface_point_list: [{ surface_point: 'contact.header.action' }],
+      }),
+    ).not.toThrow();
+  });
+
   it.each([
     ['not an object', 'nope'],
     ['null', null],
     ['a missing extension_type', { ...VALID, extension_type: undefined }],
     ['an empty surface_point_list', { ...VALID, surface_point_list: [] }],
     ['a missing surface_point_list', { ...VALID, surface_point_list: undefined }],
-    [
-      'an unregistered point',
-      { ...VALID, surface_point_list: [{ surface_point: 'contact.header.action' }] },
-    ],
+    ['a blank point', { ...VALID, surface_point_list: [{ surface_point: '   ' }] }],
+    ['a missing point', { ...VALID, surface_point_list: [{ context: ['recordId'] }] }],
     [
       'duplicate points',
       {

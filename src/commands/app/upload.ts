@@ -436,9 +436,10 @@ export async function uploadProjectConfig(
 }
 
 // The auth block's shape follows the app type, and a mismatch is a hard error
-// rather than a silent ignore — same stance as validateSurfacePoint: the CLI is
-// the only layer that will ever tell the partner. A UI app must carry exactly
-// `auth: {}` (no scopes, no redirect URIs — nothing OAuth is issued for it).
+// rather than a silent ignore. This one stays local because it is a statement about
+// the local file: `auth` and `ui_app` are how `app-config.json` says which app type
+// it describes, and the server never sees the contradiction — a UI app must carry
+// exactly `auth: {}` (no scopes, no redirect URIs — nothing OAuth is issued for it).
 function validateAuthShape(config: NonNullable<ProjectConfig>): void {
   if (!isUiAppConfig(config)) return;
   if (!config.auth) {
@@ -463,8 +464,12 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   }
   validateRedirectUrls(redirectUris);
 
-  // Local pre-flight so a malformed block fails with a precise message before a
-  // round-trip. The app-store backend remains the validation authority.
+  // Local pre-flight on the block's SHAPE only — a missing label, a bare-string
+  // placement, a pre-BEX-290 field name — so an obviously malformed file fails with a
+  // precise message before a round trip. Anything that needs the extension-point
+  // registry to answer (is this slot name registered, is this context field allowed on
+  // it) is left to the upload endpoint, which reads the registry and 400s naming the
+  // offenders. The CLI holds no copy of that registry to check against.
   if (isUiApp) {
     validateUiApp(config.ui_app);
   }
