@@ -7,7 +7,7 @@ import { logoutCommand } from './logout';
 import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
 import { deployCommand } from './app/deploy';
-import { undeployCommand } from './app/undeploy';
+import { rollbackCommand } from './app/rollback';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
 import { statusCommand } from './app/status';
@@ -195,13 +195,13 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         }),
     },
     {
-      name: 'undeploy',
-      description: 'Undeploy an app from a Brevo account',
+      name: 'rollback',
+      description: 'Roll back an app from a Brevo account',
       arguments: [{ name: '<account-id>', description: 'Brevo account (tenant) ID' }],
       examples: [
-        'brevo app undeploy 99999',
-        'brevo app undeploy 99999 --app-id 42',
-        'brevo app undeploy 99999 --force --json',
+        'brevo app rollback 99999',
+        'brevo app rollback 99999 --app-id 42',
+        'brevo app rollback 99999 --force --json',
       ],
       options: [
         {
@@ -213,7 +213,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts, accountId) =>
-        undeployCommand({
+        rollbackCommand({
           accountId: accountId as string | undefined,
           appId: opts.appId as string | undefined,
           force: Boolean(opts.force),

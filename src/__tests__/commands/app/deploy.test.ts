@@ -61,13 +61,13 @@ describe('app/deploy', () => {
   it('deploys the linked app to the given account', async () => {
     await deployCommand({ accountId: '99999', force: true });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('42', '99999');
+    expect(appService.deployApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
   });
 
   it('prefers an explicit --app-id over the linked config', async () => {
     await deployCommand({ accountId: '99999', appId: '7', force: true });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('7', '99999');
+    expect(appService.deployApp).toHaveBeenCalledWith('7', '99999', '7');
   });
 
   it('errors when the account ID is missing', async () => {
@@ -117,7 +117,7 @@ describe('app/deploy', () => {
 
     await deployCommand({ accountId: '99999' });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('42', '99999');
+    expect(appService.deployApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
   });
 
   it('refuses to prompt in a non-TTY run without --force or --json', async () => {
@@ -148,6 +148,6 @@ describe('app/deploy', () => {
 
     await deployCommand({ accountId: '99999', force: true });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('9', '99999');
+    expect(appService.deployApp).toHaveBeenCalledWith('9', '99999', 'Picked App');
   });
 });

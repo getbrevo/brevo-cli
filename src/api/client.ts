@@ -151,8 +151,10 @@ export class ApiClient {
     return this.request<T>({ method: 'PUT', path, body });
   }
 
-  delete<T>(path: string): Promise<T> {
-    return this.request<T>({ method: 'DELETE', path });
+  // A body on DELETE is unusual but not disallowed, and the app-store installs
+  // resource requires one (it identifies the install by account, not by path).
+  delete<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>({ method: 'DELETE', path, body });
   }
 
   getWithKey<T>(path: string, apiKey: string): Promise<T> {

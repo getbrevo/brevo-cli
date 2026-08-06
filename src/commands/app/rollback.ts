@@ -7,7 +7,7 @@ import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { confirmDeployment, resolveDeploymentTarget } from './account-deployment';
 
-interface UndeployOptions {
+interface RollbackOptions {
   /** The `<account-id>` positional, folded in by the command definition. */
   accountId?: string;
   appId?: string;
@@ -24,42 +24,42 @@ interface UndeployOptions {
 function reportNotDeployed(appId: string, accountId: string, json?: boolean): void {
   if (json) {
     jsonOutput({
-      undeployed: false,
+      rolledBack: false,
       appId,
       accountId,
       reason: 'NOT_DEPLOYED',
-      message: messages.APP_UNDEPLOY_NOT_DEPLOYED(appId, accountId),
+      message: messages.APP_ROLLBACK_NOT_DEPLOYED(appId, accountId),
     });
     return;
   }
-  logInfo(`\n  ${messages.APP_UNDEPLOY_NOT_DEPLOYED(appId, accountId)}\n`);
+  logInfo(`\n  ${messages.APP_ROLLBACK_NOT_DEPLOYED(appId, accountId)}\n`);
 }
 
 /**
- * `brevo app undeploy <account-id>` — withdraw an app's availability from one
+ * `brevo app rollback <account-id>` — withdraw an app's availability from one
  * Brevo account. Counterpart to `app deploy`.
  */
-export const undeployCommand = withCommandHandler(
-  async (options: UndeployOptions): Promise<void> => {
+export const rollbackCommand = withCommandHandler(
+  async (options: RollbackOptions): Promise<void> => {
     const { appId, appLabel, accountId } = await resolveDeploymentTarget(
       options.accountId,
       options,
-      messages.APP_UNDEPLOY_SELECT,
-      messages.APP_UNDEPLOY_MISSING_ACCOUNT_ID,
+      messages.APP_ROLLBACK_SELECT,
+      messages.APP_ROLLBACK_MISSING_ACCOUNT_ID,
     );
 
-    // Deliberately no upload gate here: undeploying is always safe, and blocking it
+    // Deliberately no upload gate here: rolling back is always safe, and blocking it
     // on an upload would strand an app deployed by an earlier CLI version.
     const proceed = await confirmDeployment(
-      messages.APP_UNDEPLOY_CONFIRM(appLabel, appId, accountId),
-      messages.APP_UNDEPLOY_CANCELLED,
+      messages.APP_ROLLBACK_CONFIRM(appLabel, appId, accountId),
+      messages.APP_ROLLBACK_CANCELLED,
       options,
     );
     if (!proceed) return;
 
-    const spinner = createSpinner('Undeploying app...', { silent: options.json });
+    const spinner = createSpinner('Rolling back app...', { silent: options.json });
     try {
-      await appService.undeployApp(appId, accountId);
+      await appService.rollbackApp(appId, accountId, appLabel);
     } catch (err) {
       spinner.stop();
       if (err instanceof ApiError && err.statusCode === 422) {
@@ -71,10 +71,10 @@ export const undeployCommand = withCommandHandler(
     spinner.stop();
 
     if (options.json) {
-      jsonOutput({ undeployed: true, appId, accountId });
+      jsonOutput({ rolledBack: true, appId, accountId });
       return;
     }
 
-    logSuccess(messages.APP_UNDEPLOY_SUCCESS(appId, accountId));
+    logSuccess(messages.APP_ROLLBACK_SUCCESS(appId, accountId));
   },
 );

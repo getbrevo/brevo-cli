@@ -7,7 +7,7 @@ import { parseAccountId } from '../../lib/validators';
 import { promptAppSelection } from './select-app';
 
 /**
- * Shared resolution for `app deploy` and `app undeploy` (BEX-290).
+ * Shared resolution for `app deploy` and `app rollback` (BEX-290).
  *
  * The two commands are mirror operations on the same target — an (app, account)
  * pair — so target resolution, the upload gate, and confirmation live here rather

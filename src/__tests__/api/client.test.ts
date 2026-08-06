@@ -262,6 +262,26 @@ describe('api client', () => {
         expect.objectContaining({ method: 'DELETE' }),
       );
     });
+
+    // The app-store installs resource identifies the install by a body field,
+    // not a path segment, so DELETE has to be able to carry one.
+    it('should send a body when one is passed', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 204,
+        headers: new Map(),
+        text: () => Promise.resolve(''),
+      });
+
+      await client.delete('/v3/app-store/apps/1/installs', { deploy_client_id: 99999 });
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          method: 'DELETE',
+          body: JSON.stringify({ deploy_client_id: 99999 }),
+        }),
+      );
+    });
   });
 
   describe('client.getWithKey', () => {

@@ -74,7 +74,7 @@ to create a public app or drive the review lifecycle (`app submit` / `app status
 
 UI apps (action links) are not live on the Brevo platform, so the agent-facing docs
 carry a **⚠️ UI apps are not available yet** notice telling agents never to create a
-UI app or drive the deploy lifecycle (`app deploy` / `app undeploy`). This mirrors the
+UI app or drive the deploy lifecycle (`app deploy` / `app rollback`). This mirrors the
 public-apps notice above, including its *Exception — internal Brevo accounts* clause.
 
 **When UI apps go GA, remove the notice everywhere in one pass:**
@@ -82,7 +82,7 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 - [ ] `agent-context/SKILL.md`
   - [ ] Delete the `## ⚠️ UI apps are not available yet` section.
   - [ ] Decision tree — drop the **not available yet** prefix from "Create a UI app /
-        action link", "Make a UI app available in an account", and "Undeploy a UI app
+        action link", "Make a UI app available in an account", and "Roll back a UI app
         from an account".
   - [ ] Hard rules — delete rule 7 (*Don't create UI apps for real use*). Keep rule 8
         (*Never mix the two app types*) — that one is a correctness rule, not a
@@ -90,7 +90,7 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 - [ ] `agent-context/AGENTS.md`
   - [ ] Delete the `## ⚠️ UI apps are not available yet` section.
   - [ ] Common commands table — drop the **⚠️ Not available yet** prefix from the
-        `brevo app deploy` and `brevo app undeploy` rows.
+        `brevo app deploy` and `brevo app rollback` rows.
   - [ ] Conventions — delete the *UI apps are not available yet* bullet. Keep the
         *Two app types, one command surface* and *The `ui_app` block* bullets.
 - [ ] `README.md` — delete the **⚠️ UI apps are not available yet** blockquote below
@@ -176,11 +176,18 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       `types.ts`); confirm with the app-store backend team, including what the
       server does with the OAuth credentials it still issues at create time for
       UI apps.
-- [ ] **Confirm the deploy/remove endpoint contract.** `ENDPOINTS.APP_STORE_APP_DEPLOY`
-      / `APP_STORE_APP_REMOVE` and `appService.deployApp` / `removeApp` currently
-      assume `POST /v3/app-store/apps/{id}/deploy|remove` with `account_id` in the
-      body, and that the "not yet uploaded" / "not deployed" rejections are HTTP 422.
-      All four assumptions are marked in code comments.
+- [x] **Deploy/rollback route and body — resolved (2026-08-06).** Confirmed against the
+      staging endpoint: it is one resource, `/v3/app-store/apps/{id}/installs`, with
+      `POST` to install and `DELETE` to remove, both carrying the same body —
+      `deploy_client_id` (the account ID, as a **number**), `name`, `is_developer`.
+      `ENDPOINTS.APP_STORE_APP_INSTALLS` and `appService.deployApp` / `rollbackApp`
+      now match. The CLI sends the app's own name as `name` and `is_developer: true`
+      unconditionally.
+- [ ] **Still unconfirmed on that endpoint:** the rejection codes. The commands assume
+      HTTP 422 for "not yet uploaded" (deploy) and "not deployed" (rollback) — both
+      still marked in code comments. Confirm with the app-store backend team, along
+      with whether `name` is required or advisory, and whether the POST response
+      carries an install/integration ID the CLI should surface or persist.
 - [ ] Confirm whether `GET /v3/app-store/apps/{id}` returns the `ui_app` block. The
       upload diff and the scaffold-refresh path both read `ui_app` opportunistically
       and degrade safely when absent (the block reads as new / is carried forward
@@ -203,6 +210,93 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 
 Append an entry per change that needs verifying. Clear this section (keep the
 heading) before merging into `main`.
+
+### BEX-290 — `undeploy` → `rollback` rename (2026-08-06)
+
+**Change:** `brevo app undeploy` is now `brevo app rollback`. Third name for this
+command on this branch: `remove` → `undeploy` → `rollback`. Nothing behavioural
+changed — same target resolution, same absent upload gate, same
+`DELETE .../installs` call, same 422 → informational exit `0`.
+
+Renamed with it: `src/commands/app/undeploy.ts` → `rollback.ts` (and its test),
+`undeployCommand` → `rollbackCommand`, `appService.undeployApp` → `rollbackApp`,
+`messages.APP_UNDEPLOY_*` → `APP_ROLLBACK_*`, `CLI.APP_UNDEPLOY` → `CLI.APP_ROLLBACK`,
+and the **`--json` key `undeployed` → `rolledBack`** (following the precedent set when
+`removed` → `undeployed`). `reason: "NOT_DEPLOYED"` is unchanged — `deploy` keeps its
+name, so "not deployed" is still what the state is called.
+
+**Naming note for the reviewer:** `rollback` conventionally means "revert to the
+previous version", not "remove from this account", and `deploy` / `rollback` is an
+asymmetric pair where `deploy` / `undeploy` was not. The CLI also already has
+`app withdraw` for the review lifecycle, so there are now two different
+"take it back" verbs. Flagged, not blocking — renaming is cheap while UI apps are
+pre-GA, and it gets much more expensive after.
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn test && yarn build` green (46 suites / 936 tests).
+- [x] No `undeploy` remains anywhere in `src/` — command name, handler, service
+      method, message keys, CLI constant, filenames. Verified by repo-wide grep.
+- [x] Behaviour is byte-identical to `undeploy`: no upload gate, 422 →
+      informational NOT_DEPLOYED at exit `0`, `--force` / `--json` unchanged,
+      same `DELETE .../installs` body. Covered by `rollback.test.ts` (ported
+      wholesale, only names and the JSON key changed).
+- [ ] Manual: `brevo app --help` and `brevo app rollback --help` both list
+      `rollback` and no longer mention `undeploy`.
+- [ ] Manual: `brevo app rollback <account-id> --json` against a non-deployed app
+      returns `{"rolledBack": false, "reason": "NOT_DEPLOYED"}` at exit `0`.
+- [ ] Reviewer: this is a **breaking rename of an unreleased command**. Confirm
+      `undeploy` never shipped in a published version — if it did, the old name
+      needs an alias and a deprecation notice rather than a clean rename.
+- [ ] Reviewer: `agent-context/SKILL.md` and `agent-context/AGENTS.md` are both
+      updated and still in sync (CLAUDE.md requires it), along with `README.md`,
+      `CLAUDE.md`, `QA-TESTCASES.md` and the changeset.
+
+### BEX-290 — deploy/rollback hit the real installs endpoint (2026-08-06)
+
+**Change:** The deploy transport is no longer assumed. Confirmed against the staging
+endpoint, deploy and rollback are two verbs on one resource,
+`/v3/app-store/apps/{id}/installs` — `POST` to install, `DELETE` to remove — both
+carrying the same body: `deploy_client_id` (the account ID, **as a number**), `name`,
+`is_developer`. The two separate `/deploy` and `/undeploy` routes are gone, replaced by
+`ENDPOINTS.APP_STORE_APP_INSTALLS`. `ApiClient.delete` gained an optional body, since
+this resource identifies the install by a body field rather than a path segment.
+
+`name` is the app's own name — no new prompt and no new flag, so `app deploy` stays
+scriptable. `is_developer` is hard-coded `true`: every install the CLI creates is a
+developer install by construction. No user-visible command, flag, or output changed, so
+`SKILL.md` / `AGENTS.md` need no edit.
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn test && yarn build` green (46 suites / 936 tests).
+- [x] `deployApp` POSTs to `/installs` with `deploy_client_id` as a **number**, not the
+      string `parseAccountId` returns. Covered by
+      `should POST an install with the account ID coerced to a number`.
+- [x] `rollbackApp` DELETEs the same path with an identical body. Covered by
+      `should DELETE the same install resource with the same body`.
+- [x] `ApiClient.delete` serialises a body when given one and still sends none when not.
+      Covered by `should send a body when one is passed` in `client.test.ts`.
+- [x] The install `name` is the app name from `app-config.json`, falling back to the app
+      ID under `--app-id` (no linked config to read a name from). Covered by the updated
+      `deploy.test.ts` / `rollback.test.ts` assertions.
+- [x] 404 still becomes the friendly not-found error and 422 still propagates for the
+      commands to map. Covered by `should rethrow a 404 as a friendly not-found error on
+      both verbs` and `should propagate a 422 ApiError unchanged`.
+- [ ] Manual: `brevo app deploy <account-id>` against a real account, then confirm the
+      action link appears on the record page. Then `brevo app rollback <account-id>` and
+      confirm the DELETE removes it. **This is the first real exercise of the endpoint —
+      capture the POST response body.**
+- [ ] Confirm the rejection codes, which are **still assumed**: 422 for "not yet
+      uploaded" on deploy and "not deployed" on rollback. If the server uses a different
+      status or an error code in the body, remap `deploy.ts:53` and `rollback.ts:65`.
+- [ ] Confirm whether the POST response carries an install/integration ID worth
+      surfacing in `--json` output or persisting to `app-config.json`. The current
+      implementation discards the response — fine only while rollback addresses the
+      install by account rather than by ID.
+- [ ] Confirm whether `name` is required or advisory, and whether the server treats
+      repeated deploys to the same account as an idempotent upsert (the approved design
+      said upsert; the CLI relies on it — it never checks for an existing install).
 
 ### BEX-290 — review fixes on the reshape + prompt reorder
 
@@ -364,7 +458,7 @@ before any submit work. Only a failed fetch blocks; the state value is not a gat
 **Change:** New app type. `brevo app create --type <oauth|ui>` with a UI-app prompt
 path, a `ui_app` block in `app-config.json`, `ui_app` on the upload payload with
 local validation and diffing, and two new commands `brevo app deploy <account-id>` /
-`brevo app undeploy <account-id>` (named `remove` during development). `applyConditionals` generalised from a single
+`brevo app rollback <account-id>` (named `remove`, then `undeploy`, during development). `applyConditionals` generalised from a single
 distribution value to a flag set.
 
 **Must hold true:**
@@ -388,8 +482,8 @@ distribution value to a flag set.
       (which rewrites `app-config.json` wholesale from server values). Covered by
       `preserves the local ui_app block through a confirmed config refresh`.
 - [x] `app deploy` refuses before an upload, and maps the server's 422 to the same
-      message. `app undeploy` has no gate and exits `0` when not deployed. Covered by
-      `deploy.test.ts` / `undeploy.test.ts`.
+      message. `app rollback` has no gate and exits `0` when not deployed. Covered by
+      `deploy.test.ts` / `rollback.test.ts`.
 - [x] ~~The `ui_app` block matches the platform's stored app-snapshot shape field for
       field (`extension_type`, `surface_point_list`, `heading`, `subheading`,
       `redirect_link`, `link_target`), verified against both of the platform's
@@ -408,7 +502,7 @@ distribution value to a flag set.
 - [ ] Manual: `brevo app deploy <account-id>` against a real account, then confirm the
       action link actually renders in that account's contact record action menu, opens
       the external URL in a new tab, and carries the declared context properties.
-      Then `brevo app undeploy <account-id>` and confirm it disappears.
+      Then `brevo app rollback <account-id>` and confirm it disappears.
 - [ ] Manual: `brevo app deploy <account-id>` on a never-uploaded app must refuse with
       the `brevo app upload` hint — verify the **server** path too (not just the local
       `version` pre-flight) by deleting `version` from a config whose app *was*
@@ -429,11 +523,11 @@ distribution value to a flag set.
       UI-field flags exist), the `ui_app` block, and both carry the
       UI-apps-not-available notice with equivalent wording (CLAUDE.md requires those
       two stay in sync).
-- [ ] Reviewer: the **field names and the upload wire key (`ui_app`) are now verified**
-      against the platform's CLI upload endpoint, but the **deploy/undeploy endpoints
-      are designed, not built** — confirm the final routes and body shape with the
-      app-store backend team before this ships to users. See *Before UI-apps GA* →
-      related follow-ups.
+- [ ] Reviewer: the **field names, the upload wire key (`ui_app`), and the
+      deploy/rollback route and body are all now verified** against the platform. What
+      remains unconfirmed on the installs endpoint is only its rejection codes (the
+      422 mappings) and whether the POST response carries an install ID. See *Before
+      UI-apps GA* → related follow-ups.
 - [ ] Reviewer: BEX-350 needs a coordinated release (kit + reseeded extension-point
       registry + backend). A CLI release ahead of the reseed authors names that resolve
       to nothing, silently. Confirm the sequencing.
@@ -472,6 +566,12 @@ distribution value to a flag set.
 
 ### `remove` → `undeploy` rename + actionLink-only prompts (2026-08-03)
 
+> **Superseded on 2026-08-06** — the command is now `brevo app rollback`, and the
+> route is `DELETE /v3/app-store/apps/{id}/installs`, not `/undeploy`. Kept as a
+> record of what this branch did on 2026-08-03; the rename criteria below were met
+> at the time and are re-verified under the newer entries at the top of this section.
+> Read `undeploy` as `rollback` throughout.
+
 **Change:** `brevo app remove` is now `brevo app undeploy`, hitting
 `POST /v3/app-store/apps/{id}/undeploy` (aligning with the platform's approved
 deploy/undeploy design — the CLI route previously skewed as `/remove`). Its JSON
@@ -497,11 +597,9 @@ it).
       (`modal_iframe_url` required, `redirect_link`/`link_target` rejected) — the
       prompts are gated, not the wire. Covered by the existing `validateUiApp`
       iframe cases.
-- [ ] Manual: `brevo app --help` lists `undeploy` (not `remove`), and
-      `brevo app undeploy <account-id> --json` against a non-deployed app returns
-      `{"undeployed": false, "reason": "NOT_DEPLOYED"}` with exit `0`.
-- [ ] Reviewer: confirm with the app-store backend team that the shipped route is
-      `/undeploy` (design doc naming) before either side releases.
+- [x] Reviewer: confirm the shipped route with the app-store backend team. Done
+      2026-08-06 — it is neither `/remove` nor `/undeploy` but `DELETE .../installs`.
+      Superseded; see the top-of-section entries.
 
 ### Smoke test: public-app lifecycle (BEX-339)
 

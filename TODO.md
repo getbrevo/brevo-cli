@@ -53,8 +53,10 @@ into `main` — anything that must outlive the branch belongs in
       Remaining skew: the CLI still sends `cli_version` on the upload payload, which
       the server strict-rejects as an unknown key — drop it or have the server
       whitelist it (settle with the bo-be branch before either side releases).
-- [ ] **Blocking before this reaches users:** the deploy/undeploy endpoints are
-      designed and approved on the platform side but **not built yet**. See
+- [x] **Deploy/rollback transport — resolved (2026-08-06).** Confirmed against staging:
+      one resource, `POST`/`DELETE /v3/app-store/apps/{id}/installs`, same body on both
+      (`deploy_client_id` as a number, `name`, `is_developer`). The CLI now matches. Only
+      the rejection codes and the POST response shape remain assumed — see
       `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
 - [ ] **`app deploy` target-account resolution — design written, not implemented.** See
       `BEX-290-deploy-account-resolution.md`. Makes `<account-id>` optional: standalone
@@ -65,13 +67,14 @@ into `main` — anything that must outlive the branch belongs in
             Needs confirmation of whether `/v3/account/info` exposes a numeric account ID
             distinct from `organization_id` / `user_id`, and whether sub-accounts share their
             master's `organization_id`.
-      - [ ] **Deploy/undeploy endpoints are designed but not built.** The approved
-            server design answers the open contract questions (`account_id` in the body,
-            422 `app_not_configured` for "must upload first", idempotent upsert, master
-            may deploy into its sub-accounts but never itself, response carries
-            `integration_id`); the CLI's routes now match it (`/deploy`, `/undeploy`).
+      - [x] **Deploy/rollback transport settled (2026-08-06)** — see above. The route is
+            `/installs`, not the `/deploy`+`/undeploy` pair the approved design described,
+            and the account travels as a numeric `deploy_client_id`. The design's other
+            claims (422 `app_not_configured`, idempotent upsert, master may deploy into
+            its sub-accounts but never itself, response carries `integration_id`) are
+            **not** confirmed by the staging curl and remain open.
             Scope note (2026-08-03): interactive account selection is only needed for
-            deploy/undeploy against **sub-accounts** — plain accounts keep the explicit
+            deploy/rollback against **sub-accounts** — plain accounts keep the explicit
             `<account-id>` argument.
 - [ ] **Keep `EXTENSION_POINTS` in lockstep with the registry.** `src/lib/constants.ts`
       hard-codes the twelve-point registry so slot names can be validated offline. If

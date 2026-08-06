@@ -439,6 +439,48 @@ describe('services/app', () => {
     });
   });
 
+  describe('deployApp / rollbackApp', () => {
+    it('should POST an install with the account ID coerced to a number', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deployApp(UUID, '99999', 'Invoice Manager');
+
+      expect(mockClient.post).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
+        deploy_client_id: 99999,
+        name: 'Invoice Manager',
+        is_developer: true,
+      });
+    });
+
+    it('should DELETE the same install resource with the same body', async () => {
+      (mockClient.delete as jest.Mock).mockResolvedValue(undefined);
+
+      await service.rollbackApp(UUID, '99999', 'Invoice Manager');
+
+      expect(mockClient.delete).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
+        deploy_client_id: 99999,
+        name: 'Invoice Manager',
+        is_developer: true,
+      });
+    });
+
+    it('should rethrow a 404 as a friendly not-found error on both verbs', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      (mockClient.delete as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+
+      await expect(service.deployApp('999', '1', 'x')).rejects.toThrow('App 999 not found.');
+      await expect(service.rollbackApp('999', '1', 'x')).rejects.toThrow('App 999 not found.');
+    });
+
+    // The commands map 422 themselves — deploy to "upload first", rollback to an
+    // informational "not deployed" — so the service must not swallow it.
+    it('should propagate a 422 ApiError unchanged', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('not configured', 422));
+
+      await expect(service.deployApp('42', '1', 'x')).rejects.toMatchObject({ statusCode: 422 });
+    });
+  });
+
   describe('withdrawApp', () => {
     it('should POST to the withdraw endpoint by numeric-string ID', async () => {
       (mockClient.post as jest.Mock).mockResolvedValue(undefined);

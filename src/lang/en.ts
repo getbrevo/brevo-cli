@@ -209,7 +209,7 @@ export const messages = {
   APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS:
     "UI apps don't use OAuth — remove `scopes` and `redirectUris` from `auth` and keep it empty (`{}`).",
 
-  // App deploy / remove — per-account availability for UI apps (BEX-290)
+  // App deploy / rollback — per-account availability for UI apps (BEX-290)
   APP_DEPLOY_SELECT: 'Select an app to deploy:',
   APP_DEPLOY_CONFIRM: (name: string, appId: string, accountId: string) =>
     `Deploy app "${name}" (${appId}) to account ${accountId}?`,
@@ -221,14 +221,14 @@ export const messages = {
   // been validated by an upload. `version` is only ever written by a successful
   // upload, so its absence is a reliable local signal.
   APP_DEPLOY_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
-  APP_UNDEPLOY_SELECT: 'Select an app to undeploy:',
-  APP_UNDEPLOY_CONFIRM: (name: string, appId: string, accountId: string) =>
-    `Undeploy app "${name}" (${appId}) from account ${accountId}?`,
-  APP_UNDEPLOY_CANCELLED: 'Undeploy cancelled.',
-  APP_UNDEPLOY_SUCCESS: (appId: string, accountId: string) =>
-    `App ${appId} undeployed from account ${accountId}.`,
-  APP_UNDEPLOY_MISSING_ACCOUNT_ID: `Missing account ID.\n\n  Usage: ${CLI.APP_UNDEPLOY()}`,
-  APP_UNDEPLOY_NOT_DEPLOYED: (appId: string, accountId: string) =>
+  APP_ROLLBACK_SELECT: 'Select an app to roll back:',
+  APP_ROLLBACK_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Roll back app "${name}" (${appId}) from account ${accountId}?`,
+  APP_ROLLBACK_CANCELLED: 'Rollback cancelled.',
+  APP_ROLLBACK_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} rolled back from account ${accountId}.`,
+  APP_ROLLBACK_MISSING_ACCOUNT_ID: `Missing account ID.\n\n  Usage: ${CLI.APP_ROLLBACK()}`,
+  APP_ROLLBACK_NOT_DEPLOYED: (appId: string, accountId: string) =>
     `App ${appId} is not deployed to account ${accountId}.`,
   APP_DEPLOY_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',

@@ -44,6 +44,20 @@ function rethrowNotFound(err: unknown, appId: string): never {
 }
 
 /**
+ * Body shared by both verbs on the app-store installs resource (BEX-290).
+ *
+ * `accountId` arrives as the string `parseAccountId` validated as all-digits;
+ * the API wants a number, so convert here rather than at every call site.
+ */
+function buildInstallPayload(accountId: string, name: string) {
+  return {
+    deploy_client_id: Number(accountId),
+    name,
+    is_developer: true,
+  };
+}
+
+/**
  * Check apps exist and throw with user-facing message if empty.
  */
 function logEmptyAndThrow(): never {
@@ -257,30 +271,37 @@ export function createAppService(client: ApiClient) {
     },
 
     /**
-     * Make a UI app available in a single Brevo account (BEX-290).
+     * Make a UI app available in a single Brevo account (BEX-290) by creating an
+     * install on `POST /v3/app-store/apps/{id}/installs`.
      *
-     * ⚠️ ASSUMED CONTRACT — `account_id` in the body, path from
-     * ENDPOINTS.APP_STORE_APP_DEPLOY. Pending confirmation from the app-store
-     * backend team; this and `undeployApp` are the only places to change.
+     * `deploy_client_id` is the numeric account ID — sent as a number, not the
+     * string `parseAccountId` returns. `is_developer` is always true: every
+     * install the CLI creates is a developer install by construction.
      *
      * 404 becomes a friendly CliError; everything else (notably the "not yet
      * uploaded" rejection) propagates for the command to map.
      */
-    async deployApp(appId: string, accountId: string): Promise<void> {
+    async deployApp(appId: string, accountId: string, name: string): Promise<void> {
       try {
-        await client.post(ENDPOINTS.APP_STORE_APP_DEPLOY(appId), { account_id: accountId });
+        await client.post(
+          ENDPOINTS.APP_STORE_APP_INSTALLS(appId),
+          buildInstallPayload(accountId, name),
+        );
       } catch (err) {
         rethrowNotFound(err, appId);
       }
     },
 
     /**
-     * Withdraw a UI app's availability from a single account. Counterpart to
-     * {@link deployApp}; same assumed contract caveat.
+     * Withdraw a UI app's availability from a single account — deletes the
+     * install created by {@link deployApp}. Same resource, same body, DELETE.
      */
-    async undeployApp(appId: string, accountId: string): Promise<void> {
+    async rollbackApp(appId: string, accountId: string, name: string): Promise<void> {
       try {
-        await client.post(ENDPOINTS.APP_STORE_APP_UNDEPLOY(appId), { account_id: accountId });
+        await client.delete(
+          ENDPOINTS.APP_STORE_APP_INSTALLS(appId),
+          buildInstallPayload(accountId, name),
+        );
       } catch (err) {
         rethrowNotFound(err, appId);
       }

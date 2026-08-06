@@ -90,16 +90,14 @@ export const ENDPOINTS = {
   APP_STORE_APP_WITHDRAW: (appId: string) =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/withdraw`,
   // Per-account availability for UI apps (BEX-290). Until an in-product
-  // enable/disable surface ships, these two endpoints *are* the install
-  // mechanism for an action link.
+  // enable/disable surface ships, this endpoint *is* the install mechanism for
+  // an action link: POST to install into an account, DELETE to remove.
   //
-  // ⚠️ ASSUMED CONTRACT — pending confirmation from the app-store backend team:
-  // paths below, and `account_id` carried in the request body rather than as a
-  // path segment. If the real contract differs, this and appService.deployApp /
-  // undeployApp are the only two places to change.
-  APP_STORE_APP_DEPLOY: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/deploy`,
-  APP_STORE_APP_UNDEPLOY: (appId: string) =>
-    `/v3/app-store/apps/${encodeURIComponent(appId)}/undeploy`,
+  // Both verbs take the same body — `deploy_client_id` (the numeric account ID),
+  // `name`, `is_developer`. Note the `deploy` / `rollback` *commands* are named
+  // for the partner-facing verb, not the resource; the resource is an install.
+  APP_STORE_APP_INSTALLS: (appId: string) =>
+    `/v3/app-store/apps/${encodeURIComponent(appId)}/installs`,
   APP_STORE_SURFACE_POINTS: '/v3/app-store/surface-points',
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
@@ -122,8 +120,8 @@ export const CLI = {
   APP_UPLOAD: 'brevo app upload',
   APP_DEPLOY: (accountId?: string) =>
     accountId ? `brevo app deploy ${accountId}` : 'brevo app deploy <account-id>',
-  APP_UNDEPLOY: (accountId?: string) =>
-    accountId ? `brevo app undeploy ${accountId}` : 'brevo app undeploy <account-id>',
+  APP_ROLLBACK: (accountId?: string) =>
+    accountId ? `brevo app rollback ${accountId}` : 'brevo app rollback <account-id>',
   APP_DELETE: 'brevo app delete',
   APP_WITHDRAW: (appId?: string) =>
     appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',

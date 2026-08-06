@@ -98,7 +98,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff (`--yes`) |
 | `brevo app deploy` | Make an app available in a Brevo account (`<account-id>`, `--app-id`, `--force`) |
-| `brevo app undeploy` | Undeploy an app from a Brevo account (`<account-id>`, `--app-id`, `--force`) |
+| `brevo app rollback` | Roll back an app from a Brevo account (`<account-id>`, `--app-id`, `--force`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Add a feature to the app in the current directory (`--overwrite`) |
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |
@@ -107,7 +107,7 @@ Most commands require a successful `brevo login` first, except authentication/he
 
 > **⚠️ Public apps are not available yet.** Public app distribution isn't live on the Brevo platform. `brevo app create` still accepts `--distribution public`, but create your apps with `--distribution private` — a public app can't be distributed or submitted for review today.
 
-> **⚠️ UI apps are not available yet.** UI apps — action links that render inside Brevo CRM records — aren't live on the Brevo platform. `brevo app create` offers one at its app-type prompt, and `brevo app deploy` / `brevo app undeploy` ship, but there is no working path behind any of it today.
+> **⚠️ UI apps are not available yet.** UI apps — action links that render inside Brevo CRM records — aren't live on the Brevo platform. `brevo app create` offers one at its app-type prompt, and `brevo app deploy` / `brevo app rollback` ship, but there is no working path behind any of it today.
 
 ### Browser login
 

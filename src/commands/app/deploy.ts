@@ -23,7 +23,7 @@ interface DeployOptions {
  * `brevo app deploy <account-id>` — make an app available in one Brevo account.
  *
  * Until an in-product enable/disable surface ships, this (with
- * `app undeploy`) is the only way a UI app becomes visible in an account.
+ * `app rollback`) is the only way a UI app becomes visible in an account.
  */
 export const deployCommand = withCommandHandler(async (options: DeployOptions): Promise<void> => {
   const { appId, appLabel, accountId } = await resolveDeploymentTarget(
@@ -44,7 +44,10 @@ export const deployCommand = withCommandHandler(async (options: DeployOptions): 
 
   const spinner = createSpinner('Deploying app...', { silent: options.json });
   try {
-    await appService.deployApp(appId, accountId);
+    // The install's `name` is the app's own name — no prompt, no flag, so
+    // `app deploy` stays scriptable. `appLabel` falls back to the app ID when
+    // there is no linked project config to read a name from.
+    await appService.deployApp(appId, accountId, appLabel);
   } catch (err) {
     spinner.stop();
     // The server is the authority on whether the config was validated. 422 is
