@@ -11,6 +11,7 @@ import {
   CreateAppResponse,
   AppStateResponse,
   RawSurfacePointRow,
+  SurfacePointLocationsResponse,
   SurfacePointRow,
   SurfacePointsResponse,
   UploadAppPayload,
@@ -75,11 +76,42 @@ export function createAppService(client: ApiClient) {
     fetchAppsList,
 
     /**
-     * Read the extension-point registry for UI-app slot authoring (BEX-361).
+     * The record-page locations the registry offers, in server order (BEX-361).
+     *
+     * `GET .../surface-points/locations` answers with the distinct `location_name` values
+     * and nothing else (`{ locations, count }`), which is exactly what `app create`'s
+     * record-page prompt needs. Reading it beats pulling every row and reducing to the
+     * same handful of strings: it is the registry's own answer to "which pages exist"
+     * rather than the CLI's inference from whichever rows happened to come back, and it
+     * doesn't make the page prompt wait on the full registry.
+     *
+     * Tolerates a bare array alongside the wrapped shape, and drops non-string, blank and
+     * duplicate entries, so callers can trust every value they get.
+     *
+     * Errors propagate — the caller owns the actionable message, same as below.
+     */
+    async fetchSurfacePointLocations(): Promise<string[]> {
+      const res = await client.get<SurfacePointLocationsResponse | string[] | null>(
+        ENDPOINTS.APP_STORE_SURFACE_POINT_LOCATIONS,
+      );
+      const raw = Array.isArray(res) ? res : (res?.locations ?? []);
+      const locations = new Set<string>();
+      for (const entry of raw) {
+        if (typeof entry !== 'string') continue;
+        const name = entry.trim();
+        if (name) locations.add(name);
+      }
+      return [...locations];
+    },
+
+    /**
+     * Read the extension-point registry rows for UI-app slot authoring (BEX-361).
      *
      * `locations` narrows to the given `location_name` values (comma-separated on the
      * wire), which is how `app create` fetches the placements for the pages a partner
-     * actually picked. Omit it for the whole registry.
+     * actually picked — the pages come from `fetchSurfacePointLocations` above. Omit it
+     * for the whole registry, which the create flow only falls back to when the narrowed
+     * read doesn't cover the picked pages.
      *
      * There is deliberately NO extension-type filter. Both extension types render on both
      * kinds, so filtering server-side would hide authorable placements; the create flow

@@ -278,13 +278,16 @@ async function resolveLogoUri(
 //                             decision a partner arrives with, and because it decides
 //                             which single URL question is asked at the end. It does NOT
 //                             filter the placement list.
-//       2. record pages     → multi-select of the registry's distinct locations.
+//       2. record pages     → multi-select of the registry's own location list.
 //       3. placements       → ONE prompt of real registry rows, grouped by page.
 //       4. label            → menu entry text / card CTA.
 //       5. more_info        → optional supporting line.
 //       6. redirect link    → the destination.
 //
-//     Five questions, one optional, two registry loads. The old kind-then-place pair is
+//     Five questions, one optional, and two registry reads that ask for different things:
+//     `surface-points/locations` for the pages, then `surface-points?location=<csv>` for
+//     the placements on the pages that were picked. The pages are never derived from a full
+//     row read — the registry answers that question directly. The old kind-then-place pair is
 //     gone: kind is a property of a slot, not a question — a partner picking "Header
 //     menu" has already said they want a menu entry — and asking it up front made cards
 //     and menu entries mutually exclusive within one app, which the platform does not
@@ -374,71 +377,103 @@ function rowSupportsExtensionType(row: SurfacePointRow, extensionType: string): 
 }
 
 /**
- * Load the whole registry, for the record-page prompt.
+ * Load the record pages, for the page prompt.
+ *
+ * Reads the registry's own location list (`GET .../surface-points/locations`) rather than
+ * pulling every row and reducing it to the distinct locations: the pages are the
+ * registry's answer, not the CLI's inference from whichever rows came back, and the prompt
+ * doesn't wait on the full registry to show three choices.
  *
  * Fetch-only by decision: a failure aborts UI-app creation with an actionable message
- * rather than falling back to the local mirror — offering a slot the platform doesn't
- * actually have would reproduce exactly the silent-drop failure this flow exists to
- * prevent. Unfiltered, per the BEX-361 endpoint design; the type check above is what
- * keeps un-hostable rows out of the prompts.
+ * rather than falling back to a local list — offering a page the platform doesn't actually
+ * have would reproduce exactly the silent-drop failure this flow exists to prevent.
+ *
+ * The chosen extension type is deliberately NOT consulted here, and could not be: a list
+ * of location names carries no `extension_type_list` to check. A page whose every
+ * placement is un-hostable therefore reaches this prompt and is dropped — with a warning —
+ * once the rows are read. See `promptSurfacePointList`.
  */
-async function fetchAllSurfacePoints(extensionType: string): Promise<UsableSurfacePoint[]> {
+async function fetchRecordPageLocations(): Promise<string[]> {
   const spinner = createSpinner(messages.APP_CREATE_UI_PAGES_SPINNER);
-  let rows: SurfacePointRow[];
+  let locations: string[];
   try {
-    rows = await appService.fetchSurfacePoints();
+    locations = await appService.fetchSurfacePointLocations();
   } catch {
     throw new CliError(messages.APP_CREATE_UI_POINTS_FETCH_FAILED);
   } finally {
     spinner.stop();
   }
 
-  const usable = toUsableRows(rows);
-  if (usable.length === 0) {
+  if (locations.length === 0) {
     throw new CliError(messages.APP_CREATE_UI_POINTS_EMPTY);
   }
-  const hostable = usable.filter((row) => rowSupportsExtensionType(row, extensionType));
-  if (hostable.length === 0) {
-    throw new CliError(messages.APP_CREATE_UI_POINTS_NONE_FOR_TYPE(extensionType));
+  return locations;
+}
+
+/** The registry read, narrowed or not, reduced to `null` on failure so callers can retry. */
+async function readSurfacePointRows(
+  locations?: readonly string[],
+): Promise<SurfacePointRow[] | null> {
+  try {
+    return await appService.fetchSurfacePoints(locations);
+  } catch {
+    return null;
   }
-  return hostable;
 }
 
 /**
- * Load the placements for the pages the partner picked.
+ * Load the placements for the pages the partner picked — the only ROW read in the flow.
  *
- * A second, narrowed round trip — the endpoint takes `?location=<comma-separated>` — so
- * that the placement prompt reflects the registry at the moment it is shown rather than
- * whatever the first call happened to return.
+ * `?location=<comma-separated>` narrows server-side, and the response is narrowed again
+ * locally, so an endpoint that ignores the filter needs no special case.
  *
- * It falls back to the rows already held instead of aborting. The narrowed response is a
- * strict SUBSET of the first call's, so nothing is lost by reusing it, and dying here
- * would throw away the answer the partner just gave to a prompt they cannot be re-asked.
- * That matters more than usual while the endpoint is unbuilt: an early build may well not
- * implement the `location` filter, and a 400 on it should not be fatal.
+ * A read that fails, or that covers fewer of the picked pages than were asked for, is
+ * RETRIED unfiltered. Both are symptoms of the filter rather than of an empty registry —
+ * an early build may 400 on `?location=` or honour only the first CSV value — and the
+ * location list this run was built from already proved those pages exist. Aborting instead
+ * would throw away the page answer the partner just gave, which they cannot be re-asked
+ * for. The retry's rows are filtered to the picked pages too, so nothing broader leaks
+ * into the prompt, and a page still missing afterwards is genuinely empty for this type.
  */
 async function fetchSurfacePointsForPages(
-  allRows: UsableSurfacePoint[],
   locations: readonly string[],
   extensionType: string,
 ): Promise<UsableSurfacePoint[]> {
-  const onPickedPages = allRows.filter((row) => locations.includes(row.location_name));
+  const onPickedPages = (rows: SurfacePointRow[]) =>
+    toUsableRows(rows).filter((row) => locations.includes(row.location_name));
+  const pagesCovered = (rows: UsableSurfacePoint[]) =>
+    new Set(rows.map((row) => row.location_name)).size;
+
   const spinner = createSpinner(messages.APP_CREATE_UI_POINTS_SPINNER);
-  let rows: SurfacePointRow[];
+  let usable: UsableSurfacePoint[];
   try {
-    rows = await appService.fetchSurfacePoints(locations);
-  } catch {
-    return onPickedPages;
+    const narrowed = await readSurfacePointRows(locations);
+    usable = onPickedPages(narrowed ?? []);
+    if (narrowed === null || pagesCovered(usable) < locations.length) {
+      const unfiltered = await readSurfacePointRows();
+      if (unfiltered === null && narrowed === null) {
+        throw new CliError(messages.APP_CREATE_UI_POINTS_FETCH_FAILED);
+      }
+      const fallback = onPickedPages(unfiltered ?? []);
+      if (pagesCovered(fallback) > pagesCovered(usable)) usable = fallback;
+    }
   } finally {
     spinner.stop();
   }
 
-  const hostable = toUsableRows(rows)
-    .filter((row) => locations.includes(row.location_name))
-    .filter((row) => rowSupportsExtensionType(row, extensionType));
-  // An empty narrowed response is also treated as "the filter didn't work" rather than
-  // "these pages have no placements" — the first call already proved they do.
-  return hostable.length > 0 ? hostable : onPickedPages;
+  const hostable = usable.filter((row) => rowSupportsExtensionType(row, extensionType));
+  if (hostable.length === 0) {
+    // Two distinct dead ends: the registry has rows for these pages but none can serve the
+    // chosen type (fix: a different integration type), or it has none at all (fix: wait
+    // for a seed). The location list said the pages exist, so either is a surprise worth
+    // naming precisely.
+    throw new CliError(
+      usable.length > 0
+        ? messages.APP_CREATE_UI_POINTS_NONE_FOR_TYPE(extensionType)
+        : messages.APP_CREATE_UI_POINTS_EMPTY,
+    );
+  }
+  return hostable;
 }
 
 /** Partner-facing label for one placement: the page region, plus the shape it renders as. */
@@ -463,17 +498,15 @@ function placementLabel(row: UsableSurfacePoint): string {
  * authored `surface_point` values are never string-composed client-side.
  */
 async function promptSurfacePointList(
-  allRows: UsableSurfacePoint[],
+  locations: readonly string[],
   extensionType: string,
 ): Promise<UsableSurfacePoint[]> {
-  // Pages — unique locations in registry order, shown under their friendly names.
-  const surfaceChoices: Array<{ name: string; value: string; location: string }> = [];
-  for (const row of allRows) {
-    if (!surfaceChoices.some((choice) => choice.location === row.location_name)) {
-      const value = surfaceValueForLocation(row.location_name);
-      surfaceChoices.push({ name: value, value, location: row.location_name });
-    }
-  }
+  // Pages — the registry's locations in server order, shown under their friendly names.
+  const surfaceChoices = locations.map((location) => ({
+    name: surfaceValueForLocation(location),
+    value: surfaceValueForLocation(location),
+    location,
+  }));
   const { surfaces } = await inquirer.prompt([
     {
       type: 'checkbox',
@@ -492,7 +525,7 @@ async function promptSurfacePointList(
     .filter((choice) => pickedSurfaces.includes(choice.value))
     .map((choice) => choice.location);
 
-  const rows = await fetchSurfacePointsForPages(allRows, pickedLocations, extensionType);
+  const rows = await fetchSurfacePointsForPages(pickedLocations, extensionType);
   const byName = new Map(rows.map((row) => [row.surface_point, row]));
 
   // Placements — one flat checkbox, grouped by page with a separator heading each group.
@@ -602,8 +635,8 @@ async function resolveUiApp(): Promise<UiApp> {
   // Integration type first: it is the decision a partner arrives with, and it decides
   // which registry rows can host the app at all.
   const extensionType = await promptIntegrationType();
-  const registry = await fetchAllSurfacePoints(extensionType);
-  const selectedRows = await promptSurfacePointList(registry, extensionType);
+  const locations = await fetchRecordPageLocations();
+  const selectedRows = await promptSurfacePointList(locations, extensionType);
 
   const { label } = await inquirer.prompt([
     {

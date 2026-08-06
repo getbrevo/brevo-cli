@@ -160,6 +160,50 @@ describe('services/app', () => {
     });
   });
 
+  // The record pages come from the registry's own location list, not from reducing a full
+  // row read — `app create`'s page prompt asks the registry which pages exist rather than
+  // inferring it from whichever rows came back.
+  describe('fetchSurfacePointLocations', () => {
+    it('GETs the locations endpoint and returns the list in server order', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        locations: ['companyDetails', 'contactDetails', 'dealDetails'],
+        count: 3,
+      });
+
+      expect(await service.fetchSurfacePointLocations()).toEqual([
+        'companyDetails',
+        'contactDetails',
+        'dealDetails',
+      ]);
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/surface-points/locations');
+    });
+
+    it('tolerates a bare-array response', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue(['contactDetails']);
+      expect(await service.fetchSurfacePointLocations()).toEqual(['contactDetails']);
+    });
+
+    // Callers build prompt choices straight off these values, so a blank, a non-string or a
+    // duplicate would become an unpickable or repeated page choice.
+    it('drops blank, non-string and duplicate entries', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        locations: ['contactDetails', '  contactDetails  ', '   ', 42, null, 'dealDetails'],
+      });
+
+      expect(await service.fetchSurfacePointLocations()).toEqual(['contactDetails', 'dealDetails']);
+    });
+
+    it('returns [] for a null response body', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue(null);
+      expect(await service.fetchSurfacePointLocations()).toEqual([]);
+    });
+
+    it('propagates ApiError unchanged (the command owns the actionable message)', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      await expect(service.fetchSurfacePointLocations()).rejects.toThrow(ApiError);
+    });
+  });
+
   describe('fetchApp', () => {
     it('should normalize numeric app_id on a legacy response', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue({ app_id: 42, name: 'test' });

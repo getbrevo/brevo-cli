@@ -30,12 +30,25 @@ into `main` — anything that must outlive the branch belongs in
       confirmed. They exist only because keying strictly on either candidate naming
       would fail closed against the other — every row dropped, and the partner told
       the registry "has not been seeded".
-- [ ] **Reconsider the second registry call.** `app create` fetches the registry
-      unfiltered, then again with `?location=<csv>`. The narrowed response is a
-      strict subset of the first, so the second call buys freshness and nothing else
-      while doubling latency; `ApiClient.get` has no ETag/cache support, so the
-      endpoint's caching headers don't mitigate it. If freshness turns out not to
-      matter, filter the first call's rows in memory instead.
+- [x] **Reconsider the second registry call — DONE (2026-08-06).** Resolved by making
+      the two reads ask *different* questions rather than by dropping one. The pages
+      now come from `GET /v3/app-store/surface-points/locations` (location names, no
+      rows) and the rows are read once, narrowed to the pages that were picked. The
+      old pair fetched the whole registry and then a strict subset of it, so the
+      second call bought freshness and nothing else; the page prompt also no longer
+      waits on a full registry read to offer three choices.
+- [ ] **Drop the unfiltered retry in `fetchSurfacePointsForPages`** once
+      `?location=` is confirmed honoured on the real endpoint (and confirmed to 400
+      rather than silently ignore an unknown value). It exists because the narrowed
+      read is the only row read in the flow: without it, an early build that 400s on
+      the filter — or honours only the first CSV value — would abort or silently drop
+      pages after the partner has already answered the page prompt.
+- [ ] **Confirm the locations endpoint's response shape** (`{ locations, count }`)
+      and whether it takes any filter of its own. The CLI tolerates a bare array
+      alongside the wrapped shape in `appService.fetchSurfacePointLocations`; that
+      tolerance can go once the shape is confirmed. Note the CLI does not ask it for
+      an extension-type-aware page list — see the warning path for a page with no
+      hostable placement.
 - [ ] **Per-placement `label` / `more_info` / `redirect_link`.** One set is shared
       across every chosen placement today, so an app cannot say *menu entry → link
       X* alongside *sidebar card → link Y*. The nested `surface_point_list` makes

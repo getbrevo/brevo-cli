@@ -146,13 +146,22 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       subset, hence the key.
 - [ ] **Ship BEX-361 and confirm its /v3 mapping.** `brevo app create`'s UI-app path
       reads the extension-point registry live — fetch-only, no local fallback — so
-      **UI-app creation is unusable until the endpoint ships**. It now calls the
-      endpoint TWICE per run: once unfiltered for the record-page prompt, then
-      `?location=<comma-separated>` for the placements on the pages that were picked.
-      There is deliberately no extension-type filter; the CLI checks each row's own
-      `extension_type_list` and `status` instead, since both extension types render on
-      both kinds and a server-side type filter would hide authorable placements.
+      **UI-app creation is unusable until the endpoint ships**. It makes TWO reads per
+      run, asking different questions: `GET /v3/app-store/surface-points/locations`
+      for the record-page prompt (distinct location names, no rows), then
+      `GET /v3/app-store/surface-points?location=<comma-separated>` for the placements
+      on the pages that were picked. There is deliberately no extension-type filter on
+      either; the CLI checks each row's own `extension_type_list` and `status` instead,
+      since both extension types render on both kinds and a server-side type filter
+      would hide authorable placements.
       Confirm on the real endpoint:
+      - [ ] `/surface-points/locations` answers `{ locations: [...], count: n }` with
+            the registry's distinct `location_name` values. The CLI also tolerates a
+            bare array; drop that once the shape is confirmed (see TODO.md). A page it
+            lists is offered to the partner **before** any row is read, so a location
+            with no active row that can host the chosen extension type is offered and
+            then skipped with a warning — acceptable, but confirm the endpoint doesn't
+            list locations with no active rows at all.
       - [ ] The response rows carry `surface_point`, `location_name`, `section_name`,
             `component_type`, `default_context_field`, `allowed_context_field`,
             `extension_type_list`, `status`. The CLI ALSO tolerates the pre-BEX-361
@@ -162,8 +171,10 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
             partner told the registry "has not been seeded". Drop the alias branch in
             `appService.fetchSurfacePoints` once the real shape is confirmed.
       - [ ] `?location=` is honoured, and an unknown value 400s rather than being
-            silently dropped. Not fatal either way: the second call falls back to the
-            rows from the first, which are a superset.
+            silently dropped. Not fatal either way: the row read is retried
+            UNFILTERED and narrowed client-side when it fails or comes back covering
+            fewer of the picked pages than were asked for. Confirming this lets that
+            retry go (see TODO.md).
       - [ ] Row order is deterministic. The CLI writes placements in registry order,
             and the upload diff sorts before comparing, so churn here is contained —
             but the prompt order is the partner's mental model of the page.
@@ -1190,3 +1201,58 @@ read path / UI kit consume. Confirm against the platform before GA.
       confirm the snake_case block is accepted and echoed back; deploy and
       confirm the action link renders (proves the manifest/UI-kit path reads
       the snake_case names).
+
+### BEX-290 — record pages come from `/surface-points/locations` (2026-08-06)
+
+**Change:** `brevo app create`'s UI-app path no longer pulls the whole
+extension-point registry to work out which record pages exist. The two registry
+reads now ask different questions:
+
+1. `GET /v3/app-store/surface-points/locations` → `{ locations, count }`, the
+   registry's distinct `location_name` values, for the record-page prompt
+   (`appService.fetchSurfacePointLocations`, `ENDPOINTS.APP_STORE_SURFACE_POINT_LOCATIONS`).
+2. `GET /v3/app-store/surface-points?location=<csv>` → the rows, once, for the
+   placements on the pages that were picked. This is now the ONLY row read in the
+   flow.
+
+Partner-visible prompts are unchanged. Two behavioural consequences:
+
+- **The extension type can no longer be checked before the page prompt** — a list
+  of location names carries no `extension_type_list`. So a page whose every
+  placement is un-hostable is offered, then reported as a warning and skipped once
+  the rows arrive, and `APP_CREATE_UI_POINTS_NONE_FOR_TYPE` is raised *after* the
+  page prompt instead of before it. This makes the existing dropped-page warning
+  path more reachable, not less — it is load-bearing now.
+- **The narrowed read has no already-held superset to fall back on**, so a read
+  that fails, or that covers fewer of the picked pages than were asked for, is
+  retried UNFILTERED and narrowed client-side. Only a failure of both aborts.
+  Tracked for removal once `?location=` is confirmed honoured (TODO.md).
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn test` green (47 suites / 979 tests); `tsc --noEmit` clean.
+- [x] The page prompt offers exactly what the locations endpoint lists, not a
+      reduction of the rows. Covered by `offers exactly the pages the locations
+      endpoint lists` (`create.test.ts`), where the row fixture covers three pages
+      and only the two listed ones are offered.
+- [x] One locations read + one row read on a clean run, with the row read narrowed
+      to the picked pages. Covered by `reads the pages from the locations endpoint,
+      then the picked pages by location`.
+- [x] The unfiltered retry fires on a failed narrowed read, an empty one, and one
+      covering only some picked pages — and both reads failing aborts with the
+      actionable message. Four cases in `create.test.ts`.
+- [x] A locations read that fails or returns `[]` aborts before anything is asked
+      and before any row read is attempted.
+- [x] A page with rows but none that can host the chosen type is warned about and
+      skipped, and the placement prompt stays satisfiable (the prompt-lock
+      regression). Covered by the `a picked page with no placement that can host the
+      chosen type` describe.
+- [ ] Manual (blocked on BEX-361 shipping): run `brevo app create` → UI app against
+      a real environment and confirm the locations endpoint's shape, that the page
+      prompt matches the registry, and that `?location=` is honoured (which lets the
+      retry go).
+- [ ] Reviewer: no agent-doc change is proposed. `SKILL.md`/`AGENTS.md` describe this
+      as "reads the available placements from the platform's extension-point
+      registry" without naming endpoints, and no command, flag, prompt, exit code or
+      message changed — so this is not user-visible CLI behaviour under CLAUDE.md's
+      definition. Confirm that reading.

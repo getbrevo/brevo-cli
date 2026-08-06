@@ -99,6 +99,11 @@ export const ENDPOINTS = {
   APP_STORE_APP_INSTALLS: (appId: string) =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/installs`,
   APP_STORE_SURFACE_POINTS: '/v3/app-store/surface-points',
+  // The registry's distinct `location_name` values, and nothing else:
+  // `{ locations: ["companyDetails", …], count: 3 }`. `app create` reads this for the
+  // record-page prompt and then narrows the row read with `?location=<csv>`, rather than
+  // pulling the whole registry to derive the same handful of strings client-side.
+  APP_STORE_SURFACE_POINT_LOCATIONS: '/v3/app-store/surface-points/locations',
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -168,7 +173,9 @@ export const DEFAULT_SCOPES: readonly string[] = [
  * server would have accepted, and a slot the platform had dropped still passed.
  *
  * The registry is now the only authority, read at the two points that need it:
- * `app create` prompts from `GET /v3/app-store/surface-points`, and the upload
+ * `app create` prompts from it (`GET /v3/app-store/surface-points/locations` for the
+ * record pages, then `GET /v3/app-store/surface-points?location=<csv>` for the
+ * placements on the pages that were picked), and the upload
  * endpoint checks every authored name against `extension_points` in one indexed
  * read, answering 400 with the offending names (`checkExtensionPoints`, BEX-361).
  * Neither the UI kit's exact-match rendering nor the platform's silent drop of an

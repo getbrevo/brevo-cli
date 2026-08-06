@@ -29,6 +29,7 @@ jest.mock('../../../container', () => ({
     fetchAppsList: jest.fn(),
     fetchApp: jest.fn(),
     fetchSurfacePoints: jest.fn(),
+    fetchSurfacePointLocations: jest.fn(),
     pickApp: jest.fn(),
     createApp: jest.fn(),
     updateApp: jest.fn(),
@@ -1179,9 +1180,30 @@ describe('app/create', () => {
       ],
     );
 
+    /**
+     * Point BOTH registry reads at one set of rows: the record pages come from
+     * `surface-points/locations` and the placements from `surface-points?location=<csv>`, so
+     * a test that stubbed only the rows would leave the page prompt with nothing to offer.
+     *
+     * `locations` is passed explicitly only where the rows can't imply it — a row with no
+     * `location_name` column (the backfill cases) still belongs to a page the real endpoint
+     * would have listed.
+     */
+    const registryHas = (
+      rows: Array<Record<string, unknown>>,
+      locations?: readonly string[],
+    ): void => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue(rows);
+      (appService.fetchSurfacePointLocations as jest.Mock).mockResolvedValue(
+        locations ?? [
+          ...new Set(rows.map((row) => String(row.location_name ?? '')).filter(Boolean)),
+        ],
+      );
+    };
+
     beforeEach(() => {
       askedQuestions = [];
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue(FULL_REGISTRY);
+      registryHas(FULL_REGISTRY);
       (appService.createApp as jest.Mock).mockResolvedValue({
         app_id: 42,
         name: 'Invoice Manager',
@@ -1289,9 +1311,11 @@ describe('app/create', () => {
       expect(collectedUiApp().extension_type).toBe('actionLink');
     });
 
-    // ──────── Two registry loads ────────
+    // ──────── The two registry reads ────────
+    // Different questions, not the same call twice: the pages come from the registry's own
+    // location list, so no run pulls every row just to learn that three pages exist.
 
-    it('loads the whole registry unfiltered, then the picked pages by location', async () => {
+    it('reads the pages from the locations endpoint, then the picked pages by location', async () => {
       answerPrompts({
         surfaces: ['contact', 'deal'],
         placements: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
@@ -1299,35 +1323,77 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(1);
-      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(2, [
+      expect(appService.fetchSurfacePointLocations).toHaveBeenCalledTimes(1);
+      expect(appService.fetchSurfacePoints).toHaveBeenCalledTimes(1);
+      expect(appService.fetchSurfacePoints).toHaveBeenCalledWith(['contactDetails', 'dealDetails']);
+    });
+
+    // The page choices are the locations endpoint's answer, not a reduction of the rows:
+    // here the row fixture covers three pages and only the two listed ones are offered.
+    it('offers exactly the pages the locations endpoint lists', async () => {
+      (appService.fetchSurfacePointLocations as jest.Mock).mockResolvedValue([
         'contactDetails',
         'dealDetails',
       ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(choiceValuesOf('surfaces')).toEqual(['contact', 'deal']);
     });
 
-    // The narrowed response is a strict subset of the first call's, so nothing is lost by
-    // reusing what we already hold — and aborting here would throw away the page answer
-    // the partner just gave. Matters while the endpoint is unbuilt: an early build may not
-    // implement the location filter at all, and a 400 on it must not be fatal.
-    it('falls back to the already-loaded rows when the narrowed load fails', async () => {
+    // The narrowed read is now the only row read, so a filter an early build doesn't
+    // implement must not be fatal: it is retried unfiltered and narrowed locally. Aborting
+    // would throw away the page answer the partner just gave and cannot be re-asked for.
+    it('retries unfiltered when the narrowed row read fails', async () => {
       (appService.fetchSurfacePoints as jest.Mock)
-        .mockResolvedValueOnce(FULL_REGISTRY)
-        .mockRejectedValueOnce(new ApiError('no location filter here', 400));
+        .mockRejectedValueOnce(new ApiError('no location filter here', 400))
+        .mockResolvedValueOnce(FULL_REGISTRY);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(1, ['contactDetails']);
+      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(2, undefined);
+      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+    });
+
+    it('retries unfiltered when the narrowed row read comes back empty', async () => {
+      (appService.fetchSurfacePoints as jest.Mock)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(FULL_REGISTRY);
 
       await createCommand(CLI_OPTIONS);
 
       expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
     });
 
-    it('falls back when the narrowed load comes back empty', async () => {
+    // A real early-build behaviour: the endpoint honours only the first CSV value. The
+    // unfiltered retry recovers the pages the filter dropped, so the partner gets the
+    // placements they asked for instead of a warning that a page they can see has nothing.
+    it('retries unfiltered when the narrowed read covers only some picked pages', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+      });
       (appService.fetchSurfacePoints as jest.Mock)
-        .mockResolvedValueOnce(FULL_REGISTRY)
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([REGISTRY_ROW('contactDetails', 'headerMenu', 'action')])
+        .mockResolvedValueOnce(FULL_REGISTRY);
 
       await createCommand(CLI_OPTIONS);
 
-      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+      expect(appService.fetchSurfacePoints).toHaveBeenCalledTimes(2);
+      expect(surfacePointNames()).toEqual([
+        'contactDetails.headerMenu.action',
+        'dealDetails.headerMenu.action',
+      ]);
+    });
+
+    it('aborts when both the narrowed and the unfiltered row read fail', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockRejectedValue(new ApiError('down', 500));
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+        /could not load the available placements/i,
+      );
+      expect(appService.createApp).not.toHaveBeenCalled();
     });
 
     // ──────── The single grouped placement prompt ────────
@@ -1407,9 +1473,7 @@ describe('app/create', () => {
     });
 
     it('pre-selects a page that offers only one placement', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
-      ]);
+      registryHas([REGISTRY_ROW('contactDetails', 'headerMenu', 'action')]);
 
       await createCommand(CLI_OPTIONS);
 
@@ -1449,23 +1513,31 @@ describe('app/create', () => {
 
     // The regression these two guard: the per-page rule used to be measured against the
     // pages that were PICKED rather than the pages that produced a group, so when the
-    // narrowed read covered only some picked pages no answer satisfied the prompt —
+    // registry read covered only some picked pages no answer satisfied the prompt —
     // ticking the offered spot reported "nothing selected for: deal", ticking nothing
     // reported "Pick at least one spot" — and Ctrl-C was the only way out, discarding the
     // name, distribution and type answers already given.
-    describe('a picked page the narrowed registry read returns nothing for', () => {
-      // A real early-build behaviour: the endpoint honours only the first CSV value.
-      const onlyFirstLocation = () =>
-        (appService.fetchSurfacePoints as jest.Mock)
-          .mockResolvedValueOnce(FULL_REGISTRY)
-          .mockResolvedValueOnce([REGISTRY_ROW('contactDetails', 'headerMenu', 'action')]);
-
+    //
+    // Reading the pages from the locations endpoint makes this MORE likely, not less: a page
+    // is offered because the registry lists it, with no way to know at that point whether
+    // any of its placements can host the chosen type.
+    describe('a picked page with no placement that can host the chosen type', () => {
       beforeEach(() => {
         answerPrompts({
           surfaces: ['contact', 'deal'],
           placements: ['contactDetails.headerMenu.action'],
         });
-        onlyFirstLocation();
+        // The deal page is listed and has a placement, but not one an actionLink can use —
+        // so an unfiltered retry would find nothing more. Genuinely empty, not a filter bug.
+        registryHas(
+          [
+            REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
+            REGISTRY_ROW('dealDetails', 'headerMenu', 'action', {
+              extension_type_list: ['legacyComponent'],
+            }),
+          ],
+          ['contactDetails', 'dealDetails'],
+        );
       });
 
       it('warns about a picked page the registry offers no placements on', async () => {
@@ -1508,13 +1580,13 @@ describe('app/create', () => {
     });
 
     // ──────── Client-side filtering of un-hostable rows ────────
-    // The unfiltered fetch is deliberate — a server-side extension-type filter would hide
-    // authorable placements — so the CLI checks each row itself. Without this, a partner
+    // The row read carries no extension-type filter, deliberately — a server-side one would
+    // hide authorable placements — so the CLI checks each row itself. Without this, a partner
     // authors a slot that cannot serve their type, upload 200s, and the slot renders
     // nothing: exactly the silent failure this flow exists to prevent.
 
     it('hides rows whose extension_type_list cannot host the chosen type', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+      registryHas([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
         REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', {
           extension_type_list: ['legacyComponent'],
@@ -1527,7 +1599,7 @@ describe('app/create', () => {
     });
 
     it('hides rows that are not active', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+      registryHas([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
         REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', { status: 'deprecated' }),
       ]);
@@ -1540,7 +1612,7 @@ describe('app/create', () => {
     // A registry seeded before either column existed must stay usable — treating a missing
     // column as a rejection would empty the prompt against every older environment.
     it('keeps rows that declare neither extension_type_list nor status', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+      registryHas([
         {
           surface_point: 'contactDetails.headerMenu.action',
           location_name: 'contactDetails',
@@ -1555,9 +1627,10 @@ describe('app/create', () => {
     });
 
     // Distinct from the empty-registry case: the fix is a different integration type, not
-    // waiting for a seed, so the message says so.
+    // waiting for a seed, so the message says so. Raised after the page prompt now — the
+    // locations endpoint carries no extension type to check against.
     it('aborts when no placement can host the chosen type', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+      registryHas([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
           extension_type_list: ['legacyComponent'],
         }),
@@ -1571,52 +1644,51 @@ describe('app/create', () => {
 
     // ──────── Registry read path ────────
 
-    it('aborts with an actionable error when the registry fetch fails', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockRejectedValue(new ApiError('boom', 500));
+    it('aborts with an actionable error when the locations fetch fails', async () => {
+      (appService.fetchSurfacePointLocations as jest.Mock).mockRejectedValue(
+        new ApiError('boom', 500),
+      );
 
       await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
         /could not load the available placements/i,
       );
+      // Nothing is asked, and no row read is attempted, once the pages can't be listed.
+      expect(questionNamed('surfaces')).toBeUndefined();
+      expect(appService.fetchSurfacePoints).not.toHaveBeenCalled();
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    it('aborts when the registry lists no pages', async () => {
+      (appService.fetchSurfacePointLocations as jest.Mock).mockResolvedValue([]);
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/no available placements/i);
       expect(questionNamed('surfaces')).toBeUndefined();
       expect(appService.createApp).not.toHaveBeenCalled();
     });
 
-    it('aborts when the registry has no usable rows', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        { surface_point: 'not-a-slot' }, // no decomposed columns, name not 3 segments
-      ]);
+    it('aborts when the registry has no usable rows on the picked pages', async () => {
+      registryHas(
+        [{ surface_point: 'not-a-slot' }], // no decomposed columns, name not 3 segments
+        ['contactDetails'],
+      );
 
       await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/no available placements/i);
       expect(appService.createApp).not.toHaveBeenCalled();
     });
 
-    it('offers only the pages the registry actually has', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue(
-        FULL_REGISTRY.filter((row) => row.location_name === 'contactDetails'),
-      );
-
-      await createCommand(CLI_OPTIONS);
-
-      expect(choiceValuesOf('surfaces')).toEqual(['contact']);
-    });
-
     it('offers an unknown location under a derived name and accepts it', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        REGISTRY_ROW('orderDetails', 'headerMenu', 'action'),
-      ]);
+      registryHas([REGISTRY_ROW('orderDetails', 'headerMenu', 'action')]);
       answerPrompts({ surfaces: ['order'], placements: ['orderDetails.headerMenu.action'] });
 
       await createCommand(CLI_OPTIONS);
 
-      // The point is registry-only (not in the local mirror), so this also
-      // proves validateUiApp ran against the fetched list, not the mirror.
+      // The page is registry-only (no entry in the local surface-name map), so this also
+      // proves the prompt labels whatever the locations endpoint lists.
       expect(surfacePointNames()).toEqual(['orderDetails.headerMenu.action']);
     });
 
     it('backfills the slot segments from the name when the server omits them', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
-        { surface_point: 'contactDetails.headerMenu.action' },
-      ]);
+      registryHas([{ surface_point: 'contactDetails.headerMenu.action' }], ['contactDetails']);
 
       await createCommand(CLI_OPTIONS);
 
@@ -1626,7 +1698,7 @@ describe('app/create', () => {
     // ──────── Record context is seeded per placement, not prompted ────────
 
     it('seeds each entry from that row own default_context_field', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+      registryHas([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
           default_context_field: ['recordId'],
         }),
@@ -1650,7 +1722,7 @@ describe('app/create', () => {
     // No context key rather than an empty array: `[]` would read as "narrow to nothing"
     // where absent means "no narrowing".
     it('omits context for a row that declares no default', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+      registryHas([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
           default_context_field: undefined,
         }),
@@ -1764,7 +1836,7 @@ describe('app/create', () => {
     // existing `?` and land BEFORE the `#`. A hand-rolled `url + '?' + params` gets
     // both wrong, and a wrong example is worse than none.
     it('merges the example params into an existing query string, before any fragment', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+      registryHas([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
           default_context_field: ['recordId'],
         }),
@@ -1778,7 +1850,7 @@ describe('app/create', () => {
     });
 
     it('prints no example URL when no placement declares a record context', async () => {
-      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue([
+      registryHas([
         REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
           default_context_field: undefined,
         }),

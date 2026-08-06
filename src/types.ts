@@ -186,6 +186,19 @@ export interface SurfacePointsResponse {
   count?: number;
 }
 
+/**
+ * Wire shape of GET /v3/app-store/surface-points/locations (BEX-361): the registry's
+ * distinct `location_name` values, e.g.
+ * `{ locations: ['companyDetails', 'contactDetails', 'dealDetails'], count: 3 }`.
+ *
+ * Bare strings, not rows — which is all the record-page prompt needs, and the reason
+ * `app create` asks for them instead of deriving them from a full registry read.
+ */
+export interface SurfacePointLocationsResponse {
+  locations: string[];
+  count?: number;
+}
+
 export interface UiApp {
   extension_type: ExtensionType;
   /**
