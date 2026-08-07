@@ -298,6 +298,36 @@ backend still identifies the caller from the structured `User-Agent`
       directory has already been created and entered. Tracked in `TODO.md`; see also
       the runtime-guard item under *Before public-apps GA*.
 
+### `--debug` logs the request body alongside the response (2026-08-07)
+
+**Change:** `ApiClient.request()` now emits `[debug] request <METHOD> <path>: <body>`
+before the fetch, and the existing response line gained the method so the two halves
+of one call pair up: `[debug] response <METHOD> <path>: <body>`. Both go through
+`logDebug()`, so both are redacted by the same `SENSITIVE_KEYS` set in
+`src/lib/logger.ts` — no new redaction rules. Logging before the fetch is deliberate:
+a payload the server never answers (timeout, socket hang up) is still visible.
+
+**Must hold true:**
+
+- [x] Request line carries method, path, and the JSON body; bodyless `GET` logs no
+      request line at all (rather than a bare `undefined`).
+- [x] `client_secret` and friends are `[REDACTED]` in **both** directions — covered by
+      `redacts sensitive keys in the request body` / `…in the response body`.
+- [x] The body is logged even when `performFetch` throws.
+- [x] `yarn test` (47 suites / 1008 tests) and `yarn lint` green.
+- [ ] **Manual:** run `brevo app upload --debug` and `brevo app deploy --debug`
+      against staging and read the output — confirm the request/response pairs are
+      legible, and that no token, secret, or API key appears anywhere in the transcript.
+      This is the check that matters: the redaction set is a key allow-list, so a
+      *new* secret-bearing field name would print in the clear.
+- [ ] Reviewer: nothing outside `--debug` / `BREVO_DEBUG=1` changed — the log lines
+      are not part of any documented contract, so no `SKILL.md` / `AGENTS.md` edit
+      (per `CLAUDE.md`, log-line formatting isn't user-visible behaviour).
+- [ ] Reviewer: note `request()` gates on `opts.body !== undefined` while
+      `performFetch` sends `opts.body ? … : undefined`. Every caller passes an object
+      or nothing, so they agree today; a falsy-but-defined body (`null`, `''`, `0`)
+      would be logged and not sent. Worth aligning if such a caller ever appears.
+
 ### BEX-290/BEX-364 — install payload carries `client_id`; `[account-id]` resolves itself (2026-08-07)
 
 **Change:** Aligns deploy/rollback with app-store-backend PR #717, and makes the

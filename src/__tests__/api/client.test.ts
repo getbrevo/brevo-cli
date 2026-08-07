@@ -549,4 +549,100 @@ describe('api client', () => {
       expect(result.email).toBe('test@example.com');
     });
   });
+
+  // The request body is logged before the fetch, so a payload the server rejects
+  // (or never answers) is visible next to the response line under --debug.
+  describe('debug request/response logging', () => {
+    const okResponse = {
+      ok: true,
+      status: 200,
+      headers: new Map(),
+      text: () => Promise.resolve(JSON.stringify({})),
+    };
+
+    beforeEach(() => {
+      process.env.BREVO_DEBUG = '1';
+    });
+
+    afterEach(() => {
+      delete process.env.BREVO_DEBUG;
+    });
+
+    function debugLines(): string[] {
+      return stderrSpy.mock.calls.map((c) => String(c[0]));
+    }
+
+    it('logs the request body with the method and path', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.post('/v3/app-store/apps', { name: 'testlink', distribution_type: 'private' });
+
+      const line = debugLines().find((l) => l.includes('[debug] request'));
+      expect(line).toContain('POST /v3/app-store/apps');
+      expect(line).toContain('"name":"testlink"');
+      expect(line).toContain('"distribution_type":"private"');
+    });
+
+    it('redacts sensitive keys in the request body', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.post('/v3/app-store/apps', { name: 'x', client_secret: 'shhh' });
+
+      const line = debugLines().find((l) => l.includes('[debug] request'));
+      expect(line).toContain('[REDACTED]');
+      expect(line).not.toContain('shhh');
+    });
+
+    it('logs nothing for a bodyless request', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.get('/v3/account');
+
+      expect(debugLines().some((l) => l.includes('[debug] request'))).toBe(false);
+    });
+
+    it('logs the body even when the request never comes back', async () => {
+      mockFetch.mockRejectedValue(new Error('socket hang up'));
+
+      await expect(client.post('/v3/app-store/apps', { name: 'testlink' })).rejects.toThrow();
+
+      const line = debugLines().find((l) => l.includes('[debug] request'));
+      expect(line).toContain('"name":"testlink"');
+    });
+
+    // Request and response carry the same `<method> <path>` so the two halves of
+    // one call can be paired by eye (or by grep) in a busy debug log.
+    it('labels the response with the same method and path as the request', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        text: () => Promise.resolve(JSON.stringify({ id: 'app-1' })),
+      });
+
+      await client.post('/v3/app-store/apps', { name: 'testlink' });
+
+      const request = debugLines().find((l) => l.includes('[debug] request'));
+      const response = debugLines().find((l) => l.includes('[debug] response'));
+      expect(request).toContain('POST /v3/app-store/apps');
+      expect(response).toContain('POST /v3/app-store/apps');
+      expect(response).toContain('"id":"app-1"');
+    });
+
+    it('redacts sensitive keys in the response body', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        text: () => Promise.resolve(JSON.stringify({ client_id: 'abc', client_secret: 'shhh' })),
+      });
+
+      await client.get('/v3/app-store/apps/app-1/credentials');
+
+      const line = debugLines().find((l) => l.includes('[debug] response'));
+      expect(line).toContain('"client_id":"abc"');
+      expect(line).toContain('[REDACTED]');
+      expect(line).not.toContain('shhh');
+    });
+  });
 });

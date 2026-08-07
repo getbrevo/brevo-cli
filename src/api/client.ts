@@ -212,6 +212,13 @@ export class ApiClient {
     const headers = this.buildHeaders(opts);
 
     logHttp(opts.method, opts.path);
+    // The request body, symmetric with the response log below and redacted by the
+    // same rules. Logged before the fetch so the payload is visible even when the
+    // request never comes back (timeout, network error). A bodyless method logs
+    // nothing rather than a bare `undefined`.
+    if (opts.body !== undefined) {
+      logDebug(`request ${opts.method} ${opts.path}`, opts.body);
+    }
     const response = await this.performFetch(url, opts, headers);
     logHttpResponse(response.status, opts.path);
 
@@ -241,7 +248,7 @@ export class ApiClient {
     const text = await response.text();
     const data = parseResponseData(text, response.status);
 
-    logDebug(`response ${opts.path}`, data);
+    logDebug(`response ${opts.method} ${opts.path}`, data);
 
     if (!response.ok) {
       throwResponseError(data, response.status);
