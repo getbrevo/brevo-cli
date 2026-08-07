@@ -185,6 +185,33 @@ describe('app/create', () => {
     );
   });
 
+  // The create response is handed to `fetchAppContext` as its read-back fallback so
+  // a server that can't resolve the ID it just issued (observed on UI apps, BEX-290)
+  // can no longer abort a create that already succeeded, leaving an orphan app.
+  it('passes the create response to fetchAppContext as the read-back fallback', async () => {
+    const created = {
+      app_id: 1,
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret-456',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    (appService.createApp as jest.Mock).mockResolvedValue(created);
+
+    mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' })
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ another: false })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+
+    await createCommand({ name: 'Test App', distribution: 'private' });
+
+    expect(fetchAppContext).toHaveBeenCalledWith(1, false, undefined, created);
+  });
+
   describe('feature scaffolding', () => {
     it('prompts to scaffold a feature (default yes) and scaffolds oauth when accepted', async () => {
       (appService.createApp as jest.Mock).mockResolvedValue({

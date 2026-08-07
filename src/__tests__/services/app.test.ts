@@ -402,6 +402,29 @@ describe('services/app', () => {
       const result = await service.resolveAppCredentials('999');
       expect(result).toBeNull();
     });
+
+    // A 404 stays fatal by default: every caller but one reads an ID the user
+    // supplied, where not-found means they typed the wrong app.
+    it('throws the friendly not-found error on a 404 by default', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      await expect(service.resolveAppCredentials(UUID)).rejects.toThrow(`App ${UUID} not found.`);
+    });
+
+    it('returns null instead of throwing on a 404 when tolerateMissing is set', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      await expect(
+        service.resolveAppCredentials(UUID, { tolerateMissing: true }),
+      ).resolves.toBeNull();
+    });
+
+    // tolerateMissing is scoped to 404 alone — a 500 or an expired session must
+    // still surface rather than be silently scaffolded around.
+    it('still throws non-404 errors when tolerateMissing is set', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('boom', 500));
+      await expect(service.resolveAppCredentials(UUID, { tolerateMissing: true })).rejects.toThrow(
+        ApiError,
+      );
+    });
   });
 
   describe('syncAppCredentials', () => {

@@ -19,7 +19,7 @@ import { appService } from '../../container';
 import { loadBaseTemplates, loadFeatureTemplates, FeatureType } from '../../templates';
 import { containsLegacyAllScope } from '../../lib/validators';
 import { readProjectConfig, ProjectConfig, isUiAppConfig } from '../../lib/config';
-import { UiApp } from '../../types';
+import { OAuthApp, UiApp } from '../../types';
 
 interface TreeNode {
   [key: string]: TreeNode;
@@ -101,11 +101,26 @@ export async function fetchAppContext(
   // stale or unexpected server data reclassify an app the user explicitly created
   // as OAuth. Absent here means "OAuth app", authoritatively.
   uiApp?: UiApp,
+  // The app object to fall back on when the server can't return one. Supplied by
+  // `app create` only, and it is the create response itself: at that point the app
+  // provably exists (the server just issued its ID), so a 404 on the read-back is
+  // the server contradicting itself, not a missing app. Without this the read-back
+  // threw and took the whole create with it — the app stayed on the server while
+  // the user got `App <id> not found.` and no project directory (BEX-290).
+  fallbackApp?: OAuthApp,
 ): Promise<AppContext> {
   const spinner = createSpinner('Fetching app details...', { silent });
-  const result = await appService.resolveAppCredentials(appId);
-  spinner.stop();
-  const appDetails = result?.app ?? null;
+  let result: Awaited<ReturnType<typeof appService.resolveAppCredentials>>;
+  try {
+    result = await appService.resolveAppCredentials(appId, {
+      tolerateMissing: Boolean(fallbackApp),
+    });
+  } finally {
+    // In `finally` so a propagating error stops the spinner too — otherwise the
+    // frame keeps printing over the error output.
+    spinner.stop();
+  }
+  let appDetails = result?.app ?? null;
   if (result) {
     if (result.diffs.length > 0) {
       logWarn(
@@ -113,6 +128,11 @@ export async function fetchAppContext(
       );
     }
     appService.syncAppCredentials(appId, result.app);
+  } else if (fallbackApp) {
+    appDetails = fallbackApp;
+    // Suppressed under --json: logWarn writes to stdout, which would corrupt the
+    // single JSON blob the command emits.
+    if (!silent) logWarn(messages.APP_SCAFFOLD_SERVER_READBACK_FAILED(appId));
   }
   const serverRedirectUrls = appDetails?.redirect_uris ?? [];
   const redirectUris = serverRedirectUrls.length > 0 ? serverRedirectUrls : [DEFAULT_REDIRECT_URI];

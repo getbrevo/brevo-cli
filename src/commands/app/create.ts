@@ -1045,7 +1045,14 @@ export const createCommand = withCommandHandler(
     // Pass the freshly collected `ui_app` block explicitly: the server doesn't
     // have it yet (it only learns about it on `app upload`), so the scaffold
     // can't read it back from `fetchAppContext`'s server response.
-    const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp);
+    //
+    // `result` is passed as the fallback so a read-back that 404s can't destroy a
+    // successful create: the app is already on the server at this point, and the
+    // create response carries every field the scaffold reads off `appDetails`
+    // (name, distribution_type, logo_uri, version) plus the credentials. Without
+    // it, `GET /v3/app-store/apps/{id}` answering `id not found` for an ID the
+    // create just issued aborted the command and left an orphan app behind.
+    const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp, result);
 
     // Always write the basic project structure (app-config.json + meta files).
     const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);

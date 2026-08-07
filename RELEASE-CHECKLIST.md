@@ -1578,3 +1578,58 @@ spots on one page uploads and renders. This is the CLI's authoring model.
 - [ ] Reviewer: confirm one-per-page is the intended product rule and not just the
       shape of the current UI kit. If an app may legitimately take two spots on one
       page later, this is the commit to revert — the wire has always allowed it.
+
+### `app create` survives a read-back that 404s (2026-08-07)
+
+**Change:** `app create` passes its create response to `fetchAppContext` as a
+read-back fallback, and `resolveAppCredentials` gained `{ tolerateMissing }` so that
+one caller can take a 404 as `null` instead of the friendly not-found error.
+
+**Observed on staging (2026-08-07, UI-app create).** `POST /v3/app-store/apps`
+answered with an app ID; `GET /v3/app-store/apps/{that id}` answered
+`{"error":"id not found","code":"not_found"}` under a second later. The throw
+propagated out of `fetchAppContext` before `runBaseScaffold`, so the command exited
+non-zero with `App <id> not found.` — for an app that had just been created and was
+still on the server. Two identically-named apps 51s apart in the local
+`appNames` cache are the signature of retrying into the same failure.
+
+**Root cause is not established, and this change does not assume one.** Two
+candidates: (a) the read path excludes UI apps — plausible if it scopes on
+`FindIDByUUID(uuid, client_id)` or joins a row a UI app has none of, since a UI app
+sends no `auth` block; (b) read-after-write lag, weighted lower because
+`id not found` is a definite answer rather than a timeout. The fallback is correct
+under either, and disappears on its own if the read starts resolving.
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn format:check && yarn tsc --noEmit && yarn test` green
+      (47 suites / 1018 tests).
+- [x] A 404 stays fatal for every caller that reads a user-supplied ID
+      (`app scaffold`, `fetchApp`, `fetchAppState`, `deleteApp`). Covered by
+      `throws the friendly not-found error on a 404 by default` and by the
+      `tolerateMissing: false` assertion in the scaffold suite.
+- [x] `tolerateMissing` is scoped to 404 — a 500 or an expired session still throws
+      rather than being silently scaffolded around. Covered by `still throws non-404
+      errors when tolerateMissing is set`.
+- [x] The fallback context is built from the create response, not from placeholders.
+      Covered by `builds the context from the fallback when the server returns no
+      app` (asserts `client_id`, `client_secret`, `redirect_uris`).
+- [x] The warning is suppressed under `--json` — `logWarn` writes to stdout, which is
+      the JSON blob. Covered by `stays silent on the fallback path under --json`.
+- [x] The spinner stops when the read throws (it was left spinning over the error
+      output; visible in the reported paste as `⠧ Fetching app details...  ← 404`).
+      `spinner.stop()` moved into a `finally`.
+- [ ] **Manual:** `brevo app create` → UI app against staging. Confirm the app
+      directory is written, `app-config.json` carries the real name /
+      `distribution_type` / `version` from the create response, and the run exits 0
+      with the read-back warning.
+- [ ] **Then confirm the platform side** — `GET /v3/app-store/apps/{id}` for a
+      known UI app, and the same for an OAuth app in the same account. If the UI app
+      404s and the OAuth app resolves, that is candidate (a) and belongs on the
+      platform; file it and link it here. Until then this fallback is the only thing
+      keeping a UI-app create from failing.
+- [ ] Reviewer: on the fallback path `scopes` is absent from the create response, so
+      `buildTemplateVars` falls back to `DEFAULT_SCOPES` for an OAuth app. Harmless
+      for a UI app (scopes resolve to `[]` regardless) and self-correcting on the
+      next `app scaffold`, but confirm that's the right degradation rather than
+      writing an empty `scopes` array.

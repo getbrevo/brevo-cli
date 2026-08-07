@@ -21,6 +21,19 @@ into `main` — anything that must outlive the branch belongs in
       and the registry has no display-name column (`surface_point_name` holds kebab
       slugs like `contact-details-header-menu`). `EXTENSION_PLACES_BY_KIND` did not
       exist; that name was stale.
+- [ ] **File the create→read-back 404 against the platform, then remove the
+      fallback.** `POST /v3/app-store/apps` returns an app ID that
+      `GET /v3/app-store/apps/{id}` answers `{"error":"id not found","code":
+      "not_found"}` for, under a second later — observed on staging 2026-08-07 for a
+      UI app. `app create` now tolerates it by scaffolding from the create response
+      (`fetchAppContext`'s `fallbackApp`), which is a workaround, not a fix: the read
+      is still the only way to get `scopes`, and any later command reading that app by
+      ID hits the same wall. **Confirm the shape first** — GET a known UI app and a
+      known OAuth app in the same account. If only the UI app 404s, the read path
+      likely excludes an app with no `auth` block (scoping on
+      `FindIDByUUID(uuid, client_id)`, or a join a UI app has no row for) and it
+      belongs on app-store-backend. Once the read resolves, the fallback and
+      `resolveAppCredentials`'s `tolerateMissing` can both come out.
 - [ ] **Consider surfacing `url_pattern` from the BEX-361 rows** in the placement
       prompt (e.g. as a choice hint) so partners see where in the product a slot
       renders before picking it.

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { scaffoldCommand } from '../../../commands/app/scaffold';
+import { scaffoldCommand, fetchAppContext } from '../../../commands/app/scaffold';
 
 // fs is fully mocked below, so these paths are never written. We deliberately
 // avoid os.tmpdir() to keep tests off any shared, world-writable directory
@@ -136,7 +136,11 @@ describe('app/scaffold', () => {
       await scaffoldCommand({});
 
       expect(appService.pickApp).not.toHaveBeenCalled();
-      expect(appService.resolveAppCredentials).toHaveBeenCalledWith('1');
+      // `tolerateMissing: false` — `app scaffold` reads an ID the user supplied, so
+      // a 404 must stay fatal here. Only `app create`'s read-back opts out.
+      expect(appService.resolveAppCredentials).toHaveBeenCalledWith('1', {
+        tolerateMissing: false,
+      });
       // No diff → no confirm prompt.
       expect(mockPrompt).not.toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ name: 'confirmed' })]),
@@ -727,6 +731,86 @@ describe('app/scaffold', () => {
 
       const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
       expect(parsed.features).toEqual([]);
+    });
+  });
+
+  // `fallbackApp` exists for exactly one caller: `app create`'s read-back of the
+  // app it just created. The platform can answer `id not found` for an ID it
+  // issued moments earlier (BEX-290), and before this the throw took the whole
+  // create with it — app on the server, no project on disk.
+  describe('fetchAppContext read-back fallback', () => {
+    // The create response: no `scopes`, and a name/version distinct from
+    // `serverApp` so a test can tell which object the context was built from.
+    const createResponse = {
+      app_id: '1',
+      name: 'Freshly Created',
+      client_id: 'cli-new',
+      client_secret: 'secret-new',
+      redirect_uris: ['http://localhost:4000/callback'],
+      distribution_type: 'private' as const,
+      logo_uri: 'https://example.com/logo.png',
+      version: '0.1.0',
+      created_at: '',
+      updated_at: '',
+    };
+
+    it('reads normally and ignores the fallback when the server answers', async () => {
+      const ctx = await fetchAppContext('1', false, undefined, createResponse);
+
+      expect(ctx.appDetails).toEqual(serverApp);
+      expect(ctx.clientId).toBe('cli-123');
+      const warned = stdoutSpy.mock.calls.some((c) => String(c[0]).includes('could not be read'));
+      expect(warned).toBe(false);
+    });
+
+    it('builds the context from the fallback when the server returns no app', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(null);
+
+      const ctx = await fetchAppContext('1', false, undefined, createResponse);
+
+      expect(ctx.appDetails).toEqual(createResponse);
+      expect(ctx.clientId).toBe('cli-new');
+      expect(ctx.clientSecret).toBe('secret-new');
+      expect(ctx.redirectUris).toEqual(['http://localhost:4000/callback']);
+    });
+
+    it('asks the service to tolerate a 404 only when a fallback is available', async () => {
+      await fetchAppContext('1', false, undefined, createResponse);
+      expect(appService.resolveAppCredentials).toHaveBeenLastCalledWith('1', {
+        tolerateMissing: true,
+      });
+
+      await fetchAppContext('1');
+      expect(appService.resolveAppCredentials).toHaveBeenLastCalledWith('1', {
+        tolerateMissing: false,
+      });
+    });
+
+    it('warns on the fallback path so the user knows the config came from create', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(null);
+
+      await fetchAppContext('1', false, undefined, createResponse);
+
+      const warned = stdoutSpy.mock.calls.some((c) => String(c[0]).includes('could not be read'));
+      expect(warned).toBe(true);
+    });
+
+    // logWarn writes to stdout, which under --json is the single JSON blob.
+    it('stays silent on the fallback path under --json', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(null);
+
+      await fetchAppContext('1', true, undefined, createResponse);
+
+      expect(stdoutSpy).not.toHaveBeenCalled();
+    });
+
+    // No fallback (every caller but create) → not-found still aborts.
+    it('propagates the service error when no fallback was supplied', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockRejectedValue(
+        new Error('App 1 not found.'),
+      );
+
+      await expect(fetchAppContext('1')).rejects.toThrow('App 1 not found.');
     });
   });
 });

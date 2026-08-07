@@ -276,12 +276,25 @@ export function createAppService(client: ApiClient) {
      * Fetch app from API and merge with local cache.
      * The GET endpoint may not return client_secret (only shown at creation),
      * so we fall back to the locally cached value.
+     *
+     * `tolerateMissing` turns a 404 into `null` instead of the friendly not-found
+     * error. Only one caller wants that: `app create`'s read-back of the app it
+     * just created, where a 404 means the server cannot resolve an ID it issued
+     * itself moments earlier — see `fetchAppContext`'s `fallbackApp`. Every other
+     * caller reads an ID the user supplied, where 404 genuinely means "wrong ID"
+     * and must stay fatal.
      */
-    async resolveAppCredentials(appId: string): Promise<{ app: OAuthApp; diffs: string[] } | null> {
+    async resolveAppCredentials(
+      appId: string,
+      opts?: { tolerateMissing?: boolean },
+    ): Promise<{ app: OAuthApp; diffs: string[] } | null> {
       let raw: OAuthApp;
       try {
         raw = await client.get<OAuthApp>(ENDPOINTS.APP_STORE_APP(appId));
       } catch (err) {
+        if (opts?.tolerateMissing && err instanceof ApiError && err.statusCode === 404) {
+          return null;
+        }
         rethrowNotFound(err, appId);
       }
       if (!raw) return null;

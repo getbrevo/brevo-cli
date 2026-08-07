@@ -342,6 +342,12 @@ export const messages = {
   APP_SCAFFOLD_CANCELLED: 'Scaffold cancelled.',
   APP_SCAFFOLD_JSON_DIFF_CANCELLED:
     'app-config.json differs from the server and --json cannot prompt for confirmation. Re-run without --json to review and confirm the update.',
+  // Shown when `app create`'s read-back of the app it just created comes back
+  // empty or 404. The app exists — the server issued its ID — so this is a
+  // read-path problem, not a missing app, and the create response has everything
+  // the scaffold needs except `scopes` (which falls back to the defaults).
+  APP_SCAFFOLD_SERVER_READBACK_FAILED: (appId: string) =>
+    `App ${appId} was created but could not be read back from the server. Scaffolding from the create response instead — run \`${CLI.APP_SCAFFOLD}\` later to refresh app-config.json from the server.`,
   APP_SCAFFOLD_SUCCESS: (count: number) => `Feature scaffolded (${count} files)`,
   APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_DEPLOY()}\`.`,
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
