@@ -1110,19 +1110,50 @@ describe('app/create', () => {
     let askedQuestions: Array<Record<string, unknown>>;
 
     /**
+     * The location a placement slug belongs to, e.g. `contact-details-header-menu` →
+     * `contactDetails`. Every registry location is `<record>Details`, so the first two
+     * slug segments are the page — which is all the test harness needs to route a
+     * `placements` answer to its per-page question.
+     */
+    const locationOfSlug = (slug: string) => {
+      const [record, details] = slug.split('-');
+      return `${record}${(details ?? '').replace(/^./, (c) => c.toUpperCase())}`;
+    };
+
+    /** The question name the placement prompt for one page is asked under. */
+    const placementQuestion = (location: string) => `placement:${location}`;
+
+    /**
      * Answer the create prompts by question *name* rather than by call order, so
      * that adding or reordering a prompt can't silently shift an answer onto the
      * wrong field.
+     *
+     * `placements` is a harness convenience, not a question: placements are asked ONE
+     * PAGE AT A TIME (`placement:contactDetails`, …), so the slugs listed here are
+     * spread onto their pages' questions. At most one per page — a second slug for the
+     * same page could not be answered by a single-select prompt. Answering a page
+     * question directly still works and takes precedence.
      */
     const answerPrompts = (overrides: Record<string, unknown> = {}) => {
+      const { placements, ...rest } = overrides as { placements?: string[] } & Record<
+        string,
+        unknown
+      >;
+      // Slugs, not dotted slot names: a placement is authored (and answered) by the
+      // row's `surface_point_name`. See REGISTRY_ROW.
+      const pickedPlacements = placements ?? ['contact-details-header-menu'];
+      const perPage: Record<string, unknown> = {};
+      for (const slug of pickedPlacements) {
+        perPage[placementQuestion(locationOfSlug(slug))] = slug;
+      }
       const answers: Record<string, unknown> = {
         distribution: 'private',
         appType: 'ui',
-        // The flow asks the integration type FIRST, then the pages, then ONE grouped
-        // placement prompt whose values are real slot names.
+        // The flow asks the integration type FIRST, then the pages, then one placement
+        // prompt per picked page.
         integrationType: 'actionLink',
         surfaces: ['contact'],
-        placements: ['contactDetails.headerMenu.action'],
+        ...perPage,
         label: 'View in CRM',
         more_info: '',
         url: 'https://example.com/brevo',
@@ -1132,7 +1163,7 @@ describe('app/create', () => {
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
         scaffoldRaw: 'n',
-        ...overrides,
+        ...rest,
       };
       mockPrompt.mockImplementation((questions: Array<Record<string, unknown>>) => {
         const question = questions[0] ?? {};
@@ -1143,15 +1174,27 @@ describe('app/create', () => {
     };
 
     const questionNamed = (name: string) => askedQuestions.find((q) => q.name === name);
+    /** Every placement prompt asked, in the order the pages were prompted for. */
+    const placementQuestions = () =>
+      askedQuestions.filter((q) => String(q.name).startsWith('placement:'));
 
     // The context field names the platform's registry actually allows. Nothing else is a
     // real name, so nothing else appears in a fixture.
     const DEFAULT_CONTEXT = ['recordId', 'recordName', 'accountId', 'locale'];
 
+    /** camelCase → kebab-case, mirroring how the registry's slugs are seeded. */
+    const kebab = (value: string) => value.replaceAll(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+
     /**
      * One registry row in the BEX-361 wire shape, using the registry's own column names.
      * `default_context_field` is present by default because every seeded production row
      * carries it — it is what each authored entry's `context` is seeded from.
+     *
+     * The two identities are deliberately DIFFERENT strings, as they are in the seeded
+     * registry: `surface_point` is the dotted `extension_point_name`
+     * (`contactDetails.headerMenu.action`), `surface_point_name` the kebab-case slug
+     * (`contact-details-header-menu`). Only the slug is authorable — a fixture that made
+     * them equal would pass whichever one the code picked.
      */
     const REGISTRY_ROW = (
       location: string,
@@ -1163,7 +1206,7 @@ describe('app/create', () => {
       location_name: location,
       section_name: section,
       component_type: component,
-      surface_point_name: `${location}-${section}`.toLowerCase(),
+      surface_point_name: `${kebab(location)}-${kebab(section)}`,
       extension_type_list: ['actionLink', 'iframeExtension'],
       default_context_field: DEFAULT_CONTEXT,
       allowed_context_field: [...DEFAULT_CONTEXT, 'userId'],
@@ -1259,7 +1302,7 @@ describe('app/create', () => {
       expect(payload.ui_app).toEqual({
         extension_type: 'actionLink',
         surface_point_list: [
-          { surface_point: 'contactDetails.headerMenu.action', context: DEFAULT_CONTEXT },
+          { surface_point: 'contact-details-header-menu', context: DEFAULT_CONTEXT },
         ],
         label: 'View in CRM',
         redirect_link: 'https://example.com/brevo',
@@ -1285,7 +1328,7 @@ describe('app/create', () => {
       expect(collectedUiApp()).toEqual({
         extension_type: 'actionLink',
         surface_point_list: [
-          { surface_point: 'contactDetails.headerMenu.action', context: DEFAULT_CONTEXT },
+          { surface_point: 'contact-details-header-menu', context: DEFAULT_CONTEXT },
         ],
         label: 'View in CRM',
         redirect_link: 'https://example.com/brevo',
@@ -1299,8 +1342,8 @@ describe('app/create', () => {
 
       const order = askedQuestions.map((q) => String(q.name));
       expect(order.indexOf('integrationType')).toBeLessThan(order.indexOf('surfaces'));
-      expect(order.indexOf('surfaces')).toBeLessThan(order.indexOf('placements'));
-      expect(order.indexOf('placements')).toBeLessThan(order.indexOf('label'));
+      expect(order.indexOf('surfaces')).toBeLessThan(order.indexOf('placement:contactDetails'));
+      expect(order.indexOf('placement:contactDetails')).toBeLessThan(order.indexOf('label'));
       expect(order.indexOf('label')).toBeLessThan(order.indexOf('more_info'));
       expect(order.indexOf('more_info')).toBeLessThan(order.indexOf('url'));
     });
@@ -1340,7 +1383,7 @@ describe('app/create', () => {
     it('reads the pages from the locations endpoint, then the picked pages by location', async () => {
       answerPrompts({
         surfaces: ['contact', 'deal'],
-        placements: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+        placements: ['contact-details-header-menu', 'deal-details-header-menu'],
       });
 
       await createCommand(CLI_OPTIONS);
@@ -1375,7 +1418,7 @@ describe('app/create', () => {
 
       expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(1, ['contactDetails']);
       expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(2, undefined);
-      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
     });
 
     it('retries unfiltered when the narrowed row read comes back empty', async () => {
@@ -1385,7 +1428,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
     });
 
     // A real early-build behaviour: the endpoint honours only the first CSV value. The
@@ -1394,7 +1437,7 @@ describe('app/create', () => {
     it('retries unfiltered when the narrowed read covers only some picked pages', async () => {
       answerPrompts({
         surfaces: ['contact', 'deal'],
-        placements: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+        placements: ['contact-details-header-menu', 'deal-details-header-menu'],
       });
       (appService.fetchSurfacePoints as jest.Mock)
         .mockResolvedValueOnce([REGISTRY_ROW('contactDetails', 'headerMenu', 'action')])
@@ -1404,8 +1447,8 @@ describe('app/create', () => {
 
       expect(appService.fetchSurfacePoints).toHaveBeenCalledTimes(2);
       expect(surfacePointNames()).toEqual([
-        'contactDetails.headerMenu.action',
-        'dealDetails.headerMenu.action',
+        'contact-details-header-menu',
+        'deal-details-header-menu',
       ]);
     });
 
@@ -1418,127 +1461,117 @@ describe('app/create', () => {
       expect(appService.createApp).not.toHaveBeenCalled();
     });
 
-    // ──────── The single grouped placement prompt ────────
+    // ──────── One placement prompt per page ────────
 
-    it('groups the placement choices by page with a separator per page', async () => {
+    it('asks one placement prompt per picked page, each listing only that page', async () => {
       answerPrompts({
         surfaces: ['contact', 'deal'],
-        placements: ['contactDetails.headerMenu.action', 'dealDetails.overviewMain.widget'],
+        placements: ['contact-details-header-menu', 'deal-details-overview-main'],
       });
 
       await createCommand(CLI_OPTIONS);
 
-      const choices = (questionNamed('placements')?.choices ?? []) as Array<{
-        type?: string;
-        line?: string;
-        value?: string;
-      }>;
-      const separatorLines = choices
-        .filter((choice) => choice.type === 'separator')
-        .map((choice) => String(choice.line).trim());
-      expect(separatorLines).toEqual(['contact', 'deal']);
-      // Eight rows: four placements on each of the two picked pages.
-      expect(choices.filter((c) => c.value !== undefined)).toHaveLength(8);
+      expect(placementQuestions().map((q) => q.name)).toEqual([
+        'placement:contactDetails',
+        'placement:dealDetails',
+      ]);
+      // Four placements per page, and no page's prompt offers another page's rows.
+      expect(choiceValuesOf('placement:contactDetails')).toEqual([
+        'contact-details-header-menu',
+        'contact-details-overview-main',
+        'contact-details-overview-sidebar',
+        'contact-details-overview-attributes',
+      ]);
+      expect(choiceValuesOf('placement:dealDetails')).toEqual([
+        'deal-details-header-menu',
+        'deal-details-overview-main',
+        'deal-details-overview-sidebar',
+        'deal-details-overview-attributes',
+      ]);
     });
 
-    // The whole point of one grouped prompt: an app can put a menu entry on one page and a
-    // card on another. The old kind-then-place pair made that unauthorable.
+    // One spot per page is the authoring model, and a single-select prompt is what makes
+    // it structural: there is no answer that puts two placements on one page.
+    it('offers the page placements as a single-select list', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const question = questionNamed('placement:contactDetails');
+      expect(question?.type).toBe('list');
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+    });
+
+    // An app can still put a menu entry on one page and a card on another — that is what
+    // the per-page prompt buys, and what the old kind-then-place pair made unauthorable.
     it('mixes menu entries and cards across pages in one app', async () => {
       answerPrompts({
         surfaces: ['contact', 'deal'],
-        placements: ['contactDetails.headerMenu.action', 'dealDetails.overviewSidebar.widget'],
+        placements: ['contact-details-header-menu', 'deal-details-overview-sidebar'],
       });
 
       await createCommand(CLI_OPTIONS);
 
       expect(surfacePointNames()).toEqual([
-        'contactDetails.headerMenu.action',
-        'dealDetails.overviewSidebar.widget',
+        'contact-details-header-menu',
+        'deal-details-overview-sidebar',
       ]);
     });
 
-    it('offers only the placements on the picked pages', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      expect(choiceValuesOf('placements')).toEqual([
-        'contactDetails.headerMenu.action',
-        'contactDetails.overviewMain.widget',
-        'contactDetails.overviewSidebar.widget',
-        'contactDetails.overviewAttributes.widget',
-      ]);
-    });
-
-    // Registry order, not tick order, so a re-run that picked the same slots in a
-    // different sequence doesn't churn the upload diff.
-    it('writes the placements in registry order regardless of tick order', async () => {
+    // Registry order, not answer order, so a re-run that picked the same slots in a
+    // different page order doesn't churn the upload diff.
+    it('writes the placements in registry order regardless of answer order', async () => {
       answerPrompts({
-        surfaces: ['contact'],
-        placements: ['contactDetails.overviewSidebar.widget', 'contactDetails.headerMenu.action'],
+        // Deal answered first; contact rows come first in the registry.
+        surfaces: ['deal', 'contact'],
+        placements: ['deal-details-overview-sidebar', 'contact-details-header-menu'],
       });
 
       await createCommand(CLI_OPTIONS);
 
       expect(surfacePointNames()).toEqual([
-        'contactDetails.headerMenu.action',
-        'contactDetails.overviewSidebar.widget',
+        'contact-details-header-menu',
+        'deal-details-overview-sidebar',
       ]);
     });
 
-    it('deduplicates a repeated placement', async () => {
-      answerPrompts({
-        placements: ['contactDetails.headerMenu.action', 'contactDetails.headerMenu.action'],
-      });
-
-      await createCommand(CLI_OPTIONS);
-
-      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
-    });
-
-    it('pre-selects a page that offers only one placement', async () => {
+    // A lone choice is still shown rather than picked silently: it is one keypress either
+    // way, and the partner sees where the app lands.
+    it('still asks on a page that offers only one placement', async () => {
       registryHas([REGISTRY_ROW('contactDetails', 'headerMenu', 'action')]);
 
       await createCommand(CLI_OPTIONS);
 
-      expect(questionNamed('placements')?.default).toEqual(['contactDetails.headerMenu.action']);
+      expect(choiceValuesOf('placement:contactDetails')).toEqual(['contact-details-header-menu']);
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
     });
 
-    it('pre-selects nothing on a page that offers several placements', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      expect(questionNamed('placements')?.default).toEqual([]);
-    });
-
-    it('requires at least one placement', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      const validate = questionNamed('placements')?.validate as (v: unknown[]) => unknown;
-      expect(validate([])).toMatch(/at least one spot/i);
-      expect(validate(['contactDetails.headerMenu.action'])).toBe(true);
-    });
-
-    // The quiet failure of one grouped prompt: pick three pages, tick spots on one, and
-    // the other two page choices silently do nothing.
-    it('requires at least one placement on every page that was picked', async () => {
+    // Every picked page that offers a spot contributes exactly one, so a three-page app
+    // authors three placements — no page can be silently left out, and none can take two.
+    it('authors exactly one placement for each picked page', async () => {
       answerPrompts({
-        surfaces: ['contact', 'deal'],
-        placements: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+        surfaces: ['contact', 'company', 'deal'],
+        placements: [
+          'contact-details-header-menu',
+          'company-details-overview-main',
+          'deal-details-overview-sidebar',
+        ],
       });
 
       await createCommand(CLI_OPTIONS);
 
-      const validate = questionNamed('placements')?.validate as (v: unknown[]) => unknown;
-      expect(validate(['contactDetails.headerMenu.action'])).toMatch(/nothing selected for: deal/i);
-      expect(validate(['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'])).toBe(
-        true,
-      );
+      expect(surfacePointNames()).toEqual([
+        'contact-details-header-menu',
+        'company-details-overview-main',
+        'deal-details-overview-sidebar',
+      ]);
     });
 
-    // The regression these two guard: the per-page rule used to be measured against the
-    // pages that were PICKED rather than the pages that produced a group, so when the
-    // registry read covered only some picked pages no answer satisfied the prompt —
-    // ticking the offered spot reported "nothing selected for: deal", ticking nothing
-    // reported "Pick at least one spot" — and Ctrl-C was the only way out, discarding the
-    // name, distribution and type answers already given.
+    // The regression these two guard: a picked page the registry offers nothing on used to
+    // be ENFORCED by the grouped prompt's validate, which no answer could satisfy — ticking
+    // the offered spot reported "nothing selected for: deal", ticking nothing reported "Pick
+    // at least one spot" — and Ctrl-C was the only way out, discarding the name,
+    // distribution and type answers already given. Per-page prompts make the lock
+    // impossible (a page with no rows is simply never asked about), so what is left to
+    // guard is that the page is still REPORTED and that the run continues.
     //
     // Reading the pages from the locations endpoint makes this MORE likely, not less: a page
     // is offered because the registry lists it, with no way to know at that point whether
@@ -1547,7 +1580,7 @@ describe('app/create', () => {
       beforeEach(() => {
         answerPrompts({
           surfaces: ['contact', 'deal'],
-          placements: ['contactDetails.headerMenu.action'],
+          placements: ['contact-details-header-menu'],
         });
         // The deal page is listed and has a placement, but not one an actionLink can use —
         // so an unfiltered retry would find nothing more. Genuinely empty, not a filter bug.
@@ -1569,15 +1602,14 @@ describe('app/create', () => {
         expect(stdout).toMatch(/No placements are available on: deal/);
       });
 
-      it('does not require a placement on a page that offered none', async () => {
+      it('asks about no placement on a page that offered none, and creates anyway', async () => {
         await createCommand(CLI_OPTIONS);
 
-        const validate = questionNamed('placements')?.validate as (v: unknown[]) => unknown;
-        // The one answer the prompt actually offers must be accepted.
-        expect(validate(['contactDetails.headerMenu.action'])).toBe(true);
-        // And the prompt still refuses an empty answer, so it is not simply toothless.
-        expect(validate([])).toMatch(/at least one spot/i);
-        expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+        // Only the page that has a hostable placement is asked about — there is no prompt
+        // for the deal page to get stuck on.
+        expect(placementQuestions().map((q) => q.name)).toEqual(['placement:contactDetails']);
+        expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+        expect(appService.createApp).toHaveBeenCalled();
       });
     });
 
@@ -1588,7 +1620,10 @@ describe('app/create', () => {
       await createCommand(CLI_OPTIONS);
 
       const names = (
-        (questionNamed('placements')?.choices ?? []) as Array<{ name?: string; value?: string }>
+        (questionNamed('placement:contactDetails')?.choices ?? []) as Array<{
+          name?: string;
+          value?: string;
+        }>
       )
         .filter((choice) => choice.value !== undefined)
         .map((choice) => String(choice.name));
@@ -1617,7 +1652,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(choiceValuesOf('placements')).toEqual(['contactDetails.headerMenu.action']);
+      expect(choiceValuesOf('placement:contactDetails')).toEqual(['contact-details-header-menu']);
     });
 
     it('hides rows that are not active', async () => {
@@ -1628,7 +1663,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(choiceValuesOf('placements')).toEqual(['contactDetails.headerMenu.action']);
+      expect(choiceValuesOf('placement:contactDetails')).toEqual(['contact-details-header-menu']);
     });
 
     // A registry seeded before either column existed must stay usable — treating a missing
@@ -1637,6 +1672,7 @@ describe('app/create', () => {
       registryHas([
         {
           surface_point: 'contactDetails.headerMenu.action',
+          surface_point_name: 'contact-details-header-menu',
           location_name: 'contactDetails',
           section_name: 'headerMenu',
           component_type: 'action',
@@ -1645,7 +1681,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
     });
 
     // Distinct from the empty-registry case: the fix is a different integration type, not
@@ -1700,21 +1736,61 @@ describe('app/create', () => {
 
     it('offers an unknown location under a derived name and accepts it', async () => {
       registryHas([REGISTRY_ROW('orderDetails', 'headerMenu', 'action')]);
-      answerPrompts({ surfaces: ['order'], placements: ['orderDetails.headerMenu.action'] });
+      answerPrompts({ surfaces: ['order'], placements: ['order-details-header-menu'] });
 
       await createCommand(CLI_OPTIONS);
 
       // The page is registry-only (no entry in the local surface-name map), so this also
       // proves the prompt labels whatever the locations endpoint lists.
-      expect(surfacePointNames()).toEqual(['orderDetails.headerMenu.action']);
+      expect(surfacePointNames()).toEqual(['order-details-header-menu']);
     });
 
     it('backfills the slot segments from the name when the server omits them', async () => {
-      registryHas([{ surface_point: 'contactDetails.headerMenu.action' }], ['contactDetails']);
+      registryHas(
+        [
+          {
+            surface_point: 'contactDetails.headerMenu.action',
+            surface_point_name: 'contact-details-header-menu',
+          },
+        ],
+        ['contactDetails'],
+      );
 
       await createCommand(CLI_OPTIONS);
 
-      expect(surfacePointNames()).toEqual(['contactDetails.headerMenu.action']);
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+    });
+
+    // The regression this guards, and the reason every fixture keeps the two identities
+    // distinct: authoring the row's DOTTED name instead of its slug matches no registry row.
+    // The platform resolves an entry by `surface_point_name`, so `app upload` answers
+    // "contains unregistered extension point(s)" and the read path drops the slot silently.
+    it('authors the surface_point_name slug, never the dotted extension-point name', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const authored = surfacePointNames();
+      expect(authored).toEqual(['contact-details-header-menu']);
+      expect(authored).not.toContain('contactDetails.headerMenu.action');
+    });
+
+    // A nullable column server-side, and the platform's own lookup skips a NULL — so a row
+    // without it can only ever produce a placement its upload rejects. Offering it would
+    // reintroduce the silent-drop failure the registry read exists to prevent.
+    it('drops a row the registry gave no surface_point_name', async () => {
+      registryHas(
+        [
+          {
+            surface_point: 'contactDetails.headerMenu.action',
+            location_name: 'contactDetails',
+            section_name: 'headerMenu',
+            component_type: 'action',
+          },
+        ],
+        ['contactDetails'],
+      );
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/no available placements/i);
+      expect(appService.createApp).not.toHaveBeenCalled();
     });
 
     // ──────── Record context is seeded per placement, not prompted ────────
@@ -1730,14 +1806,14 @@ describe('app/create', () => {
       ]);
       answerPrompts({
         surfaces: ['contact', 'deal'],
-        placements: ['contactDetails.headerMenu.action', 'dealDetails.headerMenu.action'],
+        placements: ['contact-details-header-menu', 'deal-details-header-menu'],
       });
 
       await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp().surface_point_list).toEqual([
-        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
-        { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'recordName'] },
+        { surface_point: 'contact-details-header-menu', context: ['recordId'] },
+        { surface_point: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
       ]);
     });
 
@@ -1753,7 +1829,7 @@ describe('app/create', () => {
       await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp().surface_point_list).toEqual([
-        { surface_point: 'contactDetails.headerMenu.action' },
+        { surface_point: 'contact-details-header-menu' },
       ]);
     });
 
@@ -1827,7 +1903,7 @@ describe('app/create', () => {
 
       const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
       expect(output).toContain('UI app created');
-      expect(output).toContain('contactDetails.headerMenu.action');
+      expect(output).toContain('contact-details-header-menu');
       expect(output).toContain('https://example.com/brevo');
       expect(output).not.toContain('Redirect URL');
     });

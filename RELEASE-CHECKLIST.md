@@ -1490,3 +1490,91 @@ Partner-visible prompts are unchanged. Two behavioural consequences:
       registry" without naming endpoints, and no command, flag, prompt, exit code or
       message changed — so this is not user-visible CLI behaviour under CLAUDE.md's
       definition. Confirm that reading.
+
+### `surface_point_list` authors the registry slug, not the dotted slot name (2026-08-07)
+
+**Change:** `buildSurfacePointList()` writes each entry's `surface_point` from the
+registry row's `surface_point_name` (`contact-details-header-menu`) instead of its
+dotted `surface_point` / `extension_point_name`
+(`contactDetails.headerMenu.action`). The placement prompt's choice values and
+dedupe key move to the slug with it, and `toUsableRows()` now drops a row the
+registry gives no slug for.
+
+**The trigger was a live 400 on staging.** A UI-app upload answered
+`ui_app.surface_point_list contains unregistered extension point(s):
+companyDetails.overviewAttributes.widget, contactDetails.headerMenu.action` — the
+values the CLI had just authored from the registry's own rows.
+
+**Why the dotted name is wrong even though it is what renders.** Every
+`extension_points` row carries both identities, 1:1. The platform resolves an
+authored entry by the slug only — `ExtensionPointsRepository.FindByNames`, a
+`WHERE surface_point_name = ANY($1)` read, used by both
+`checkUIAppExtensionPoints` (app-store-bo-be, upload) and the manifest path
+(app-store-backend, render). What it serves the frontend as `extensionPoint` is
+that row's *dotted* name. So the dotted form is what specs quote and what the UI
+kit exact-matches, and it is still not authorable.
+
+Note the same JSON field carries the other vocabulary in one place server-side:
+`defaultSurfacePointList` in app-store-backend holds dotted names, because a
+defaulted slot bypasses the registry lookup entirely (un-migrated legacy apps).
+That is a backend quirk, not a second contract for authored blocks.
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn format:check && yarn tsc --noEmit && yarn test` green
+      (47 suites / 1011 tests).
+- [x] The authored value is the slug and never the dotted name. Covered by
+      `authors the surface_point_name slug, never the dotted extension-point name`,
+      and by `REGISTRY_ROW` keeping the two as deliberately different strings so no
+      fixture can make either one pass by accident.
+- [x] A row with no `surface_point_name` is dropped rather than offered. Covered by
+      `drops a row the registry gave no surface_point_name`.
+- [ ] **Manual, blocking:** re-run `brevo app create` → UI app → `brevo app upload`
+      against staging and confirm the upload 200s where it previously 400'd.
+- [ ] **Manual:** confirm the rendered slot actually appears on the CRM record page
+      (upload accepting the slug proves the lookup matched; only the render proves
+      the resolved dotted name reached the kit).
+- [ ] Reviewer: the created-app box and the `app upload` diff now print the slug,
+      since they print the authored value. Decide whether that is acceptable
+      partner-facing text or whether both should render `EXTENSION_PLACE_LABELS`
+      against the row instead — the CLI no longer holds the row at print time, so
+      that is a real change, not a tidy-up.
+- [ ] Reviewer: agent docs updated (`SKILL.md`, `AGENTS.md`) because the authored
+      `app-config.json` value changed — that is user-visible under CLAUDE.md's
+      definition, unlike the registry-read change above it.
+
+### One placement per record page (2026-08-07)
+
+**Change:** the placement step is now one single-select `list` per picked page
+(`placement:<location>`), replacing the single grouped checkbox. An app takes
+exactly one spot on a page.
+
+This deletes the two prompt rules that guarded the grouped version
+(`APP_CREATE_UI_PLACEMENT_REQUIRED`, `APP_CREATE_UI_PLACEMENT_PAGE_MISSING`) and,
+with them, the prompt-lock class of bug they caused — a page the registry offered
+nothing on could not satisfy its own validate. A page with no hostable placement is
+now simply never asked about, and is still reported by the existing warning.
+
+**The platform does not enforce one-per-page.** `validateSnapshot` (app-store-bo-be
+`cli_ui_app.go`) rejects only a *duplicate* slot, so a hand-edited config listing two
+spots on one page uploads and renders. This is the CLI's authoring model.
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn format:check && yarn tsc --noEmit && yarn test` green
+      (47 suites / 1008 tests).
+- [x] One prompt per picked page, each offering only that page's rows, and each a
+      `list`. Covered by `asks one placement prompt per picked page, each listing only
+      that page` and `offers the page placements as a single-select list`.
+- [x] Three picked pages author three placements, in registry order rather than
+      answer order. Covered by `authors exactly one placement for each picked page`
+      and `writes the placements in registry order regardless of answer order`.
+- [x] A page the registry offers nothing on is warned about and not prompted for, and
+      the run still creates. Covered by the `a picked page with no placement that can
+      host the chosen type` describe.
+- [ ] **Manual:** run `brevo app create` → UI app across two pages and confirm the
+      prompts read well one after another — the per-page phrasing is new
+      (`Where should it appear on the contact page?`).
+- [ ] Reviewer: confirm one-per-page is the intended product rule and not just the
+      shape of the current UI kit. If an app may legitimately take two spots on one
+      page later, this is the commit to revert — the wire has always allowed it.

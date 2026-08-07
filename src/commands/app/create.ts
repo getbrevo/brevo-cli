@@ -305,6 +305,13 @@ async function resolveLogoUri(
 //     no vocabulary translation between what a partner authors and what the platform
 //     renders.
 
+/**
+ * Question-name prefix for the per-page placement prompts: one prompt per picked page,
+ * each named `placement:<location>`. Naming them apart is what keeps a page's answer on
+ * that page — the flow answers by question name throughout.
+ */
+const PLACEMENT_QUESTION_PREFIX = 'placement:';
+
 /** Reverse of UI_APP_SURFACE_TO_LOCATION, for labelling fetched locations. */
 const LOCATION_TO_UI_APP_SURFACE: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(UI_APP_SURFACE_TO_LOCATION).map(([surface, location]) => [location, surface]),
@@ -326,15 +333,24 @@ function surfaceValueForLocation(location: string): string {
 
 /**
  * A registry row whose three slot segments are guaranteed present — either served
- * decomposed (the BEX-361 contract) or backfilled from the slot name.
+ * decomposed (the BEX-361 contract) or backfilled from the slot name — and which
+ * carries the `surface_point_name` slug an entry is authored by.
  */
 interface UsableSurfacePoint extends SurfacePointRow {
   location_name: string;
   section_name: string;
   component_type: string;
+  surface_point_name: string;
 }
 
-/** Turn raw registry rows into offerable ones, dropping any that can't be placed. */
+/**
+ * Turn raw registry rows into offerable ones, dropping any that can't be placed.
+ *
+ * A row with no `surface_point_name` is dropped as well: that column is what an entry is
+ * authored by (see `buildSurfacePointList`), it is nullable in the registry, and the
+ * platform's own lookup skips a NULL — so offering such a row could only ever produce a
+ * placement its upload rejects.
+ */
 function toUsableRows(rows: SurfacePointRow[]): UsableSurfacePoint[] {
   const usable: UsableSurfacePoint[] = [];
   for (const row of rows) {
@@ -343,12 +359,14 @@ function toUsableRows(rows: SurfacePointRow[]): UsableSurfacePoint[] {
     const location = (row.location_name ?? '').trim() || locationToken;
     const section = (row.section_name ?? '').trim() || placeToken;
     const component = (row.component_type ?? '').trim() || kindToken;
-    if (!location || !section || !component) continue;
+    const slug = (row.surface_point_name ?? '').trim();
+    if (!location || !section || !component || !slug) continue;
     usable.push({
       ...row,
       location_name: location,
       section_name: section,
       component_type: component,
+      surface_point_name: slug,
     });
   }
   return usable;
@@ -491,11 +509,21 @@ function placementLabel(row: UsableSurfacePoint): string {
 }
 
 /**
- * Ask which record pages the app appears on, then — in ONE prompt — which placements on
- * those pages, grouped under a separator per page.
+ * Ask which record pages the app appears on, then — one single-select prompt per page —
+ * where on each of them it appears.
+ *
+ * ONE placement per page: an app takes a single spot on a record page, so the per-page
+ * prompt is a `list`, not a `checkbox`. That makes the rule structural rather than a
+ * validation message, and it is why this asks N prompts instead of one grouped
+ * multi-select (which is what it did before, and which let one page collect several
+ * spots). Note the PLATFORM does not enforce this — its upload only rejects a duplicate
+ * slot — so a hand-edited config listing two spots on one page still uploads. The rule is
+ * the CLI's authoring model, not a wire constraint.
  *
  * Every choice is a real registry row and the answer maps straight back to it, so the
- * authored `surface_point` values are never string-composed client-side.
+ * authored values are never string-composed client-side. Choice VALUES are the row's
+ * `surface_point_name` slug — the authoring identity (see `buildSurfacePointList`) —
+ * while the visible label is built from the decomposed segments.
  */
 async function promptSurfacePointList(
   locations: readonly string[],
@@ -526,10 +554,9 @@ async function promptSurfacePointList(
     .map((choice) => choice.location);
 
   const rows = await fetchSurfacePointsForPages(pickedLocations, extensionType);
-  const byName = new Map(rows.map((row) => [row.surface_point, row]));
 
-  // Placements — one flat checkbox, grouped by page with a separator heading each group.
-  // Values are slot names, which are globally unique, so grouping is presentation only.
+  // One group per picked page that the registry actually offers a spot on — each becomes
+  // its own prompt below.
   const grouped: Array<{ location: string; rows: UsableSurfacePoint[] }> = [];
   for (const location of pickedLocations) {
     const forLocation = rows.filter((row) => row.location_name === location);
@@ -548,53 +575,35 @@ async function promptSurfacePointList(
     logWarn(messages.APP_CREATE_UI_PLACEMENT_PAGES_DROPPED(dropped.map(surfaceValueForLocation)));
   }
 
-  const choices: unknown[] = [];
-  const preselected: string[] = [];
+  // One prompt per page, each named for its location so an answer can never land on the
+  // wrong page — the same reason the rest of this flow answers by question name.
+  const picked = new Set<string>();
   for (const group of grouped) {
-    choices.push(new inquirer.Separator(`  ${surfaceValueForLocation(group.location)}`));
-    for (const row of group.rows) {
-      choices.push({ name: placementLabel(row), value: row.surface_point });
-    }
-    // A page offering exactly one placement gets pre-ticked rather than making the
-    // partner confirm a lone box they had no alternative to.
-    if (group.rows.length === 1) preselected.push(group.rows[0]!.surface_point);
+    const question = `${PLACEMENT_QUESTION_PREFIX}${group.location}`;
+    const answer = await inquirer.prompt([
+      {
+        type: 'list',
+        name: question,
+        message: messages.APP_CREATE_UI_PLACEMENT_PAGE_PROMPT(
+          surfaceValueForLocation(group.location),
+        ),
+        // A page offering one placement still asks, rather than being chosen silently:
+        // it is a single keypress either way, and the partner sees where the app lands.
+        choices: group.rows.map((row) => ({
+          name: placementLabel(row),
+          value: row.surface_point_name,
+        })),
+      },
+    ]);
+    const chosen = String(answer[question] ?? '').trim();
+    // A `list` always resolves to one of its choices, so there is no empty case to guard
+    // in a real run — this only skips a stubbed prompt that answered nothing.
+    if (chosen) picked.add(chosen);
   }
 
-  const { placements } = await inquirer.prompt([
-    {
-      type: 'checkbox',
-      name: 'placements',
-      message: messages.APP_CREATE_UI_PLACEMENT_PROMPT,
-      choices,
-      default: preselected,
-      // Two rules, because one grouped prompt can fail in two ways: nothing ticked at
-      // all, or — the quiet one — pages chosen whose groups were then left empty, which
-      // would silently author fewer placements than the partner asked for.
-      //
-      // The second rule is measured against the pages that actually produced a GROUP, not
-      // the pages that were picked: a rule the offered choices cannot satisfy would lock
-      // the prompt. Pages with no group were warned about above.
-      validate: (picked: unknown[]) => {
-        const names = (picked as string[]) ?? [];
-        if (names.length === 0) return messages.APP_CREATE_UI_PLACEMENT_REQUIRED;
-        const covered = new Set(names.map((name) => byName.get(name)?.location_name));
-        const missing = grouped
-          .map((group) => group.location)
-          .filter((location) => !covered.has(location));
-        if (missing.length > 0) {
-          return messages.APP_CREATE_UI_PLACEMENT_PAGE_MISSING(
-            missing.map(surfaceValueForLocation),
-          );
-        }
-        return true;
-      },
-    },
-  ]);
-
-  // Registry order, not tick order, so the authored list is deterministic and the upload
+  // Registry order, not answer order, so the authored list is deterministic and the upload
   // diff doesn't churn on a re-run that picked the same slots in a different sequence.
-  const picked = new Set((placements as string[]) ?? []);
-  return rows.filter((row) => picked.has(row.surface_point));
+  return rows.filter((row) => picked.has(row.surface_point_name));
 }
 
 /**
@@ -696,8 +705,17 @@ async function resolveUiApp(): Promise<UiApp> {
 
 /**
  * Turn selected registry rows into `surface_point_list` entries, deduplicated by slot
- * name and keeping registry order (which is deterministic server-side, so the upload
- * diff doesn't churn).
+ * and keeping registry order (which is deterministic server-side, so the upload diff
+ * doesn't churn).
+ *
+ * The authored value is the row's `surface_point_name` SLUG (`contact-details-header-menu`),
+ * NOT its dotted `surface_point` name (`contactDetails.headerMenu.action`). The two are 1:1
+ * on the registry row and easy to confuse — the wire field is called `surface_point` and the
+ * dotted name is what the UI kit ultimately renders — but they are not interchangeable here:
+ * the platform resolves an authored entry by `surface_point_name` (`FindByNames`, a
+ * `WHERE surface_point_name = ANY(...)` read) and serves the row's dotted `extension_point_name`
+ * back to the frontend as `extensionPoint`. Authoring the dotted name matches no row, which is
+ * a 400 from `app upload` (`checkExtensionPoints`) and a silently dropped slot on the read path.
  *
  * `contextFor` decides each entry's own context; an empty result omits the key rather
  * than writing `[]`, which would read as "narrow to nothing" instead of "no narrowing".
@@ -709,13 +727,13 @@ function buildSurfacePointList(
   const entries: SurfacePointEntry[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
-    if (seen.has(row.surface_point)) continue;
-    seen.add(row.surface_point);
+    if (seen.has(row.surface_point_name)) continue;
+    seen.add(row.surface_point_name);
     const context = contextFor(row)
       .map((field) => String(field).trim())
       .filter(Boolean);
     entries.push({
-      surface_point: row.surface_point,
+      surface_point: row.surface_point_name,
       ...(context.length ? { context } : {}),
     });
   }

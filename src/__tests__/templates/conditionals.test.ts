@@ -162,8 +162,8 @@ describe('app-config.json template branching', () => {
     const uiApp = {
       extension_type: 'actionLink',
       surface_point_list: [
-        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
-        { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'recordName'] },
+        { surface_point: 'contact-details-header-menu', context: ['recordId'] },
+        { surface_point: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
       ],
       label: 'View in CRM',
       more_info: 'Open this contact in your connected CRM.',

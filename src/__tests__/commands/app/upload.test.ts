@@ -427,9 +427,7 @@ describe('app/upload', () => {
     // context (BEX-290). `link_target` is deliberately absent — `upload` injects it.
     const UI_APP = {
       extension_type: 'actionLink' as const,
-      surface_point_list: [
-        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
-      ],
+      surface_point_list: [{ surface_point: 'contact-details-header-menu', context: ['recordId'] }],
       label: 'View in CRM',
       more_info: 'Open this contact in your connected CRM to see full activity history.',
       redirect_link: 'https://example.com/brevo',
@@ -592,8 +590,8 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point: 'dealDetails.headerMenu.action', context: ['recordId'] },
-            { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+            { surface_point: 'deal-details-header-menu', context: ['recordId'] },
+            { surface_point: 'contact-details-header-menu', context: ['recordId'] },
           ],
         },
       });
@@ -605,8 +603,8 @@ describe('app/upload', () => {
           more_info: 'Open this contact in your connected CRM to see full activity history.',
           label: 'View in CRM',
           surface_point_list: [
-            { context: ['recordId'], surface_point: 'contactDetails.headerMenu.action' },
-            { context: ['recordId'], surface_point: 'dealDetails.headerMenu.action' },
+            { context: ['recordId'], surface_point: 'contact-details-header-menu' },
+            { context: ['recordId'], surface_point: 'deal-details-header-menu' },
           ],
           extension_type: 'actionLink' as const,
         },
@@ -664,7 +662,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          surface_point_list: [{ surface_point: 'contactDetails.overviewMain.widget' }],
+          surface_point_list: [{ surface_point: 'contact-details-overview-main' }],
         },
       });
 
@@ -688,9 +686,9 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
-            { surface_point: 'dealDetails.headerMenu.action', context: ['recordId'] },
-            { surface_point: 'companyDetails.headerMenu.action', context: ['recordId'] },
+            { surface_point: 'contact-details-header-menu', context: ['recordId'] },
+            { surface_point: 'deal-details-header-menu', context: ['recordId'] },
+            { surface_point: 'company-details-header-menu', context: ['recordId'] },
           ],
         },
       });
@@ -707,8 +705,8 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point: 'contactDetails.headerMenu.action' },
-            { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+            { surface_point: 'contact-details-header-menu' },
+            { surface_point: 'contact-details-header-menu', context: ['recordId'] },
           ],
         },
       });
@@ -746,7 +744,7 @@ describe('app/upload', () => {
       ['a top-level context', { context: ['recordId'] }, /no longer a top-level field/i],
       [
         'a flat surface_point_list',
-        { surface_point_list: ['contactDetails.headerMenu.action'] },
+        { surface_point_list: ['contact-details-header-menu'] },
         /must be objects/i,
       ],
     ])('rejects the pre-BEX-290 %s with a migration hint', async (_label, patch, expected) => {
@@ -789,7 +787,7 @@ describe('app/upload', () => {
     // the header-menu path, so the surface the old block cited as missing exists.
     const IFRAME_UI_APP = {
       extension_type: 'iframeExtension' as const,
-      surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
+      surface_point_list: [{ surface_point: 'contact-details-header-menu' }],
       label: 'View in CRM',
       modal_iframe_url: 'https://example.com/embed',
     };
@@ -830,7 +828,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           extension_type: 'iframeExtension',
-          surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
+          surface_point_list: [{ surface_point: 'contact-details-header-menu' }],
           label: 'View in CRM',
           modal_iframe_url: 'https://example.com/embed',
           redirect_link: 'https://example.com/go',
@@ -850,9 +848,9 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+            { surface_point: 'contact-details-header-menu', context: ['recordId'] },
             {
-              surface_point: 'dealDetails.headerMenu.action',
+              surface_point: 'deal-details-header-menu',
               context: ['recordId', 'recordName'],
             },
           ],
@@ -863,8 +861,8 @@ describe('app/upload', () => {
 
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
       expect(payload.ui_app.surface_point_list).toEqual([
-        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
-        { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'recordName'] },
+        { surface_point: 'contact-details-header-menu', context: ['recordId'] },
+        { surface_point: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
       ]);
     });
 
@@ -876,7 +874,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action', context }],
+          surface_point_list: [{ surface_point: 'contact-details-header-menu', context }],
         },
       });
 
@@ -978,7 +976,7 @@ describe('app/upload', () => {
       await uploadCommand({ yes: true });
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-      expect(output).toContain('contactDetails.headerMenu.action');
+      expect(output).toContain('contact-details-header-menu');
       // Per-placement context renders alongside its slot, not as a shared row.
       expect(output).toContain('(context: recordId)');
       expect(output).toContain('Label:');

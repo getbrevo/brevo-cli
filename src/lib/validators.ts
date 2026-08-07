@@ -231,15 +231,19 @@ export function validateUiAppMoreInfo(value: string): true | string {
  * row the registry just returned.
  *
  * The failure this guards against is still real — the platform DROPS an
- * unregistered name and the UI kit matches by exact string equality, so a
- * near-miss like `contact.headerMenu.action` renders nothing with a 200 — but a
- * local allow-list was the wrong place to catch it. It could only ever be a stale
+ * unregistered name, so a near-miss renders nothing with a 200 — but a local
+ * allow-list was the wrong place to catch it. It could only ever be a stale
  * copy, and it failed in both directions: rejecting a slot the platform had added,
  * and passing one the platform had removed.
+ *
+ * Note the value is the registry's `surface_point_name` slug
+ * (`contact-details-header-menu`), not the dotted grammar name — see the `SurfacePoint`
+ * type. Shape-only means the two are indistinguishable here; only the registry can tell
+ * them apart, which is another reason not to try.
  */
 export function validateSurfacePoint(point: string): true | string {
   const trimmed = String(point ?? '').trim();
-  if (!trimmed) return 'Extension point cannot be empty.';
+  if (!trimmed) return 'Surface point cannot be empty.';
   return true;
 }
 
@@ -349,7 +353,7 @@ function rejectPreBex290Fields(block: Record<string, unknown>): void {
   }
   if (block.context !== undefined) {
     throw new CliError(
-      'ui_app.context is no longer a top-level field — record context is now per placement. Move each field list into the matching `surface_point_list` entry, e.g. [{ "surface_point": "contactDetails.headerMenu.action", "context": ["recordId"] }].',
+      'ui_app.context is no longer a top-level field — record context is now per placement. Move each field list into the matching `surface_point_list` entry, e.g. [{ "surface_point": "contact-details-header-menu", "context": ["recordId"] }].',
     );
   }
 }
@@ -366,14 +370,14 @@ function rejectPreBex290Fields(block: Record<string, unknown>): void {
 function validateSurfacePointList(entries: unknown): void {
   if (!Array.isArray(entries) || entries.length === 0) {
     throw new CliError(
-      'ui_app.surface_point_list must list at least one placement (e.g. [{ "surface_point": "contactDetails.headerMenu.action", "context": ["recordId"] }]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
+      'ui_app.surface_point_list must list at least one placement (e.g. [{ "surface_point": "contact-details-header-menu", "context": ["recordId"] }]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
     );
   }
   const names: string[] = [];
   for (const entry of entries) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new CliError(
-        'ui_app.surface_point_list entries must be objects, e.g. { "surface_point": "contactDetails.headerMenu.action", "context": ["recordId"] }. A bare string is the pre-BEX-290 shape.',
+        'ui_app.surface_point_list entries must be objects, e.g. { "surface_point": "contact-details-header-menu", "context": ["recordId"] }. A bare string is the pre-BEX-290 shape.',
       );
     }
     const row = entry as Record<string, unknown>;

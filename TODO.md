@@ -185,3 +185,10 @@ into `main` — anything that must outlive the branch belongs in
       `cli_version` remains in any request body, and `cliVersion` is gone from the
       template, `ProjectConfig`, and the scaffold vars (the version travels only in
       the `User-Agent` header via `src/lib/telemetry.ts`).
+
+- [ ] Decide whether the created-app box and the `app upload` diff should render a
+      friendly placement label (`Header "More" (•••) menu — menu entry`) instead of the
+      raw `surface_point_name` slug they now print. Both print the authored value, and
+      the authored value became the slug when `surface_point_list` moved off the dotted
+      slot name. Neither call site holds the registry row at print time, so this needs a
+      lookup, not a formatting change.

@@ -288,12 +288,12 @@ describe('validateUiAppMoreInfo', () => {
 // had removed.
 describe('validateSurfacePoint', () => {
   it.each([
-    ['contactDetails.headerMenu.action'],
-    ['dealDetails.headerMenu.action'],
-    ['companyDetails.headerMenu.action'],
-    ['contactDetails.overviewMain.widget'],
-    ['dealDetails.overviewAttributes.widget'],
-    ['companyDetails.overviewSidebar.widget'],
+    ['contact-details-header-menu'],
+    ['deal-details-header-menu'],
+    ['company-details-header-menu'],
+    ['contact-details-overview-main'],
+    ['deal-details-overview-attributes'],
+    ['company-details-overview-sidebar'],
   ])('accepts the registered point %s', (name) => {
     expect(validateSurfacePoint(name)).toBe(true);
   });
@@ -305,8 +305,8 @@ describe('validateSurfacePoint', () => {
     ['the pre-BEX-350 region grammar', 'contact.center.region'],
     ['the pre-BEX-350 action grammar', 'contact.header.action'],
     ['a bare record type instead of the page', 'contact.headerMenu.action'],
-    ['a wrong kind for the place', 'contactDetails.headerMenu.widget'],
-    ['a location not in the registry', 'quoteDetails.headerMenu.action'],
+    ['a wrong kind for the place', 'contact-details-header-menu'],
+    ['a location not in the registry', 'quote-details-header-menu'],
     ['wrong casing', 'contactdetails.headerMenu.action'],
   ])('no longer rejects %s locally — the upload endpoint does', (_label, name) => {
     expect(validateSurfacePoint(name)).toBe(true);
@@ -337,16 +337,14 @@ describe('parseAccountId', () => {
 
 // The only context field names that exist in the platform's registry today:
 // recordId, recordName, userId, locale, accountId. Fixtures use nothing else.
-const VALID_POINT = 'contactDetails.headerMenu.action';
+const VALID_POINT = 'contact-details-header-menu';
 
 describe('validateUiApp', () => {
   // The BEX-290 block: `surface_point_list` is a list of objects, the two text fields are
   // `label`/`more_info`, and `link_target` is not authored (upload injects it).
   const VALID = {
     extension_type: 'actionLink',
-    surface_point_list: [
-      { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
-    ],
+    surface_point_list: [{ surface_point: 'contact-details-header-menu', context: ['recordId'] }],
     label: 'View in CRM',
     more_info: 'Open this contact in your connected CRM to see full activity history.',
     redirect_link: 'https://example.com/brevo',
@@ -361,7 +359,7 @@ describe('validateUiApp', () => {
     expect(() =>
       validateUiApp({
         ...rest,
-        surface_point_list: [{ surface_point: 'contactDetails.headerMenu.action' }],
+        surface_point_list: [{ surface_point: 'contact-details-header-menu' }],
       }),
     ).not.toThrow();
   });
@@ -377,8 +375,8 @@ describe('validateUiApp', () => {
       validateUiApp({
         ...VALID,
         surface_point_list: [
-          { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
-          { surface_point: 'dealDetails.headerMenu.action', context: ['recordId', 'recordName'] },
+          { surface_point: 'contact-details-header-menu', context: ['recordId'] },
+          { surface_point: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
         ],
       }),
     ).not.toThrow();
@@ -410,8 +408,8 @@ describe('validateUiApp', () => {
       {
         ...VALID,
         surface_point_list: [
-          { surface_point: 'contactDetails.headerMenu.action' },
-          { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
+          { surface_point: 'contact-details-header-menu' },
+          { surface_point: 'contact-details-header-menu', context: ['recordId'] },
         ],
       },
     ],
@@ -454,7 +452,7 @@ describe('validateUiApp', () => {
     expect(() =>
       validateUiApp({
         ...VALID,
-        surface_point_list: [{ surface_point: 'contactDetails.overviewMain.widget' }],
+        surface_point_list: [{ surface_point: 'contact-details-overview-main' }],
       }),
     ).not.toThrow();
   });
@@ -466,7 +464,7 @@ describe('validateUiApp', () => {
 
   it('rejects a bare-string surface_point_list, naming the new shape', () => {
     expect(() =>
-      validateUiApp({ ...VALID, surface_point_list: ['contactDetails.headerMenu.action'] }),
+      validateUiApp({ ...VALID, surface_point_list: ['contact-details-header-menu'] }),
     ).toThrow(/must be objects/i);
   });
 
@@ -527,7 +525,7 @@ describe('validateUiApp — iframeExtension', () => {
     expect(() =>
       validateUiApp({
         ...VALID_IFRAME,
-        surface_point_list: [{ surface_point: 'contactDetails.overviewMain.widget' }],
+        surface_point_list: [{ surface_point: 'contact-details-overview-main' }],
       }),
     ).not.toThrow();
   });

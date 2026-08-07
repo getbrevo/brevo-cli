@@ -116,15 +116,12 @@ export const messages = {
     `None of the available placements can host a "${extensionType}" extension. This environment's extension-point registry may predate it — try again later.`,
   APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
   APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
-  // One prompt for every placement on every picked page, grouped by page. Replaces the
-  // old kind-then-place pair: kind is a property of the slot, not a question — a partner
-  // picking "Header menu" has already said they want a menu entry.
-  APP_CREATE_UI_PLACEMENT_PROMPT: 'Where should it appear on those pages?',
-  APP_CREATE_UI_PLACEMENT_REQUIRED: 'Pick at least one spot.',
-  // Guards the one way the grouped prompt can quietly do less than the partner asked
-  // for: picking three pages and then ticking spots on only one.
-  APP_CREATE_UI_PLACEMENT_PAGE_MISSING: (pages: string[]) =>
-    `Pick at least one spot on every page you chose — nothing selected for: ${pages.join(', ')}.`,
+  // One single-select prompt PER picked page: an app takes exactly one spot on a page.
+  // Replaces the old kind-then-place pair (kind is a property of the slot, not a question
+  // — a partner picking "Header menu" has already said they want a menu entry) and the
+  // grouped multi-select that briefly followed it.
+  APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
+    `Where should it appear on the ${page} page?`,
   // Printed BEFORE the prompt, as a warning, when the registry offers no spot on a page
   // that was picked. It cannot be a prompt rule: no answer would satisfy one.
   APP_CREATE_UI_PLACEMENT_PAGES_DROPPED: (pages: string[]) =>

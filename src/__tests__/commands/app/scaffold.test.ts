@@ -627,9 +627,7 @@ describe('app/scaffold', () => {
   describe('UI apps', () => {
     const uiApp = {
       extension_type: 'actionLink' as const,
-      surface_point_list: [
-        { surface_point: 'contactDetails.headerMenu.action', context: ['recordId'] },
-      ],
+      surface_point_list: [{ surface_point: 'contact-details-header-menu', context: ['recordId'] }],
       label: 'View in CRM',
       // A value the server does not know about — the whole point of the
       // preservation test below.

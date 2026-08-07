@@ -110,16 +110,20 @@ export type ExtensionPlace =
 export type ExtensionKind = 'widget' | 'action';
 
 /**
- * A slot in the BEX-350 grammar `<location>.<place>.<kind>` — e.g.
- * `contactDetails.headerMenu.action`. Named for the field it types
- * (`surface_point_list`); the platform calls the same value `extensionPoint` when
- * it serves it back on the manifest.
+ * The registry's `surface_point_name` slug for a slot — e.g.
+ * `contact-details-header-menu`. Named for the field it types (`surface_point_list`).
  *
- * Casing and spelling are part of the contract: the UI kit matches
- * `extensionPoint` by exact string equality against the platform's
- * extension-point registry, and the backend *drops* an authored value with no
- * registry entry. Both failures are silent — an empty slot, no error, still a
- * 200 — which is why the CLI validates locally against the known registry.
+ * NOT the dotted `<location>.<place>.<kind>` name of the BEX-350 grammar
+ * (`contactDetails.headerMenu.action`). Both identify the same registry row, 1:1, and
+ * both travel under names built from the words "surface point" — but only the slug is
+ * authorable. The platform resolves an authored entry with
+ * `WHERE surface_point_name = ANY(...)` and then serves that row's dotted
+ * `extension_point_name` to the frontend as `extensionPoint`, which is where the grammar
+ * shows up and why it is easy to write here by mistake.
+ *
+ * Spelling is part of the contract: an authored value with no registry row is a 400 from
+ * `app upload` (`checkExtensionPoints`), and on the read path the backend *drops* it —
+ * an empty slot, no error, still a 200.
  */
 export type SurfacePoint = string;
 
@@ -161,12 +165,21 @@ export interface SurfacePointEntry {
  * usable prompts.
  */
 export interface SurfacePointRow {
-  /** Slot name in the `<location>.<place>.<kind>` grammar — the wire identity. */
+  /**
+   * Slot name in the `<location>.<place>.<kind>` grammar (`extension_point_name` on the
+   * registry row). This is what the UI kit eventually renders as `extensionPoint` — it is
+   * NOT what an entry is authored by. See `surface_point_name` below.
+   */
   surface_point: string;
   /**
    * The registry's own identifier for the slot — a kebab-case SLUG
    * (`contact-details-header-menu`), NOT display text. Never render it to a partner: the
    * prompt labels come from `EXTENSION_PLACE_LABELS` in `lib/constants.ts`.
+   *
+   * This is the AUTHORING identity: the value `app create` writes into a
+   * `surface_point_list` entry and the only one the platform's lookup matches. Optional
+   * because the column is nullable — a row without it cannot be authored and is dropped
+   * from the prompt (`toUsableRows`).
    */
   surface_point_name?: string;
   location_name?: string;
