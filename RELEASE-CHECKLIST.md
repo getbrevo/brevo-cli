@@ -298,6 +298,59 @@ backend still identifies the caller from the structured `User-Agent`
       directory has already been created and entered. Tracked in `TODO.md`; see also
       the runtime-guard item under *Before public-apps GA*.
 
+### `app create` sends the `ui_app` block for UI apps (2026-08-07)
+
+**Change:** `buildCreatePayload()` now includes `ui_app` for a UI app, under the same
+key `app upload` uses. It was deliberately upload-only before, on the reasoning that
+create registers the record and upload validates the configuration.
+
+**The trigger was a live 400 on staging.** A UI-app create sent
+`{"name":"test","distribution_type":"private"}` — no `auth` block, correctly, since an
+action link has no OAuth callback — and got
+`{"code":"invalid_request","error":"redirect_uris is required and must not be empty"}`.
+With neither `auth` nor `ui_app` in the body there is nothing in the request that says
+which app type it is, so the endpoint reads it as an OAuth app missing its callbacks.
+Sending `ui_app` gives create the same discriminator the CLI uses locally
+(`isUiAppConfig`) and the same one upload already receives.
+
+**⚠️ The fix is a hypothesis about server behaviour, not a confirmed contract.** It is
+sound if the create endpoint branches on `ui_app` the way upload does. Two other
+readings of that 400 are still open, and they need different fixes:
+
+1. **The endpoint requires `redirect_uris` unconditionally** and has no notion of an
+   app type without OAuth. Then `ui_app` in the body changes nothing and the 400
+   repeats — this needs a backend change, and no CLI payload can work around it.
+2. **The server still binds top-level `scopes`/`redirect_uris`**, i.e. the nested-`auth`
+   dependency at *Unified create/upload payload structure* below has not shipped on
+   this environment. The bare field name in the error (`redirect_uris`, not
+   `auth.redirect_uris`) is consistent with this. Then **OAuth create is broken here
+   too**, and this change is unrelated to the real cause.
+
+**Must hold true:**
+
+- [x] A UI-app create body carries `ui_app` and no `auth`; an OAuth create carries
+      `auth` and no `ui_app`. Covered by `sends the ui_app block to POST /apps, under
+      the ui_app key` and the non-TTY OAuth test's `not.toHaveProperty('ui_app')`.
+- [x] The block sent to create is the same object written to `app-config.json` —
+      covered by `sends the same block it collected and writes to app-config.json`, so
+      the registered app type can never disagree with the partner's file.
+- [x] Never the earlier `snapshot` spelling (rejected server-side).
+- [x] `yarn test` (47 suites / 1009 tests), `yarn lint`, `yarn tsc --noEmit` green.
+- [ ] **Manual, blocking — this is the check that decides which of the three readings
+      above is true.** Run `brevo app create --debug`, pick **UI app**, against
+      staging. If it succeeds, the hypothesis holds; record it and mark the wire
+      contract confirmed in `CLAUDE.md`. If the same 400 comes back, revert this and
+      raise reading 1 or 2 on the backend.
+- [ ] **Manual, blocking — run first, it is cheaper and disambiguates reading 2.**
+      `brevo app create --debug` for an **OAuth** app against the same environment. If
+      that also 400s on `redirect_uris`, the nested-`auth` server change hasn't landed
+      and *that* is the bug — nothing about UI apps is involved.
+- [ ] Reviewer: `createApp()`'s payload type in `src/services/app.ts` gained
+      `ui_app?: UiApp`, so the block can no longer reach the wire untyped.
+- [ ] Reviewer: `fetchAppContext()` is still passed the collected block explicitly
+      (`create.ts`), which stays correct whether or not the create response starts
+      echoing `ui_app` back.
+
 ### `--debug` logs the request body alongside the response (2026-08-07)
 
 **Change:** `ApiClient.request()` now emits `[debug] request <METHOD> <path>: <body>`

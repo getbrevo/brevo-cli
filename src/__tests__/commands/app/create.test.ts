@@ -1246,12 +1246,34 @@ describe('app/create', () => {
       expect(questionNamed('redirectUrl')).toBeUndefined();
     });
 
-    it('does not send the ui_app block to POST /apps', async () => {
+    // The block travels on create as well as on upload, under the same `ui_app`
+    // key. It is what tells the create endpoint the absent `auth` block is
+    // deliberate — without it the endpoint reads a UI app as an OAuth app that
+    // forgot its callbacks and answers 400 `redirect_uris is required`.
+    it('sends the ui_app block to POST /apps, under the ui_app key', async () => {
       await createCommand(CLI_OPTIONS);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      // Never the earlier `snapshot` spelling — the platform rejected that key.
       expect(payload).not.toHaveProperty('snapshot');
-      expect(payload).not.toHaveProperty('ui_app');
+      expect(payload.ui_app).toEqual({
+        extension_type: 'actionLink',
+        surface_point_list: [
+          { surface_point: 'contactDetails.headerMenu.action', context: DEFAULT_CONTEXT },
+        ],
+        label: 'View in CRM',
+        redirect_link: 'https://example.com/brevo',
+      });
+    });
+
+    // The create body and the block written to app-config.json are the same
+    // object, so a partner's file can never disagree with what the app was
+    // registered as.
+    it('sends the same block it collected and writes to app-config.json', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.ui_app).toEqual(collectedUiApp());
     });
 
     // Field names and casing must match the platform's stored app snapshot exactly — keys
@@ -1878,6 +1900,9 @@ describe('app/create', () => {
       expect(questionNamed('appType')).toBeUndefined();
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(payload).toHaveProperty('auth.redirect_uris');
+      // The two keys are mutually exclusive: `ui_app` is the discriminator, so an
+      // OAuth create carrying it would register the wrong app type.
+      expect(payload).not.toHaveProperty('ui_app');
       expect(collectedUiApp()).toBeUndefined();
     });
 

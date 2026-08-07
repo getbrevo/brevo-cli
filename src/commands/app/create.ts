@@ -772,10 +772,6 @@ interface CreatedApp {
 }
 
 function buildCreatePayload(inputs: CreateAppInputs) {
-  // The `ui_app` block is deliberately NOT sent here. `POST /apps` registers the
-  // app record and issues credentials; the extension configuration is validated
-  // and stored by `app upload`, which is the platform's single validation
-  // authority for it. Create only writes it to app-config.json.
   const isUiApp = !!inputs.uiApp;
   return {
     name: inputs.appName,
@@ -785,8 +781,17 @@ function buildCreatePayload(inputs: CreateAppInputs) {
     // its config) — the key is omitted entirely, not sent empty. Sending empty
     // arrays (or worse, the default localhost URI) would register OAuth state
     // the app type never uses.
+    //
+    // `ui_app` is what tells create the omission is deliberate. It is the
+    // app-type discriminator on the wire exactly as it is in app-config.json
+    // (`isUiAppConfig`), so create can apply the same branch the CLI does:
+    // without it the endpoint reads a UI app as an OAuth app missing its
+    // callbacks and answers `redirect_uris is required and must not be empty`.
+    // `app upload` still sends the block and remains the platform's validation
+    // authority for it — this is the same block under the same key, sent early
+    // enough that the record is created with the right app type.
     ...(isUiApp
-      ? {}
+      ? { ui_app: inputs.uiApp }
       : { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } }),
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };

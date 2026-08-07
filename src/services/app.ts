@@ -14,6 +14,7 @@ import {
   SurfacePointLocationsResponse,
   SurfacePointRow,
   SurfacePointsResponse,
+  UiApp,
   UploadAppPayload,
   UploadAppResponse,
 } from '../types';
@@ -335,6 +336,12 @@ export function createAppService(client: ApiClient) {
         scopes: string[];
         redirect_uris: string[];
       };
+      // Sent for UI apps only, under the same key the upload endpoint takes and
+      // the same key the block carries in app-config.json. It is the app-type
+      // discriminator on the wire as well as locally: without it, create has no
+      // way to know the app has no OAuth flow, and rejects the absent `auth`
+      // block with `redirect_uris is required and must not be empty`.
+      ui_app?: UiApp;
       logo_uri?: string;
     }): Promise<CreateAppResponse> {
       const raw = await client.post<CreateAppResponse>(ENDPOINTS.APP_STORE_APPS, payload);
