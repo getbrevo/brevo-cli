@@ -3,9 +3,26 @@
 Design notes for letting the CLI resolve the deployment target account itself instead of
 requiring the partner to know and type a numeric account ID.
 
-**Status: design only — nothing implemented.** One design decision is unresolved (the
-non-corporate identifier) and the whole feature is blocked on a backend endpoint that does
-not exist yet. Both are recorded below rather than guessed at.
+**Status: implemented (2026-08-07)** — `resolveDeploymentTarget()` in
+`src/commands/app/account-deployment.ts`. Read the rest of this file as the rationale
+behind that code, with three corrections:
+
+- **The blocking backend endpoint exists.** `POST` / `DELETE
+  /v3/app-store/apps/{id}/installs` (app-store-backend PR #717, BEX-362/BEX-364). The
+  *Blocked on* section below is obsolete; the confirmed contract is in `CLAUDE.md` and
+  the open items in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+- **The *Open decision — the non-corporate identifier* section is settled as option A**
+  (numeric everywhere). `organization_id` is sent as the caller's `client_id` and, for a
+  plain account, doubles as the deploy target. This assumes it is numeric — that section
+  records it as a UUID, which if true breaks the whole branch, so
+  `resolveCallerClientId()` guards it and fails loudly. Confirming it is a blocking item
+  before UI-apps GA. `parseAccountId` keeps its numeric contract untouched.
+- **Caching the account `type` was not implemented.** The *Caching* section's argument
+  was that it makes the plain branch zero-network; it isn't, because the branch still
+  needs one `/v3/account/info` read to know which branch it is on, and that read is only
+  taken when the positional was omitted. Fetching fresh also drops the section's own
+  residual risk (a stale `type` after an account converts to corporate) and leaves
+  `src/lib/config.ts` alone. Revisit only if the extra request shows up as a problem.
 
 ## Context
 

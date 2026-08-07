@@ -447,7 +447,9 @@ function validateIframeExtensionFields(block: Record<string, unknown>): void {
 }
 
 /**
- * Parse and validate an `<account-id>` argument for `app deploy` / `app rollback`.
+ * Parse and validate an explicit `[account-id]` argument for `app deploy` /
+ * `app rollback`. Only reached when the positional was actually given — an omitted
+ * one is resolved from the authenticated account instead, never routed through here.
  * Brevo account IDs are numeric; accept a trimmed digit string.
  */
 export function parseAccountId(value: string): string {

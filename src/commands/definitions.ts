@@ -171,8 +171,14 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     {
       name: 'deploy',
       description: 'Make an app available in a Brevo account',
-      arguments: [{ name: '<account-id>', description: 'Brevo account (tenant) ID' }],
+      arguments: [
+        {
+          name: '[account-id]',
+          description: 'Brevo account (tenant) ID (defaults to your own account)',
+        },
+      ],
       examples: [
+        'brevo app deploy',
         'brevo app deploy 99999',
         'brevo app deploy 99999 --app-id 42',
         'brevo app deploy 99999 --force --json',
@@ -197,8 +203,14 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     {
       name: 'rollback',
       description: 'Roll back an app from a Brevo account',
-      arguments: [{ name: '<account-id>', description: 'Brevo account (tenant) ID' }],
+      arguments: [
+        {
+          name: '[account-id]',
+          description: 'Brevo account (tenant) ID (defaults to your own account)',
+        },
+      ],
       examples: [
+        'brevo app rollback',
         'brevo app rollback 99999',
         'brevo app rollback 99999 --app-id 42',
         'brevo app rollback 99999 --force --json',

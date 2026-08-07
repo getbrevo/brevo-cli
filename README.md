@@ -97,8 +97,8 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo app list` | List apps in your account |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff (`--yes`) |
-| `brevo app deploy` | Make an app available in a Brevo account (`<account-id>`, `--app-id`, `--force`) |
-| `brevo app rollback` | Roll back an app from a Brevo account (`<account-id>`, `--app-id`, `--force`) |
+| `brevo app deploy` | Make an app available in a Brevo account (`[account-id]`, `--app-id`, `--force`) |
+| `brevo app rollback` | Roll back an app from a Brevo account (`[account-id]`, `--app-id`, `--force`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Add a feature to the app in the current directory (`--overwrite`) |
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |

@@ -1,10 +1,11 @@
 import { ApiClient } from '../../api/client';
 import { createAppService } from '../../services/app';
 import { ApiError } from '../../lib/errors';
-import { getAppCredentials, saveAppCredentials } from '../../lib/config';
+import { getAppCredentials, getOrganizationId, saveAppCredentials } from '../../lib/config';
 
 jest.mock('../../lib/config', () => ({
   getAppCredentials: jest.fn(),
+  getOrganizationId: jest.fn(),
   saveAppCredentials: jest.fn(),
 }));
 
@@ -484,12 +485,17 @@ describe('services/app', () => {
   });
 
   describe('deployApp / rollbackApp', () => {
+    beforeEach(() => {
+      (getOrganizationId as jest.Mock).mockReturnValue('12345');
+    });
+
     it('should POST an install with the account ID coerced to a number', async () => {
       (mockClient.post as jest.Mock).mockResolvedValue(undefined);
 
       await service.deployApp(UUID, '99999', 'Invoice Manager');
 
       expect(mockClient.post).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
+        client_id: 12345,
         deploy_client_id: 99999,
         name: 'Invoice Manager',
         is_developer: true,
@@ -502,22 +508,106 @@ describe('services/app', () => {
       await service.rollbackApp(UUID, '99999', 'Invoice Manager');
 
       expect(mockClient.delete).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
+        client_id: 12345,
         deploy_client_id: 99999,
         name: 'Invoice Manager',
         is_developer: true,
       });
     });
 
-    it('should rethrow a 404 as a friendly not-found error on both verbs', async () => {
-      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
-      (mockClient.delete as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+    // `client_id` is the account that owns the app; `deploy_client_id` is the account
+    // it lands in. They differ for a corporate deploy into a sub-account, and the
+    // server resolves the app against the former — so they must not be collapsed.
+    it('should send the caller organization ID and the deploy target separately', async () => {
+      (getOrganizationId as jest.Mock).mockReturnValue('12345');
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
 
-      await expect(service.deployApp('999', '1', 'x')).rejects.toThrow('App 999 not found.');
-      await expect(service.rollbackApp('999', '1', 'x')).rejects.toThrow('App 999 not found.');
+      await service.deployApp(UUID, '67890', 'Invoice Manager');
+
+      expect(mockClient.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ client_id: 12345, deploy_client_id: 67890 }),
+      );
     });
 
-    // The commands map 422 themselves — deploy to "upload first", rollback to an
-    // informational "not deployed" — so the service must not swallow it.
+    // Both body fields are Go int64 and the handler decodes the body BEFORE it reads
+    // the X-Sib-Client-Id header, so a UUID in either one is a decode failure — 400,
+    // whole request lost, including one the header would have resolved fine. Omit it
+    // instead and let the server fall back to the header / its caller default.
+    it.each([
+      ['a UUID', '550e8400-e29b-41d4-a716-446655440001'],
+      ['blank', '   '],
+      ['absent', undefined],
+    ])('should omit client_id when the organization ID is %s', async (_label, organizationId) => {
+      (getOrganizationId as jest.Mock).mockReturnValue(organizationId);
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deployApp(UUID, '99999', 'Invoice Manager');
+
+      const body = (mockClient.post as jest.Mock).mock.calls[0][1];
+      expect(body).not.toHaveProperty('client_id');
+      expect(body).toMatchObject({ deploy_client_id: 99999, is_developer: true });
+    });
+
+    // A non-numeric target only arises for a plain account deploying into itself, and
+    // the server defaults an absent deploy_client_id to the caller — the same account.
+    it('should omit deploy_client_id when the target is not numeric', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deployApp(UUID, '550e8400-e29b-41d4-a716-446655440002', 'Invoice Manager');
+
+      const body = (mockClient.post as jest.Mock).mock.calls[0][1];
+      expect(body).not.toHaveProperty('deploy_client_id');
+      expect(body).toMatchObject({ client_id: 12345 });
+    });
+
+    // NaN serialises to `null`, which is a decode failure too — an omitted key is the
+    // only safe representation of "the CLI has no number for this".
+    it('should never emit null or NaN for either identifier', async () => {
+      (getOrganizationId as jest.Mock).mockReturnValue('org-1');
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deployApp(UUID, 'acct-2', 'x');
+
+      const body = (mockClient.post as jest.Mock).mock.calls[0][1];
+      expect(JSON.stringify(body)).not.toContain('null');
+      expect(body).toEqual({ name: 'x', is_developer: true });
+    });
+
+    // Matches the confirmed staging curl exactly: no client_id, numeric
+    // deploy_client_id, name, is_developer.
+    it('should match the staging DELETE payload shape', async () => {
+      (mockClient.delete as jest.Mock).mockResolvedValue(undefined);
+
+      await service.rollbackApp(UUID, '12', 'My App Installation');
+
+      expect(mockClient.delete).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
+        client_id: 12345,
+        deploy_client_id: 12,
+        name: 'My App Installation',
+        is_developer: true,
+      });
+    });
+
+    it('should rethrow a 404 on deploy as a friendly not-found error', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+
+      await expect(service.deployApp('999', '1', 'x')).rejects.toThrow('App 999 not found.');
+    });
+
+    // Unlike every other verb, rollback must NOT collapse 404 into "app not found":
+    // the uninstall route answers 404 for a missing install too, and the command
+    // reports that as the informational not-deployed path.
+    it('should propagate a 404 on rollback unchanged', async () => {
+      (mockClient.delete as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+
+      await expect(service.rollbackApp('999', '1', 'x')).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    // The command maps 422 itself — deploy to "upload first" — so the service
+    // must not swallow it.
     it('should propagate a 422 ApiError unchanged', async () => {
       (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('not configured', 422));
 

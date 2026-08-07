@@ -78,15 +78,20 @@ into `main` — anything that must outlive the branch belongs in
       (`deploy_client_id` as a number, `name`, `is_developer`). The CLI now matches. Only
       the rejection codes and the POST response shape remain assumed — see
       `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
-- [ ] **`app deploy` target-account resolution — design written, not implemented.** See
-      `BEX-290-deploy-account-resolution.md`. Makes `<account-id>` optional: standalone
-      accounts resolve their own, corporate accounts pick from
-      `GET /v3/corporate/subAccount`. Two blockers, both recorded in that file:
-      - [ ] **Non-corporate identifier is unresolved.** The corporate branch yields a numeric
-            sub-account `id`; `organization_id` is a UUID and `parseAccountId` rejects it.
-            Needs confirmation of whether `/v3/account/info` exposes a numeric account ID
-            distinct from `organization_id` / `user_id`, and whether sub-accounts share their
-            master's `organization_id`.
+- [x] **`app deploy` target-account resolution — implemented (2026-08-07).** `<account-id>`
+      is now `[account-id]`: plain accounts resolve their own ID, corporate accounts pick
+      from `GET /v3/corporate/subAccount`. Lives in `resolveDeploymentTarget()`, so
+      rollback inherits it. Two assumptions remain, both in `RELEASE-CHECKLIST.md` →
+      *Before UI-apps GA*:
+      - [x] **`organization_id` shape — no longer a blocker.** Both body identifiers are
+            `int64` and the body is decoded before `X-Sib-Client-Id` is read, so the CLI
+            omits a non-numeric one instead of sending it (`toNumericIdentifier()`):
+            `client_id` falls back to the header, `deploy_client_id` to the caller.
+            Confirmed against staging, where a working DELETE carries no `client_id`.
+            Worth confirming the real shape for the record only.
+      - [ ] **The corporate discriminator `type === 'corporate'` is assumed.** Typed optional;
+            an absent/unknown value degrades to the plain branch (deterministic, no prompt),
+            so a wrong guess shows up as a master account deploying into itself.
       - [x] **Deploy/rollback transport settled (2026-08-06)** — see above. The route is
             `/installs`, not the `/deploy`+`/undeploy` pair the approved design described,
             and the account travels as a numeric `deploy_client_id`. The design's other

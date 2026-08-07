@@ -8,7 +8,10 @@ import { createSpinner } from '../../lib/ui';
 import { confirmDeployment, resolveDeploymentTarget } from './account-deployment';
 
 interface RollbackOptions {
-  /** The `<account-id>` positional, folded in by the command definition. */
+  /**
+   * The `[account-id]` positional, folded in by the command definition. Optional —
+   * omitted, `resolveDeploymentTarget` derives the target from the logged-in account.
+   */
   accountId?: string;
   appId?: string;
   force?: boolean;
@@ -36,7 +39,7 @@ function reportNotDeployed(appId: string, accountId: string, json?: boolean): vo
 }
 
 /**
- * `brevo app rollback <account-id>` — withdraw an app's availability from one
+ * `brevo app rollback [account-id]` — withdraw an app's availability from one
  * Brevo account. Counterpart to `app deploy`.
  */
 export const rollbackCommand = withCommandHandler(
@@ -45,7 +48,6 @@ export const rollbackCommand = withCommandHandler(
       options.accountId,
       options,
       messages.APP_ROLLBACK_SELECT,
-      messages.APP_ROLLBACK_MISSING_ACCOUNT_ID,
     );
 
     // Deliberately no upload gate here: rolling back is always safe, and blocking it
@@ -62,7 +64,13 @@ export const rollbackCommand = withCommandHandler(
       await appService.rollbackApp(appId, accountId, appLabel);
     } catch (err) {
       spinner.stop();
-      if (err instanceof ApiError && err.statusCode === 422) {
+      // Any 404 is the not-deployed path. The developer uninstall route resolves the
+      // install from the request body rather than an installation ID, so it answers 404
+      // for both "app doesn't exist" and "no such install" — and the CLI can only tell
+      // them apart by matching the server's error copy, which it deliberately doesn't.
+      // Reporting a bad app ID as "not deployed" is the cheaper wrong answer: the
+      // alternative fails an idempotent teardown that had nothing left to do.
+      if (err instanceof ApiError && err.statusCode === 404) {
         reportNotDeployed(appId, accountId, options.json);
         return;
       }

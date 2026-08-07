@@ -5,6 +5,33 @@ export interface AccountResponse {
   lastName?: string;
   organization_id: string;
   user_id: number;
+  /**
+   * ⚠️ ASSUMED CONTRACT — the account-type discriminator. `'corporate'` marks a
+   * master account that owns sub-accounts; anything else takes the plain branch.
+   *
+   * Optional on purpose: a response without the field degrades to "plain account",
+   * which resolves deterministically and never prompts. That is the safe default —
+   * mistaking a master account for a plain one costs a "pass the account ID
+   * explicitly" round trip, while the reverse would prompt a user who has nothing
+   * to pick from. Tracked in RELEASE-CHECKLIST.md → *Before UI-apps GA*.
+   */
+  type?: string;
+}
+
+/**
+ * One row of `GET /v3/corporate/subAccount` (BEX-290). `id` is the numeric
+ * sub-account ID, so a picker selection needs no follow-up lookup — it is exactly
+ * what `deploy_client_id` wants. `createdAt` and `groups` are returned but unused.
+ */
+export interface SubAccount {
+  id: number;
+  companyName?: string;
+  active?: boolean;
+}
+
+export interface SubAccountsResponse {
+  count: number;
+  subAccounts: SubAccount[];
 }
 
 // ──────────────── UI apps (BEX-290) ────────────────

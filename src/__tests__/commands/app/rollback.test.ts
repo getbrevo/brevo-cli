@@ -5,16 +5,21 @@ jest.mock('../../../container', () => ({
     rollbackApp: jest.fn(),
     fetchAppsList: jest.fn(),
   },
+  accountService: {
+    getAccount: jest.fn(),
+    fetchSubAccounts: jest.fn(),
+  },
 }));
 
 jest.mock('../../../lib/config', () => ({
   readProjectConfig: jest.fn(),
+  getOrganizationId: jest.fn(),
 }));
 
 import inquirer from 'inquirer';
 import { rollbackCommand } from '../../../commands/app/rollback';
-import { appService } from '../../../container';
-import { readProjectConfig } from '../../../lib/config';
+import { appService, accountService } from '../../../container';
+import { readProjectConfig, getOrganizationId } from '../../../lib/config';
 import { ApiError } from '../../../lib/errors';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
@@ -43,6 +48,9 @@ describe('app/rollback', () => {
     // See the note in deploy.test.ts — implementations survive clearAllMocks().
     (appService.rollbackApp as jest.Mock).mockResolvedValue(undefined);
     (readProjectConfig as jest.Mock).mockReturnValue(LINKED_CONFIG);
+    // Default identity: a plain (non-corporate) account whose own ID is 12345.
+    (accountService.getAccount as jest.Mock).mockResolvedValue({ type: 'user' });
+    (getOrganizationId as jest.Mock).mockReturnValue('12345');
   });
 
   afterEach(() => {
@@ -60,9 +68,24 @@ describe('app/rollback', () => {
     expect(appService.rollbackApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
   });
 
-  it('errors when the account ID is missing', async () => {
-    await expect(rollbackCommand({ force: true })).rejects.toThrow(/Missing account ID/i);
-    expect(appService.rollbackApp).not.toHaveBeenCalled();
+  // Account resolution is shared with deploy (resolveDeploymentTarget), so the full
+  // matrix lives in deploy.test.ts. These two cover that rollback inherits it.
+  it('defaults to the caller own account when no account ID is given', async () => {
+    await rollbackCommand({ force: true });
+
+    expect(appService.rollbackApp).toHaveBeenCalledWith('42', '12345', 'Invoice Manager');
+  });
+
+  it('prompts a corporate account for a sub-account', async () => {
+    (accountService.getAccount as jest.Mock).mockResolvedValue({ type: 'corporate' });
+    (accountService.fetchSubAccounts as jest.Mock).mockResolvedValue([
+      { id: 4043629, companyName: 'Company1', active: true },
+    ]);
+    mockPrompt.mockResolvedValueOnce({ selectedSubAccount: 4043629 });
+
+    await rollbackCommand({ force: true });
+
+    expect(appService.rollbackApp).toHaveBeenCalledWith('42', '4043629', 'Invoice Manager');
   });
 
   // Unlike deploy, rollback has no upload gate — an app deployed by an older CLI
@@ -75,9 +98,22 @@ describe('app/rollback', () => {
     expect(appService.rollbackApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
   });
 
-  it('treats "not deployed" (422) as informational, not a failure', async () => {
+  // The uninstall route resolves the install from the request body, so it answers 404
+  // for a missing install as well as an unknown app. Both read as "not deployed".
+  it('treats "not deployed" (404) as informational, not a failure', async () => {
     (appService.rollbackApp as jest.Mock).mockRejectedValue(
-      new ApiError('Unprocessable', 422, undefined),
+      new ApiError('Installation ID does not exist', 404, undefined),
+    );
+
+    await expect(rollbackCommand({ accountId: '99999', force: true })).resolves.toBeUndefined();
+    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/is not deployed/i);
+  });
+
+  // Deliberate: a 404 naming the app takes the same path. The CLI does not match on
+  // the server's error copy, and failing an idempotent teardown is the worse outcome.
+  it('treats an unknown-app 404 as not deployed too', async () => {
+    (appService.rollbackApp as jest.Mock).mockRejectedValue(
+      new ApiError('App ID does not exist', 404, undefined),
     );
 
     await expect(rollbackCommand({ accountId: '99999', force: true })).resolves.toBeUndefined();
@@ -86,7 +122,7 @@ describe('app/rollback', () => {
 
   it('reports NOT_DEPLOYED in JSON mode without failing', async () => {
     (appService.rollbackApp as jest.Mock).mockRejectedValue(
-      new ApiError('Unprocessable', 422, undefined),
+      new ApiError('Installation ID does not exist', 404, undefined),
     );
 
     await rollbackCommand({ accountId: '99999', json: true });
@@ -99,7 +135,7 @@ describe('app/rollback', () => {
     });
   });
 
-  it('propagates errors other than 422', async () => {
+  it('propagates errors other than 404', async () => {
     (appService.rollbackApp as jest.Mock).mockRejectedValue(
       new ApiError('Server error', 500, undefined),
     );

@@ -216,7 +216,11 @@ export const messages = {
   APP_DEPLOY_CANCELLED: 'Deploy cancelled.',
   APP_DEPLOY_SUCCESS: (appId: string, accountId: string) =>
     `App ${appId} deployed to account ${accountId}.`,
-  APP_DEPLOY_MISSING_ACCOUNT_ID: `Missing account ID.\n\n  Usage: ${CLI.APP_DEPLOY()}`,
+  // Sub-account resolution, shared by deploy and rollback. Only a master (corporate)
+  // account ever reaches these: a plain account resolves to itself with no prompt.
+  APP_DEPLOY_SELECT_ACCOUNT: 'Select the account to deploy to:',
+  APP_DEPLOY_ACCOUNT_ID_REQUIRED: `This is a corporate account, so the target account can't be resolved automatically.\n\n  Pass it explicitly: ${CLI.APP_DEPLOY('<account-id>')}\n  (Choosing one from a list requires an interactive terminal.)`,
+  APP_DEPLOY_NO_SUB_ACCOUNTS: `No active sub-accounts found on this corporate account.\n\n  Pass the target account explicitly: ${CLI.APP_DEPLOY('<account-id>')}`,
   // The spec's installation flow requires deploy to refuse until the config has
   // been validated by an upload. `version` is only ever written by a successful
   // upload, so its absence is a reliable local signal.
@@ -227,9 +231,13 @@ export const messages = {
   APP_ROLLBACK_CANCELLED: 'Rollback cancelled.',
   APP_ROLLBACK_SUCCESS: (appId: string, accountId: string) =>
     `App ${appId} rolled back from account ${accountId}.`,
-  APP_ROLLBACK_MISSING_ACCOUNT_ID: `Missing account ID.\n\n  Usage: ${CLI.APP_ROLLBACK()}`,
   APP_ROLLBACK_NOT_DEPLOYED: (appId: string, accountId: string) =>
     `App ${appId} is not deployed to account ${accountId}.`,
+  // Both verbs identify the calling account by its organization ID, which is only
+  // cached by a successful login. Numeric and UUID values are both forwarded as-is;
+  // only an absent or blank one lands here, meaning the credentials predate the field
+  // or were written by a partial login — re-authenticating rewrites them.
+  APP_DEPLOY_MISSING_CLIENT_ID: `Could not determine your Brevo account's organization ID.\n\n  Run \`${CLI.LOGIN}\` to re-authenticate.`,
   APP_DEPLOY_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
   APP_UPLOAD_DISTRIBUTION_IMMUTABLE: (current: string, next: string) =>

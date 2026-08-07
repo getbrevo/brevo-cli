@@ -194,11 +194,38 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       `ENDPOINTS.APP_STORE_APP_INSTALLS` and `appService.deployApp` / `rollbackApp`
       now match. The CLI sends the app's own name as `name` and `is_developer: true`
       unconditionally.
-- [ ] **Still unconfirmed on that endpoint:** the rejection codes. The commands assume
-      HTTP 422 for "not yet uploaded" (deploy) and "not deployed" (rollback) — both
-      still marked in code comments. Confirm with the app-store backend team, along
-      with whether `name` is required or advisory, and whether the POST response
-      carries an install/integration ID the CLI should surface or persist.
+- [x] **Rollback's rejection code — RESOLVED (app-store-backend PR #717, BEX-364).**
+      `DELETE /apps/{app_id}/installs` resolves the install from the request body
+      (`client_id` + `is_developer`, optional `deploy_client_id`) because a developer
+      never sees an `installation_id`. It answers **404** — not 422 — for *both* an
+      unknown app and an absent install, distinguishable only by the error copy.
+      `app rollback` maps any 404 to its informational not-deployed path (exit 0) and
+      `rollbackApp()` deliberately skips `rethrowNotFound`. The body also carries
+      `client_id` (the caller's `organization_id`), without which the endpoint 400s.
+- [ ] **Still unconfirmed on that endpoint:** deploy's rejection code. It assumes
+      HTTP 422 for "not yet uploaded" — PR #717 is uninstall-only, so nothing confirms
+      the install side. Confirm with the app-store backend team, along with whether
+      `name` is required or advisory, and whether the POST response carries an
+      install/integration ID the CLI should surface or persist.
+- [x] **`organization_id` shape — DEFUSED, no longer blocking.** Both body identifiers
+      are Go `int64` and the handler decodes the body *before* reading
+      `X-Sib-Client-Id`, so a UUID in either field would 400 a request the header
+      resolves fine. The CLI therefore **omits** a non-numeric identifier rather than
+      sending it (`toNumericIdentifier()` + `pick()`), which is safe in both directions:
+      `client_id` falls back to the gateway-populated header, `deploy_client_id`
+      defaults to the caller. Confirmed against staging — a working `DELETE
+      .../installs` carries no `client_id` at all. `BEX-290-deploy-account-resolution.md`
+      records `organization_id` as a UUID; if that holds, deploy/rollback still work,
+      they just lean on the header. Worth confirming the shape for the record, but it no
+      longer gates GA.
+- [ ] **Confirm the corporate discriminator.** Account resolution branches on
+      `type === 'corporate'` from `/v3/account/info` — an **assumed** field name and
+      value (`AccountResponse.type` in `src/types.ts` carries the ⚠️ marker). It is
+      typed optional and an absent/unknown value degrades to the plain-account branch,
+      which resolves deterministically and never prompts; the cost of being wrong is
+      that a master account must pass `[account-id]` explicitly. Confirm the field, and
+      confirm that `GET /v3/corporate/subAccount` is reachable with both an api-key and
+      an OAuth bearer token (the CLI sends whichever the user logged in with).
 - [ ] Confirm whether `GET /v3/app-store/apps/{id}` returns the `ui_app` block. The
       upload diff and the scaffold-refresh path both read `ui_app` opportunistically
       and degrade safely when absent (the block reads as new / is carried forward
@@ -221,6 +248,81 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 
 Append an entry per change that needs verifying. Clear this section (keep the
 heading) before merging into `main`.
+
+### BEX-290/BEX-364 — install payload carries `client_id`; `[account-id]` resolves itself (2026-08-07)
+
+**Change:** Aligns deploy/rollback with app-store-backend PR #717, and makes the
+target account resolvable instead of mandatory.
+
+1. **`client_id` is now sent.** The installs endpoint requires it (`400` without it,
+   since the CLI sends no `X-Sib-Client-Id` header) and resolves the app against it —
+   `FindIDByUUID(uuid, client_id)`. `resolveCallerClientId()` reads the authenticated
+   account's `organization_id` from cached credentials and rejects a non-numeric value
+   with an actionable "run `brevo login`" rather than sending `NaN`. `deploy_client_id`
+   keeps its old meaning: the account the install lands in.
+2. **Rollback maps 404, not 422.** The developer uninstall route resolves the install
+   from the body (no `installation_id` exists at uninstall time) and answers 404 for
+   both an unknown app and an absent install. `rollbackApp()` no longer calls
+   `rethrowNotFound` — the `ApiError` reaches the command, which treats any 404 as the
+   informational not-deployed path.
+3. **`<account-id>` → `[account-id]`.** Omitted, the target resolves from the logged-in
+   account: plain accounts deploy into themselves (no prompt, no listing call), a
+   corporate account (`type === 'corporate'`, **assumed**) picks from
+   `GET /v3/corporate/subAccount`, paged to exhaustion on `count`. Both commands share
+   `resolveDeploymentTarget()`, so rollback inherits it.
+
+**Must hold true:**
+
+- [x] `yarn lint && yarn format && yarn tsc --noEmit && yarn test` green
+      (47 suites / 998 tests).
+- [x] Both verbs send `client_id` (caller) and `deploy_client_id` (target) as distinct
+      numbers. Covered by `should send the caller organization ID and the deploy target
+      separately`.
+- [x] A non-numeric identifier is **omitted** from the body, never sent as a string and
+      never coerced to `NaN`/`null` — both fields are `int64` and the body is decoded
+      before the header is read. Covered by the `should omit client_id when the
+      organization ID is %s` table, `should omit deploy_client_id when the target is not
+      numeric`, and `should never emit null or NaN for either identifier`.
+- [x] The emitted body matches the confirmed staging curl. Covered by `should match the
+      staging DELETE payload shape`.
+- [x] A UUID `organization_id` still resolves as the display/target value. Covered by
+      `defaults to a UUID organization ID unchanged`.
+- [x] Only an absent or blank `organization_id` fails, and it fails before any request.
+      Covered by `surfaces a missing organization ID rather than labelling the target
+      "undefined"`.
+- [x] Deploy still maps 404 → "App not found"; rollback propagates it instead. Covered
+      by `should rethrow a 404 on deploy as a friendly not-found error` and
+      `should propagate a 404 on rollback unchanged`.
+- [x] Rollback exits 0 on *either* flavour of 404. Covered by `treats "not deployed"
+      (404) as informational` and `treats an unknown-app 404 as not deployed too`.
+- [x] A plain account resolves its own ID with no prompt and no sub-account call, and
+      still works with `--json` / no TTY. Covered by `defaults to the caller own account
+      when no account ID is given` and `still resolves its own account non-interactively`.
+- [x] A corporate account prompts, hides deactivated sub-accounts, errors rather than
+      showing an empty picker, and demands an explicit ID under `--json`. Covered by the
+      `corporate account` describe block in `deploy.test.ts`.
+- [x] An explicit `[account-id]` short-circuits resolution entirely — no
+      `/v3/account/info` read, no sub-account listing. Covered by `uses an explicit
+      account ID without touching the sub-account listing`.
+- [x] Sub-account paging terminates on `count` *and* on an empty page. Covered by
+      `should page until count is reached` and `should stop on an empty page even when
+      count disagrees`.
+- [ ] Manual (no longer blocking): confirm which shape `organization_id` takes on a real
+      account, for the record. Either shape works — a numeric one is sent as
+      `client_id`, a UUID is omitted and the gateway's `X-Sib-Client-Id` header answers
+      instead. See *Before UI-apps GA*.
+- [ ] **Manual, blocking:** confirm the corporate discriminator is `type === 'corporate'`
+      on `/v3/account/info`. An absent/unknown value silently takes the plain branch, so
+      a wrong guess here shows up as a master account deploying into itself.
+- [ ] Manual: on a corporate account, `brevo app deploy` with no positional → picker →
+      confirm the install lands in the *sub-account*, not the master.
+- [ ] Manual: `GET /v3/corporate/subAccount` with an OAuth bearer token (browser login is
+      the default path) as well as an api-key.
+- [ ] Reviewer: `APP_DEPLOY_MISSING_ACCOUNT_ID` / `APP_ROLLBACK_MISSING_ACCOUNT_ID` are
+      deleted — the positional is optional, so "Missing account ID" is unreachable.
+      Confirm nothing else referenced them.
+- [ ] Reviewer: `SKILL.md`, `AGENTS.md`, `README.md`, `CLAUDE.md` and the changeset all
+      updated and in sync.
 
 ### BEX-290 — slot-name validation moves to the server (2026-08-06)
 

@@ -5,16 +5,21 @@ jest.mock('../../../container', () => ({
     deployApp: jest.fn(),
     fetchAppsList: jest.fn(),
   },
+  accountService: {
+    getAccount: jest.fn(),
+    fetchSubAccounts: jest.fn(),
+  },
 }));
 
 jest.mock('../../../lib/config', () => ({
   readProjectConfig: jest.fn(),
+  getOrganizationId: jest.fn(),
 }));
 
 import inquirer from 'inquirer';
 import { deployCommand } from '../../../commands/app/deploy';
-import { appService } from '../../../container';
-import { readProjectConfig } from '../../../lib/config';
+import { appService, accountService } from '../../../container';
+import { readProjectConfig, getOrganizationId } from '../../../lib/config';
 import { ApiError } from '../../../lib/errors';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
@@ -47,6 +52,9 @@ describe('app/deploy', () => {
     // config doesn't enable resetMocks), so re-assert the happy path here.
     (appService.deployApp as jest.Mock).mockResolvedValue(undefined);
     (readProjectConfig as jest.Mock).mockReturnValue(UPLOADED_CONFIG);
+    // Default identity: a plain (non-corporate) account whose own ID is 12345.
+    (accountService.getAccount as jest.Mock).mockResolvedValue({ type: 'user' });
+    (getOrganizationId as jest.Mock).mockReturnValue('12345');
   });
 
   afterEach(() => {
@@ -70,9 +78,101 @@ describe('app/deploy', () => {
     expect(appService.deployApp).toHaveBeenCalledWith('7', '99999', '7');
   });
 
-  it('errors when the account ID is missing', async () => {
-    await expect(deployCommand({ force: true })).rejects.toThrow(/Missing account ID/i);
+  // A plain account has exactly one possible target — itself — so omitting the
+  // positional resolves deterministically and never prompts.
+  it('defaults to the caller own account when no account ID is given', async () => {
+    await deployCommand({ force: true });
+
+    expect(appService.deployApp).toHaveBeenCalledWith('42', '12345', 'Invoice Manager');
+    expect(accountService.fetchSubAccounts).not.toHaveBeenCalled();
+  });
+
+  it('still resolves its own account non-interactively', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', {
+      configurable: true,
+      writable: true,
+      value: false,
+    });
+
+    await deployCommand({ json: true });
+
+    expect(appService.deployApp).toHaveBeenCalledWith('42', '12345', 'Invoice Manager');
+  });
+
+  // A plain account's own identifier becomes the deploy target, and it may be a UUID
+  // rather than a number — it must survive resolution intact.
+  it('defaults to a UUID organization ID unchanged', async () => {
+    (getOrganizationId as jest.Mock).mockReturnValue('550e8400-e29b-41d4-a716-446655440001');
+
+    await deployCommand({ force: true });
+
+    expect(appService.deployApp).toHaveBeenCalledWith(
+      '42',
+      '550e8400-e29b-41d4-a716-446655440001',
+      'Invoice Manager',
+    );
+  });
+
+  it('surfaces a missing organization ID rather than labelling the target "undefined"', async () => {
+    (getOrganizationId as jest.Mock).mockReturnValue(undefined);
+
+    await expect(deployCommand({ force: true })).rejects.toThrow(/organization ID/i);
     expect(appService.deployApp).not.toHaveBeenCalled();
+  });
+
+  describe('corporate account', () => {
+    beforeEach(() => {
+      (accountService.getAccount as jest.Mock).mockResolvedValue({ type: 'corporate' });
+    });
+
+    it('prompts for a sub-account when no account ID is given', async () => {
+      (accountService.fetchSubAccounts as jest.Mock).mockResolvedValue([
+        { id: 4043629, companyName: 'Company1', active: true },
+        { id: 4043630, companyName: 'Company2', active: true },
+      ]);
+      mockPrompt.mockResolvedValueOnce({ selectedSubAccount: 4043630 });
+
+      await deployCommand({ accountId: undefined, force: true });
+
+      expect(appService.deployApp).toHaveBeenCalledWith('42', '4043630', 'Invoice Manager');
+    });
+
+    it('does not offer deactivated sub-accounts', async () => {
+      (accountService.fetchSubAccounts as jest.Mock).mockResolvedValue([
+        { id: 4043629, companyName: 'Company1', active: false },
+        { id: 4043630, companyName: 'Company2', active: true },
+      ]);
+      mockPrompt.mockResolvedValueOnce({ selectedSubAccount: 4043630 });
+
+      await deployCommand({ force: true });
+
+      const choices = mockPrompt.mock.calls[0]![0][0].choices as { value: number }[];
+      expect(choices.map((c) => c.value)).toEqual([4043630]);
+    });
+
+    it('errors instead of showing an empty picker', async () => {
+      (accountService.fetchSubAccounts as jest.Mock).mockResolvedValue([
+        { id: 4043629, companyName: 'Company1', active: false },
+      ]);
+
+      await expect(deployCommand({ force: true })).rejects.toThrow(/no active sub-accounts/i);
+      expect(mockPrompt).not.toHaveBeenCalled();
+    });
+
+    // The one branch that genuinely cannot resolve without a terminal — it has a real
+    // choice to make. Point at the positional rather than failing opaquely.
+    it('demands an explicit account ID in JSON mode', async () => {
+      await expect(deployCommand({ json: true })).rejects.toThrow(/corporate account/i);
+      expect(accountService.fetchSubAccounts).not.toHaveBeenCalled();
+    });
+
+    it('uses an explicit account ID without touching the sub-account listing', async () => {
+      await deployCommand({ accountId: '99999', force: true });
+
+      expect(appService.deployApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
+      expect(accountService.getAccount).not.toHaveBeenCalled();
+      expect(accountService.fetchSubAccounts).not.toHaveBeenCalled();
+    });
   });
 
   it('rejects a non-numeric account ID', async () => {

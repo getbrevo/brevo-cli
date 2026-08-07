@@ -17,7 +17,7 @@ import {
   UploadAppPayload,
   UploadAppResponse,
 } from '../types';
-import { getAppCredentials, saveAppCredentials } from '../lib/config';
+import { getAppCredentials, getOrganizationId, saveAppCredentials } from '../lib/config';
 import { normalizeAppId } from './normalize-app-id';
 
 /** First of the candidates that is a non-blank string, trimmed; `undefined` if none is. */
@@ -45,14 +45,66 @@ function rethrowNotFound(err: unknown, appId: string): never {
 }
 
 /**
+ * An account identifier as a number, or `undefined` when it is not one.
+ *
+ * Brevo identifies accounts two different ways depending on where the value came
+ * from — a sub-account listing yields an integer `id`, while `organization_id` may be
+ * a UUID — but **both body fields on the installs resource are Go `int64`**, and the
+ * handler decodes the body *before* it consults anything else. A UUID in either field
+ * is therefore a decode failure: HTTP 400, whole request lost.
+ *
+ * So a non-numeric identifier is dropped from the payload rather than sent. Omission
+ * is not a loss of information, because the server has a better answer for each field
+ * than the CLI does — see {@link buildInstallPayload}. What must never happen is
+ * `Number()` on everything: `Number('550e8400-…')` is `NaN`, which `JSON.stringify`
+ * emits as `null`, and `null` is a decode failure too.
+ */
+function toNumericIdentifier(value: string | undefined): number | undefined {
+  const trimmed = value?.trim();
+  return trimmed && /^\d+$/.test(trimmed) ? Number(trimmed) : undefined;
+}
+
+/**
+ * The caller's own account identifier, as a display/target string.
+ *
+ * Unlike the wire fields this keeps a UUID intact — it is what `app deploy` labels the
+ * target with and what a plain account resolves to when no `[account-id]` was given.
+ * Only an absent or blank value throws, since that means the credentials carry no
+ * account at all and re-authenticating is the fix.
+ */
+export function getCallerAccountId(): string {
+  const organizationId = getOrganizationId()?.trim();
+  if (!organizationId) {
+    throw new CliError(messages.APP_DEPLOY_MISSING_CLIENT_ID);
+  }
+  return organizationId;
+}
+
+/**
  * Body shared by both verbs on the app-store installs resource (BEX-290).
  *
- * `accountId` arrives as the string `parseAccountId` validated as all-digits;
- * the API wants a number, so convert here rather than at every call site.
+ * Both identifiers are **optional on the wire, and deliberately so** — the server
+ * resolves each one better than the CLI can when it is absent:
+ *
+ * - `client_id` is the caller, the account that owns the app, which the server
+ *   resolves it against via `FindIDByUUID(uuid, client_id)`. The handler reads the
+ *   `X-Sib-Client-Id` header *first* and only falls back to this field, and the API
+ *   gateway populates that header from the api-key/bearer credential the CLI already
+ *   sends. So this is a fallback for a header that is normally there — worth sending
+ *   when it is a number, never worth a 400 when it isn't.
+ * - `deploy_client_id` is the target the install lands in, and the server defaults it
+ *   to the caller when absent. That default is exactly right for a plain account
+ *   deploying into itself, which is the only case that can produce a non-numeric value
+ *   here (an explicit `[account-id]` is numeric by `parseAccountId`, and a sub-account
+ *   `id` is numeric by construction).
+ *
+ * The two are not interchangeable: they differ whenever a corporate account deploys
+ * into a sub-account, and collapsing them 404s the app lookup.
  */
 function buildInstallPayload(accountId: string, name: string) {
   return {
-    deploy_client_id: Number(accountId),
+    ...pick('client_id', toNumericIdentifier(getOrganizationId())),
+    ...pick('deploy_client_id', toNumericIdentifier(accountId)),
     name,
     is_developer: true,
   };
@@ -310,8 +362,9 @@ export function createAppService(client: ApiClient) {
      * string `parseAccountId` returns. `is_developer` is always true: every
      * install the CLI creates is a developer install by construction.
      *
-     * 404 becomes a friendly CliError; everything else (notably the "not yet
-     * uploaded" rejection) propagates for the command to map.
+     * 404 becomes a friendly CliError: on install there is only one thing to miss,
+     * the app itself. Everything else (notably the "not yet uploaded" rejection)
+     * propagates for the command to map.
      */
     async deployApp(appId: string, accountId: string, name: string): Promise<void> {
       try {
@@ -327,16 +380,20 @@ export function createAppService(client: ApiClient) {
     /**
      * Withdraw a UI app's availability from a single account — deletes the
      * install created by {@link deployApp}. Same resource, same body, DELETE.
+     *
+     * Deliberately no `rethrowNotFound` here, unlike every other verb. The developer
+     * uninstall route (BEX-364) has no `installation_id` to delete by, so it resolves
+     * the install from the same details the install was created with — and answers 404
+     * for *both* "app doesn't exist" and "no such install", distinguishable only by the
+     * error copy. Collapsing them into "App not found" would report a hard failure for
+     * the ordinary already-rolled-back case, so the ApiError reaches the command intact
+     * and `rollback` maps any 404 to its informational not-deployed path.
      */
     async rollbackApp(appId: string, accountId: string, name: string): Promise<void> {
-      try {
-        await client.delete(
-          ENDPOINTS.APP_STORE_APP_INSTALLS(appId),
-          buildInstallPayload(accountId, name),
-        );
-      } catch (err) {
-        rethrowNotFound(err, appId);
-      }
+      await client.delete(
+        ENDPOINTS.APP_STORE_APP_INSTALLS(appId),
+        buildInstallPayload(accountId, name),
+      );
     },
 
     async withdrawApp(appId: string): Promise<void> {

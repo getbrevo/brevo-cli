@@ -12,7 +12,10 @@ import {
 } from './account-deployment';
 
 interface DeployOptions {
-  /** The `<account-id>` positional, folded in by the command definition. */
+  /**
+   * The `[account-id]` positional, folded in by the command definition. Optional —
+   * omitted, `resolveDeploymentTarget` derives the target from the logged-in account.
+   */
   accountId?: string;
   appId?: string;
   force?: boolean;
@@ -20,7 +23,7 @@ interface DeployOptions {
 }
 
 /**
- * `brevo app deploy <account-id>` — make an app available in one Brevo account.
+ * `brevo app deploy [account-id]` — make an app available in one Brevo account.
  *
  * Until an in-product enable/disable surface ships, this (with
  * `app rollback`) is the only way a UI app becomes visible in an account.
@@ -30,7 +33,6 @@ export const deployCommand = withCommandHandler(async (options: DeployOptions): 
     options.accountId,
     options,
     messages.APP_DEPLOY_SELECT,
-    messages.APP_DEPLOY_MISSING_ACCOUNT_ID,
   );
 
   assertUploadedBeforeDeploy();

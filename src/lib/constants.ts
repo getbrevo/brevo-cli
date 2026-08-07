@@ -83,6 +83,11 @@ export const CLI_AUTH_METHODS = {
 
 export const ENDPOINTS = {
   ACCOUNT: '/v3/account/info',
+  // Sub-accounts of a master (corporate) account — `{ count, subAccounts: [...] }`.
+  // `offset` and `limit` are both required (there is no "return everything" call),
+  // so `count` is the paging terminator. `app deploy` / `app rollback` read this to
+  // resolve a deploy target when no <account-id> was given.
+  CORPORATE_SUB_ACCOUNTS: '/v3/corporate/subAccount',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
   APP_STATE: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/state`,
@@ -93,9 +98,16 @@ export const ENDPOINTS = {
   // enable/disable surface ships, this endpoint *is* the install mechanism for
   // an action link: POST to install into an account, DELETE to remove.
   //
-  // Both verbs take the same body — `deploy_client_id` (the numeric account ID),
+  // Both verbs take the same body — `client_id` (the *caller's* organization ID,
+  // which the server uses to resolve the app, and which it falls back to as the
+  // install target), `deploy_client_id` (the numeric account being deployed to),
   // `name`, `is_developer`. Note the `deploy` / `rollback` *commands* are named
   // for the partner-facing verb, not the resource; the resource is an install.
+  //
+  // DELETE resolves the install from this body rather than from an installation ID
+  // (BEX-364) — the developer never sees one — so it answers 404 both for an unknown
+  // app and for an install that isn't there. `app rollback` reads either as
+  // "not deployed"; see the comment on its catch block.
   APP_STORE_APP_INSTALLS: (appId: string) =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/installs`,
   APP_STORE_SURFACE_POINTS: '/v3/app-store/surface-points',
@@ -123,10 +135,12 @@ export const CLI = {
       ? `brevo app credentials --reveal-secret --app-id ${appId}`
       : 'brevo app credentials --reveal-secret',
   APP_UPLOAD: 'brevo app upload',
+  // The account ID is optional — omitted, both commands resolve the target from the
+  // authenticated account. The no-argument form is the one to show in guidance copy.
   APP_DEPLOY: (accountId?: string) =>
-    accountId ? `brevo app deploy ${accountId}` : 'brevo app deploy <account-id>',
+    accountId ? `brevo app deploy ${accountId}` : 'brevo app deploy',
   APP_ROLLBACK: (accountId?: string) =>
-    accountId ? `brevo app rollback ${accountId}` : 'brevo app rollback <account-id>',
+    accountId ? `brevo app rollback ${accountId}` : 'brevo app rollback',
   APP_DELETE: 'brevo app delete',
   APP_WITHDRAW: (appId?: string) =>
     appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
