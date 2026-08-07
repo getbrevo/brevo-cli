@@ -147,12 +147,24 @@ into `main` — anything that must outlive the branch belongs in
 
 ### Wire-contract follow-ups (merged from `features_set_public_cli`)
 
-- [ ] **Decide the fate of `source: 'cli'` in the `app create` body** (`src/services/app.ts`).
-      It has the same shape of problem as the removed `cli_version`: a top-level body key
-      outside the declared payload. If the server's create endpoint ever binds strictly, it
-      400s the same way. Either the server declares it in the create contract or the CLI
-      drops it and the backend derives the source from the `User-Agent` header
-      (`brevo-cli/...`). Coordinate with the server side (BEX-355).
+- [x] **Decide the fate of `source: 'cli'` in the `app create` body** (`src/services/app.ts`).
+      Resolved 2026-08-07: **dropped**. The predicted failure arrived from the other
+      direction — the server didn't bind strictly, it started reading the key as policy
+      (`400 invalid_parameter`, *public apps cannot be created with source "cli"*), which
+      is the API-side pre-GA guard `CLAUDE.md` calls for. Either way it was an undeclared
+      top-level key, so the CLI no longer sends it; the backend derives the caller from the
+      `User-Agent` header (`brevo-cli/...`), same resolution as `cli_version`. **Still needs
+      BEX-355 sign-off that an absent `source` is contract-valid** — see the per-branch
+      entry in `RELEASE-CHECKLIST.md` for what to confirm against staging.
+- [ ] **Give `--distribution public` a real local failure** (`src/commands/app/create.ts`).
+      Today the flag is accepted, the scaffold directory is created and entered, and the
+      run dies on the server's raw `400` string. Whether that guard survives with `source`
+      gone is unconfirmed (see above) — but if the platform refuses CLI-created public apps
+      pre-GA, the CLI should say so before doing any filesystem work, and the `--distribution`
+      examples in `src/commands/definitions.ts` and the `README.md` table should stop
+      advertising a path that can't complete. Note the existing runtime-guard item under
+      `RELEASE-CHECKLIST.md` → *Before public-apps GA*: any guard needs the same
+      internal-Brevo-account escape hatch.
 - [x] **Confirm the server does not *require* `cli_version` in the upload/create body.**
       Confirmed by the upload-service owners 2026-08-03: zero server-side references —
       upload (strict) 400s on it, PATCH/create silently ignore it, telemetry reads the

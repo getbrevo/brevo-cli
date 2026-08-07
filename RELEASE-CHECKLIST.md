@@ -249,6 +249,55 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 Append an entry per change that needs verifying. Clear this section (keep the
 heading) before merging into `main`.
 
+### BEX-355 — `app create` stops sending `source: 'cli'` (2026-08-07)
+
+**Change:** `createApp()` posts the declared payload and nothing else. This closes
+the open `TODO.md` item on the key's fate, and it is the last top-level key the CLI
+was adding to a request body outside the declared contract (`cli_version` went
+earlier on this branch).
+
+The trigger was a live `400`: `POST /v3/app-store/apps` now answers
+`invalid_parameter` — *public apps cannot be created with source "cli"; use
+distribution_type "private"* — for any create pairing `source: 'cli'` with
+`distribution_type: "public"`. The platform has started reading the key as policy
+input rather than telemetry, which is the API-side pre-GA guard `CLAUDE.md` says
+belongs there. Removing the key from the body is not a way around that guard; it
+just stops the CLI asserting a field the create contract never declared. The
+backend still identifies the caller from the structured `User-Agent`
+(`brevo-cli/<version>`, `src/lib/telemetry.ts`), which is the same resolution the
+`cli_version` removal landed on.
+
+**Must hold true:**
+
+- [x] The create body carries the payload verbatim — no `source`, no `cli_version`.
+      Covered by `should POST to app-store/apps with the payload unchanged and
+      normalize app_id`.
+- [x] `yarn test` green on `src/__tests__/services/app.test.ts` (54 tests).
+- [x] `yarn lint && yarn format:check && yarn tsc --noEmit && yarn test` green
+      across the suite (47 suites / 1002 tests).
+- [ ] **Manual, blocking — the behaviour change is entirely server-side.** With the
+      key gone, run `brevo app create --distribution private` against staging and
+      confirm it still succeeds and the app is attributed to the CLI (the platform
+      reads `User-Agent`; confirm it actually does for *create*, not just upload).
+- [ ] **Manual, blocking:** run `brevo app create --distribution public` against
+      staging and record what the platform now does with an absent `source`. Three
+      outcomes, and they need different follow-ups: still `400` (guard keys on
+      something else — fine, nothing more to do), succeeds (the CLI can now create
+      a public app that no notice or guard prevents — that is a pre-GA regression,
+      raise it on BEX-355 before release), or a different error (map it in
+      `src/lang/en.ts`).
+- [ ] **BEX-355 sign-off, blocking:** confirm with the create endpoint's owners that
+      an absent `source` is contract-valid and that dropping it does not change how
+      an app is attributed, rate-limited, or gated. The key was undeclared, so its
+      absence is not obviously safe either.
+- [ ] Reviewer: nothing else in `src/` references `source` on a request body —
+      `src/services/skill.ts`'s `source: 'brevo-cli'` is the local skill-install
+      marker written to disk, unrelated.
+- [ ] Reviewer: decide whether `--distribution public` should now fail locally with
+      a real message instead of surfacing the raw server `400` after the scaffold
+      directory has already been created and entered. Tracked in `TODO.md`; see also
+      the runtime-guard item under *Before public-apps GA*.
+
 ### BEX-290/BEX-364 — install payload carries `client_id`; `[account-id]` resolves itself (2026-08-07)
 
 **Change:** Aligns deploy/rollback with app-store-backend PR #717, and makes the

@@ -253,7 +253,10 @@ describe('services/app', () => {
   });
 
   describe('createApp', () => {
-    it('should POST to app-store/apps with payload and normalize app_id', async () => {
+    // The body carries the payload and nothing else — no `source: 'cli'`, which
+    // was removed because it is a top-level key outside the declared create
+    // contract and the backend reads the caller from the User-Agent instead.
+    it('should POST to app-store/apps with the payload unchanged and normalize app_id', async () => {
       const response = {
         app_id: 1,
         client_id: 'cli-123',
@@ -269,7 +272,6 @@ describe('services/app', () => {
       expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps', {
         name: 'Test App',
         distribution_type: 'private',
-        source: 'cli',
       });
       expect(result).toEqual({ ...response, app_id: '1' });
     });

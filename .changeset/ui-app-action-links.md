@@ -97,4 +97,10 @@ Both fields are optional on the wire and a non-numeric identifier is omitted rat
 
 `brevo app rollback` now treats HTTP 404 as "not deployed to this account" and exits `0` (`{"rolledBack": false, "reason": "NOT_DEPLOYED"}` under `--json`), where it previously looked for a 422. The uninstall endpoint identifies the install from the request body rather than an installation ID — a developer never has one — and answers 404 both for an unknown app and for an install that isn't there. Teardown scripts stay idempotent, at the cost of a mistyped `--app-id` being reported as "not deployed" rather than "app not found".
 
+Stop sending `source: 'cli'` in the `brevo app create` request body.
+
+It was a top-level key outside the declared create contract — the same shape of problem as the `cli_version` key removed earlier on this branch — and the platform now reads it as policy input rather than telemetry: `POST /v3/app-store/apps` answers `400 invalid_parameter` ("public apps cannot be created with source \"cli\"") for any create that pairs it with `distribution_type: "public"`. The caller already reaches the backend on every request as a structured `User-Agent` (`brevo-cli/<version>`), so nothing is lost by not sending it.
+
+**This changes what the platform does with `--distribution public`**, and the outcome depends on how the create endpoint treats an absent `source` — it is not settled here. Confirm against BEX-355 before releasing.
+
 The account ID is now optional on both commands: `brevo app deploy` and `brevo app rollback` take `[account-id]` instead of `<account-id>`. Omit it and the target is resolved from the account you're logged in as. A plain account has exactly one possible answer — itself — so it resolves with no prompt and no extra request, and keeps working under `--json` and in CI. A corporate account lists its active sub-accounts and asks which one; deactivated sub-accounts aren't offered, and if none are, the command says so instead of showing an empty prompt. Passing the account ID explicitly still works and skips resolution entirely, which remains the only way to target an account the listing won't show.

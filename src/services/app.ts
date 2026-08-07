@@ -321,6 +321,11 @@ export function createAppService(client: ApiClient) {
       }
     },
 
+    // The payload goes over the wire unchanged, for the same reason `uploadApp`
+    // does: a top-level key outside the declared create contract is a key the
+    // server can start rejecting. `source: 'cli'` used to be stamped here and was
+    // removed — the backend derives the caller from the structured `User-Agent`
+    // (`brevo-cli/...`, see telemetry.ts), so nothing is lost by not sending it.
     async createApp(payload: {
       name: string;
       distribution_type: 'public' | 'private';
@@ -332,10 +337,7 @@ export function createAppService(client: ApiClient) {
       };
       logo_uri?: string;
     }): Promise<CreateAppResponse> {
-      const raw = await client.post<CreateAppResponse>(ENDPOINTS.APP_STORE_APPS, {
-        ...payload,
-        source: 'cli',
-      });
+      const raw = await client.post<CreateAppResponse>(ENDPOINTS.APP_STORE_APPS, payload);
       return normalizeAppId(raw);
     },
 
