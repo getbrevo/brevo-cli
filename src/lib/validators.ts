@@ -353,7 +353,7 @@ function rejectPreBex290Fields(block: Record<string, unknown>): void {
   }
   if (block.context !== undefined) {
     throw new CliError(
-      'ui_app.context is no longer a top-level field — record context is now per placement. Move each field list into the matching `surface_point_list` entry, e.g. [{ "surface_point": "contact-details-header-menu", "context": ["recordId"] }].',
+      'ui_app.context is no longer a top-level field — record context is now per placement. Move each field list into the matching `surface_point_list` entry, e.g. [{ "surface_point_name": "contact-details-header-menu", "context": ["recordId"] }].',
     );
   }
 }
@@ -370,20 +370,20 @@ function rejectPreBex290Fields(block: Record<string, unknown>): void {
 function validateSurfacePointList(entries: unknown): void {
   if (!Array.isArray(entries) || entries.length === 0) {
     throw new CliError(
-      'ui_app.surface_point_list must list at least one placement (e.g. [{ "surface_point": "contact-details-header-menu", "context": ["recordId"] }]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
+      'ui_app.surface_point_list must list at least one placement (e.g. [{ "surface_point_name": "contact-details-header-menu", "context": ["recordId"] }]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
     );
   }
   const names: string[] = [];
   for (const entry of entries) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new CliError(
-        'ui_app.surface_point_list entries must be objects, e.g. { "surface_point": "contact-details-header-menu", "context": ["recordId"] }. A bare string is the pre-BEX-290 shape.',
+        'ui_app.surface_point_list entries must be objects, e.g. { "surface_point_name": "contact-details-header-menu", "context": ["recordId"] }. A bare string is the pre-BEX-290 shape.',
       );
     }
     const row = entry as Record<string, unknown>;
-    const check = validateSurfacePoint(String(row.surface_point ?? ''));
+    const check = validateSurfacePoint(String(row.surface_point_name ?? ''));
     if (check !== true) throw new CliError(`ui_app.surface_point_list: ${check}`);
-    const name = String(row.surface_point).trim();
+    const name = String(row.surface_point_name).trim();
     names.push(name);
 
     if (row.context !== undefined) {

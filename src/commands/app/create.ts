@@ -322,7 +322,7 @@ const LOCATION_TO_UI_APP_SURFACE: Readonly<Record<string, string>> = Object.from
  * `company` / `deal` names where the mapping exists, otherwise derived by
  * stripping a trailing `Details` (`orderDetails` → `order`), raw token as the
  * last resort. Values only need to be stable within one prompt run — the wire
- * identity is always the row's `surface_point`.
+ * identity is always the row's `extension_point_name`.
  */
 function surfaceValueForLocation(location: string): string {
   const known = LOCATION_TO_UI_APP_SURFACE[location];
@@ -354,7 +354,7 @@ interface UsableSurfacePoint extends SurfacePointRow {
 function toUsableRows(rows: SurfacePointRow[]): UsableSurfacePoint[] {
   const usable: UsableSurfacePoint[] = [];
   for (const row of rows) {
-    const segments = row.surface_point.split('.');
+    const segments = row.extension_point_name.split('.');
     const [locationToken, placeToken, kindToken] = segments.length === 3 ? segments : ['', '', ''];
     const location = (row.location_name ?? '').trim() || locationToken;
     const section = (row.section_name ?? '').trim() || placeToken;
@@ -709,13 +709,15 @@ async function resolveUiApp(): Promise<UiApp> {
  * doesn't churn).
  *
  * The authored value is the row's `surface_point_name` SLUG (`contact-details-header-menu`),
- * NOT its dotted `surface_point` name (`contactDetails.headerMenu.action`). The two are 1:1
- * on the registry row and easy to confuse — the wire field is called `surface_point` and the
- * dotted name is what the UI kit ultimately renders — but they are not interchangeable here:
- * the platform resolves an authored entry by `surface_point_name` (`FindByNames`, a
- * `WHERE surface_point_name = ANY(...)` read) and serves the row's dotted `extension_point_name`
- * back to the frontend as `extensionPoint`. Authoring the dotted name matches no row, which is
- * a 400 from `app upload` (`checkExtensionPoints`) and a silently dropped slot on the read path.
+ * NOT its dotted `extension_point_name` (`contactDetails.headerMenu.action`). The two are 1:1
+ * on the registry row and easy to confuse — the dotted name is what the UI kit ultimately
+ * renders — but they are not interchangeable here: the platform resolves an authored entry
+ * by `surface_point_name` (`FindByNames`, a `WHERE surface_point_name = ANY(...)` read) and
+ * serves the row's dotted `extension_point_name` back to the frontend as `extensionPoint`.
+ * Authoring the dotted name matches no row, which is a 400 from `app upload`
+ * (`checkExtensionPoints`) and a silently dropped slot on the read path. The entry key is
+ * `surface_point_name` for exactly that reason: it names the column it is matched against,
+ * so row field and entry field are the same word and the copy across is trivially right.
  *
  * `contextFor` decides each entry's own context; an empty result omits the key rather
  * than writing `[]`, which would read as "narrow to nothing" instead of "no narrowing".
@@ -733,7 +735,7 @@ function buildSurfacePointList(
       .map((field) => String(field).trim())
       .filter(Boolean);
     entries.push({
-      surface_point: row.surface_point_name,
+      surface_point_name: row.surface_point_name,
       ...(context.length ? { context } : {}),
     });
   }
@@ -943,7 +945,7 @@ function renderCreatedUiApp(
     // single shared "Record context" row would hide that they can differ.
     ...uiApp.surface_point_list.map((entry, i) => {
       const context = entry.context?.length ? `  (context: ${entry.context.join(', ')})` : '';
-      return `${i === 0 ? 'Placement:      ' : '                '}${entry.surface_point}${context}`;
+      return `${i === 0 ? 'Placement:      ' : '                '}${entry.surface_point_name}${context}`;
     }),
     `Label:          ${uiApp.label ?? ''}`,
     ...(uiApp.more_info ? [`More info:      ${uiApp.more_info}`] : []),

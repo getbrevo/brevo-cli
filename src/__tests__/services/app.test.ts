@@ -57,7 +57,7 @@ describe('services/app', () => {
     // The registry's own column names. `surface_point_name` is a kebab-case SLUG, not
     // display text — the CLI never renders it (see EXTENSION_PLACE_LABELS).
     const ROW = {
-      surface_point: 'contactDetails.headerMenu.action',
+      extension_point_name: 'contactDetails.headerMenu.action',
       surface_point_name: 'contact-details-header-menu',
       location_name: 'contactDetails',
       section_name: 'headerMenu',
@@ -119,7 +119,7 @@ describe('services/app', () => {
 
       expect(await service.fetchSurfacePoints()).toEqual([
         {
-          surface_point: 'dealDetails.overviewSidebar.widget',
+          extension_point_name: 'dealDetails.overviewSidebar.widget',
           location_name: 'dealDetails',
           section_name: 'overviewSidebar',
           component_type: 'widget',
@@ -141,9 +141,9 @@ describe('services/app', () => {
       (mockClient.get as jest.Mock).mockResolvedValue({
         surface_points: [
           ROW,
-          { ...ROW, surface_point: '  contactDetails.headerMenu.action  ' }, // dupe after trim
+          { ...ROW, extension_point_name: '  contactDetails.headerMenu.action  ' }, // dupe after trim
           { surface_point_name: 'nameless' },
-          { surface_point: '   ' },
+          { extension_point_name: '   ' },
           null,
         ],
       });

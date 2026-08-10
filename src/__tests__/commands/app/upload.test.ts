@@ -427,7 +427,9 @@ describe('app/upload', () => {
     // context (BEX-290). `link_target` is deliberately absent — `upload` injects it.
     const UI_APP = {
       extension_type: 'actionLink' as const,
-      surface_point_list: [{ surface_point: 'contact-details-header-menu', context: ['recordId'] }],
+      surface_point_list: [
+        { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+      ],
       label: 'View in CRM',
       more_info: 'Open this contact in your connected CRM to see full activity history.',
       redirect_link: 'https://example.com/brevo',
@@ -581,6 +583,35 @@ describe('app/upload', () => {
       expect(parsed.upToDate).toBe(true);
     });
 
+    // extension_point_name is the platform's own copy of a slot's dotted name, stamped onto
+    // its stored entry. It is server-derived, so it can never be a local edit — and unlike
+    // link_target it lives INSIDE an entry, which a top-level-only strip would miss. The
+    // server does not echo it today; this pins the behaviour if that ever changes, in both
+    // directions: no phantom drift, and it must not be written back into app-config.json
+    // (the next upload rejects it as an unknown key).
+    it('ignores a server-echoed extension_point_name inside an entry', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        ...UI_REMOTE,
+        ui_app: {
+          ...UI_APP,
+          surface_point_list: [
+            {
+              surface_point_name: 'contact-details-header-menu',
+              extension_point_name: 'contactDetails.headerMenu.action',
+              context: ['recordId'],
+            },
+          ],
+          link_target: '_blank' as const,
+        },
+      });
+
+      await uploadCommand({ json: true });
+
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+      const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
+      expect(parsed.upToDate).toBe(true);
+    });
+
     // Key order in app-config.json varies with how it was edited, and the server returns
     // surface_point_list in registry order rather than the order the partner picked their
     // pages in. Neither is a change; a raw stringify comparison would call both drift.
@@ -590,8 +621,8 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point: 'deal-details-header-menu', context: ['recordId'] },
-            { surface_point: 'contact-details-header-menu', context: ['recordId'] },
+            { surface_point_name: 'deal-details-header-menu', context: ['recordId'] },
+            { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
           ],
         },
       });
@@ -603,8 +634,8 @@ describe('app/upload', () => {
           more_info: 'Open this contact in your connected CRM to see full activity history.',
           label: 'View in CRM',
           surface_point_list: [
-            { context: ['recordId'], surface_point: 'contact-details-header-menu' },
-            { context: ['recordId'], surface_point: 'deal-details-header-menu' },
+            { context: ['recordId'], surface_point_name: 'contact-details-header-menu' },
+            { context: ['recordId'], surface_point_name: 'deal-details-header-menu' },
           ],
           extension_type: 'actionLink' as const,
         },
@@ -626,7 +657,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          surface_point_list: [{ surface_point: 'contact.headerMenu.action' }],
+          surface_point_list: [{ surface_point_name: 'contact.headerMenu.action' }],
         },
       });
 
@@ -635,7 +666,7 @@ describe('app/upload', () => {
       expect(appService.uploadApp).toHaveBeenCalled();
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
       expect(payload.ui_app.surface_point_list).toEqual([
-        { surface_point: 'contact.headerMenu.action' },
+        { surface_point_name: 'contact.headerMenu.action' },
       ]);
     });
 
@@ -646,7 +677,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          surface_point_list: [{ surface_point: '   ' }],
+          surface_point_list: [{ surface_point_name: '   ' }],
         },
       });
 
@@ -662,7 +693,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          surface_point_list: [{ surface_point: 'contact-details-overview-main' }],
+          surface_point_list: [{ surface_point_name: 'contact-details-overview-main' }],
         },
       });
 
@@ -686,9 +717,9 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point: 'contact-details-header-menu', context: ['recordId'] },
-            { surface_point: 'deal-details-header-menu', context: ['recordId'] },
-            { surface_point: 'company-details-header-menu', context: ['recordId'] },
+            { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+            { surface_point_name: 'deal-details-header-menu', context: ['recordId'] },
+            { surface_point_name: 'company-details-header-menu', context: ['recordId'] },
           ],
         },
       });
@@ -705,8 +736,8 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point: 'contact-details-header-menu' },
-            { surface_point: 'contact-details-header-menu', context: ['recordId'] },
+            { surface_point_name: 'contact-details-header-menu' },
+            { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
           ],
         },
       });
@@ -787,7 +818,7 @@ describe('app/upload', () => {
     // the header-menu path, so the surface the old block cited as missing exists.
     const IFRAME_UI_APP = {
       extension_type: 'iframeExtension' as const,
-      surface_point_list: [{ surface_point: 'contact-details-header-menu' }],
+      surface_point_list: [{ surface_point_name: 'contact-details-header-menu' }],
       label: 'View in CRM',
       modal_iframe_url: 'https://example.com/embed',
     };
@@ -828,7 +859,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           extension_type: 'iframeExtension',
-          surface_point_list: [{ surface_point: 'contact-details-header-menu' }],
+          surface_point_list: [{ surface_point_name: 'contact-details-header-menu' }],
           label: 'View in CRM',
           modal_iframe_url: 'https://example.com/embed',
           redirect_link: 'https://example.com/go',
@@ -848,9 +879,9 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point: 'contact-details-header-menu', context: ['recordId'] },
+            { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
             {
-              surface_point: 'deal-details-header-menu',
+              surface_point_name: 'deal-details-header-menu',
               context: ['recordId', 'recordName'],
             },
           ],
@@ -861,8 +892,8 @@ describe('app/upload', () => {
 
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
       expect(payload.ui_app.surface_point_list).toEqual([
-        { surface_point: 'contact-details-header-menu', context: ['recordId'] },
-        { surface_point: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
+        { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+        { surface_point_name: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
       ]);
     });
 
@@ -874,7 +905,7 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          surface_point_list: [{ surface_point: 'contact-details-header-menu', context }],
+          surface_point_list: [{ surface_point_name: 'contact-details-header-menu', context }],
         },
       });
 

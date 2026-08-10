@@ -162,7 +162,7 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
             with no active row that can host the chosen extension type is offered and
             then skipped with a warning — acceptable, but confirm the endpoint doesn't
             list locations with no active rows at all.
-      - [ ] The response rows carry `surface_point`, `location_name`, `section_name`,
+      - [ ] The response rows carry `extension_point_name`, `location_name`, `section_name`,
             `component_type`, `default_context_field`, `allowed_context_field`,
             `extension_type_list`, `status`. The CLI ALSO tolerates the pre-BEX-361
             spellings (`extension_point`, `location`, `place`, `kind`,
@@ -693,7 +693,7 @@ chosen extension type can't be hosted on are filtered client-side.
       actionable *Could not load the available placements* message and that OAuth
       creation is unaffected.
 - [ ] Reviewer: confirm the registry read path still tolerates BOTH row namings
-      (`surface_point`/`location_name`/… and `extension_point`/`location`/`place`/
+      (`extension_point_name`/`location_name`/… and `extension_point`/`location`/`place`/
       `kind`). Keying on one only would drop every row and misreport it as an
       unseeded registry.
 - [ ] Reviewer: `EXTENSION_POINTS` must stay — upload still pre-flights against the
@@ -1633,3 +1633,85 @@ under either, and disappears on its own if the read starts resolving.
       for a UI app (scopes resolve to `[]` regardless) and self-correcting on the
       next `app scaffold`, but confirm that's the right degradation rather than
       writing an empty `scopes` array.
+
+### BEX-290 — `surface_point` → `surface_point_name`, and the platform stamps `extension_point_name` (2026-08-10)
+
+**Change (cross-repo, two branches that must land together):**
+
+- **brevo-cli** (`BEX-290_ui-components`): each `ui_app.surface_point_list` entry
+  names its slot with `surface_point_name` instead of `surface_point`. Value
+  unchanged — it was always the registry's kebab-case slug. The old key is
+  rejected with a rename hint (`validateSurfacePointList`), not aliased.
+- **app-store-bo-be** (`BEX-361_surface-points-endpoint-and-default-context`):
+  same key rename on `uiAppSurfacePointRequest` and `appstoredb.UIAppSurfacePoint`,
+  plus `checkUIAppExtensionPoints` now **stamps** each stored entry's
+  `extension_point_name` from the registry row it just matched. Runs on both write
+  paths (`POST /cli/apps` and `POST /cli/apps/{id}/upload`).
+
+The stamp is server-derived: it is not bound by the request struct (so authoring it
+is a 400), not present on `uiAppResponse` (so it never reaches `app-config.json`),
+and unconditionally rewritten on every upload so a renamed registry row wins over
+the copy stored last time.
+
+**Must hold true:**
+
+- [x] **The string `surface_point` appears nowhere in either repo.** Not as an
+      authored key, not as a rejection hint, not on the registry response. Verify with
+      a grep that excludes `surface_point_name` / `surface_point_list` /
+      `surface-points`; a match means the removal was partial.
+- [x] CLI: `yarn tsc --noEmit && yarn test` green (47 suites), including
+      `ignores a server-echoed extension_point_name inside an entry`.
+- [x] bo-be: `go vet ./... && go test ./appstoredb/... ./cmd/...` green, including
+      `…RejectsAuthoredExtensionPointName`, `…DoesNotEchoExtensionPointName` and
+      `TestHTTPCliUploadAppStampAloneIsNotAChange`.
+- [x] The upload fixture's registry rows carry a **dotted** `Name` distinct from
+      their slug key, so the stamp assertion cannot pass by reading the authored
+      value back. (`defaultRegisteredPoints`, `testActionPointName` et al.)
+- [ ] **Manual, blocking — end to end against staging, in this order.** Deploy bo-be
+      first. There is no compatibility shim in either direction and no migration hint:
+      an old CLI authoring `surface_point` against the new service gets the generic
+      `ui_app.surface_point_list[0] has unsupported field(s): surface_point`, and a new
+      CLI against the old service gets the same message naming `surface_point_name`.
+      Confirm both, so the failure is at least legible during the rollout window.
+- [ ] **Manual, blocking:** the registry response renamed its row field too
+      (`surface_point` → `extension_point_name`). An old CLI reading the new
+      `GET /cli/surface-points` finds no name on any row and reports the registry as
+      unseeded — it does NOT fall back, because `extension_point_name` is not one of
+      the alias spellings it tolerates. Confirm that message, and that it points the
+      partner at upgrading rather than at a data problem.
+- [ ] **Manual, blocking:** `brevo app create` → UI app → `brevo app upload`, then
+      read `app_versions.snapshot` for that app and confirm each
+      `surface_point_list` entry carries **both** `surface_point_name` and the
+      matching dotted `extension_point_name`.
+- [ ] **Manual, blocking:** confirm the upload response, and the `app-config.json`
+      written back from it, contain **no** `extension_point_name` — and that a
+      second `brevo app upload` immediately after reports "already up to date"
+      rather than phantom drift.
+- [ ] **Manual:** upload twice with the registry row's `extension_point_name`
+      changed in between, and confirm the stored stamp follows the registry rather
+      than staying at the first value. **Note the interaction with change detection:**
+      the stamp is excluded from `isVersionUnchanged` (`AppSnapshot.ForComparison`),
+      so if NOTHING else changed the upload is a no-op and the stamp is not rewritten.
+      Change one authored field in the same upload to observe the refresh.
+- [ ] **Manual, blocking:** re-upload an app stored BEFORE the stamp existed, with no
+      other edit, and confirm it reports **not changed** and records no new version.
+      Without the comparison exclusion every UI app in the estate bumps a version once
+      for a config nobody edited.
+- [ ] Reviewer: `openapi.json` renamed the key in the four `ui_app` entry schemas
+      **and** on the `/cli/surface-points` row, where it is now `extension_point_name`
+      — the column it was always reading. That row property was the last thing in
+      either repo still called `surface_point`, and its old description told readers
+      to author that value, which is the bug this whole change removes.
+- [x] Reviewer: **app-store-backend was already ahead of both repos.** Its working
+      branch `fix/bex-346-pin-cache-schema-v4` decodes `surface_point_name` with no
+      shim for the old key, and decodes `extension_point_name` and *prefers* it over
+      the slug (`snapshotSurfacePoint.slotName`). This branch closes a mismatch
+      rather than opening one — but that makes the deploy order matter in three
+      places, not two. See `TODO.md` for the two review notes it leaves behind (a
+      stale comment crediting the CLI with the stamp, and the slug fallback that
+      must survive).
+- [ ] **Manual, blocking:** confirm the twelve seeded rows still have twelve
+      DISTINCT `surface_point_name` values before relying on the stamp. The column
+      has no unique constraint and the slug drops the component kind, so a
+      thirteenth row sharing a section would make `FindByNames` — and therefore the
+      stamp — pick arbitrarily. Tracked in `TODO.md`.

@@ -111,7 +111,8 @@ export type ExtensionKind = 'widget' | 'action';
 
 /**
  * The registry's `surface_point_name` slug for a slot — e.g.
- * `contact-details-header-menu`. Named for the field it types (`surface_point_list`).
+ * `contact-details-header-menu`. Named for the registry COLUMN it must match, which is
+ * also the name of the entry field that carries it (`surface_point_list[].surface_point_name`).
  *
  * NOT the dotted `<location>.<place>.<kind>` name of the BEX-350 grammar
  * (`contactDetails.headerMenu.action`). Both identify the same registry row, 1:1, and
@@ -119,7 +120,9 @@ export type ExtensionKind = 'widget' | 'action';
  * authorable. The platform resolves an authored entry with
  * `WHERE surface_point_name = ANY(...)` and then serves that row's dotted
  * `extension_point_name` to the frontend as `extensionPoint`, which is where the grammar
- * shows up and why it is easy to write here by mistake.
+ * shows up and why it is easy to write here by mistake. Naming the authored field after
+ * the column it is matched against is the point of the field name: the entry key and the
+ * `WHERE` clause now read the same.
  *
  * Spelling is part of the contract: an authored value with no registry row is a 400 from
  * `app upload` (`checkExtensionPoints`), and on the read path the backend *drops* it —
@@ -143,9 +146,13 @@ export type SurfacePoint = string;
  *
  * The fields reach the partner's endpoint as QUERY PARAMETERS on `redirect_link` — there
  * is no path templating, so an app cannot receive `/contacts/123`; it must read params.
+ *
+ * There is deliberately no `extension_point_name` here. The platform derives the dotted
+ * name from the slug at create/upload and stores it on its own copy of the entry; it is
+ * server-managed and never echoed back, so nothing writes it into `app-config.json`.
  */
 export interface SurfacePointEntry {
-  surface_point: SurfacePoint;
+  surface_point_name: SurfacePoint;
   context?: string[];
 }
 
@@ -160,26 +167,30 @@ export interface SurfacePointEntry {
  * column names.
  *
  * `allowed_context_field` and `default_context_field` are field NAMES only, never values.
- * Everything but `surface_point` is optional because the read path tolerates partial rows
- * (see `fetchSurfacePoints`) — a registry seeded before a column existed still yields
+ * Everything but `extension_point_name` is optional because the read path tolerates partial
+ * rows (see `fetchSurfacePoints`) — a registry seeded before a column existed still yields
  * usable prompts.
  */
 export interface SurfacePointRow {
   /**
-   * Slot name in the `<location>.<place>.<kind>` grammar (`extension_point_name` on the
-   * registry row). This is what the UI kit eventually renders as `extensionPoint` — it is
-   * NOT what an entry is authored by. See `surface_point_name` below.
+   * Slot name in the `<location>.<place>.<kind>` grammar, straight from the registry's
+   * `extension_point_name` column. This is what the UI kit eventually renders as
+   * `extensionPoint` — it is NOT what an entry is authored by. See `surface_point_name`.
+   *
+   * Served as `surface_point` until BEX-290, which was the only field here not named after
+   * its column and named the one thing it must not be confused with. Nothing uses that
+   * spelling any more.
    */
-  surface_point: string;
+  extension_point_name: string;
   /**
    * The registry's own identifier for the slot — a kebab-case SLUG
    * (`contact-details-header-menu`), NOT display text. Never render it to a partner: the
    * prompt labels come from `EXTENSION_PLACE_LABELS` in `lib/constants.ts`.
    *
    * This is the AUTHORING identity: the value `app create` writes into a
-   * `surface_point_list` entry and the only one the platform's lookup matches. Optional
-   * because the column is nullable — a row without it cannot be authored and is dropped
-   * from the prompt (`toUsableRows`).
+   * `surface_point_list` entry — under this same key, which is the point — and the only
+   * one the platform's lookup matches. Optional because the column is nullable — a row
+   * without it cannot be authored and is dropped from the prompt (`toUsableRows`).
    */
   surface_point_name?: string;
   location_name?: string;

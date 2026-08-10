@@ -344,7 +344,9 @@ describe('validateUiApp', () => {
   // `label`/`more_info`, and `link_target` is not authored (upload injects it).
   const VALID = {
     extension_type: 'actionLink',
-    surface_point_list: [{ surface_point: 'contact-details-header-menu', context: ['recordId'] }],
+    surface_point_list: [
+      { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+    ],
     label: 'View in CRM',
     more_info: 'Open this contact in your connected CRM to see full activity history.',
     redirect_link: 'https://example.com/brevo',
@@ -359,7 +361,7 @@ describe('validateUiApp', () => {
     expect(() =>
       validateUiApp({
         ...rest,
-        surface_point_list: [{ surface_point: 'contact-details-header-menu' }],
+        surface_point_list: [{ surface_point_name: 'contact-details-header-menu' }],
       }),
     ).not.toThrow();
   });
@@ -375,8 +377,8 @@ describe('validateUiApp', () => {
       validateUiApp({
         ...VALID,
         surface_point_list: [
-          { surface_point: 'contact-details-header-menu', context: ['recordId'] },
-          { surface_point: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
+          { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+          { surface_point_name: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
         ],
       }),
     ).not.toThrow();
@@ -390,7 +392,7 @@ describe('validateUiApp', () => {
     expect(() =>
       validateUiApp({
         ...VALID,
-        surface_point_list: [{ surface_point: 'contact.header.action' }],
+        surface_point_list: [{ surface_point_name: 'contact.header.action' }],
       }),
     ).not.toThrow();
   });
@@ -401,15 +403,15 @@ describe('validateUiApp', () => {
     ['a missing extension_type', { ...VALID, extension_type: undefined }],
     ['an empty surface_point_list', { ...VALID, surface_point_list: [] }],
     ['a missing surface_point_list', { ...VALID, surface_point_list: undefined }],
-    ['a blank point', { ...VALID, surface_point_list: [{ surface_point: '   ' }] }],
+    ['a blank point', { ...VALID, surface_point_list: [{ surface_point_name: '   ' }] }],
     ['a missing point', { ...VALID, surface_point_list: [{ context: ['recordId'] }] }],
     [
       'duplicate points',
       {
         ...VALID,
         surface_point_list: [
-          { surface_point: 'contact-details-header-menu' },
-          { surface_point: 'contact-details-header-menu', context: ['recordId'] },
+          { surface_point_name: 'contact-details-header-menu' },
+          { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
         ],
       },
     ],
@@ -428,17 +430,22 @@ describe('validateUiApp', () => {
     ],
     [
       'a non-array per-entry context',
-      { ...VALID, surface_point_list: [{ surface_point: VALID_POINT, context: 'recordId' }] },
+      { ...VALID, surface_point_list: [{ surface_point_name: VALID_POINT, context: 'recordId' }] },
     ],
     [
       'an empty per-entry context field name',
-      { ...VALID, surface_point_list: [{ surface_point: VALID_POINT, context: ['recordId', ''] }] },
+      {
+        ...VALID,
+        surface_point_list: [{ surface_point_name: VALID_POINT, context: ['recordId', ''] }],
+      },
     ],
     [
       'a duplicated per-entry context field name',
       {
         ...VALID,
-        surface_point_list: [{ surface_point: VALID_POINT, context: ['recordId', 'recordId'] }],
+        surface_point_list: [
+          { surface_point_name: VALID_POINT, context: ['recordId', 'recordId'] },
+        ],
       },
     ],
   ])('rejects %s', (_label, block) => {
@@ -452,7 +459,7 @@ describe('validateUiApp', () => {
     expect(() =>
       validateUiApp({
         ...VALID,
-        surface_point_list: [{ surface_point: 'contact-details-overview-main' }],
+        surface_point_list: [{ surface_point_name: 'contact-details-overview-main' }],
       }),
     ).not.toThrow();
   });
@@ -512,7 +519,7 @@ describe('validateUiApp', () => {
 describe('validateUiApp — iframeExtension', () => {
   const VALID_IFRAME = {
     extension_type: 'iframeExtension',
-    surface_point_list: [{ surface_point: VALID_POINT, context: ['recordId'] }],
+    surface_point_list: [{ surface_point_name: VALID_POINT, context: ['recordId'] }],
     label: 'View in CRM',
     modal_iframe_url: 'https://example.com/embed',
   };
@@ -525,7 +532,7 @@ describe('validateUiApp — iframeExtension', () => {
     expect(() =>
       validateUiApp({
         ...VALID_IFRAME,
-        surface_point_list: [{ surface_point: 'contact-details-overview-main' }],
+        surface_point_list: [{ surface_point_name: 'contact-details-overview-main' }],
       }),
     ).not.toThrow();
   });

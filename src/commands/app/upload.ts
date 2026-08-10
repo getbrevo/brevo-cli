@@ -154,19 +154,43 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
 //     block read as changed on every single upload, and "Already up to date" would never
 //     print for a UI app again.
 //   - `version`     — the server-managed snapshot version. Same asymmetry.
-const UPLOAD_INJECTED_UI_APP_KEYS: readonly string[] = ['link_target', 'version'] as const;
+//   - `extension_point_name` — the dotted slot name the platform resolves from each entry's
+//     `surface_point_name` and stamps onto its own stored copy. Nothing here authors it and
+//     the server does not echo it, so it should never arrive — it is listed anyway because
+//     the cost of being wrong is asymmetric: if it ever did arrive, comparing it would
+//     report drift on a field the partner cannot edit, and writing it back would put a
+//     value into app-config.json that the very next upload rejects as an unknown key.
+//
+// Unlike the two above, this one lives INSIDE each `surface_point_list` entry rather than at
+// the top of the block, which is why both helpers below strip at every level.
+const UPLOAD_INJECTED_UI_APP_KEYS: readonly string[] = [
+  'link_target',
+  'version',
+  'extension_point_name',
+] as const;
+
+/** Strip the wire-only keys above from a value at every depth. */
+function stripInjectedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripInjectedKeys);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !UPLOAD_INJECTED_UI_APP_KEYS.includes(key))
+        .map(([k, v]) => [k, stripInjectedKeys(v)]),
+    );
+  }
+  return value;
+}
 
 /**
  * Drop the wire-only keys above from a block, before it is written back to
- * app-config.json. Both are stripped for the same reason and by the same list the diff
- * normalizes with: neither is authored, both come back on the server's echo, and writing
- * either one into the file would put a key the partner cannot usefully edit into the
- * file this command just decided to keep it out of.
+ * app-config.json. They are stripped for the same reason and by the same list the diff
+ * normalizes with: none is authored, they come back on (or are added around) the server's
+ * echo, and writing one into the file would put a key the partner cannot usefully edit into
+ * the file this command just decided to keep it out of.
  */
 function withoutInjectedKeys(uiApp: UiApp): UiApp {
-  return Object.fromEntries(
-    Object.entries(uiApp).filter(([key]) => !UPLOAD_INJECTED_UI_APP_KEYS.includes(key)),
-  ) as UiApp;
+  return stripInjectedKeys(uiApp) as UiApp;
 }
 
 // Stable serialization for equality checks. Three things vary without the block having
@@ -255,7 +279,7 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   next.surface_point_list.forEach((entry, i) => {
     const context = entry.context?.length ? `  (context: ${entry.context.join(', ')})` : '';
     logInfo(
-      `    ${i === 0 ? 'Placement:      ' : '                '}${entry.surface_point}${context}`,
+      `    ${i === 0 ? 'Placement:      ' : '                '}${entry.surface_point_name}${context}`,
     );
   });
   logInfo(`    Label:          ${next.label ?? ''}`);

@@ -175,7 +175,7 @@ export function createAppService(client: ApiClient) {
      * UI-apps GA. Errors propagate — the caller owns the actionable message, since a 404
      * currently just means "endpoint not built".
      *
-     * Normalization: rows are keyed on `surface_point`, falling back to the pre-BEX-361
+     * Normalization: rows are keyed on `extension_point_name`, falling back to the pre-BEX-361
      * `extension_point` spelling, and the three decomposed segments accept either naming
      * (see RawSurfacePointRow for why both are tolerated). Rows with no usable name are
      * dropped and duplicates deduped, so callers can trust every row's identity.
@@ -191,7 +191,7 @@ export function createAppService(client: ApiClient) {
       const normalized: SurfacePointRow[] = [];
       for (const row of rows) {
         if (!row || typeof row !== 'object') continue;
-        const name = firstNonEmptyString(row.surface_point, row.extension_point);
+        const name = firstNonEmptyString(row.extension_point_name, row.extension_point);
         if (!name || seen.has(name)) continue;
         seen.add(name);
         const {
@@ -204,7 +204,7 @@ export function createAppService(client: ApiClient) {
         } = row;
         normalized.push({
           ...rest,
-          surface_point: name,
+          extension_point_name: name,
           ...pick('location_name', firstNonEmptyString(row.location_name, legacyLocation)),
           ...pick('section_name', firstNonEmptyString(row.section_name, legacyPlace)),
           ...pick('component_type', firstNonEmptyString(row.component_type, legacyKind)),

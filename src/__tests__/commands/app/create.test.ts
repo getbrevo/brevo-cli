@@ -1218,10 +1218,15 @@ describe('app/create', () => {
      * carries it — it is what each authored entry's `context` is seeded from.
      *
      * The two identities are deliberately DIFFERENT strings, as they are in the seeded
-     * registry: `surface_point` is the dotted `extension_point_name`
+     * registry: `extension_point_name` is the dotted `extension_point_name`
      * (`contactDetails.headerMenu.action`), `surface_point_name` the kebab-case slug
      * (`contact-details-header-menu`). Only the slug is authorable — a fixture that made
      * them equal would pass whichever one the code picked.
+     *
+     * Note the row's slug column and the authored entry key are now the SAME word
+     * (`surface_point_name`), which is the point of that rename — but the row's OTHER
+     * field is still called `extension_point_name`, so the two spellings remain live here and
+     * an assertion that reads the wrong one still passes for the wrong reason.
      */
     const REGISTRY_ROW = (
       location: string,
@@ -1229,7 +1234,7 @@ describe('app/create', () => {
       component: string,
       extra: Record<string, unknown> = {},
     ) => ({
-      surface_point: `${location}.${section}.${component}`,
+      extension_point_name: `${location}.${section}.${component}`,
       location_name: location,
       section_name: section,
       component_type: component,
@@ -1288,7 +1293,7 @@ describe('app/create', () => {
     /** Just the slot names of the collected block, for the placement assertions. */
     const surfacePointNames = () =>
       collectedUiApp().surface_point_list.map(
-        (entry: { surface_point: string }) => entry.surface_point,
+        (entry: { surface_point_name: string }) => entry.surface_point_name,
       );
     /** Values of a checkbox/list question's choices, skipping inquirer Separators. */
     const choiceValuesOf = (name: string) =>
@@ -1329,7 +1334,7 @@ describe('app/create', () => {
       expect(payload.ui_app).toEqual({
         extension_type: 'actionLink',
         surface_point_list: [
-          { surface_point: 'contact-details-header-menu', context: DEFAULT_CONTEXT },
+          { surface_point_name: 'contact-details-header-menu', context: DEFAULT_CONTEXT },
         ],
         label: 'View in CRM',
         redirect_link: 'https://example.com/brevo',
@@ -1355,7 +1360,7 @@ describe('app/create', () => {
       expect(collectedUiApp()).toEqual({
         extension_type: 'actionLink',
         surface_point_list: [
-          { surface_point: 'contact-details-header-menu', context: DEFAULT_CONTEXT },
+          { surface_point_name: 'contact-details-header-menu', context: DEFAULT_CONTEXT },
         ],
         label: 'View in CRM',
         redirect_link: 'https://example.com/brevo',
@@ -1698,7 +1703,7 @@ describe('app/create', () => {
     it('keeps rows that declare neither extension_type_list nor status', async () => {
       registryHas([
         {
-          surface_point: 'contactDetails.headerMenu.action',
+          extension_point_name: 'contactDetails.headerMenu.action',
           surface_point_name: 'contact-details-header-menu',
           location_name: 'contactDetails',
           section_name: 'headerMenu',
@@ -1753,7 +1758,7 @@ describe('app/create', () => {
 
     it('aborts when the registry has no usable rows on the picked pages', async () => {
       registryHas(
-        [{ surface_point: 'not-a-slot' }], // no decomposed columns, name not 3 segments
+        [{ extension_point_name: 'not-a-slot' }], // no decomposed columns, name not 3 segments
         ['contactDetails'],
       );
 
@@ -1776,7 +1781,7 @@ describe('app/create', () => {
       registryHas(
         [
           {
-            surface_point: 'contactDetails.headerMenu.action',
+            extension_point_name: 'contactDetails.headerMenu.action',
             surface_point_name: 'contact-details-header-menu',
           },
         ],
@@ -1807,7 +1812,7 @@ describe('app/create', () => {
       registryHas(
         [
           {
-            surface_point: 'contactDetails.headerMenu.action',
+            extension_point_name: 'contactDetails.headerMenu.action',
             location_name: 'contactDetails',
             section_name: 'headerMenu',
             component_type: 'action',
@@ -1839,8 +1844,8 @@ describe('app/create', () => {
       await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp().surface_point_list).toEqual([
-        { surface_point: 'contact-details-header-menu', context: ['recordId'] },
-        { surface_point: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
+        { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+        { surface_point_name: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
       ]);
     });
 
@@ -1856,7 +1861,7 @@ describe('app/create', () => {
       await createCommand(CLI_OPTIONS);
 
       expect(collectedUiApp().surface_point_list).toEqual([
-        { surface_point: 'contact-details-header-menu' },
+        { surface_point_name: 'contact-details-header-menu' },
       ]);
     });
 

@@ -148,6 +148,33 @@ into `main` — anything that must outlive the branch belongs in
       (e.g. in the create summary) once `GET /cli/surface-points` lands, so a partner
       knows which params their URL will actually receive without a failed upload.
 
+- [ ] **`surface_point_name` has no unique constraint — the stamp inherits that.**
+      app-store-backend's own comment (`http_get_apps_extensibility.go`,
+      `slotName`) states the case plainly: a slug is `<page>-<section>` with the
+      component KIND dropped, and the column has no unique constraint, so two kinds
+      on one section resolve to whichever row the lookup reaches first. bo-be's
+      `FindByNames` returns `map[string]ExtensionPoint` keyed by slug, so a
+      duplicate slug collapses and `stampExtensionPointNames` would stamp an
+      arbitrary one of the two. **Latent, not live** — the twelve seeded rows have
+      twelve distinct slugs today. Fix by adding a unique constraint on
+      `surface_point_name`, or by making the authored identity carry the kind. Do
+      one of those before any thirteenth row is seeded.
+
+- [x] **app-store-backend already reads both — DONE, and it was ahead of us.**
+      The working branch `fix/bex-346-pin-cache-schema-v4` (staged, uncommitted)
+      already decodes `surface_point_name` with **no compatibility shim** for the old
+      `surface_point` key, and already decodes `extension_point_name` and PREFERS it
+      over the slug (`snapshotSurfacePoint.slotName`). So this branch is not
+      proposing a new contract: bo-be and the CLI were writing a key the backend had
+      stopped reading. Two consequences worth carrying into review:
+      **(a)** the backend's comment says `extension_point_name` is "resolved by the
+      CLI at authoring time" — it is not, and must not be; bo-be stamps it and the
+      CLI never authors it. Correct that comment when the backend branch lands, or
+      someone will add a CLI field to satisfy it.
+      **(b)** a snapshot written before the stamp carries no `extension_point_name`,
+      so the backend's slug fallback in `slotName` stays load-bearing. Do not delete
+      it as dead code once the stamp is deployed.
+
 ### Pre-existing, unrelated
 
 - [ ] `dist/` in this working copy is owned by `root` (dated 27 Jul), so `yarn build`
