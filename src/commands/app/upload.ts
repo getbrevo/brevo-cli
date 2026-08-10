@@ -285,15 +285,9 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   logInfo(`    Label:          ${next.label ?? ''}`);
   if (next.more_info) logInfo(`    More info:      ${next.more_info}`);
   logInfo(`    Redirect link:  ${next.redirect_link ?? ''}`);
-  // Stated rather than shown as a config row: app-config.json does not carry
-  // link_target, this command injects it, so a partner should not go looking for
-  // a field to edit. Only an actionLink has one — an iframeExtension embeds its
-  // URL, so the row would name a field its upload never sends.
-  if (next.extension_type === EXTENSION_TYPE_ACTION_LINK) {
-    logInfo(
-      `    Link target:    ${DEFAULT_LINK_TARGET} ${messages.APP_UPLOAD_UI_LINK_TARGET_NOTE}`,
-    );
-  }
+  // No link_target row: app-config.json does not carry the field, so printing a value
+  // for it only sends a partner looking for one to edit. `_blank` is still injected
+  // into an actionLink's payload — see the payload build.
 }
 
 function diffToJson(diff: UploadDiff) {

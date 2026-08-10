@@ -837,8 +837,7 @@ describe('app/upload', () => {
     // link_target is injected for an actionLink only. An iframeExtension embeds its URL
     // rather than navigating, and `validateUiApp` REFUSES the field in its authored block
     // (`rejects link_target` in validators.test.ts) — so injecting it here would send the
-    // one field the CLI just told the partner not to write, and print a diff row naming a
-    // field the payload doesn't carry.
+    // one field the CLI just told the partner not to write.
     it('does not inject link_target for an iframeExtension', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
@@ -850,8 +849,6 @@ describe('app/upload', () => {
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
       expect(payload.ui_app).not.toHaveProperty('link_target');
       expect(payload.ui_app).toEqual(IFRAME_UI_APP);
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-      expect(output).not.toContain('Link target:');
     });
 
     it('rejects an iframeExtension carrying a redirect_link', async () => {
@@ -1012,8 +1009,9 @@ describe('app/upload', () => {
       expect(output).toContain('(context: recordId)');
       expect(output).toContain('Label:');
       expect(output).toContain('More info:');
-      // link_target is stated as injected rather than shown as an editable field.
-      expect(output).toContain('_blank (added on upload; not a field in app-config.json)');
+      // link_target is injected into the payload but never printed: it is not a field in
+      // app-config.json, so a row for it only sends the partner looking for one to edit.
+      expect(output).not.toContain('Link target');
       expect(output).not.toContain('Redirect URLs');
     });
   });
