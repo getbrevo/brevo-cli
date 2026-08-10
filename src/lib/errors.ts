@@ -24,7 +24,30 @@ export class AuthExpiredError extends CliError {
   }
 }
 
+export interface CliVersionUnsupportedDetail {
+  currentVersion: string;
+  latestVersion?: string;
+  upgrade: string;
+}
+
+/**
+ * The backend reported that this CLI version is no longer supported.
+ *
+ * Exit code stays `EXIT_CODES.ERROR` (1) — the value already documented in
+ * AGENTS.md / SKILL.md for a blocked run, so no script contract changes.
+ */
+export class CliVersionUnsupportedError extends CliError {
+  constructor(
+    message: string,
+    public readonly detail: CliVersionUnsupportedDetail,
+  ) {
+    super(message, EXIT_CODES.ERROR);
+    this.name = 'CliVersionUnsupportedError';
+  }
+}
+
 export enum ErrorCode {
+  CLI_VERSION_UNSUPPORTED = 'CLI_VERSION_UNSUPPORTED',
   AUTH_INVALID = 'AUTH_INVALID',
   AUTH_EXPIRED = 'AUTH_EXPIRED',
   ACCESS_DENIED = 'ACCESS_DENIED',

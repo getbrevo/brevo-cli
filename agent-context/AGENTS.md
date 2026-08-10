@@ -83,7 +83,7 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 - **Credentials** live at `~/.brevo/credentials.json`. Never commit this file or any `.env.local`.
 - **Non-interactive auth:** `BREVO_API_KEY=xkeysib-... brevo login`. The legacy `--api-key` flag was removed because it leaks into shell history.
 - **Skip prompts:** `--force` for delete/logout; `--yes` for `app update`.
-- **Forced update:** when the installed CLI is a full **major** version behind the latest npm release, every command except `--help`/`--version` prints a blocking update banner to stderr and exits `1` without running. Update with `npm install -g @getbrevo/cli` (or `yarn global add`). The gate honors the same opt-outs as the soft update notice (`BREVO_NO_UPDATE_NOTIFIER=1`, `--no-update-notifier`, CI, non-TTY), so it never fires in those contexts.
+- **Version support:** the API decides whether the installed CLI is still supported — it reads the version from the CLI's User-Agent and returns a verdict in the `X-Brevo-Cli-Status` response header (`ok` / `outdated` / `unsupported`). The CLI no longer contacts the npm registry at all. `outdated` prints an update notice to stderr and the command still runs; `unsupported` prints the notice and exits `1` **without running**, so a `brevo` call that suddenly exits `1` with an update banner means the CLI must be upgraded (`npm install -g @getbrevo/cli`) before it will work. Under `--json` a blocked run emits `{"error":{"code":"CLI_VERSION_UNSUPPORTED",…}}` instead of a banner. The verdict is cached at `~/.brevo/cli-notice.json` (24h) so it applies offline. `--help` / `--version` are never blocked.
 - **Exit codes:** `0` success · `1` general error · `2` aborted · `3` auth · `4` network · `5` not found.
 
 ## Scopes
@@ -113,7 +113,8 @@ The legacy catch-all `'all'` OAuth scope is deprecated. The CLI **blocks** `brev
 | `BREVO_CONFIG_HOME` | Override credentials directory (default `~/.brevo/`) |
 | `BREVO_CLAUDE_HOME` | Override Claude Code home used by `skill:cli` (default `~/.claude/`) |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs |
-| `BREVO_NO_UPDATE_NOTIFIER` | Set to `1` to suppress the npm update-available notice **and** the blocking major-version force-update gate |
+| `BREVO_NO_UPDATE_NOTIFIER` | Set to `1` to suppress the update-available notice. Does **not** suppress an `unsupported` block |
+| `BREVO_CLI_SKIP_VERSION_GATE` | Set to `1` to bypass an `unsupported` block. Emergency use only — for a mistaken backend rollout; the notice still prints |
 | `BREVO_DEBUG=1` or `--debug` | Verbose HTTP and error logging |
 
 ## Safety

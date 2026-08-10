@@ -84,9 +84,16 @@ The legacy catch-all `'all'` OAuth scope is deprecated. The CLI **blocks** `brev
 
 `0` success · `1` general error · `2` aborted · `3` auth failure · `4` network · `5` not found.
 
-## Forced update
+## Version support
 
-When the installed CLI is a full **major** version behind the latest npm release, every command except `--help` / `--version` prints a blocking update banner to stderr and exits `1` **without running** — so a `brevo` call that suddenly exits `1` with an update banner means the CLI must be upgraded (`npm install -g @getbrevo/cli` or `yarn global add @getbrevo/cli`) before it will work. The gate honors the same opt-outs as the soft update notice (`BREVO_NO_UPDATE_NOTIFIER=1`, `--no-update-notifier`, CI, non-TTY), so it never fires in those contexts.
+The API decides whether the installed CLI is still supported. It reads the version from the CLI's User-Agent and returns a verdict in the `X-Brevo-Cli-Status` response header on every request — the CLI does no version comparison and never contacts the npm registry.
+
+* `outdated` → update notice on stderr, **the command still runs**.
+* `unsupported` → notice and exit `1` **without running**. A `brevo` call that suddenly exits `1` with an update banner means the CLI must be upgraded (`npm install -g @getbrevo/cli` or `yarn global add @getbrevo/cli`) before it will work.
+
+The verdict is cached at `~/.brevo/cli-notice.json` for 24h, so a blocked CLI stays blocked offline, and a cache written by a different CLI version is discarded (an upgrade is never blocked by the old verdict).
+
+`BREVO_NO_UPDATE_NOTIFIER=1` / `--no-update-notifier` / CI / non-TTY suppress the *notice* but **not** an `unsupported` block. Under `--json` a blocked run emits `{"error":{"code":"CLI_VERSION_UNSUPPORTED", "current_version":…, "latest_version":…, "upgrade":…}}` and exits `1`. `BREVO_CLI_SKIP_VERSION_GATE=1` is the emergency bypass. `--help` and `--version` are never blocked.
 
 ## Before sharing or committing output
 

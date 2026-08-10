@@ -1,9 +1,10 @@
 import { ApiClient, parseRetryAfter, sanitizeErrorMessage } from '../../api/client';
-import { ErrorCode } from '../../lib/errors';
+import { ErrorCode, CliVersionUnsupportedError } from '../../lib/errors';
 import { messages } from '../../lang/en';
 import { CLI_VERSION } from '../../lib/cli-version';
-import { USER_AGENT_HEADER } from '../../lib/constants';
+import { USER_AGENT_HEADER, CLI_VERSION_HEADERS } from '../../lib/constants';
 import { getCliOs } from '../../lib/telemetry';
+import { VersionSignal } from '../../types';
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -491,5 +492,119 @@ describe('api client', () => {
       expect(authHandler).toHaveBeenCalledTimes(1);
       expect(result.email).toBe('test@example.com');
     });
+  });
+});
+
+// ──────────────── CLI version signal (BEX-370) ────────────────
+
+describe('onVersionSignal', () => {
+  let stderrSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => stderrSpy.mockRestore());
+
+  function clientWithSignal(onVersionSignal: (s: VersionSignal) => void): ApiClient {
+    return new ApiClient({
+      baseUrl: 'https://api.brevo.com',
+      getAuthHeader: () => ({ 'api-key': 'xkeysib-test-key' }),
+      onVersionSignal,
+    });
+  }
+
+  function response(status: number, headers: Record<string, string>, body = '{}'): unknown {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: new Headers(headers),
+      text: () => Promise.resolve(body),
+    };
+  }
+
+  it('reports the signal carried by a 2xx response', async () => {
+    const seen: VersionSignal[] = [];
+    mockFetch.mockResolvedValue(
+      response(200, {
+        [CLI_VERSION_HEADERS.LATEST]: '2.4.0',
+        [CLI_VERSION_HEADERS.STATUS]: 'outdated',
+      }),
+    );
+
+    await clientWithSignal((s) => seen.push(s)).get('/v3/app-store/apps');
+    expect(seen).toEqual([{ latestVersion: '2.4.0', status: 'outdated' }]);
+  });
+
+  // The whole reason the signal rides on headers: an error response still
+  // refreshes what the CLI knows.
+  it.each([
+    [400, 'bad request'],
+    [404, 'not found'],
+    [500, 'server error'],
+  ])('reports the signal carried by a %d response', async (status) => {
+    const seen: VersionSignal[] = [];
+    mockFetch.mockResolvedValue(
+      response(status, { [CLI_VERSION_HEADERS.STATUS]: 'unsupported' }, '{"message":"nope"}'),
+    );
+
+    await expect(clientWithSignal((s) => seen.push(s)).get('/v3/app-store/apps')).rejects.toThrow();
+    expect(seen).toEqual([{ latestVersion: undefined, status: 'unsupported' }]);
+  });
+
+  it('reports an empty signal when the headers are absent', async () => {
+    const seen: VersionSignal[] = [];
+    mockFetch.mockResolvedValue(response(200, {}));
+
+    await clientWithSignal((s) => seen.push(s)).get('/v3/app-store/apps');
+    expect(seen).toEqual([{ latestVersion: undefined, status: undefined }]);
+  });
+
+  // Ordering guarantee: a block aborts the run rather than looping through a
+  // re-auth prompt (which can clear credentials) or a retry sleep.
+  it('aborts a 401 before the re-auth handler runs', async () => {
+    mockFetch.mockResolvedValue(response(401, { [CLI_VERSION_HEADERS.STATUS]: 'unsupported' }));
+    const onAuthFailure = jest.fn().mockResolvedValue(undefined);
+
+    const client = clientWithSignal(() => {
+      throw new CliVersionUnsupportedError('unsupported', {
+        currentVersion: '2.0.1',
+        upgrade: 'npm install -g @getbrevo/cli@latest',
+      });
+    });
+    client.setOnAuthFailure(onAuthFailure);
+
+    await expect(client.get('/v3/app-store/apps')).rejects.toBeInstanceOf(
+      CliVersionUnsupportedError,
+    );
+    expect(onAuthFailure).not.toHaveBeenCalled();
+  });
+
+  it('aborts a 429 before the retry sleep', async () => {
+    mockFetch.mockResolvedValue(
+      response(429, { [CLI_VERSION_HEADERS.STATUS]: 'unsupported', 'retry-after': '120' }),
+    );
+
+    const client = clientWithSignal(() => {
+      throw new CliVersionUnsupportedError('unsupported', {
+        currentVersion: '2.0.1',
+        upgrade: 'npm install -g @getbrevo/cli@latest',
+      });
+    });
+
+    await expect(client.get('/v3/app-store/apps')).rejects.toBeInstanceOf(
+      CliVersionUnsupportedError,
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('is optional — a client without the hook still works', async () => {
+    mockFetch.mockResolvedValue(response(200, { [CLI_VERSION_HEADERS.LATEST]: '2.4.0' }));
+    const client = new ApiClient({
+      baseUrl: 'https://api.brevo.com',
+      getAuthHeader: () => ({ 'api-key': 'xkeysib-test-key' }),
+    });
+    await expect(client.get('/v3/app-store/apps')).resolves.toEqual({});
   });
 });

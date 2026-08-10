@@ -10,14 +10,18 @@ import * as path from 'node:path';
  * `'0.0.0'` if the file is missing or malformed — safe default for any
  * consumer that uses this for telemetry or skill-version stamping.
  */
-function readCliVersion(): string {
+function readPkg(): { version?: unknown; name?: unknown } {
   try {
     const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { version?: unknown };
-    return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+    return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { version?: unknown; name?: unknown };
   } catch {
-    return '0.0.0';
+    return {};
   }
 }
 
-export const CLI_VERSION = readCliVersion();
+const pkg = readPkg();
+
+export const CLI_VERSION = typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+
+/** Package name, used in the `npm install -g <name>` upgrade lines. */
+export const CLI_NAME = typeof pkg.name === 'string' ? pkg.name : '@getbrevo/cli';

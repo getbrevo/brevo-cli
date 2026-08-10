@@ -85,9 +85,43 @@ export const ENDPOINTS = {
   ACCOUNT: '/v3/account/info',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
+  // Unauthenticated. Deliberately NOT fetched through ApiClient — see
+  // services/cli-info.ts for why attaching the auth header would be harmful.
+  CLI_INFO: '/v3/app-store/cli/info',
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
+
+// Response headers carrying the backend's view of the calling CLI. Present on
+// every response from a CLI-facing endpoint, including non-2xx, so the CLI
+// learns from calls it already makes rather than from npm. Lower-cased:
+// `Headers.get` is case-insensitive, but these are also used as literal keys in
+// tests.
+export const CLI_VERSION_HEADERS = {
+  LATEST: 'x-brevo-cli-latest-version',
+  STATUS: 'x-brevo-cli-status',
+} as const;
+
+// The verdict values the CLI understands. Anything else is treated as absent,
+// so a backend that starts sending a new status cannot accidentally block
+// clients that predate it.
+export const CLI_VERSION_STATUS = {
+  OK: 'ok',
+  OUTDATED: 'outdated',
+  UNSUPPORTED: 'unsupported',
+} as const;
+
+// Notice codes the CLI recognises from `GET /cli/info`. An unrecognised code
+// means the body is ignored wholesale and local wording is used instead — the
+// same contract as `apiCodeMessages` in api/client.ts.
+export const CLI_NOTICE_CODES = {
+  VERSION_MISMATCH: 'cli_version_mismatch',
+} as const;
+
+// Emergency escape hatch for a mistaken backend rollout. Downgrades a block to
+// a warning so work can continue; deliberately not documented as a routine
+// opt-out.
+export const SKIP_VERSION_GATE_ENV = 'BREVO_CLI_SKIP_VERSION_GATE';
 
 export const CLI = {
   LOGIN: 'brevo login',

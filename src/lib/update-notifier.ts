@@ -1,25 +1,14 @@
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { messages } from '../lang/en';
-
-const REGISTRY_URL = (name: string): string =>
-  `https://registry.npmjs.org/${encodeURIComponent(name).replace('%40', '@')}/latest`;
-
-const TTL_MS = 24 * 60 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 2000;
-const NOTIFY_WAIT_MS = 1500;
-
-const CACHE_FILE = 'update-check.json';
+// Update notices are now driven entirely by the API (see lib/version-signal.ts):
+// the backend reports the caller's status on responses the CLI already makes.
+// The npm registry is no longer contacted from any code path — it was an extra
+// network call on nearly every invocation, and "npm has a newer major" was the
+// wrong authority for whether a version is still supported.
+//
+// What remains here is shared presentation and opt-out logic.
 
 export interface PkgInfo {
   name: string;
   version: string;
-}
-
-export interface UpdateCheckCache {
-  latest: string;
-  lastChecked: number;
 }
 
 export interface UpdateNotifierOptions {
@@ -27,31 +16,11 @@ export interface UpdateNotifierOptions {
   argv?: readonly string[];
   env?: NodeJS.ProcessEnv;
   isTTY?: boolean;
-  cachePath?: string;
-  fetchImpl?: typeof fetch;
-  now?: () => number;
-  ttlMs?: number;
-  fetchTimeoutMs?: number;
 }
 
-function getCachePath(override?: string, env: NodeJS.ProcessEnv = process.env): string {
-  if (override) return override;
-  const dir = env.BREVO_CONFIG_HOME || path.join(os.homedir(), '.brevo');
-  return path.join(dir, CACHE_FILE);
-}
-
-// True when the banner must print before parseAsync runs, either because
-// Commander exits synchronously (bare `brevo`, --help, --version) and would
-// bypass the post-run notify, or because the command starts a long interactive
-// flow where users should see the upgrade up front.
-export function shouldShowBannerBefore(argv: readonly string[]): boolean {
-  const args = argv.slice(2);
-  if (args.length === 0) return true;
-  if (args.includes('--help') || args.includes('-h')) return true;
-  if (args.includes('--version') || args.includes('-V')) return true;
-  return args[0] === 'app' && (args[1] === 'init' || args[1] === 'create');
-}
-
+// Contexts where an informational notice is unwanted: CI logs, piped output,
+// or an explicit opt-out. Applies to the soft notice only — a hard block is
+// never suppressed by these.
 export function shouldSkipCheck(opts: UpdateNotifierOptions): boolean {
   const env = opts.env ?? process.env;
   const argv = opts.argv ?? process.argv;
@@ -131,169 +100,11 @@ export function isNewer(current: string, latest: string): boolean {
   return compareVersions(current, latest) > 0;
 }
 
-// True when `latest` is at least one full major version ahead of `current`.
-// Used to gate the blocking force-update banner — a new major release is the
-// signal that the installed CLI may no longer be supported by the backend.
-export function isMajorBehind(current: string, latest: string): boolean {
-  const c = parseVersion(current);
-  const l = parseVersion(latest);
-  if (!c || !l) return false;
-  return l.major > c.major;
-}
-
-export function readCache(cachePath: string): UpdateCheckCache | undefined {
-  try {
-    const raw = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-    if (
-      raw &&
-      typeof raw === 'object' &&
-      typeof raw.latest === 'string' &&
-      typeof raw.lastChecked === 'number' &&
-      Number.isFinite(raw.lastChecked)
-    ) {
-      return { latest: raw.latest, lastChecked: raw.lastChecked };
-    }
-  } catch {
-    // missing or corrupt — caller treats as no cache
-  }
-  return undefined;
-}
-
-export function writeCache(cachePath: string, cache: UpdateCheckCache): void {
-  try {
-    fs.mkdirSync(path.dirname(cachePath), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
-  } catch {
-    // non-fatal — banner still works from in-memory value
-  }
-}
-
-export async function fetchLatestVersion(
-  name: string,
-  opts?: UpdateNotifierOptions,
-): Promise<string | undefined> {
-  const fetchImpl = opts?.fetchImpl ?? fetch;
-  const timeoutMs = opts?.fetchTimeoutMs ?? FETCH_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(REGISTRY_URL(name), {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) return undefined;
-    const json = (await res.json()) as { version?: unknown };
-    return typeof json.version === 'string' ? json.version : undefined;
-  } catch {
-    return undefined;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 // Renders the lines into a bordered box, auto-sized to the longest line.
-function renderBox(lines: string[]): string {
+export function renderBox(lines: string[]): string {
   const inner = Math.max(...lines.map((l) => l.length)) + 4;
   const top = '╭' + '─'.repeat(inner) + '╮';
   const bot = '╰' + '─'.repeat(inner) + '╯';
   const pad = (s: string): string => '  ' + s + ' '.repeat(inner - s.length - 2);
   return ['', `  ${top}`, ...lines.map((l) => `  │${pad(l)}│`), `  ${bot}`, ''].join('\n');
-}
-
-export function formatBanner(current: string, latest: string, name: string): string {
-  return renderBox([
-    messages.UPDATE_AVAILABLE(current, latest),
-    messages.UPDATE_RUN(name),
-    messages.UPDATE_RUN_YARN(name),
-    messages.UPDATE_RUN_BREW,
-  ]);
-}
-
-export function formatForceUpdateBanner(current: string, latest: string, name: string): string {
-  return renderBox([
-    messages.FORCE_UPDATE_REQUIRED(current, latest),
-    messages.FORCE_UPDATE_HINT,
-    messages.UPDATE_RUN(name),
-    messages.UPDATE_RUN_YARN(name),
-    messages.UPDATE_RUN_BREW,
-  ]);
-}
-
-export interface UpdateCheckHandle {
-  cachedLatest?: string;
-  pending: Promise<void>;
-}
-
-export function startUpdateCheck(opts: UpdateNotifierOptions): UpdateCheckHandle {
-  if (shouldSkipCheck(opts)) {
-    return { pending: Promise.resolve() };
-  }
-
-  const cachePath = getCachePath(opts.cachePath, opts.env);
-  const now = opts.now ? opts.now() : Date.now();
-  const ttl = opts.ttlMs ?? TTL_MS;
-  const cache = readCache(cachePath);
-
-  const stale = !cache || now - cache.lastChecked > ttl;
-  if (!stale) {
-    return { cachedLatest: cache?.latest, pending: Promise.resolve() };
-  }
-
-  const handle: UpdateCheckHandle = {
-    cachedLatest: cache?.latest,
-    pending: Promise.resolve(),
-  };
-  handle.pending = (async () => {
-    const latest = await fetchLatestVersion(opts.pkg.name, opts);
-    if (latest) {
-      // Prefer the freshly fetched version so first-run users (no cache)
-      // and stale-cache users see the banner without waiting another run.
-      handle.cachedLatest = latest;
-      writeCache(cachePath, { latest, lastChecked: now });
-    }
-  })();
-
-  return handle;
-}
-
-export async function notifyUpdate(
-  handle: UpdateCheckHandle,
-  pkg: PkgInfo,
-  output: NodeJS.WriteStream = process.stderr,
-  waitMs: number = NOTIFY_WAIT_MS,
-): Promise<void> {
-  await Promise.race([
-    handle.pending,
-    new Promise<void>((resolve) => setTimeout(resolve, waitMs).unref?.()),
-  ]);
-
-  if (handle.cachedLatest && isNewer(pkg.version, handle.cachedLatest)) {
-    output.write(formatBanner(pkg.version, handle.cachedLatest, pkg.name) + '\n');
-  }
-}
-
-// Blocking force-update gate. When the latest npm version is a full major
-// version ahead of the installed one, writes the force-update banner and
-// returns true so the caller can stop before running the command.
-//
-// Fails open: if the version check was skipped (CI / non-TTY / opt-out, in
-// which case the handle has no cachedLatest) or the fetch hasn't resolved
-// within waitMs, returns false so a slow or unreachable npm registry never
-// blocks the user.
-export async function enforceMinVersion(
-  handle: UpdateCheckHandle,
-  pkg: PkgInfo,
-  output: NodeJS.WriteStream = process.stderr,
-  waitMs: number = NOTIFY_WAIT_MS,
-): Promise<boolean> {
-  await Promise.race([
-    handle.pending,
-    new Promise<void>((resolve) => setTimeout(resolve, waitMs).unref?.()),
-  ]);
-
-  if (handle.cachedLatest && isMajorBehind(pkg.version, handle.cachedLatest)) {
-    output.write(formatForceUpdateBanner(pkg.version, handle.cachedLatest, pkg.name) + '\n');
-    return true;
-  }
-  return false;
 }
