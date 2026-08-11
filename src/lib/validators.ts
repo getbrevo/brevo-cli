@@ -141,7 +141,9 @@ export function collectScopes(value: string, previous: string[] = []): string[] 
  * Every code path that warns or blocks on the legacy scope calls this helper —
  * no scattered string literals (BEX-214).
  */
-export function containsLegacyAllScope(scopes: string[] | undefined): boolean {
+// Accepts null as well as undefined: the app-store read path returns `scopes: null`
+// for an app with no OAuth block, and both mean "no scopes" here.
+export function containsLegacyAllScope(scopes: string[] | null | undefined): boolean {
   return scopes?.includes(LEGACY_ALL_SCOPE) ?? false;
 }
 

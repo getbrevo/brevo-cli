@@ -8,6 +8,29 @@ into `main` — anything that must outlive the branch belongs in
 
 ### BEX-290 follow-ups
 
+- [ ] **Ask the platform to echo `ui_app` on `GET /v3/app-store/apps`.** Confirmed live
+      (2026-08-11) that the list response carries no `ui_app` key, so `brevo app list`
+      can identify a UI app but cannot show what it does — every UI-app row stops at
+      `Version:`. Two consequences: the detail rows in `printUiApp` (`src/commands/app/
+      list.ts`) are unit-tested only, and app-type detection has to fall back to a
+      heuristic (`isUiAppRecord` in `src/lib/config.ts` — no `client_id` and no
+      callbacks). Both the fallback and its comment can go once the block is echoed.
+      Alternative if the platform declines: an N+1 per-app read, which is worse.
+- [ ] **Decide what `brevo app credentials` should do for a UI app.** It no longer
+      crashes, but it prints `Client ID: ` (blank), `Client secret: [hidden — …]`,
+      `Scopes: (none)`, `Redirect URLs: (none)` — a form with nothing in it, because a
+      UI app has no OAuth credentials to show. Options: refuse with a typed message
+      naming the app type (consistent with how `app scaffold` handles a UI-app project),
+      or render a UI-app view like `app list` now does. Same call needed for the `--json`
+      shape, which currently returns empty strings/arrays for all four fields. Not fixed
+      with the crash because it is a UX decision, not a bug.
+- [ ] **Raise `owner_user_id: 0` on UI-app records with the platform.** Every UI app
+      created through `brevo app create` on this branch comes back from the list endpoint
+      with `owner_user_id: 0`, while OAuth apps carry a real user ID — suggesting the
+      create path does not stamp the owner for the UI branch. The CLI does not read the
+      field, so nothing depends on it, but an unowned app record is likely to matter to
+      the platform (permissions, listing scope). Server-side, not a CLI fix.
+
 - [x] **Slot-name validation moved to the server — DONE.** Resolved by deleting the
       local check rather than by fetching the registry at upload time: the upload
       endpoint already validates every authored name against `extension_points` and

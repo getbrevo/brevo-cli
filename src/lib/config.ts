@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { splitScopes } from './validators';
-import { UiApp } from '../types';
+import { OAuthApp, UiApp } from '../types';
 
 // ──────────────── Directory ────────────────
 
@@ -572,6 +572,32 @@ export function hasLocalApp(): boolean {
  */
 export function isUiAppConfig(config: Pick<ProjectConfig, 'ui_app'> | null | undefined): boolean {
   return !!config?.ui_app;
+}
+
+/**
+ * Whether a *server* app record describes a UI app. The record counterpart to
+ * {@link isUiAppConfig}, kept beside it so both discriminators are found together.
+ *
+ * The echoed `ui_app` block is the reliable signal, but it is not always there:
+ * `GET /v3/app-store/apps` (the list) returns no `ui_app` key at all today, and
+ * even the single-app read only carries it on server builds that echo it back.
+ * So this falls back to the absence of *every* piece of OAuth material — a UI app
+ * sends no `auth` block, so the server has no client_id and no callbacks to
+ * return, and answers `client_id: ""` with `redirect_uris: null`.
+ *
+ * Deliberately requires both to be empty. A record with a client_id but no
+ * callbacks is a half-configured OAuth app, not a UI app, and must keep
+ * rendering as one.
+ *
+ * The fallback can go once the list echoes `ui_app` (RELEASE-CHECKLIST.md →
+ * Before UI-apps GA).
+ */
+export function isUiAppRecord(
+  app: Pick<OAuthApp, 'ui_app' | 'client_id' | 'redirect_uris'> | null | undefined,
+): boolean {
+  if (!app) return false;
+  if (app.ui_app) return true;
+  return !app.client_id && !app.redirect_uris?.length;
 }
 
 export function writeProjectConfig(config: ProjectConfig): void {

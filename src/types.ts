@@ -306,8 +306,13 @@ export interface OAuthApp {
   client_id: string;
   client_secret?: string;
   distribution_type?: 'public' | 'private';
-  redirect_uris: string[];
-  scopes?: string[];
+  // Null — not absent, not [] — on any app with no OAuth block, i.e. every UI
+  // app: it sends no `auth`, so the server has no callbacks or scopes to return.
+  // Nullable rather than optional because that is what the wire does, and the
+  // compiler is the only thing that catches the next unguarded iteration. Same
+  // handling as `UploadAppResponse.auth`: treat null as "absent".
+  redirect_uris: string[] | null;
+  scopes?: string[] | null;
   logo_uri?: string;
   version?: string;
   // Review-submission form for public apps (BEX-221); absent for private apps.

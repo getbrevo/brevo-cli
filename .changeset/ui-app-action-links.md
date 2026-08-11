@@ -136,3 +136,23 @@ The name `surface_point` is now used nowhere — not as an authored key, not as 
 There is no `extension_point_name` in `app-config.json` and none should be added. The platform resolves the dotted name from the slug at create and upload and records it alongside the slug on its own stored copy of each entry, so the snapshot carries both identities without the partner authoring either twice. It is server-derived and deliberately not echoed back, the same handling `link_target` gets.
 
 `extension_point_name` is excluded from every configuration comparison, on both sides. In the CLI it joins `link_target` and `version` as a wire-only key the upload diff normalizes away and the write-back strips — and unlike those two it lives inside each `surface_point_list` entry, so both helpers now strip at every depth rather than only at the top of the block. In the platform it is cleared from both snapshots before change detection compares them. Without that, an app stored before the stamp existed would report as modified on its next upload purely because the candidate now carries a name the stored row does not: a new version, a bumped display version, and an "updated" answer for a config nobody edited.
+
+**`brevo app list` no longer crashes on a UI app, and names each app's type.** The
+app-store list endpoint returns `redirect_uris: null` — not `[]`, not absent — for any
+app with no OAuth block, which is every UI app: a UI app sends no `auth`, so the server
+has no callbacks to return. The command dereferenced that list, so a single UI app in the
+account ended the whole listing with `Cannot read properties of null (reading 'length')`,
+part-way through the output. Both wire fields that come back null (`redirect_uris` and
+`scopes`) are now typed as nullable, so the compiler covers the remaining read paths —
+which surfaced the same unguarded dereference in `brevo app credentials`, fixed here too.
+
+Rendering a UI app as an OAuth app was the second half of the bug: an empty Client ID and
+three `(none)` rows read as a broken OAuth app rather than a UI app. Each row now leads
+with its type (`OAuth app` / `UI app`), a UI app's OAuth-only rows are omitted rather than
+printed empty, and the `ui_app` block is rendered field for field — extension type, one
+row per placement with its context, label, more info, link — mirroring the upload summary.
+The listing header is `Your apps:` rather than `Your OAuth apps:`, since it can contain
+both. The list endpoint does not echo `ui_app` today, so a UI app's row currently stops at
+the type; app-type detection falls back to the absence of every piece of OAuth material,
+and a record with a client_id but no callbacks stays an OAuth app (a half-configured one),
+not a UI app.

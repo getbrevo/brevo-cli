@@ -1715,3 +1715,51 @@ the copy stored last time.
       has no unique constraint and the slug drops the component kind, so a
       thirteenth row sharing a section would make `FindByNames` — and therefore the
       stamp — pick arbitrarily. Tracked in `TODO.md`.
+
+### BEX-290 — `app list` survives a UI app and names each app's type (2026-08-11)
+
+**Change:** `brevo app list` crashed with `TypeError: Cannot read properties of null
+(reading 'length')` part-way through the listing as soon as the account contained a UI
+app. `GET /v3/app-store/apps` returns `redirect_uris: null` — not `[]`, not absent — for
+any app with no OAuth block, and the render loop dereferenced it. `scopes` was already
+guarded on that line; `redirect_uris` never was, and `OAuthApp` typed it non-nullable so
+the compiler could not see it.
+
+Both fields are now `string[] | null` on `OAuthApp`, which surfaced the same unguarded
+dereference in `app credentials` (`printCredentialsHuman`) — fixed here — and required
+widening `containsLegacyAllScope` (already null-safe at runtime).
+
+The render half: a UI app was being drawn as an OAuth app, so it read as a broken one
+(empty Client ID, three `(none)` rows). Rows now lead with `Type: OAuth app` / `UI app`,
+a UI app's OAuth-only rows are skipped rather than printed empty, and the `ui_app` block
+renders field for field, mirroring the upload summary. Header is `Your apps:`. Detection
+is `isUiAppRecord()` in `src/lib/config.ts`, beside `isUiAppConfig()`: the echoed
+`ui_app` block when present, otherwise the absence of *every* piece of OAuth material.
+
+**Must hold true:**
+
+- [x] `yarn test` green on `src/__tests__/commands/app/list.test.ts` (19 tests, 7 new
+      covering the null guard, both type labels, the `ui_app` rows, per-placement
+      context, the echo-less fallback, and the half-configured-OAuth false positive).
+- [x] `yarn lint && yarn format:check && npx tsc --noEmit && yarn test` green across the
+      suite (47 suites / 1027 tests).
+- [x] **Manual:** `brevo app list` against an account holding four UI apps and three
+      OAuth apps — full listing renders, no crash, each row correctly typed.
+- [x] **Manual:** `brevo app credentials --app-id <ui-app>` in both text and `--json`
+      mode — no crash on the null callbacks.
+- [ ] **Manual, once the single-app read echoes `ui_app`:** confirm the detail rows
+      (extension type, placements + context, label, more info, link) render from a real
+      server echo, not just the unit fixture. The list endpoint does **not** echo the
+      block today — confirmed live on 2026-08-11 — so every UI-app row currently stops
+      at `Version:`, and the `printUiApp` path is unit-tested only.
+- [ ] Reviewer: the detection fallback is a heuristic and it is load-bearing while the
+      list omits `ui_app`. It requires an empty `client_id` **and** no callbacks, so a
+      half-configured OAuth app stays an OAuth app. Confirm no path can produce an OAuth
+      record with a blank `client_id` — if one can, it will now be mislabelled.
+- [ ] Reviewer: `Type:` is printed on OAuth rows too, which is new output on a path
+      scripts may read. The contract for scripting is `--json` (unchanged here), so this
+      is judged safe — say so if you disagree.
+- [ ] **Platform question, non-blocking:** the four UI apps come back with
+      `owner_user_id: 0` while every OAuth app carries a real user ID. If the UI-app
+      create path is not stamping the owner, that is a server-side bug — raise on
+      BEX-290. The CLI does not read the field, so nothing here depends on it.

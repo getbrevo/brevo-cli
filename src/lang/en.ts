@@ -166,7 +166,14 @@ export const messages = {
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
-  APP_LIST_HEADER: 'Your OAuth apps:',
+  // Not "Your OAuth apps" — the listing can contain UI apps too (BEX-290), and
+  // each row names its own type.
+  APP_LIST_HEADER: 'Your apps:',
+
+  // App type, as named on a rendered row. The presence of the `ui_app` block is
+  // the discriminator (see isUiAppRecord) — there is no app-type field.
+  APP_TYPE_OAUTH: 'OAuth app',
+  APP_TYPE_UI: 'UI app',
 
   // App credentials
   APP_CREDENTIALS_REVEAL_CONFIRM: 'Are you sure you want to reveal the client secret?',

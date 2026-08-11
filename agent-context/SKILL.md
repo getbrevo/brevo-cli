@@ -107,6 +107,8 @@ If `app-config.json` exists in the working directory, it pins the app — `brevo
 
 A UI app's `app-config.json` carries a top-level `ui_app` object and exactly an empty `auth: {}` — no scopes, no redirect URLs. Its presence is how the CLI distinguishes the two app types.
 
+On the wire, a UI app's app record has **no OAuth material at all**: `brevo app list --json` returns it with `client_id: ""` and `redirect_uris: null` (null, not `[]`) — so guard before iterating either one, and don't read the empty client ID as a broken app. The text output labels each row `UI app` or `OAuth app` and omits the client-ID/callback/scope rows for a UI app.
+
 The block is the app snapshot the platform stores **field for field** — the same names it stores, serves and renders. Do not invent alternatives:
 
 ```json
