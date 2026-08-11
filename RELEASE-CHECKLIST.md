@@ -1814,9 +1814,10 @@ is `isUiAppRecord()` in `src/lib/config.ts`, beside `isUiAppConfig()`: the echoe
       and the created-app box with its example URL are unchanged. The split is
       mechanical, but this flow is prompt-driven and only partly covered by unit
       tests.
-- [ ] **Manual:** `brevo app upload` twice in a row on a UI app — the second run must
-      still print "already up to date", which is the end-to-end assertion that the
-      diff and write-back agree on the injected keys.
+- [x] **Verified against a local API stub, not staging:** `brevo app upload` twice in a
+      row on a UI app still prints "already up to date" — the end-to-end assertion that
+      the diff and write-back agree on the injected keys. See the differential-equivalence
+      note in the entry below for the method and its limits.
 - [ ] Reviewer: no changeset added, deliberately — pure refactor with no user-visible
       behaviour change, per `.changeset/README.md` ("refactors with no user-visible
       effect"). Agent docs untouched for the same reason.
@@ -1888,13 +1889,39 @@ user-visible behaviour change intended and none observed.
       resolution, wire-only keys, availability) and
       `src/__tests__/commands/command-capabilities.test.ts` (metadata names real capabilities,
       declares no unsatisfiable gate, and does not creep into enforcement).
-- [ ] **Manual:** `brevo app list` against an account with both app types — the `Type:` row now
-      comes from the type descriptor rather than an inline ternary. Output should be
-      byte-identical; confirm against the pre-refactor output.
-- [ ] **Manual:** `brevo app submit` on a private app and on a public app — the error text and
-      exit code must be exactly what they were before the matrix.
-- [ ] **Manual:** `brevo app upload` twice on a UI app — second run still prints "already up to
-      date" (the wire-only key list now comes from the ui module).
+- [x] **Differential equivalence, pre- vs post-refactor: byte-identical.** Both `062dabe`
+      (the commit before this work) and `HEAD` were built and driven against a local
+      stub of the app-store API (`BREVO_API_URL` allows HTTP for loopback, `BREVO_API_KEY`
+      satisfies the auth guard), then every captured stdout, stderr and exit code was
+      diffed. `diff -r` reports no differences at all across eight invocations:
+      `app list`, `app list --json`, `app submit` on a private OAuth app (text and
+      `--json`), on a private UI app, on a public app, and `app upload --yes` run twice
+      on a UI app.
+
+      Substance, not just sameness — the stub was built so a regression would show:
+
+      - `app list` renders all four records with no crash: the UI app is typed `UI app`
+        with its OAuth-only rows omitted, and the half-configured record (client_id but
+        `redirect_uris: null`) correctly stays `OAuth app`.
+      - `app submit` on a private app answers the unchanged
+        `App <id> is private. Private apps cannot be submitted…` and exit `1`, for a UI
+        app as well as an OAuth one; a public app proceeds and exits `0`.
+      - `app upload` prints "Already up to date at version 1.0.0" even though the stub
+        echoes every wire-only key (`link_target` and `version` at the top,
+        `extension_point_name` nested inside each entry) AND lists the placements in the
+        opposite order to the local file. That only passes if the diff still sorts
+        `surface_point_list` and normalizes those keys away. `app-config.json` was
+        unchanged afterwards, so the write-back is still stripping them too.
+
+      **What this does NOT prove:** that the real server responds like the fixtures. The
+      shapes used here are the ones confirmed live on 2026-08-11 (list returns
+      `redirect_uris: null`, the list does not echo `ui_app`), so the fixtures are
+      faithful as of that date — but a server-side change would not be caught by this.
+      The method is the reproducible artifact: rebuild both commits, point
+      `BREVO_API_URL` at a stub, diff.
+- [ ] **Manual, still needs a human:** the interactive UI-app create flow. It is
+      prompt-driven, so it is the one path the differential harness above cannot drive —
+      see the duplicate item in the entry above.
 - [ ] Reviewer: `requires` is metadata with no runtime effect. That is intentional (see above)
       but it does mean the field can be set wrongly without any command failing —
       `command-capabilities.test.ts` is what guards it. Say so if you'd rather it enforce.
