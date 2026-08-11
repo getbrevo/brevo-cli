@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import type { Capability } from '../app-types/capabilities';
 
 export interface CommandOption {
   flags: string;
@@ -17,6 +18,25 @@ export interface CommandDefinition {
   arguments?: CommandArgument[];
   options?: CommandOption[];
   examples?: string[];
+  /**
+   * The capability an app must have for this command to apply — `review-lifecycle` for the
+   * public-app review commands, `account-install` for deploy/rollback. See
+   * `src/app-types/capabilities.ts`.
+   *
+   * **Declarative metadata, NOT a runtime guard.** The registry does not enforce it, and
+   * that is deliberate rather than unfinished: each gated command already throws its own
+   * tested message with its own exit code, and a generic interceptor here would replace
+   * them all with one string — which `CLAUDE.md` counts as a user-visible break for any
+   * script matching on it. Enforcement stays in the commands, via `assertCapability`, which
+   * reads the same table.
+   *
+   * What it is for: making the rule enumerable. `bin/index.ts` currently states it as prose
+   * ("App-review commands (public apps only):") in a hand-aligned help block, and the agent
+   * docs restate it again — three copies that can drift. This field is the source those can
+   * be generated from, and `command-capabilities.test.ts` already asserts it agrees with the
+   * matrix so it cannot rot in the meantime.
+   */
+  requires?: Capability;
   handler: (opts: Record<string, unknown>, ...args: unknown[]) => void | Promise<void>;
 }
 

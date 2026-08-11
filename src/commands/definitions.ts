@@ -114,6 +114,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'status',
+      requires: 'review-lifecycle',
       description: "Show an app's review status",
       examples: [
         'brevo app status',
@@ -170,6 +171,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'deploy',
+      requires: 'account-install',
       description: 'Make an app available in a Brevo account',
       arguments: [
         {
@@ -202,6 +204,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'rollback',
+      requires: 'account-install',
       description: 'Roll back an app from a Brevo account',
       arguments: [
         {
@@ -254,6 +257,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'withdraw',
+      requires: 'review-lifecycle',
       description: 'Withdraw an app from submission',
       examples: [
         'brevo app withdraw --app-id 42',
@@ -328,6 +332,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'submit',
+      requires: 'review-lifecycle',
       description: 'Submit a public app for review',
       examples: [
         'brevo app submit',

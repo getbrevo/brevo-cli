@@ -10,6 +10,7 @@ import { jsonOutput } from '../../lib/json-output';
 import { logDebug, logInfo, logSuccess } from '../../lib/logger';
 import { createSpinner } from '../../lib/ui';
 import { OAuthApp } from '../../types';
+import { assertCapability, resolveFromRecord, type Distribution } from '../../app-types';
 
 interface SubmitOptions {
   appId?: string;
@@ -201,11 +202,23 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
 
   const app = await fetchExistingApp(appId, options.json);
 
-  // Only public apps can be submitted for review. A missing distribution_type
-  // (older server) fails closed — the remedy is the same either way.
-  if (app.distribution_type !== 'public') {
-    throw new CliError(messages.APP_SUBMIT_NOT_PUBLIC(appId));
-  }
+  // Only public apps can be submitted for review — expressed as a capability so the rule
+  // lives in one table (`src/app-types/capabilities.ts`) instead of being restated by each
+  // command that needs it.
+  //
+  // The MESSAGE stays this command's own, deliberately: scripts may match on it and
+  // `CLAUDE.md` counts a changed error string or exit code as user-visible, so the matrix
+  // single-sources the decision while the wording is unchanged.
+  //
+  // A missing distribution_type (older server) reads as `private` and so still fails closed,
+  // exactly as the direct `!== 'public'` comparison did.
+  const distribution: Distribution = app.distribution_type === 'public' ? 'public' : 'private';
+  assertCapability(
+    resolveFromRecord(app).id,
+    distribution,
+    'review-lifecycle',
+    messages.APP_SUBMIT_NOT_PUBLIC(appId),
+  );
 
   // The local config is only a sync source when it describes the app being
   // submitted; a different --app-id makes it irrelevant, not an error (submit
