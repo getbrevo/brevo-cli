@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { splitScopes } from './validators';
 import { OAuthApp, UiApp } from '../types';
+import { isUiAppConfigShape, isUiAppRecordShape } from '../app-types/ui/detect';
 
 // ──────────────── Directory ────────────────
 
@@ -565,39 +566,24 @@ export function hasLocalApp(): boolean {
 /**
  * Whether a project config describes a UI app rather than an OAuth app.
  *
- * The presence of the `ui_app` block is the discriminator — there is no separate
- * `appType` key. Every branch that needs to distinguish the two app types goes
- * through this helper so the discriminator can change in one place if the
- * backend later requires an explicit type field.
+ * Thin re-export: the predicate itself lives in `src/app-types/ui/detect.ts`, beside the app
+ * type it describes, so the registry and every command agree by construction. Kept exported
+ * here because a good number of call sites (and their test mocks) already import it from this
+ * module. See that file for why the logic must not live behind this one.
  */
 export function isUiAppConfig(config: Pick<ProjectConfig, 'ui_app'> | null | undefined): boolean {
-  return !!config?.ui_app;
+  return isUiAppConfigShape(config);
 }
 
 /**
  * Whether a *server* app record describes a UI app. The record counterpart to
- * {@link isUiAppConfig}, kept beside it so both discriminators are found together.
- *
- * The echoed `ui_app` block is the reliable signal, but it is not always there:
- * `GET /v3/app-store/apps` (the list) returns no `ui_app` key at all today, and
- * even the single-app read only carries it on server builds that echo it back.
- * So this falls back to the absence of *every* piece of OAuth material — a UI app
- * sends no `auth` block, so the server has no client_id and no callbacks to
- * return, and answers `client_id: ""` with `redirect_uris: null`.
- *
- * Deliberately requires both to be empty. A record with a client_id but no
- * callbacks is a half-configured OAuth app, not a UI app, and must keep
- * rendering as one.
- *
- * The fallback can go once the list echoes `ui_app` (RELEASE-CHECKLIST.md →
- * Before UI-apps GA).
+ * {@link isUiAppConfig}, and the same thin re-export — see `app-types/ui/detect.ts` for the
+ * fallback it applies and why it requires both an empty client_id and no callbacks.
  */
 export function isUiAppRecord(
   app: Pick<OAuthApp, 'ui_app' | 'client_id' | 'redirect_uris'> | null | undefined,
 ): boolean {
-  if (!app) return false;
-  if (app.ui_app) return true;
-  return !app.client_id && !app.redirect_uris?.length;
+  return isUiAppRecordShape(app);
 }
 
 export function writeProjectConfig(config: ProjectConfig): void {

@@ -980,6 +980,38 @@ describe('app/upload', () => {
       expect(written.version).toBe(BASE_UPLOAD_RESPONSE.version);
     });
 
+    // The nested counterpart of the two tests above, and the reason the diff and the
+    // write-back share one traversal instead of filtering the same key list twice:
+    // `extension_point_name` is stamped INSIDE each surface_point_list entry, so a
+    // top-level-only strip drops it from the comparison (covered above) while still
+    // writing it into app-config.json — where the next upload rejects it as an unknown
+    // key. Both sides now go through `stripInjectedKeys`, so they cannot diverge.
+    it('strips a server-stamped extension_point_name from the write-back', async () => {
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Invoice Manager',
+        auth: { distribution_type: 'private' as const, scopes: ['contacts:read'] },
+        ui_app: {
+          ...UI_APP,
+          surface_point_list: [
+            {
+              surface_point_name: 'contact-details-header-menu',
+              context: ['recordId'],
+              extension_point_name: 'contactDetails.headerMenu.action',
+            },
+          ],
+          link_target: '_blank' as const,
+          version: '1.0.1',
+        },
+      });
+
+      await uploadCommand({ yes: true });
+
+      const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+      expect(written.ui_app.surface_point_list[0]).not.toHaveProperty('extension_point_name');
+      expect(written.ui_app).toEqual(UI_APP);
+    });
+
     it('keeps the locally sent ui_app block when the server does not echo one', async () => {
       await uploadCommand({ yes: true });
 

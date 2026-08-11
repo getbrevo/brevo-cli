@@ -15,9 +15,11 @@ import {
   isUiAppConfig,
   ProjectConfig,
 } from '../../lib/config';
-import { validateScopes, containsLegacyAllScope, validateUiApp } from '../../lib/validators';
+import { validateScopes, containsLegacyAllScope } from '../../lib/validators';
 import { DEFAULT_LINK_TARGET, EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
 import { OAuthApp, UiApp, UploadAppResponse } from '../../types';
+import { appTypeById, resolveFromConfig } from '../../app-types';
+import { formatPlacementLines } from '../../app-types/ui/fields';
 
 interface UploadOptions {
   yes?: boolean;
@@ -162,14 +164,25 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
 //     value into app-config.json that the very next upload rejects as an unknown key.
 //
 // Unlike the two above, this one lives INSIDE each `surface_point_list` entry rather than at
-// the top of the block, which is why both helpers below strip at every level.
-const UPLOAD_INJECTED_UI_APP_KEYS: readonly string[] = [
-  'link_target',
-  'version',
-  'extension_point_name',
-] as const;
+// the top of the block, which is why the strip below recurses to every level.
+//
+// The list itself now belongs to the app type (`src/app-types/ui/index.ts` →
+// `wireOnlyKeys`), so a type that gains a server-stamped field declares it beside itself
+// instead of in this command. Read here through the registry rather than imported from the ui
+// module directly, so this command stays type-agnostic.
+const UPLOAD_INJECTED_UI_APP_KEYS: readonly string[] = appTypeById('ui').wireOnlyKeys;
 
-/** Strip the wire-only keys above from a value at every depth. */
+/**
+ * Strip the wire-only keys above from a value at every depth.
+ *
+ * This is the ONLY place that reads `UPLOAD_INJECTED_UI_APP_KEYS`. Both consumers — the
+ * write-back (`withoutInjectedKeys`) and the diff's equality check
+ * (`canonicalizeUiApp`) — go through it, so a key added to the list above cannot be
+ * honoured by one and forgotten by the other. That split is not hypothetical: the diff and
+ * the write-back each had their own traversal, and each had to be fixed separately when
+ * `link_target` started arriving on the server's echo and again when
+ * `extension_point_name` turned up one level down inside an entry.
+ */
 function stripInjectedKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripInjectedKeys);
   if (value && typeof value === 'object') {
@@ -177,6 +190,19 @@ function stripInjectedKeys(value: unknown): unknown {
       Object.entries(value as Record<string, unknown>)
         .filter(([key]) => !UPLOAD_INJECTED_UI_APP_KEYS.includes(key))
         .map(([k, v]) => [k, stripInjectedKeys(v)]),
+    );
+  }
+  return value;
+}
+
+/** Recursively sort object keys, so a serialized comparison is key-order-independent. */
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => [k, sortKeysDeep(v)]),
     );
   }
   return value;
@@ -200,22 +226,12 @@ function withoutInjectedKeys(uiApp: UiApp): UiApp {
 //   2. `surface_point_list` ORDER is not meaningful — the server returns registry order,
 //      which need not match the order the partner picked their pages in. Without sorting,
 //      an authored [deal, contact] against an echoed [contact, deal] is phantom drift.
-//   3. The injected/server-managed keys above exist on one side only.
+//   3. The injected/server-managed keys above exist on one side only — stripped by
+//      `stripInjectedKeys`, the single owner of that list, rather than by a filter
+//      duplicated here.
 function canonicalizeUiApp(uiApp: UiApp | undefined): string {
   if (!uiApp) return '';
-  const sortDeep = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(sortDeep);
-    if (value && typeof value === 'object') {
-      return Object.fromEntries(
-        Object.entries(value as Record<string, unknown>)
-          .filter(([key]) => !UPLOAD_INJECTED_UI_APP_KEYS.includes(key))
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([k, v]) => [k, sortDeep(v)]),
-      );
-    }
-    return value;
-  };
-  const normalized = sortDeep(uiApp) as Record<string, unknown>;
+  const normalized = sortKeysDeep(stripInjectedKeys(uiApp)) as Record<string, unknown>;
   const entries = normalized.surface_point_list;
   if (Array.isArray(entries)) {
     normalized.surface_point_list = [...entries].sort((a, b) =>
@@ -276,11 +292,8 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   // Each placement prints its own context, because the two are per-entry now: a
   // partner targeting a contact page and a deal page can be forwarded different
   // fields on each, and one shared row would hide that.
-  next.surface_point_list.forEach((entry, i) => {
-    const context = entry.context?.length ? `  (context: ${entry.context.join(', ')})` : '';
-    logInfo(
-      `    ${i === 0 ? 'Placement:      ' : '                '}${entry.surface_point_name}${context}`,
-    );
+  formatPlacementLines(next).forEach((line, i) => {
+    logInfo(`    ${i === 0 ? 'Placement:      ' : '                '}${line}`);
   });
   logInfo(`    Label:          ${next.label ?? ''}`);
   if (next.more_info) logInfo(`    More info:      ${next.more_info}`);
@@ -488,9 +501,11 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   // registry to answer (is this slot name registered, is this context field allowed on
   // it) is left to the upload endpoint, which reads the registry and 400s naming the
   // offenders. The CLI holds no copy of that registry to check against.
-  if (isUiApp) {
-    validateUiApp(config.ui_app);
-  }
+  //
+  // Dispatched through the app type rather than branched on here: `validateConfig` is a no-op
+  // for OAuth (whose checks are capability-driven, above) and runs `validateUiApp` for a UI
+  // app, so a third type brings its own pre-flight without this command changing.
+  resolveFromConfig(config).validateConfig(config);
 
   const scopes = config.auth?.scopes ?? [];
   validateScopes(scopes);

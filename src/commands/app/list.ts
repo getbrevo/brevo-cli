@@ -5,8 +5,10 @@ import { appService } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { createSpinner } from '../../lib/ui';
-import { getAppNames, deleteAppName, isUiAppRecord } from '../../lib/config';
+import { getAppNames, deleteAppName } from '../../lib/config';
 import { containsLegacyAllScope } from '../../lib/validators';
+import { resolveFromRecord } from '../../app-types';
+import { formatPlacementLines } from '../../app-types/ui/fields';
 
 export const listCommand = withCommandHandler(
   async (options: { json?: boolean }): Promise<void> => {
@@ -54,11 +56,12 @@ export const listCommand = withCommandHandler(
 
     for (const app of apps) {
       const name = app.name || '—';
-      const isUiApp = isUiAppRecord(app);
+      // The type resolves itself and carries its own label, so a third app type shows up
+      // here correctly without this loop learning about it.
+      const appType = resolveFromRecord(app);
+      const isUiApp = appType.id === 'ui';
       process.stdout.write(`  ${name}  (App ID: ${app.app_id})\n`);
-      process.stdout.write(
-        `    Type:          ${isUiApp ? messages.APP_TYPE_UI : messages.APP_TYPE_OAUTH}\n`,
-      );
+      process.stdout.write(`    Type:          ${appType.label}\n`);
       // A UI app has no OAuth material at all — no client_id, no callbacks, no
       // scopes. Printing those rows empty would read as a broken OAuth app
       // rather than a UI app, so they are skipped entirely (same reasoning as
@@ -101,11 +104,8 @@ function printUiApp(uiApp: UiApp): void {
   process.stdout.write(`    Extension:     ${uiApp.extension_type}\n`);
   // One row per placement, each with its own context: the two are per-entry, so
   // a shared row would hide that two record pages can forward different fields.
-  (uiApp.surface_point_list ?? []).forEach((entry, i) => {
-    const context = entry.context?.length ? `  (context: ${entry.context.join(', ')})` : '';
-    process.stdout.write(
-      `    ${i === 0 ? 'Placement:     ' : '               '}${entry.surface_point_name}${context}\n`,
-    );
+  formatPlacementLines(uiApp).forEach((line, i) => {
+    process.stdout.write(`    ${i === 0 ? 'Placement:     ' : '               '}${line}\n`);
   });
   if (uiApp.label) process.stdout.write(`    Label:         ${uiApp.label}\n`);
   if (uiApp.more_info) process.stdout.write(`    More info:     ${uiApp.more_info}\n`);
