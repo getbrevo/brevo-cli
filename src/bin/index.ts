@@ -7,7 +7,7 @@ import { installAuthGuard } from '../lib/auth-guard';
 import { installProactiveOauthRefresh } from '../lib/oauth-freshness';
 import { logError, logInfo, logWarn, logSuccess, logDebug } from '../lib/logger';
 import { EXIT_CODES } from '../lib/exit-codes';
-import { CliError, AbortError, AuthExpiredError, CliVersionUnsupportedError } from '../lib/errors';
+import { CliError, AbortError, AuthExpiredError } from '../lib/errors';
 import { messages } from '../lang/en';
 import { readHiddenInput } from '../lib/hidden-input';
 import { saveCredentials, clearCredentials, getAuthCred, updateOauthTokens } from '../lib/config';
@@ -20,14 +20,36 @@ import {
 import { refreshAccessToken, RefreshError } from '../services/oauth-refresh';
 import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
-import { client, versionGate } from '../container';
-import { jsonOutput } from '../lib/json-output';
+import { client } from '../container';
 import { registerAll } from '../lib/command-registry';
 import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
+import {
+  startUpdateCheck,
+  notifyUpdate,
+  enforceMinVersion,
+  shouldShowBannerBefore,
+} from '../lib/update-notifier';
 import { skillService } from '../services/skill';
+import { fetchCliInfo } from '../services/cli-info';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
 const version: string = pkg.version;
+
+// Version update check — async, non-blocking. Cached at ~/.brevo/update-check.json (24h TTL).
+// Skipped in CI, non-TTY, or when --no-update-notifier / BREVO_NO_UPDATE_NOTIFIER=1 is set.
+// The notice line on that banner comes from GET /v3/app-store/cli/info, fetched
+// only when a banner is actually about to be shown — an up-to-date CLI makes no
+// request. It supplies wording only: if it fails, the banner still appears with
+// local text.
+const updateCheck = startUpdateCheck({
+  pkg,
+  argv: process.argv,
+  fetchNotice: (query) => fetchCliInfo(query),
+});
+// For long interactive flows (`app init`, `app create`), surface the banner
+// before the command runs so the user sees it up front instead of after a
+// multi-prompt sequence.
+const showBannerEarly = shouldShowBannerBefore(process.argv);
 
 if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
   logWarn(messages.TLS_VERIFICATION_DISABLED);
@@ -179,54 +201,32 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 // Emit deferred warning if BREVO_API_URL had a path stripped
 warnIfPathStripped();
 
-// ──────────────── CLI version gate (BEX-370) ────────────────
-//
-// The backend decides whether this CLI version is still supported: it knows the
-// caller's version from the User-Agent on every request and returns a verdict in
-// the response headers. The CLI compares nothing and never contacts npm.
-//
-// `--help` / `--version` stay exempt so a blocked CLI can still identify itself.
+// Force-update gate — if the installed CLI is a full major version behind the
+// latest npm release, block the command (non-zero exit) so the user upgrades.
+// Skipped for --help/--version (so help stays reachable) and whenever the
+// update check itself is skipped (CI / non-TTY / opt-out). Fails open.
 const args = process.argv.slice(2);
 const isHelpOrVersion =
   args.includes('--help') ||
   args.includes('-h') ||
   args.includes('--version') ||
   args.includes('-V');
-const wantsJson = args.includes('--json');
 
-// A box is useless to a script, so a blocked --json run emits the documented
-// error envelope instead. Either way the exit code is 1.
-async function writeVersionNotice(): Promise<void> {
-  if (wantsJson) {
-    jsonOutput(versionGate.jsonEnvelope());
-    return;
-  }
-  const box = await versionGate.render();
-  if (box) process.stderr.write(box + '\n');
-}
+const forceGate = isHelpOrVersion
+  ? Promise.resolve()
+  : enforceMinVersion(updateCheck, { name: pkg.name, version }).then((mustUpdate) => {
+      if (mustUpdate) process.exit(EXIT_CODES.ERROR);
+    });
 
-// Decided from the cached verdict alone: no network, so an already-known
-// unsupported CLI stops offline and instantly.
-async function runStartupVersionGate(): Promise<void> {
-  if (isHelpOrVersion) return;
-  if (!versionGate.shouldBlock()) return;
-  await writeVersionNotice();
-  process.exit(EXIT_CODES.ERROR);
-}
-
-// After the command has run. The verdict is already known from the headers; the
-// fetch here only enriches the wording, and only when the cached copy is stale.
-async function renderVersionNotice(): Promise<void> {
-  if (isHelpOrVersion) return;
-  if (!versionGate.shouldNotify()) return;
-  const box = await versionGate.render();
-  if (box) process.stderr.write(box + '\n');
-}
-
-runStartupVersionGate()
+forceGate
+  .then(() =>
+    showBannerEarly ? notifyUpdate(updateCheck, { name: pkg.name, version }) : undefined,
+  )
   .then(() => program.parseAsync(process.argv))
   .then(async () => {
-    await renderVersionNotice();
+    if (!showBannerEarly) {
+      await notifyUpdate(updateCheck, { name: pkg.name, version });
+    }
     // Local skill catalog check — sync, no network. Silently refreshes any
     // installed skill that's behind the bundled catalog so the AI tool always
     // sees the latest primer. Opt out with BREVO_NO_SKILL_AUTOREFRESH=1.
@@ -235,14 +235,7 @@ runStartupVersionGate()
     // prevent the process from exiting when running against local servers.
     process.exit(0);
   })
-  .catch(async (err) => {
-    // A block discovered mid-run, thrown from inside ApiClient.request before
-    // the command wrote anything. Checked ahead of CliError because it is one,
-    // and needs the notice/envelope rather than a bare error line.
-    if (err instanceof CliVersionUnsupportedError) {
-      await writeVersionNotice();
-      process.exit(err.exitCode);
-    }
+  .catch((err) => {
     if (err instanceof AbortError) {
       logInfo(`\n  ${messages.ABORTED}`);
       process.exit(EXIT_CODES.ABORTED);

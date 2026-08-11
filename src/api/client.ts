@@ -1,8 +1,6 @@
 import { ApiError, ErrorCode } from '../lib/errors';
 import { logHttp, logHttpResponse, logDebug } from '../lib/logger';
 import { buildCliHeaders } from '../lib/telemetry';
-import { parseVersionSignal } from '../lib/version-signal';
-import { VersionSignal } from '../types';
 import { messages } from '../lang/en';
 
 interface RequestOptions {
@@ -19,15 +17,6 @@ type AuthFailureHandler = () => Promise<void>;
 export interface ApiClientDeps {
   baseUrl: string;
   getAuthHeader: () => Record<string, string> | undefined;
-  /**
-   * Called with the CLI version signal carried by every response.
-   *
-   * Optional so the client stays usable standalone, and intentionally allowed
-   * to throw: that is how a newly discovered block aborts the run from inside
-   * the request that discovered it. Notice and render concerns stay out of
-   * this file — same separation as `setOnAuthFailure`.
-   */
-  onVersionSignal?: (signal: VersionSignal) => void;
 }
 
 const MAX_RETRIES = 3;
@@ -78,7 +67,7 @@ export function sanitizeErrorMessage(msg: string): string {
 // Detect HTML bodies returned by auth gateways (Cloudflare Access, SSO proxies).
 // Matches case-insensitively and runs regardless of response status, since
 // gateways frequently return HTML on 401/403 as well as 2xx.
-// Exported so the version notice can apply the same guard to `/cli/info`.
+// Exported so the update notice can apply the same guard to /cli/info.
 export function looksLikeHtml(s: string): boolean {
   const lower = s.toLowerCase();
   return lower.includes('<!doctype html') || lower.includes('<html');
@@ -219,12 +208,6 @@ export class ApiClient {
     logHttp(opts.method, opts.path);
     const response = await this.performFetch(url, opts, headers);
     logHttpResponse(response.status, opts.path);
-
-    // Read the signal off every response, including non-2xx: an expired
-    // credentials 401 still refreshes what the CLI knows. Runs before the 401
-    // and 429 branches so an unsupported version aborts rather than looping
-    // through a re-auth prompt or a retry sleep.
-    this.deps.onVersionSignal?.(parseVersionSignal(response.headers));
 
     if (response.status === 401 && !isRetry && !opts.skipAuth) {
       if (this.onAuthFailure) {

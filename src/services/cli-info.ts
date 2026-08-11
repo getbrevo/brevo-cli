@@ -1,10 +1,44 @@
-import { API_BASE, ENDPOINTS } from '../lib/constants';
-import { isKnownNoticeCode, sanitizeNoticeMessage } from '../lib/version-notice';
+import { API_BASE, ENDPOINTS, CLI_NOTICE_CODES } from '../lib/constants';
+import { sanitizeErrorMessage, looksLikeHtml } from '../api/client';
 import { CliInfoQuery, CliInfoResponse, VersionNotice } from '../types';
 
-// Budget for the whole call. The notice is cosmetic, so the user waits at most
-// this long for nicer wording before the local text is used instead.
+// Budget for the whole call. The notice is cosmetic and the banner is already
+// going to be shown, so the user waits at most this long for nicer wording
+// before the local text is used instead.
 const CLI_INFO_TIMEOUT_MS = 1500;
+
+// `message` is server-supplied text headed for a terminal. Clamping bounds how
+// much screen a hostile or broken backend can take, on top of the control-char
+// stripping below.
+export const MAX_NOTICE_MESSAGE_LEN = 200;
+
+const KNOWN_NOTICE_CODES = new Set<string>(Object.values(CLI_NOTICE_CODES));
+
+export function isKnownNoticeCode(code: unknown): code is string {
+  return typeof code === 'string' && KNOWN_NOTICE_CODES.has(code);
+}
+
+/**
+ * Make server-supplied notice text safe to print.
+ *
+ * Three separate concerns, in order: reject anything that looks like a gateway
+ * HTML page (an SSO proxy in front of `/cli/info` must never be rendered as a
+ * notice), strip ANSI/control sequences that could reposition the cursor or
+ * fake a prompt, then flatten to a single clamped line so a payload cannot
+ * break out of the notice or scroll the screen.
+ *
+ * Returns `undefined` when nothing usable survives, which callers treat as
+ * "fall back to local wording".
+ */
+export function sanitizeNoticeMessage(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  if (looksLikeHtml(raw)) return undefined;
+  const oneLine = sanitizeErrorMessage(raw).replace(/\s+/g, ' ').trim();
+  if (!oneLine) return undefined;
+  return oneLine.length > MAX_NOTICE_MESSAGE_LEN
+    ? oneLine.slice(0, MAX_NOTICE_MESSAGE_LEN)
+    : oneLine;
+}
 
 export interface FetchCliInfoOptions {
   baseUrl?: string;
@@ -14,17 +48,14 @@ export interface FetchCliInfoOptions {
 
 function buildUrl(baseUrl: string, query: CliInfoQuery): string {
   const params = new URLSearchParams({
+    cli_version: query.cliVersion,
     reason: query.reason,
-    current_version: query.currentVersion,
-    os: query.os,
   });
-  if (query.latestVersion) params.set('latest_version', query.latestVersion);
-  if (query.status) params.set('status', query.status);
   return `${baseUrl}${ENDPOINTS.CLI_INFO}?${params.toString()}`;
 }
 
 /**
- * Fetch the display copy for a version notice.
+ * Fetch the display copy for the update notice.
  *
  * Deliberately a standalone `fetch` rather than `client.get()`. `/cli/info` is
  * unauthenticated, and routing it through `ApiClient` would attach the auth
@@ -34,8 +65,8 @@ function buildUrl(baseUrl: string, query: CliInfoQuery): string {
  *
  * Fails soft in every direction: timeout, non-2xx, HTML from a gateway,
  * malformed JSON, or an unrecognised `code` all return `undefined`, and the
- * caller falls back to local wording. It cannot influence severity, so the
- * worst case is a less specific message.
+ * caller falls back to local wording. The banner itself is decided from the npm
+ * check, so this can never create or suppress a notice — only reword one.
  */
 export async function fetchCliInfo(
   query: CliInfoQuery,

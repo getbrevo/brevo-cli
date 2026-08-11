@@ -9,16 +9,14 @@ export const messages = {
   // Homebrew formula is `brevo` (tap getbrevo/tap), not the npm package name.
   UPDATE_RUN_BREW: 'Or:  brew upgrade brevo',
 
+  // Force update (major-version behind — blocks the command)
+  FORCE_UPDATE_REQUIRED: (current: string, latest: string): string =>
+    `Update required: v${current} is no longer supported (latest v${latest}).`,
   FORCE_UPDATE_HINT: 'Update to continue using the Brevo CLI:',
 
-  // Backend-declared version status. The API decides whether a version is still
-  // supported; these are the local fallbacks, used whenever /cli/info is
-  // unreachable or returns something unusable, so a notice still stands on its
-  // own offline.
-  CLI_VERSION_UNSUPPORTED: (current: string): string =>
-    `Update required: v${current} is no longer supported.`,
+  // Shown above the update box. Replaced by the API's wording when /cli/info
+  // answers with a recognised code; must stand on its own when it does not.
   CLI_VERSION_NOTICE_FALLBACK: 'A newer version of the Brevo CLI is available.',
-  CLI_VERSION_UPGRADE_COMMAND: (name: string): string => `npm install -g ${name}@latest`,
 
   // Auth
   AUTH_WELCOME: 'Welcome to Brevo CLI',

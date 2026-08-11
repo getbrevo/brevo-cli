@@ -5,7 +5,7 @@ const isTTY = (): boolean => process.stdout.isTTY === true;
 const useColor = (): boolean =>
   process.env.NO_COLOR === undefined && (process.env.FORCE_COLOR !== undefined || isTTY());
 
-// Exported so other renderers (e.g. the version notice) colour text through the
+// Exported so other renderers (e.g. the update banner) colour text through the
 // same NO_COLOR / FORCE_COLOR / TTY rules rather than emitting raw escapes.
 export function color(code: string, text: string): string {
   return useColor() ? `\x1b[${code}m${text}\x1b[0m` : text;

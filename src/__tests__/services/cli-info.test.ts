@@ -2,11 +2,8 @@ import { fetchCliInfo } from '../../services/cli-info';
 import { CliInfoQuery } from '../../types';
 
 const QUERY: CliInfoQuery = {
+  cliVersion: '2.0.1',
   reason: 'version_mismatch',
-  currentVersion: '2.0.1',
-  latestVersion: '2.4.0',
-  status: 'outdated',
-  os: 'macos',
 };
 
 const BASE = 'https://api.example.com';
@@ -39,11 +36,8 @@ describe('fetchCliInfo', () => {
     const url = new URL(fetchImpl.mock.calls[0]![0]);
     expect(url.pathname).toBe('/v3/app-store/cli/info');
     expect(Object.fromEntries(url.searchParams)).toEqual({
+      cli_version: '2.0.1',
       reason: 'version_mismatch',
-      current_version: '2.0.1',
-      latest_version: '2.4.0',
-      status: 'outdated',
-      os: 'macos',
     });
   });
 
@@ -61,15 +55,15 @@ describe('fetchCliInfo', () => {
     expect(headers).not.toHaveProperty('Authorization');
   });
 
-  it('omits optional params the CLI does not know yet', async () => {
+  it('sends exactly the two documented params and nothing else', async () => {
     const fetchImpl = jest.fn(async (_url: string, _init?: RequestInit) => jsonResponse({}));
     await fetchCliInfo(
-      { reason: 'startup', currentVersion: '2.0.1', os: 'linux' },
+      { cliVersion: '2.0.1', reason: 'startup' },
       { baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     const url = new URL(fetchImpl.mock.calls[0]![0]);
-    expect(url.searchParams.has('status')).toBe(false);
-    expect(url.searchParams.has('latest_version')).toBe(false);
+    expect([...url.searchParams.keys()].sort()).toEqual(['cli_version', 'reason']);
+    expect(url.searchParams.get('cli_version')).toBe('2.0.1');
   });
 
   describe('fails soft', () => {

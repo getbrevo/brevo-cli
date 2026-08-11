@@ -1,15 +1,11 @@
 ---
-'@getbrevo/cli': minor
+'@getbrevo/cli': patch
 ---
 
-Take update notices from the Brevo API instead of the npm registry.
+Take the update banner's message from the Brevo API so it can be improved for users already running an old version.
 
-The CLI no longer calls `registry.npmjs.org` on any code path. Every API response now carries the API's verdict on the calling version (`X-Brevo-Cli-Status`: `ok`, `outdated` or `unsupported`) plus the latest published version, read off requests the CLI already makes — so an up-to-date CLI does no extra work at all.
+Whether a banner appears is unchanged: the CLI still checks the npm registry, compares against its own version, and applies the same soft-notice and force-update rules. What changed is the first line of that banner, which now comes from `GET /v3/app-store/cli/info` and is rendered in red above the box.
 
-`outdated` shows an update notice and the command still runs. `unsupported` shows the notice and exits 1 without running. The verdict is cached at `~/.brevo/cli-notice.json` for 24h so it applies offline, and a cache written by a different CLI version is discarded so an upgrade is never blocked by the previous version's verdict.
+The call happens only when a banner is actually going to be shown, so an up-to-date CLI makes no extra request. The result is cached alongside the npm answer, so an outdated CLI asks at most once per TTL. It supplies wording only — if the endpoint is slow, down, returns HTML from a gateway, or sends an unrecognised code, the banner still appears with the CLI's own text.
 
-Because the API owns the decision, support policy can change without a CLI release — replacing the old rule, which blocked whenever npm had a newer *major* even if the installed version still worked.
-
-The display text comes from a new unauthenticated `GET /v3/app-store/cli/info`, fetched only when a notice is shown and the cached copy is stale. It supplies wording only: if it is slow, down, or returns something unexpected, the CLI falls back to its own text and the verdict is unchanged.
-
-Notice opt-outs (`BREVO_NO_UPDATE_NOTIFIER`, `--no-update-notifier`, CI, non-TTY) suppress the notice but no longer suppress a block — an unsupported version in CI would otherwise fail later on real API errors with a worse message. `BREVO_CLI_SKIP_VERSION_GATE=1` is an emergency bypass.
+The endpoint is fetched outside the authenticated API client, so a 401 from it can never reach the re-auth handler or clear stored credentials. The returned message is validated against a known code, control-character stripped, flattened to one line and clamped before display.
