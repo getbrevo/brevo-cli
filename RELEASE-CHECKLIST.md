@@ -1763,3 +1763,143 @@ is `isUiAppRecord()` in `src/lib/config.ts`, beside `isUiAppConfig()`: the echoe
       `owner_user_id: 0` while every OAuth app carries a real user ID. If the UI-app
       create path is not stamping the owner, that is a server-side bug — raise on
       BEX-290. The CLI does not read the field, so nothing here depends on it.
+
+### Refactor — split `create.ts`, single-source the upload key strip (2026-08-11)
+
+**Change:** structural only, no behaviour change intended and none expected. Two parts.
+
+1. **`src/commands/app/create.ts` split.** The UI-app half — the registry reads, the
+   placement prompts, `buildSurfacePointList`, the example-URL builder and the UI-app
+   summary box — moved verbatim into a new `src/commands/app/ui-app-authoring.ts`,
+   which exports exactly `resolveUiApp` and `renderCreatedUiApp`. `create.ts` drops
+   1112 → 541 lines and keeps the shared flow (name, distribution, app type,
+   directory, the POST and its 409 retry). Follows the seam
+   `account-deployment.ts` already established for `deploy` / `rollback`.
+
+   The moved region is **byte-identical** to what was removed apart from four edits:
+   two added `export` keywords, the leading comment retitled (its "4b." step number
+   no longer leads a file), and one blank line. Verified with a `diff` of the
+   extracted range against the deleted range.
+
+2. **`src/commands/app/upload.ts` — one owner for `UPLOAD_INJECTED_UI_APP_KEYS`.**
+   `canonicalizeUiApp` had its own deep traversal that re-implemented the same key
+   filter as `stripInjectedKeys`, so the diff and the write-back each had a private
+   copy of the rule. It now composes `sortKeysDeep(stripInjectedKeys(x))`, leaving
+   `stripInjectedKeys` as the only reader of the list. Same output: both traversals
+   already filtered the same keys at every depth, and the `surface_point_list` sort
+   still runs last on the stripped, key-sorted object.
+
+   This is the structural cause of two fixes already on this branch — `link_target`
+   leaking into the diff (`29c9ef4`) and `extension_point_name` needing the strip
+   taught to recurse (`5b41e31`). Both had to be fixed twice, once per traversal.
+
+**Must hold true:**
+
+- [x] `yarn test` green across the suite (47 suites / 1028 tests) — 1027 before the
+      refactor, plus one new test.
+- [x] `yarn lint && npx tsc --noEmit && yarn build` green.
+- [x] New test: `strips a server-stamped extension_point_name from the write-back`
+      (`src/__tests__/commands/app/upload.test.ts`). Closes the last gap in the
+      matrix — `link_target` and `version` were each covered on both the diff and
+      write-back sides, but the nested `extension_point_name` was covered on the
+      diff side only, which is exactly the case a top-level-only strip gets wrong.
+- [x] No test file needed changing for the split. `create.test.ts` imports only
+      `createCommand` and mocks `inquirer` / `../../../container` / `../../../lib/config`
+      / `./scaffold` / `node:fs`, all of which the new module resolves through the
+      same paths.
+- [x] `node dist/bin/index.js app create --help` and `app upload --help` render.
+- [ ] **Manual:** walk the full interactive UI-app create against staging
+      (integration type → pages → per-page placement → label → more info → redirect
+      link) and confirm the prompts, the warning path for a page with no placements,
+      and the created-app box with its example URL are unchanged. The split is
+      mechanical, but this flow is prompt-driven and only partly covered by unit
+      tests.
+- [ ] **Manual:** `brevo app upload` twice in a row on a UI app — the second run must
+      still print "already up to date", which is the end-to-end assertion that the
+      diff and write-back agree on the injected keys.
+- [ ] Reviewer: no changeset added, deliberately — pure refactor with no user-visible
+      behaviour change, per `.changeset/README.md` ("refactors with no user-visible
+      effect"). Agent docs untouched for the same reason.
+
+### Architecture — app-type registry, capability matrix, command metadata (2026-08-11)
+
+**Change:** the three-part refactor that follows the `create.ts` split above. Structural; no
+user-visible behaviour change intended and none observed.
+
+1. **`src/app-types/` — one module per app type.** A type now describes itself (`label`,
+   `availability`, `detectConfig`, `detectRecord`, `validateConfig`, `wireOnlyKeys`) and the
+   commands ask it questions, instead of six `isUiAppConfig(config)` branches across
+   `upload.ts`, `scaffold.ts`, `list.ts`, `create.ts` and `credentials.ts`. Layout:
+
+   ```
+   src/app-types/
+     contract.ts        AppTypeModule + ValidatableConfig
+     capabilities.ts    the matrix (part 2)
+     index.ts           static registry: resolveFromConfig / resolveFromRecord
+     oauth/index.ts
+     ui/index.ts        descriptor + wireOnlyKeys
+     ui/detect.ts       the discriminators — a LEAF module, see below
+     ui/fields.ts       placement value formatting, shared by all three renderers
+     ui/authoring.ts    moved from src/commands/app/ui-app-authoring.ts
+   ```
+
+   Migrated call sites: `upload.ts` (wire-only keys + `validateConfig` dispatch),
+   `list.ts` (type label + placement lines), `create.ts` (authoring import path).
+   `lib/config.ts`'s `isUiAppConfig` / `isUiAppRecord` are now thin re-exports of
+   `ui/detect.ts`, so every caller and the registry agree by construction.
+
+   **`ui/detect.ts` has no runtime imports, and must keep it that way.** The first attempt put
+   the predicates behind `lib/config`, which the command test suites mock partially — every
+   mock silently made detection `undefined` and the whole `app submit` suite failed on
+   `isUiAppRecord is not a function`. Detection must not sit behind a commonly mocked module.
+
+   Deliberately NOT moved: request-payload building (the wire shape is confirmed against the
+   platform and asserted by many tests — a separate, riskier increment) and rendering labels
+   (they genuinely differ per command; only value formatting is shared).
+
+2. **`src/app-types/capabilities.ts` — the feature matrix.** `(app type × distribution) →
+   capabilities`. Two orthogonal axes on purpose: `review-lifecycle` follows distribution,
+   `account-install` follows app type. Before this the rule existed only as prose in
+   `bin/index.ts`'s help block and the agent docs, enforced by one hand-rolled check.
+
+3. **`requires` on `CommandDefinition`, and `submit`'s gate routed through the matrix.**
+   `deploy`/`rollback` declare `account-install`; `submit`/`status`/`withdraw` declare
+   `review-lifecycle`.
+
+   **The registry does NOT enforce `requires`, deliberately.** A generic interceptor would
+   replace each command's tested message and exit code with one string, which `CLAUDE.md`
+   counts as a user-visible break. Enforcement stays in the commands via `assertCapability`,
+   which takes the caller's own message — so `submit.ts` still throws
+   `APP_SUBMIT_NOT_PUBLIC` with its existing exit code. The field is the executable copy of
+   the rule, for generating the help groupings and doc notices that are hand-maintained today.
+
+**Must hold true:**
+
+- [x] `yarn test` green (49 suites / 1044 tests). Baseline before this work: 47 / 1028.
+- [x] `yarn lint && yarn format:check && npx tsc --noEmit && yarn build` green.
+- [x] `submit`'s gate answers identically for all four combinations. Covered by the existing
+      `rejects a private app as ineligible for review` and `treats a missing
+      distribution_type as not public` tests (both still pass unchanged), plus a new matrix
+      invariant asserting `review-lifecycle` is granted for exactly the public combinations —
+      the equivalence that makes the routing behaviour-preserving.
+- [x] No import cycle. Verified at runtime against `dist/`: labels resolve, both
+      discriminators answer, and `lib/config`'s delegation returns the same values.
+- [x] New suites: `src/__tests__/app-types/capabilities.test.ts` (matrix invariants, registry
+      resolution, wire-only keys, availability) and
+      `src/__tests__/commands/command-capabilities.test.ts` (metadata names real capabilities,
+      declares no unsatisfiable gate, and does not creep into enforcement).
+- [ ] **Manual:** `brevo app list` against an account with both app types — the `Type:` row now
+      comes from the type descriptor rather than an inline ternary. Output should be
+      byte-identical; confirm against the pre-refactor output.
+- [ ] **Manual:** `brevo app submit` on a private app and on a public app — the error text and
+      exit code must be exactly what they were before the matrix.
+- [ ] **Manual:** `brevo app upload` twice on a UI app — second run still prints "already up to
+      date" (the wire-only key list now comes from the ui module).
+- [ ] Reviewer: `requires` is metadata with no runtime effect. That is intentional (see above)
+      but it does mean the field can be set wrongly without any command failing —
+      `command-capabilities.test.ts` is what guards it. Say so if you'd rather it enforce.
+- [ ] Reviewer: `availability: 'preview'` on the ui type is also metadata only, matching
+      `CLAUDE.md`'s "no runtime guard, by design". Nothing reads it yet; it exists so the
+      five hand-maintained "not available yet" notices can be generated at GA.
+- [ ] No changeset — pure refactor, no user-visible change. Agent docs untouched for the
+      same reason.
