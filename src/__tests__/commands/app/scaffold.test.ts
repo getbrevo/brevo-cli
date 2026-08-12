@@ -401,16 +401,21 @@ describe('app/scaffold', () => {
       });
     });
 
-    // A UI app's configuration IS its `ui_app` block, and the read endpoint sources
-    // that block from the latest upload snapshot. An app created but never uploaded
-    // therefore comes back without one, and there is nothing to recover.
+    // A UI app's configuration IS its `ui_app` block, so a record that comes back
+    // without one has nothing to bootstrap from.
     //
     // This must refuse rather than write a partial config: `ui_app`'s presence is the
     // app-type discriminator, so a config missing it does not read as an incomplete
     // UI app — it reads as a valid OAuth one, and the next `app upload` would push an
     // `auth` block where `ui_app` belonged.
+    //
+    // Note this is an EDGE case, not the post-create norm: bo-be's create handler
+    // writes an `app_versions` row carrying the block inside the create transaction,
+    // and the read endpoint serves it from that snapshot, so a UI app created through
+    // this CLI is recoverable with no upload. The fixture below models the case that
+    // remains — a record the server returns with no block at all.
     describe('unrecoverable UI app', () => {
-      const neverUploadedUiApp = {
+      const uiAppWithoutBlock = {
         app_id: '7',
         name: 'Never Uploaded',
         client_id: '',
@@ -425,11 +430,11 @@ describe('app/scaffold', () => {
         (readProjectConfig as jest.Mock).mockReturnValue(null);
         (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
           diffs: [],
-          app: neverUploadedUiApp,
+          app: uiAppWithoutBlock,
         });
 
         await expect(scaffoldCommand({ appId: '7', json: true })).rejects.toThrow(
-          /never been uploaded|no configuration/i,
+          /no `ui_app` configuration|nothing to set this directory up from/i,
         );
 
         expect(fs.writeFileSync).not.toHaveBeenCalled();
@@ -441,7 +446,7 @@ describe('app/scaffold', () => {
         (readProjectConfig as jest.Mock).mockReturnValue(null);
         (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
           diffs: [],
-          app: { ...neverUploadedUiApp, client_id: 'cli-789' },
+          app: { ...uiAppWithoutBlock, client_id: 'cli-789' },
         });
 
         await scaffoldCommand({ appId: '7', json: true });

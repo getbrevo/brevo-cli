@@ -135,12 +135,18 @@ files only exist on developer machines.
 are no features to scaffold, preserving a hand-edited `ui_app` block through a confirmed
 refresh and no longer reporting phantom redirect-URL drift for an app type that has none.
 
-**Bootstrap refuses a UI app that was never uploaded.** The platform sources a UI app's
-`ui_app` block from its latest upload snapshot, so a never-uploaded UI app has no block to
-return, and a config written without one reads as a valid *OAuth* app (the block's presence is
-the app-type discriminator). A half-configured OAuth app — client ID issued, no callbacks yet —
-is unaffected and still bootstraps. (This is the third refusal in `app scaffold`'s bootstrap
-mode; the other two ship today and are already in the `2.1.0` notes.)
+**Bootstrap refuses a UI app the platform returns no `ui_app` block for.** A config written
+without the block reads as a valid *OAuth* app (the block's presence is the app-type
+discriminator), so the command refuses rather than writing one. A half-configured OAuth app —
+client ID issued, no callbacks yet — is unaffected and still bootstraps. (This is the third
+refusal in `app scaffold`'s bootstrap mode; the other two ship today and are already in the
+`2.1.0` notes.)
+
+This is an **edge case, not the ordinary post-create state** — an earlier version of this note
+said the platform stores the block only from an upload snapshot, which is false. bo-be's CLI
+create handler writes an `app_versions` row carrying the block inside the create transaction,
+and `GET /cli/apps/{id}` serves it from that snapshot, so a UI app created through this CLI is
+recoverable immediately with no upload. See *Platform-side asks* for the code references.
 
 ## Public app distribution
 
@@ -277,9 +283,33 @@ When an item here resolves, delete it; when it becomes a release step, move it t
       the twelve seeded rows have twelve distinct slugs today. Fix with a unique constraint,
       or by making the authored identity carry the kind. Do one before a thirteenth row is
       seeded.
-- [ ] **Confirm whether `POST /v3/app-store/apps` writes an `app_versions` row**, and whether
-      it branches on the `ui_app` block at all. The CLI sends the block on create so the
-      record is created as the right type, but whether the endpoint reads it is unconfirmed.
+- [x] **RESOLVED (2026-08-12) — `POST /v3/app-store/apps` DOES write an `app_versions` row,
+      and it does read the `ui_app` block.** Confirmed by reading app-store-bo-be, not by
+      observation:
+
+      - `persistCreateResultTx` (`cmd/app-store-bo-be/http_cli_create_app.go`) inserts an
+        `app_versions` row **inside the create transaction**, at
+        `initialAppVersion = "0.0.1"`, with `Snapshot.UIApp = params.uiSnapshot` — so the
+        authored block is stored at create time, alongside `Name`, `LogoLink` and
+        `DistributionType`. The OAuth half of the snapshot is added only when `auth` was
+        provided, which is why a UI app stores cleanly with no OAuth block.
+      - `uiSnapshot` is populated from the create request body on the public-apps flow
+        (`http_cli_create_app_public.go`), and the handler gates on it explicitly
+        (`gateAndCheckUIApp`), so the endpoint does branch on the block rather than
+        ignoring it.
+      - `GET /cli/apps/{id}` serves it straight back off the latest snapshot:
+        `resp.UIApp = uiAppResponseFromSnapshot(snap.UIApp)` (`http_cli_get_app.go`).
+
+      **Consequence, already applied to the CLI.** The bootstrap refusal
+      (`recoverableFromRecord` for the UI type, surfaced as
+      `APP_SCAFFOLD_BOOTSTRAP_UNRECOVERABLE`) was written on the belief that the platform
+      stores `ui_app` *only* from an upload snapshot, so that a created-but-never-uploaded
+      UI app could not be recovered. That belief was wrong: such an app **is** recoverable
+      immediately, with no upload. The guard itself is still right — a record with no
+      block genuinely has nothing to bootstrap from, and writing a config without it would
+      read as a valid OAuth app — but it is an **edge case** (an app predating the handler,
+      or created outside this CLI), not the ordinary post-create state. The message and its
+      comment were corrected to stop asserting the false cause; the guard was kept.
 
 ## Wire contracts still assumed
 

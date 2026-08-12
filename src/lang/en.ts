@@ -252,13 +252,25 @@ const coreMessages = {
   // directory pushes the wrong app and says nothing.
   APP_SCAFFOLD_INSIDE_PROJECT: (projectDir: string) =>
     `This directory is inside the Brevo app project at ${projectDir}, so setting it up as a second project would nest one inside the other.\n\n  - cd ${projectDir} and run \`${CLI.APP_SCAFFOLD}\` there to work on that app, or\n  - cd to a directory outside it to set up a different app.`,
-  // A UI app's whole configuration is its `ui_app` block, and the platform stores that
-  // block only from an upload snapshot — so an app created but never uploaded has nothing
-  // to recover. Says so explicitly rather than writing a config without the block: that
-  // config would read as a valid OAuth app (the block's presence is the type
-  // discriminator), and the next upload would push `auth` where `ui_app` belonged.
+  // A UI app's whole configuration is its `ui_app` block, so a record that comes back
+  // without one has nothing to bootstrap from. Says so explicitly rather than writing a
+  // config without the block: that config would read as a valid OAuth app (the block's
+  // presence is the type discriminator), and the next upload would push `auth` where
+  // `ui_app` belonged.
+  //
+  // This is an EDGE CASE, not the ordinary post-create state. An earlier version of this
+  // message asserted the platform stores the block "only once you run `app upload`" —
+  // that is false, and was corrected after reading app-store-bo-be: the CLI create
+  // handler's `persistCreateResultTx` inserts an `app_versions` row at version `0.0.1`
+  // *inside the create transaction*, with `Snapshot.UIApp` set from the request's block
+  // (`http_cli_create_app.go`), and `GET /cli/apps/{id}` serves the block straight back
+  // off the latest snapshot (`http_cli_get_app.go`). So a UI app created through this
+  // CLI is recoverable immediately, with no upload. What reaches this message is a
+  // record whose snapshot genuinely carries no UI block — an app predating that handler,
+  // or one created through another path — which is why the copy no longer explains the
+  // absence by blaming a missing upload.
   APP_SCAFFOLD_BOOTSTRAP_UNRECOVERABLE: (appId: string) =>
-    `App ${appId} is a UI app that has never been uploaded, so the platform holds no configuration to set this directory up from.\n\n  A UI app's configuration lives in the \`ui_app\` block of app-config.json, which the platform only stores once you run \`${CLI.APP_UPLOAD}\`.\n\n  - If you still have this app's project folder, cd into it and run \`${CLI.APP_UPLOAD}\` from there, or\n  - run \`${CLI.APP_CREATE}\` and choose "UI app" to author the configuration again.`,
+    `App ${appId} is a UI app, but the platform returned no \`ui_app\` configuration for it, so there is nothing to set this directory up from.\n\n  A UI app's configuration lives in the \`ui_app\` block of app-config.json. Normally the platform holds a copy from the moment the app is created, so this usually means the app was created outside this CLI, or before the platform stored the block.\n\n  - If you still have this app's project folder, cd into it and run \`${CLI.APP_UPLOAD}\` from there, or\n  - run \`${CLI.APP_CREATE}\` and choose "UI app" to author the configuration again.`,
   APP_SCAFFOLD_DIFF_INTRO: (name: string) =>
     `App "${name}" is linked here, but its local config differs from the server:`,
   APP_SCAFFOLD_DIFF_LINE: (field: string, local: string, server: string) =>
