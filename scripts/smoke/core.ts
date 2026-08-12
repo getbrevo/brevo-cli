@@ -516,10 +516,31 @@ export function listedInHelp(helpText: string, command: string): boolean {
   return new RegExp(String.raw`brevo app ${command}\b`).test(helpText);
 }
 
-// Detection is help-text only, on purpose. `brevo app <unknown> --help` exits 0
-// (commander falls back to printing the root help), so probing a subcommand
-// can't tell present from absent — and running it for real isn't an option
-// since these commands mutate or prompt.
+/**
+ * Commands that are registered but appear on no help screen.
+ *
+ * `withdraw` carries `hidden: true` (see `src/commands/preview-definitions.ts`): fully
+ * callable, simply not advertised. Root-help detection reads that as *absent* and would
+ * skip the withdraw step on a build that has it — a silent loss of coverage, which is
+ * the one failure mode a smoke run must not have. These are probed directly instead.
+ */
+const UNLISTED_COMMANDS: ReadonlySet<string> = new Set(['withdraw']);
+
+/**
+ * Ask a subcommand for its own help and see whether it answers as itself.
+ *
+ * The exit code cannot tell present from absent — `brevo app <unknown> --help` exits 0,
+ * because commander falls back to printing the *group's* help. The usage line can: a
+ * registered subcommand prints `Usage: brevo app withdraw`, an unregistered one prints
+ * `Usage: brevo app [options] [command]`. `--help` is the only probe safe to run for
+ * real here; these commands otherwise mutate or prompt.
+ */
+function respondsToOwnHelp(state: State, command: string): boolean {
+  const r = exec(brevoCmd(state), ['app', command, '--help'], state);
+  return new RegExp(String.raw`Usage: brevo app ${command}\b`).test(r.stdout + r.stderr);
+}
+
+// Detection is help-text based, with one probe per unlisted command (see above).
 export function detectCapabilities(state: State): Record<string, boolean> {
   const help = exec(brevoCmd(state), ['--help'], state);
   const helpText = help.stdout + help.stderr;
@@ -540,7 +561,9 @@ export function detectCapabilities(state: State): Record<string, boolean> {
   }
 
   for (const name of GATED_COMMANDS) {
-    caps[name] = listedInHelp(helpText, name);
+    caps[name] = UNLISTED_COMMANDS.has(name)
+      ? respondsToOwnHelp(state, name)
+      : listedInHelp(helpText, name);
   }
   logToFile(state, `capabilities: ${JSON.stringify(caps)}`);
   state.caps = caps;

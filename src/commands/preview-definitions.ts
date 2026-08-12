@@ -116,6 +116,16 @@ export const previewAppCommands: CommandDefinition[] = [
   {
     name: 'withdraw',
     requires: 'review-lifecycle',
+    // Unlisted even in a preview build, unlike its four siblings here. The command works
+    // — QA suite 7 and the public-app smoke script both drive it, and `app upload`'s
+    // under-review refusal still points at it by name — it is simply not advertised on
+    // either help screen while the review lifecycle is being finished.
+    //
+    // This is the *second* renderer, not the only one: `lib/help.ts`'s hand-aligned root
+    // screen is a plain string that Commander's `hidden` cannot filter, so the matching
+    // `brevo app withdraw` lines were removed from its `review-lifecycle` section too.
+    // Un-hiding means editing both. See `RELEASE-CHECKLIST.md` → *Before public-apps GA*.
+    hidden: true,
     description: 'Withdraw an app from submission',
     examples: [
       'brevo app withdraw --app-id 42',

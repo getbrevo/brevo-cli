@@ -36,7 +36,7 @@ after upgrading the CLI).
 | **App version** | Server `version` is tracked in `app-config.json`, shown in `create`/`list`, and **backfilled** into legacy configs on `upload`. |
 | **create/scaffold split** | `create` writes only base files then offers to scaffold a feature; `scaffold` adds a feature into an already-created project and refreshes config against the server. |
 | **Config migration** | `distribution_type` moved to a top-level key; legacy `distribution` / `auth.type` shapes are read and migrated on write. |
-| **`--help`** | Root help is column-aligned; `status`/`withdraw` grouped under "App-review commands (public apps only)". |
+| **`--help`** | Root help is column-aligned; `status`/`submit` grouped under "App-review commands (public apps only)". `withdraw` is **unlisted on purpose** — it is registered and fully callable, just not advertised on either help screen. |
 
 ---
 
@@ -404,6 +404,10 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 
 ## Suite 7 — `brevo app withdraw`
 
+> **Unlisted, not unavailable.** `app withdraw` is marked `hidden` so it appears on
+> neither help screen (see TC-10.3). Every case below still runs exactly as written —
+> type the command and it works. Discovery is the only thing that changed.
+
 ### TC-7.1 — Withdraw a submitted app (force)
 **Priority:** High
 **Preconditions:** An app currently in `submitted`/`in_review`.
@@ -565,7 +569,12 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 ### TC-10.2 — Public-app command grouping
 **Priority:** Low
 **Steps:** `brevo --help`.
-**Expected:** `brevo app status` and `brevo app withdraw` appear under a heading like **"App-review commands (public apps only):"**. `status` is present (regression guard). `upload` is listed; `update` is not.
+**Expected:** `brevo app status` and `brevo app submit` appear under a heading like **"App-review commands (public apps only):"**. `status` is present (regression guard). `upload` is listed; `update` is not.
+
+### TC-10.3 — `withdraw` is hidden from help but still works
+**Priority:** Medium
+**Steps:** `brevo --help`, then `brevo app --help`, then `brevo app withdraw --help`.
+**Expected:** Neither the root screen nor `brevo app --help` mentions `withdraw` anywhere — it is marked `hidden`, not gated. `brevo app withdraw --help` still prints its own usage (`Usage: brevo app withdraw [options]`) with `--app-id`, `--force` and `--json`, exit `0`, and Suite 7 passes unchanged.
 
 ---
 

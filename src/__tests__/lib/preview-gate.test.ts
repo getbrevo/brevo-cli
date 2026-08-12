@@ -68,6 +68,17 @@ function render(cmd: Command): string {
 const GATED = ['deploy', 'rollback', 'submit', 'status', 'withdraw'];
 const GATED_HEADINGS = ['App-deployment commands', 'App-review commands'];
 
+/**
+ * The gated commands a preview build actually advertises.
+ *
+ * `withdraw` is the exception, and for a different reason than the gate: it carries
+ * `hidden: true` in `commands/preview-definitions.ts`, which suppresses its help entry
+ * without touching the parser. So a preview build registers it and runs it but lists it
+ * nowhere — asserted on its own below, since "hidden" and "absent" are different claims
+ * and only the gate makes the second one.
+ */
+const GATED_LISTED = GATED.filter((name) => name !== 'withdraw');
+
 /** A representative ungated command per section, to prove the filter is not too wide. */
 const UNGATED = ['init', 'create', 'list', 'credentials', 'upload', 'delete', 'scaffold', 'start'];
 
@@ -130,12 +141,37 @@ describe('the pre-GA gate, end to end', () => {
       tree = buildTree(true);
     });
 
-    it.each(GATED)('lists `app %s`', (name) => {
+    it.each(GATED_LISTED)('lists `app %s`', (name) => {
       expect(tree.appHelp).toContain(name);
     });
 
     it.each(GATED_HEADINGS)('restores the "%s" section', (heading) => {
       expect(tree.rootHelp).toContain(heading);
+    });
+
+    // Both renderers, because they are independent: Commander's `hidden` filters the
+    // generated `brevo app --help`, and the hand-aligned root screen is a string it
+    // cannot reach, so that omission is maintained by hand in `lib/help.ts`. A change
+    // to one and not the other is exactly what this pair is here to catch.
+    it('lists `app withdraw` on neither help screen', () => {
+      expect(tree.appHelp).not.toContain('withdraw');
+      expect(tree.rootHelp).not.toContain('withdraw');
+    });
+
+    // Hidden, not withheld. The section it would sit in is still rendered, and the
+    // command itself is registered, parses its flags and reaches its handler — so
+    // anyone who types it (QA suite 7, the public-app smoke script, the hint `app
+    // upload` prints when an app is under review) gets the command, not a refusal.
+    it('still registers `app withdraw` and answers its own --help', () => {
+      const app = tree.program.commands.find((c) => c.name() === 'app')!;
+      const withdraw = app.commands.find((c) => c.name() === 'withdraw');
+
+      expect(withdraw).toBeDefined();
+
+      const own = render(withdraw!);
+      expect(own).toContain('Usage: brevo app withdraw');
+      expect(own).toContain('--app-id');
+      expect(own).toContain('--force');
     });
 
     it('advertises both distribution values and the UI-app choice', () => {

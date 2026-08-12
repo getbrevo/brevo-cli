@@ -101,8 +101,12 @@ function formatRootHelp(description: string): string {
           `App-review commands (public apps only):`,
           `  brevo app submit            [--app-id <id>] [--json]  Submit a public app for review`,
           `  brevo app status            [--app-id <id>] [--json]  Show an app's review status`,
-          `  brevo app withdraw          [--app-id <id>] [--force] [--json]`,
-          `                                                        Withdraw an app from submission`,
+          // `brevo app withdraw` is deliberately absent. It is registered and callable in
+          // a preview build, just marked `hidden` in `commands/preview-definitions.ts` so
+          // it is advertised on neither help screen. Commander's `hidden` governs its own
+          // generated output and cannot reach this hand-written string, so the omission
+          // has to be made here by hand — the same two-renderers/one-decision split the
+          // comment above describes for the gate. Restore both together.
           ``,
         ])
       : []),

@@ -36,6 +36,19 @@ because the doc steps below describe surface that does not exist until it is ope
         eliminated from the published bundle regardless of `FEATURE_STAGE`. Delete the
         module (and its import + the `...(__BREVO_PREVIEW__ ? … : [])` spread) once it
         empties.
+  - [ ] **Un-hide `app withdraw`, in both renderers.** It carries `hidden: true` in
+        `src/commands/preview-definitions.ts` — a second, independent suppression that
+        `FEATURE_STAGE` does not reach, so flipping the table would ship a GA command
+        that is still advertised nowhere. Delete that line, **and** restore its two lines
+        to the `review-lifecycle` section of `formatRootHelp` in `src/lib/help.ts`, where
+        a comment marks the spot; Commander's `hidden` governs only its own generated
+        output, so the hand-aligned root screen has to be edited by hand. Then drop
+        `GATED_LISTED` and the two `app withdraw` cases from `preview-gate.test.ts`, and
+        restore `withdraw` to TC-10.2 in `QA-TESTCASES.md`. The signature to restore:
+        ```
+        `  brevo app withdraw          [--app-id <id>] [--force] [--json]`,
+        `                                                        Withdraw an app from submission`,
+        ```
   - [ ] **Drop the freed names from `LEAK_MARKERS` in `scripts/build.mjs`.** The public
         build asserts each one is *absent* and the preview build asserts each is
         *present*, so a released command left in that list fails the build both ways.
@@ -86,6 +99,10 @@ because the doc steps below describe surface that does not exist until it is ope
         on the `brevo app create` row.
   - [ ] Restore the `app withdraw` / `app rollback` mentions in the `app-config.json`
         convention bullet, the *JSON errors* section and *Command help*.
+  - [ ] Restore `withdraw` (and, at UI-apps GA, `deploy`) to the *Skip prompts* bullet.
+        It reads `--force` for `app delete` and `logout` — the two commands a published
+        build actually has. It was missed by the original strip and corrected later; it
+        is not a sign that those commands never took `--force`.
 - [ ] `CLAUDE.md` — delete the `## Public app distribution is not GA` section.
 - [ ] `AGENTS.md` (repo root) — delete the `## Public app distribution is not GA`
       section.
@@ -424,7 +441,9 @@ matters; deliberately not done here.
 - [x] A public artifact answers `unknown command` for all five gated commands, refuses
       `--distribution public` with the typed message, and ignores
       `BREVO_ENABLE_PREVIEW=1`. Verified by running `dist/bin/index.js`.
-- [x] A preview artifact lists all five in `brevo app --help`.
+- [x] A preview artifact lists all five in `brevo app --help`. *(Superseded: `withdraw`
+      is now `hidden` and lists nowhere — see the entry below. The other four are
+      unchanged, and all five are still registered.)*
 - [x] Bundling did not break runtime path resolution — `--version` (package.json),
       `skill:cli install` (agent-context), scaffolding (templates at `dist/bin/files`).
       All three verified against the built artifact, not mocks.
@@ -2504,3 +2523,45 @@ each produces a *plausible* result rather than an error:
 `app_versions` row. If it does, the never-uploaded-UI-app refusal is close to
 unreachable; if it does not, users will meet it. The refusal is correct either way —
 this only changes how prominent it is.
+
+### `brevo app withdraw` is hidden from help (2026-08-12)
+
+**Change:** `app withdraw` is no longer advertised. It carries a new `hidden: true` on
+its `CommandDefinition` (`commands/preview-definitions.ts`), and its two lines were
+removed from the hand-aligned root screen in `lib/help.ts`. `hidden` is a **new,
+separate axis from the pre-GA gate** — it suppresses the help entry and nothing else, so
+the command is still registered, still parses `--app-id` / `--force` / `--json`, and
+still reaches `withdrawCommand`. Nothing about the published build changes: the whole
+review lifecycle is already eliminated there.
+
+**Why it needs two edits, not one:** there are two help renderers and Commander's
+`hidden` only governs the one it generates. The root screen is a hand-written string it
+cannot reach, so that omission is maintained by hand and marked with a comment. Both are
+asserted in `preview-gate.test.ts`, which is what catches a change to one and not the
+other.
+
+**Third consumer, easy to miss:** `scripts/smoke/core.ts` detected which gated commands a
+build has by grepping the root help, so hiding `withdraw` would have made the smoke run
+*skip* its withdraw step on a build that has it — passing green with less coverage.
+`withdraw` is now probed with `brevo app withdraw --help` instead: a registered command
+answers `Usage: brevo app withdraw`, an eliminated one falls back to the group's usage
+line. The exit code cannot tell them apart (both `0`), which is why the earlier comment
+said a subcommand probe was impossible — true of the exit code, not of the output.
+
+**Must hold true:**
+
+- [x] In a preview build, neither `brevo --help` nor `brevo app --help` contains the
+      substring `withdraw`, while the *App-review commands* heading still renders with
+      `submit` and `status` under it.
+- [x] In a preview build, `brevo app withdraw --help` still prints its own usage and all
+      three flags, and the command still runs.
+- [x] A public build is byte-for-byte unaffected in behaviour — `withdraw` remains
+      eliminated, `LEAK_MARKERS` unchanged, `yarn build` and `yarn build:preview` both
+      green.
+- [x] The smoke runner's capability probe still reports `withdraw` present on a preview
+      artifact and absent on a public one. Verified by running `app withdraw --help`
+      against both built artifacts, not by reasoning about the regex.
+- [x] `npx tsc --noEmit`, `yarn lint`, `yarn format:check`, `yarn test` green.
+- [ ] **Manual:** QA Suite 7 runs unchanged against a preview artifact — a tester who
+      types the command gets the command, not `unknown command`. New TC-10.3 covers the
+      hidden-but-callable pair.

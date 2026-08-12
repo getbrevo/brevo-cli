@@ -102,7 +102,7 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 - **Fields that don't exist on the platform** — never add them to `ui_app`: a card *title* (it is the **app name**; the menu entry, by contrast, IS labelled from `label`), `contextProperties` (record context is an allow-list on the extension-point registry row, chosen by the platform; an entry's `context` can only *narrow* it), `link_target` (`brevo app upload` injects it), and `surface`/`placement`/`trigger` (superseded by `surface_point_list`).
 - **Credentials** live at `~/.brevo/credentials.json`. Never commit this file or any `.env.local`.
 - **Non-interactive auth:** `BREVO_API_KEY=xkeysib-... brevo login`. The legacy `--api-key` flag was removed because it leaks into shell history.
-- **Skip prompts:** `--force` for delete/logout/withdraw/deploy/remove; `--yes` for `app upload`.
+- **Skip prompts:** `--force` for `app delete` and `logout`; `--yes` for `app upload`.
 - **Forced update:** when the installed CLI is a full **major** version behind the latest npm release, every command except `--help`/`--version` prints a blocking update banner to stderr and exits `1` without running. Update with `npm install -g @getbrevo/cli` (or `yarn global add`). The gate honors the same opt-outs as the soft update notice (`BREVO_NO_UPDATE_NOTIFIER=1`, `--no-update-notifier`, CI, non-TTY), so it never fires in those contexts.
 - **Exit codes:** `0` success · `1` general error · `2` aborted · `3` auth · `4` network · `5` not found.
 

@@ -42,6 +42,19 @@ export interface CommandDefinition {
    * matrix so it cannot rot in the meantime.
    */
   requires?: Capability;
+  /**
+   * Keep the command out of `brevo app --help` while leaving it registered and callable.
+   *
+   * Distinct from the pre-GA gate below, which hides *and* refuses: this one hides only.
+   * The command runs exactly as it always did for anyone who types it — it just stops
+   * being advertised. Used for a command we don't want to put in front of users yet but
+   * still need working for QA and the smoke tests (`app withdraw`).
+   *
+   * Hiding is only half the job: the hand-aligned root screen in `lib/help.ts` is a
+   * separate renderer that Commander's `hidden` cannot reach, so a command set hidden
+   * here must also be absent from `formatRootHelp`. `preview-gate.test.ts` asserts both.
+   */
+  hidden?: boolean;
   handler: (opts: Record<string, unknown>, ...args: unknown[]) => void | Promise<void>;
 }
 
@@ -77,10 +90,15 @@ export function previewFeatureOf(def: CommandDefinition): PreviewFeature | undef
  * acting on and each command answers it in its own words, while this one depends only
  * on whether the feature has shipped and is the same answer for every command. That
  * is why one interceptor is right here and wrong there.
+ *
+ * `def.hidden` is the other route to an unlisted command, and it is not the same thing:
+ * it suppresses the help entry and nothing else. The command still parses, still runs,
+ * and gains no refusal from being hidden.
  */
 function registerCommand(parent: Command, def: CommandDefinition): void {
   const gatedBehind = previewFeatureOf(def);
-  const hidden = Boolean(gatedBehind) && !isFeatureAvailable(gatedBehind!);
+  const gateHides = Boolean(gatedBehind) && !isFeatureAvailable(gatedBehind!);
+  const hidden = def.hidden === true || gateHides;
   const cmd = parent.command(def.name, { hidden }).description(def.description);
 
   if (def.arguments) {
