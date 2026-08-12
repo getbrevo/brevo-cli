@@ -61,8 +61,9 @@ because the doc steps below describe surface that does not exist until it is ope
         `src/lib/preview.ts`, `src/globals.d.ts`, `src/commands/preview-definitions.ts`,
         `jest.setup.js` + its `setupFiles` entry in `jest.config.js`, the `define` block
         and both `LEAK_MARKERS` checks in `scripts/build.mjs`, the `build:preview`
-        script and `link:dev`'s use of it, the `previewFeatureOf` /
-        `assertFeatureAvailable` wiring in `src/lib/command-registry.ts`, the two
+        script (`link:dev` runs the plain `yarn build`, so it needs no edit), the
+        `previewFeatureOf` / `assertFeatureAvailable` wiring in
+        `src/lib/command-registry.ts`, the two
         `isFeatureAvailable` calls in `src/commands/app/create.ts`, the `gatedSection` /
         `distributionValues` / `createDescription` helpers in `src/lib/help.ts`, and
         `messages.PREVIEW_FEATURE_UNAVAILABLE`.
@@ -417,9 +418,9 @@ heading) before merging into `main`.
 
 **Change:** the gate moved from a runtime check to build-time elimination. `yarn build`
 (esbuild, `scripts/build.mjs`) folds `__BREVO_PREVIEW__` to `false` and drops the gated
-modules; `PREVIEW=1 yarn build` (or `yarn link:dev`) keeps them. The earlier escape
-hatches — an `@brevo.com` account check and `BREVO_ENABLE_PREVIEW=1` — are **gone**;
-internal testing is a different artifact, not a different flag.
+modules; `PREVIEW=1 yarn build` (or `PREVIEW=1 yarn link:dev`) keeps them. The earlier
+escape hatches — an `@brevo.com` account check and `BREVO_ENABLE_PREVIEW=1` — are
+**gone**; internal testing is a different artifact, not a different flag.
 
 **What is eliminated from a public build:** the five gated command modules and their
 definitions, `commands/app/account-deployment.ts`, the whole UI-authoring layer
@@ -2565,3 +2566,34 @@ said a subcommand probe was impossible — true of the exit code, not of the out
 - [ ] **Manual:** QA Suite 7 runs unchanged against a preview artifact — a tester who
       types the command gets the command, not `unknown command`. New TC-10.3 covers the
       hidden-but-callable pair.
+
+### `link:dev` builds the published surface by default (2026-08-12)
+
+**Change:** `link:dev` runs `yarn build && yarn link` instead of `yarn build:preview &&
+yarn link`. The composed script no longer forces `PREVIEW=1`, so it honours the
+environment: plain `yarn link:dev` links a **published** artifact, `PREVIEW=1 yarn
+link:dev` links the full-surface one. That is the invocation `CLAUDE.md`, root
+`AGENTS.md` and `QA-TESTCASES.md` already document, so the script now matches the docs
+rather than silently upgrading every local link to a preview build.
+
+**Why it matters:** with the old script there was no way to reach a published artifact
+through `link:dev` at all — a tester verifying that a gated command answers `unknown
+command` had to know to run `yarn build` and invoke `dist/bin/index.js` directly. The
+default now fails the safe way round: an un-flagged link cannot show a surface the npm
+build doesn't have.
+
+**Must hold true:**
+
+- [x] `PREVIEW=1 yarn link:dev` still yields the full surface — the env var propagates
+      through the nested `yarn build`. Verified on the output (`preview build →
+      dist/bin/index.js`, 199.5 kB) and by `brevo app deploy --help` printing its usage.
+- [x] Plain `yarn build` (what `link:dev` now runs) yields the gated artifact —
+      167.7 kB, and `app deploy` answers `unknown command 'deploy'`.
+- [x] `yarn link` on an already-linked checkout warns and exits `0`, so re-running
+      `link:dev` is not newly fatal.
+- [x] Both `LEAK_MARKERS` directions still assert themselves: `yarn build` fails if a
+      gated module survives, `yarn build:preview` fails if one goes missing. Unchanged by
+      this edit — `build:preview` still exists and is still the explicit preview entry.
+- [x] The two doc references to the old coupling are corrected: *Before public-apps GA*
+      no longer tells a future reader to unpick `link:dev`'s use of `build:preview`, and
+      the BEX-405 entry above now says `PREVIEW=1 yarn link:dev`.

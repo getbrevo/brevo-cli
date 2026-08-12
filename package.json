@@ -24,7 +24,7 @@
     "build:preview": "PREVIEW=1 yarn build",
     "dev": "tsc --noEmit --watch",
     "unlink": "yarn unlink",
-    "link:dev": "yarn build:preview && yarn link",
+    "link:dev": "yarn build && yarn link",
     "test": "jest --passWithNoTests",
     "test:ci": "jest --coverage --passWithNoTests",
     "lint": "eslint 'src/**/*.ts' --quiet",
