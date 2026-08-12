@@ -441,10 +441,22 @@ export interface ProjectConfig {
 const PROJECT_CONFIG_FILE = 'app-config.json';
 
 export function readProjectConfig(): ProjectConfig | null {
+  return readProjectConfigAt(process.cwd());
+}
+
+/**
+ * `readProjectConfig` for an arbitrary directory.
+ *
+ * Exists for {@link findEnclosingProjectDir}, which has to ask the same "is this a
+ * project?" question of a directory that is not cwd. Kept as the one implementation
+ * rather than a second parser so an ancestor is judged a project by exactly the rules
+ * every command already applies to cwd — most importantly the appId normalization
+ * below, which is what makes "has a file called app-config.json" and "is a project"
+ * different questions.
+ */
+export function readProjectConfigAt(dir: string): ProjectConfig | null {
   try {
-    const raw = JSON.parse(
-      fs.readFileSync(path.resolve(process.cwd(), PROJECT_CONFIG_FILE), 'utf-8'),
-    );
+    const raw = JSON.parse(fs.readFileSync(path.resolve(dir, PROJECT_CONFIG_FILE), 'utf-8'));
     if (!raw || typeof raw !== 'object') return null;
     // Normalize appId at the boundary: accept strings (trimmed) and finite
     // numeric IDs from legacy configs, reject anything else. Downstream
@@ -561,6 +573,39 @@ export function readProjectConfig(): ProjectConfig | null {
 export function hasLocalApp(): boolean {
   const cfg = readProjectConfig();
   return cfg?.appId != null && cfg.appId !== '';
+}
+
+/**
+ * The nearest ANCESTOR directory of cwd that is itself a project, or null.
+ *
+ * Guards `brevo app scaffold`'s no-config branch. `readProjectConfig` reads cwd and
+ * deliberately does not walk up — every other command wants exactly that, because it
+ * keeps "which app am I acting on" a property of the directory you are standing in.
+ * But it means a directory one level inside a project looks identical to an empty
+ * directory outside one, and the two must not get the same answer: offering to
+ * materialize a project into `myapp/src/` would leave a second `app-config.json`
+ * nested in the first, after which `app upload` from that directory pushes the wrong
+ * app with no warning.
+ *
+ * cwd itself is excluded. The only caller has already established that cwd holds no
+ * usable config, and counting cwd would make every ordinary in-project run report
+ * itself as nested.
+ *
+ * Stops at the filesystem root. Unreadable or appId-less ancestors are skipped rather
+ * than treated as a hit, so the walk agrees with `readProjectConfig` on what counts
+ * as a project — a stray malformed file cannot wedge the command.
+ */
+export function findEnclosingProjectDir(): string | null {
+  let dir = path.dirname(process.cwd());
+  // `path.dirname('/') === '/'`, which is how the walk terminates. Compare against the
+  // previous value rather than testing for a literal separator so this holds on Windows
+  // drive roots too.
+  for (;;) {
+    if (readProjectConfigAt(dir)) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 /**

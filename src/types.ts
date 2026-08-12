@@ -317,11 +317,17 @@ export interface OAuthApp {
   version?: string;
   // Review-submission form for public apps (BEX-221); absent for private apps.
   google_form_link?: string;
-  // Present only for UI apps, and only once the server echoes the ui_app block
-  // back on reads. Absent for OAuth apps and on server builds that don't return it.
+  // Present only for UI apps. Confirmed echoed by GET /cli/apps/{id}, which sources
+  // it from the latest app_versions snapshot in the same wire shape upload binds.
+  // Absent for OAuth apps and on server builds that predate the block.
   ui_app?: UiApp;
-  created_at: string;
-  updated_at: string;
+  // Optional because no deployed handler sends them: `cliOAuthAppResponse` (the
+  // struct behind both the credential-reveal and the update response) declares
+  // neither. Nothing in `src/` reads them. Declaring them required was the same
+  // class of type-lie that hid BEX-405 — a required field the server never sends
+  // reads as `undefined` at every call site without the compiler objecting.
+  created_at?: string;
+  updated_at?: string;
 }
 
 /**
@@ -370,8 +376,12 @@ export interface CreateAppResponse {
   scopes?: string[];
   logo_uri?: string;
   version?: string;
-  created_at: string;
-  updated_at: string;
+  // Same reasoning as `OAuthApp`, and here it is provable rather than incidental:
+  // `cliCreatePublicResponse` is a closed struct of
+  // {app_id, name, logo_uri, version, distribution_type, auth?, ui_app?} — there is
+  // no timestamp on the create response at all.
+  created_at?: string;
+  updated_at?: string;
 }
 
 // Wire shape for POST /v3/app-store/apps/{app_id}/upload. Fully aligned with

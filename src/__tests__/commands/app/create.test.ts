@@ -54,6 +54,7 @@ jest.mock('../../../commands/app/scaffold', () => ({
   runBaseScaffold: jest.fn(),
   runFeatureScaffold: jest.fn(),
   resolveProjectDirectory: jest.fn(),
+  applyProjectDirectory: jest.fn(),
   promptFeatureType: jest.fn(),
   reportBaseScaffoldSuccess: jest.fn(),
   reportScaffoldSuccess: jest.fn(),
@@ -72,11 +73,13 @@ import {
   hasLocalApp,
   readProjectConfig,
 } from '../../../lib/config';
+import { messages } from '../../../lang/en';
 import {
   fetchAppContext,
   runBaseScaffold,
   runFeatureScaffold,
   resolveProjectDirectory,
+  applyProjectDirectory,
   promptFeatureType,
   reportBaseScaffoldSuccess,
   reportScaffoldSuccess,
@@ -448,6 +451,69 @@ describe('app/create', () => {
       );
     });
 
+    // The directory decision (prompts) must stay BEFORE the create so a Ctrl-C at
+    // the prompt cannot orphan an app on the server. The directory *mutation* must
+    // land AFTER it, so a failed create leaves no stray directory and no moved cwd.
+    // The two halves pull in opposite directions, which is why they are separate
+    // calls rather than one.
+    it('applies the directory only after the create succeeds', async () => {
+      const order: string[] = [];
+      (resolveProjectDirectory as jest.Mock).mockImplementation(async () => {
+        order.push('decide');
+        return {
+          targetDir: '/cwd/ordered-app',
+          mergeOnly: false,
+          chooseAgain: false,
+          existed: false,
+        };
+      });
+      (appService.createApp as jest.Mock).mockImplementation(async () => {
+        order.push('create');
+        return {
+          app_id: 21,
+          name: 'Ordered App',
+          client_id: 'cli-ord',
+          client_secret: 'secret-ord',
+          redirect_uris: ['http://localhost:3009/auth/callback'],
+        };
+      });
+      (applyProjectDirectory as jest.Mock).mockImplementation(() => {
+        order.push('apply');
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+      await createCommand({ name: 'Ordered App', distribution: 'private' });
+
+      expect(order).toEqual(['decide', 'create', 'apply']);
+    });
+
+    it('leaves no directory behind when the create fails', async () => {
+      (resolveProjectDirectory as jest.Mock).mockResolvedValue({
+        targetDir: '/cwd/doomed-app',
+        mergeOnly: false,
+        chooseAgain: false,
+        existed: false,
+      });
+      (appService.createApp as jest.Mock).mockRejectedValue(new Error('quota exceeded'));
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await expect(createCommand({ name: 'Doomed App', distribution: 'private' })).rejects.toThrow(
+        /quota exceeded/,
+      );
+
+      // The whole point: nothing was created and the process never moved.
+      expect(applyProjectDirectory).not.toHaveBeenCalled();
+    });
+
     it('computes the cd hint from the cwd at command start and forwards it to reportScaffoldSuccess', async () => {
       const originalCwd = process.cwd();
       (resolveProjectDirectory as jest.Mock).mockResolvedValue({
@@ -495,7 +561,12 @@ describe('app/create', () => {
       });
 
       expect(resolveProjectDirectory).not.toHaveBeenCalled();
-      expect(chdirSpy).toHaveBeenCalled();
+      // The non-interactive path skips the prompt but still lands in the directory —
+      // asserted on the apply call, since that is what now owns the mkdir/chdir.
+      expect(applyProjectDirectory).toHaveBeenCalledWith(
+        expect.objectContaining({ existed: false }),
+        true,
+      );
     });
 
     it('shows the feature-type prompt after app creation, not before', async () => {
@@ -2157,6 +2228,99 @@ describe('app/create', () => {
       expect(parsed.clientId).toBe('cli-123');
       expect(parsed.redirectUri).toEqual(['http://localhost:3009/auth/callback']);
       expect(parsed).not.toHaveProperty('uiApp');
+    });
+  });
+
+  // ──────── The pre-GA gate inside `app create` (BEX-405) ────────
+  // Two of the four gated features are not commands, so `command-registry`'s
+  // interceptor cannot reach them: the *UI app* choice is a prompt option and
+  // `public` is a flag VALUE. They are gated inside the flow instead, and the
+  // shape of the refusal differs — a prompt choice is withheld, a flag is refused.
+  describe('in a published (public) build', () => {
+    beforeEach(() => {
+      // jest.setup.js runs the suite as a preview build so the feature tests above
+      // exercise the features rather than the gate. These want the public artifact.
+      // `create.ts` reads the flag per call, so flipping the global is enough — no
+      // module re-import needed, unlike the definitions/help tests.
+      globalThis.__BREVO_PREVIEW__ = false;
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 42,
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret-456',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+    });
+
+    afterEach(() => {
+      globalThis.__BREVO_PREVIEW__ = true;
+    });
+
+    it('refuses --distribution public with the unreleased-feature message', async () => {
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'public', json: true }),
+      ).rejects.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
+    });
+
+    // The refusal must land BEFORE any filesystem work. `app create` decides its
+    // target directory and then applies it (mkdir + chdir), so a refusal arriving
+    // after the apply step would leave a stray directory and a moved cwd behind for
+    // a command that failed — the same failure mode a server-side refusal used to
+    // cause before the decide/apply split.
+    it('refuses before creating anything', async () => {
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'public', json: true }),
+      ).rejects.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
+
+      expect(appService.createApp).not.toHaveBeenCalled();
+      expect(resolveProjectDirectory).not.toHaveBeenCalled();
+      expect(chdirSpy).not.toHaveBeenCalled();
+    });
+
+    // A genuine typo must still read as a typo. Routing every bad value through the
+    // unreleased-feature message would send the user hunting for a feature flag.
+    it('still rejects an invalid distribution as an invalid value', async () => {
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'privte', json: true }),
+      ).rejects.toThrow(/--distribution/);
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'privte', json: true }),
+      ).rejects.not.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
+    });
+
+    it('does not ask for the app type, and creates an OAuth app', async () => {
+      mockPrompt.mockResolvedValue({ redirectUrl: '', logoUri: '', scaffold: false });
+
+      await createCommand({ name: 'Test App', distribution: 'private' });
+
+      const asked = mockPrompt.mock.calls.flatMap((call) => call[0]).map((q) => q?.name);
+      expect(asked).not.toContain('appType');
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload).not.toHaveProperty('ui_app');
+    });
+
+    // With `public` withheld the prompt has one answer left, so asking is noise.
+    // Skipping it restores the pre-BEX-249 flow rather than showing a one-item list.
+    it('does not ask for the distribution, and defaults to private', async () => {
+      mockPrompt.mockResolvedValue({ redirectUrl: '', logoUri: '', scaffold: false });
+
+      await createCommand({ name: 'Test App' });
+
+      const asked = mockPrompt.mock.calls.flatMap((call) => call[0]).map((q) => q?.name);
+      expect(asked).not.toContain('distribution');
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.distribution_type).toBe('private');
+    });
+
+    // The same command in a preview build, which is what `PREVIEW=1 yarn link:dev`
+    // produces and how this path is tested locally.
+    it('allows --distribution public in a preview build', async () => {
+      globalThis.__BREVO_PREVIEW__ = true;
+
+      await createCommand({ name: 'Test App', distribution: 'public', json: true });
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.distribution_type).toBe('public');
     });
   });
 });

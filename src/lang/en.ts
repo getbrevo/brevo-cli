@@ -1,6 +1,7 @@
 import { CLI, BREVO_CLI_REFERENCE_URL, BREVO_OAUTH_SCOPES_DOCS_URL } from '../lib/constants';
+import { previewMessages } from './preview-messages';
 
-export const messages = {
+const coreMessages = {
   // Update notifier
   UPDATE_AVAILABLE: (current: string, latest: string): string =>
     `Update available: ${current} → ${latest}`,
@@ -54,6 +55,17 @@ export const messages = {
   WHOAMI_NOT_AUTHENTICATED: `Not authenticated. Run: ${CLI.LOGIN}`,
   WHOAMI_CREDENTIAL_MISMATCH: (fields: string[]) =>
     `Local credentials mismatch with API for: ${fields.join(', ')}. Run \`${CLI.LOGIN}\` to re-authenticate.`,
+
+  // Pre-GA gate (BEX-405). One message for every gated command, prompt choice and
+  // flag value — see `src/lib/preview.ts` for why this one is shared while the
+  // capability refusals each keep their own wording.
+  //
+  // Deliberately says nothing about the internal-account escape hatch or the env
+  // var: an end user cannot use either, so naming them would only invite an attempt.
+  // Both are documented where the people who need them will look — the agent docs
+  // and the README.
+  PREVIEW_FEATURE_UNAVAILABLE:
+    'That command is not available yet. It is part of a Brevo feature that has not been released.',
 
   // App create
   APP_CREATE_NAME_PROMPT: 'App name:',
@@ -110,67 +122,6 @@ export const messages = {
   APP_CREATE_ALREADY_LINKED: (name: string) =>
     `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD}\` here to add a feature to this project.`,
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
-
-  // App create — UI app (BEX-290)
-  // Placement choices are read from the platform's extension-point registry at prompt
-  // time (BEX-361) — fetch-only, no local fallback, so a partner can never author a slot
-  // the platform doesn't have. Two loads: the record pages, then the placements on the
-  // pages that were picked.
-  APP_CREATE_UI_PAGES_SPINNER: 'Loading record pages...',
-  APP_CREATE_UI_POINTS_SPINNER: 'Loading placements...',
-  APP_CREATE_UI_POINTS_FETCH_FAILED:
-    'Could not load the available placements from the Brevo API — the UI-app flow needs them to offer where your app can appear. Check your connection and try again. Creating an OAuth app does not need this and still works.',
-  APP_CREATE_UI_POINTS_EMPTY:
-    'The Brevo API returned no available placements for UI apps. This usually means the extension-point registry has not been seeded in this environment — try again later.',
-  // Raised when the registry has rows, but none of them can serve the chosen extension
-  // type. Distinct from the empty case: the fix is a different integration type, not
-  // waiting for a seed.
-  APP_CREATE_UI_POINTS_NONE_FOR_TYPE: (extensionType: string) =>
-    `None of the available placements can host a "${extensionType}" extension. This environment's extension-point registry may predate it — try again later.`,
-  APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
-  APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
-  // One single-select prompt PER picked page: an app takes exactly one spot on a page.
-  // Replaces the old kind-then-place pair (kind is a property of the slot, not a question
-  // — a partner picking "Header menu" has already said they want a menu entry) and the
-  // grouped multi-select that briefly followed it.
-  APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
-    `Where should it appear on the ${page} page?`,
-  // Printed BEFORE the prompt, as a warning, when the registry offers no spot on a page
-  // that was picked. It cannot be a prompt rule: no answer would satisfy one.
-  APP_CREATE_UI_PLACEMENT_PAGES_DROPPED: (pages: string[]) =>
-    `No placements are available on: ${pages.join(', ')}. Those pages are skipped — the registry offers no spot there for this integration type.`,
-  // Suffixes on each placement choice, so the shape a slot renders as is visible while
-  // choosing rather than a surprise afterwards.
-  APP_CREATE_UI_PLACEMENT_MENU_SUFFIX: 'menu entry',
-  APP_CREATE_UI_PLACEMENT_CARD_SUFFIX: 'card',
-  // Integration type — asked SECOND, before any placement, because it is the decision a
-  // partner arrives with. Only Link is selectable; Iframe is shown disabled so the
-  // roadmap is visible where the choice is being made rather than hidden.
-  APP_CREATE_UI_INTEGRATION_PROMPT: 'Do you want to add a link or an iframe?',
-  APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link            (Opens your URL in a new tab)',
-  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe          (Embeds your page in a modal)',
-  APP_CREATE_UI_INTEGRATION_COMING_SOON: 'coming soon',
-  // Each field says what it renders as, so a partner filling the form knows what
-  // they are writing. Both fields render in two places, and the prompt names both:
-  // `label` is the menu entry's text AND a card's CTA button, `more_info` is the
-  // menu entry's second line AND a card's description.
-  APP_CREATE_UI_LABEL_PROMPT: 'Label — the menu entry text, and the button text on a card:',
-  APP_CREATE_UI_MORE_INFO_PROMPT:
-    'More info — supporting text under the menu entry, and a card’s description (optional):',
-  APP_CREATE_UI_REDIRECT_LINK_PROMPT:
-    'Redirect link — the destination URL your app opens (record context arrives as query parameters):',
-  APP_CREATE_UI_BOX_TITLE: 'UI app created',
-  // `label` labels the menu entry (BEX-290). The one piece of rendered text that has
-  // no field is a CARD's title, which is the app name — worth saying, since it is now
-  // the only place a partner might hunt for a field that doesn't exist.
-  APP_CREATE_UI_BOX_LABEL_NOTE: (label: string, appName: string) =>
-    `The menu entry is labelled "${label}". On a card that text becomes the button, and the card's title is the app name ("${appName}").`,
-  // Record context reaches the partner's endpoint as query parameters only — there is
-  // no path templating — so the summary prints the exact URL shape to build against.
-  APP_CREATE_UI_BOX_EXAMPLE_URL_LABEL: 'Brevo will open, for example:',
-  APP_CREATE_UI_BOX_EXAMPLE_URL_NOTE:
-    'Values are placeholders. Read them as query parameters — the path is never templated.',
-  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this, then run \`${CLI.APP_UPLOAD}\`.`,
   APP_CREATE_UI_NEXT: (cdDir?: string): string[] => [
     ...(cdDir ? [`1. cd ${cdDir}`] : []),
     `${cdDir ? 2 : 1}. ${CLI.APP_UPLOAD}              (validate and save your configuration)`,
@@ -196,6 +147,19 @@ export const messages = {
   CLIENT_SECRET_NOT_AVAILABLE: '[not available]',
   APP_CREDENTIALS_CONFIG_BACKFILLED: (fields: string[]) =>
     `Backfilled ${fields.join(', ')} into app-config.json.`,
+
+  // App update — removed (BEX-250), kept only as a signpost to `app upload`.
+  //
+  // Names every flag `update` used to take, because the reason a script or a
+  // half-remembered habit lands here is usually one of them, and the answer is the
+  // same for all of them: there is no flag any more, edit the file. `distribution_type`
+  // is deliberately not offered as editable — it is immutable after `app create`, and
+  // `APP_UPLOAD_DISTRIBUTION_IMMUTABLE` is what says so if anyone tries.
+  // The second paragraph covers `update --app-id`, which had no successor until
+  // `scaffold --app-id` was restored: `upload` reads the linked project only, so a
+  // user who drove `update` by ID from any directory would otherwise read "edit
+  // app-config.json" while having no such file and no way to get one.
+  APP_UPDATE_REMOVED: `\`brevo app update\` has been removed — use \`${CLI.APP_UPLOAD}\` instead.\n\n  \`${CLI.APP_UPLOAD}\` pushes the whole of app-config.json and takes only --yes and --json.\n  There are no edit flags (--name, --redirect-uri, --scope, --logo-uri, --app-id): change\n  the app's name, redirect URLs, scopes or logo by editing app-config.json, then run:\n\n    ${CLI.APP_UPLOAD}\n\n  No app-config.json here? Set this directory up for an app you already have\n  (\`${CLI.APP_LIST}\` shows their IDs), then edit and upload:\n\n    ${CLI.APP_SCAFFOLD_APP_ID()}\n    ${CLI.APP_UPLOAD}\n\n  Docs: ${BREVO_CLI_REFERENCE_URL}`,
 
   // App upload
   APP_UPLOAD_NO_CONFIG: `No app-config.json found in this directory. Run \`${CLI.APP_UPLOAD}\` from the project directory that has your app's app-config.json, or run \`${CLI.APP_CREATE}\` / \`${CLI.APP_SCAFFOLD}\` to set one up.`,
@@ -225,99 +189,13 @@ export const messages = {
     'This is a UI app (app-config.json has a `ui_app` block), so it uses no OAuth — set `auth` to `{}`.',
   APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS:
     "UI apps don't use OAuth — remove `scopes` and `redirectUris` from `auth` and keep it empty (`{}`).",
-
-  // App deploy / rollback — per-account availability for UI apps (BEX-290)
-  APP_DEPLOY_SELECT: 'Select an app to deploy:',
-  APP_DEPLOY_CONFIRM: (name: string, appId: string, accountId: string) =>
-    `Deploy app "${name}" (${appId}) to account ${accountId}?`,
-  APP_DEPLOY_CANCELLED: 'Deploy cancelled.',
-  APP_DEPLOY_SUCCESS: (appId: string, accountId: string) =>
-    `App ${appId} deployed to account ${accountId}.`,
-  // Sub-account resolution, shared by deploy and rollback. Only a master (corporate)
-  // account ever reaches these: a plain account resolves to itself with no prompt.
-  APP_DEPLOY_SELECT_ACCOUNT: 'Select the account to deploy to:',
-  APP_DEPLOY_ACCOUNT_ID_REQUIRED: `This is a corporate account, so the target account can't be resolved automatically.\n\n  Pass it explicitly: ${CLI.APP_DEPLOY('<account-id>')}\n  (Choosing one from a list requires an interactive terminal.)`,
-  APP_DEPLOY_NO_SUB_ACCOUNTS: `No active sub-accounts found on this corporate account.\n\n  Pass the target account explicitly: ${CLI.APP_DEPLOY('<account-id>')}`,
-  // The spec's installation flow requires deploy to refuse until the config has
-  // been validated by an upload. `version` is only ever written by a successful
-  // upload, so its absence is a reliable local signal.
-  APP_DEPLOY_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
-  APP_ROLLBACK_SELECT: 'Select an app to roll back:',
-  APP_ROLLBACK_CONFIRM: (name: string, appId: string, accountId: string) =>
-    `Roll back app "${name}" (${appId}) from account ${accountId}?`,
-  APP_ROLLBACK_CANCELLED: 'Rollback cancelled.',
-  APP_ROLLBACK_SUCCESS: (appId: string, accountId: string) =>
-    `App ${appId} rolled back from account ${accountId}.`,
-  APP_ROLLBACK_NOT_DEPLOYED: (appId: string, accountId: string) =>
-    `App ${appId} is not deployed to account ${accountId}.`,
   // Both verbs identify the calling account by its organization ID, which is only
   // cached by a successful login. Numeric and UUID values are both forwarded as-is;
   // only an absent or blank one lands here, meaning the credentials predate the field
   // or were written by a partial login — re-authenticating rewrites them.
   APP_DEPLOY_MISSING_CLIENT_ID: `Could not determine your Brevo account's organization ID.\n\n  Run \`${CLI.LOGIN}\` to re-authenticate.`,
-  APP_DEPLOY_NON_INTERACTIVE:
-    'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
   APP_UPLOAD_DISTRIBUTION_IMMUTABLE: (current: string, next: string) =>
     `distribution_type cannot be changed via upload — this app is "${current}" on Brevo, but app-config.json says "${next}".\n  Edit \`distribution_type\` in app-config.json back to "${current}", or create a new ${next} app with \`${CLI.APP_CREATE}\`.`,
-
-  // App submit (BEX-221)
-  APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
-  APP_SUBMIT_FETCHING: 'Fetching app...',
-  APP_SUBMIT_PICK_APP: 'Which app do you want to submit for review?',
-  APP_SUBMIT_NO_APP_RESOLVED:
-    'Cannot determine which app to submit. Provide --app-id or run from a directory with app-config.json.',
-  APP_SUBMIT_NOT_FOUND: (appId: string): string => `App ${appId} not found.`,
-  APP_SUBMIT_NOT_PUBLIC: (appId: string): string =>
-    `App ${appId} is private. Private apps cannot be submitted for review. Only public apps are eligible for the approval process. Please make your app public before submitting it for review.`,
-  APP_SUBMIT_OUT_OF_SYNC: (fields: string[], appId: string): string =>
-    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
-  APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
-    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo:\n${diff}\n\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
-  APP_SUBMIT_IN_SYNC:
-    'No configuration mismatch detected. Showing the submission confirmation prompt with the complete app configuration below.',
-  APP_SUBMIT_CONFIRM_HEADER: 'You are about to submit this app for review:',
-  APP_SUBMIT_CONFIRM_PROMPT: 'Submit this app for review?',
-  APP_SUBMIT_CANCELLED: 'Submission cancelled.',
-  APP_SUBMIT_FORM_GATE:
-    'Note: Your app will be submitted for review only after you complete and submit the Google Form.',
-  APP_SUBMIT_BROWSER_OPENED: (url: string, appId: string): string =>
-    `We've opened a browser tab with the submission form for app ${appId}:\n  ${url}`,
-  APP_SUBMIT_BROWSER_FAILED: (url: string, appId: string): string =>
-    `We couldn't open a browser automatically. Open the submission form for app ${appId} yourself:\n  ${url}`,
-  APP_SUBMIT_NEXT_STEPS: `Please submit the form for review. You'll receive an email once your app has been reviewed — check its status anytime with \`${CLI.APP_STATUS}\`.`,
-  APP_SUBMIT_NO_FORM_URL: `Review submission is currently unavailable. This may happen if your app has not been uploaded yet or if it has already been submitted and is under review. You can check the current status of your app using \`${CLI.APP_STATUS}\`.`,
-
-  // App status
-  APP_STATUS_SELECT: 'Select an app:',
-  APP_STATUS_TITLE: 'App status',
-  // Canned copy per review state (server-side `app_submission_states.state`).
-  // Reviewer feedback is delivered by email, not surfaced here (BEX-252).
-  APP_STATUS_MESSAGE: (state: string): string => {
-    switch (state) {
-      // Empty/missing state is normalized to the "unknown" sentinel upstream
-      // (src/commands/app/status.ts); '' is kept as a defensive fallthrough.
-      case '':
-      case 'unknown':
-        return `Status information isn't available for your app yet. Make sure your app is public and has been uploaded with \`${CLI.APP_UPLOAD}\`.`;
-      case 'configured':
-        return "Your app is set up but hasn't been submitted for review yet.";
-      case 'submitted':
-        return 'Your app has been submitted and is waiting to be reviewed.';
-      case 'in_review':
-        return 'Your app is currently being reviewed by our team.';
-      case 'approved':
-        return 'Your app has been approved.';
-      case 'rejected':
-        return 'Your app was not approved. Check your email for details.';
-      case 'changes_requested':
-        return 'Changes have been requested for your app. Check your email for details.';
-      default:
-        return `Your app is in state "${state}".`;
-    }
-  },
-
-  // Legacy 'all' scope deprecation (BEX-214)
-  LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses in app-config.json's \`auth.scopes\`.\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then run \`${CLI.APP_UPLOAD}\` to migrate.`,
   LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_START('oauth')}\`.`,
   LEGACY_ALL_SCOPE_LIST_TAG: ` (legacy 'all' — deprecated)`,
   LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED: (writtenScopes: string): string =>
@@ -334,15 +212,6 @@ export const messages = {
   APP_DELETE_FOLDER_SUCCESS: (dir: string) => `Project folder deleted: ${dir}`,
   APP_DELETE_FOLDER_FAILED: (dir: string) => `Could not delete folder ${dir}. Remove it manually.`,
 
-  // App withdraw
-  APP_WITHDRAW_SELECT: 'Select an app to withdraw:',
-  APP_WITHDRAW_CONFIRM: (name: string, id: string) =>
-    `Withdraw app "${name}" (${id}) from submission?`,
-  APP_WITHDRAW_CANCELLED: 'Withdrawal cancelled.',
-  APP_WITHDRAW_SUCCESS: (id: string) => `App ${id} withdrawn from submission.`,
-  APP_WITHDRAW_NOT_SUBMITTED: (id: string) => `App ${id} has not been submitted yet.`,
-  APP_WITHDRAW_SUBMIT_HINT: (id: string) => `Submit it first: ${CLI.APP_SUBMIT(id)}`,
-
   // App scaffold
   APP_SCAFFOLD_DIR_PROMPT: 'Output directory:',
   APP_SCAFFOLD_DIR_EXISTS: 'Directory already exists. What would you like to do?',
@@ -352,7 +221,56 @@ export const messages = {
   APP_SCAFFOLD_FEATURE_EXISTS_OVERWRITE: 'Overwrite existing files',
   APP_SCAFFOLD_FEATURE_EXISTS_MERGE: 'Merge (keep existing, add missing)',
   APP_SCAFFOLD_FEATURE_EXISTS_CANCEL: 'Cancel',
-  APP_SCAFFOLD_NO_CONFIG: `No app-config.json found in this directory, so there is no app to scaffold a feature into. Run \`${CLI.APP_CREATE}\` to create an app here first, or cd into an existing project folder and try again.`,
+  // Three ways out, in the order they're likely to apply: the user is in the wrong
+  // directory, the user has an app but no project for it, or the user has no app.
+  // The middle one is the migration path off `brevo app update --app-id` and is the
+  // reason `--app-id` exists on this command at all — leaving it out of this message
+  // strands exactly the users who need it, since it appears in no help screen they
+  // would think to read.
+  APP_SCAFFOLD_NO_CONFIG: `No app-config.json found in this directory, so there is no app to scaffold a feature into.\n\n  - cd into an existing project folder and try again, or\n  - run \`${CLI.APP_SCAFFOLD_APP_ID()}\` to set this directory up for an app you already have (\`${CLI.APP_LIST}\` shows their IDs), or\n  - run \`${CLI.APP_CREATE}\` to create a new app here.`,
+  // Refuses rather than prompting: the two configs describe different apps, and every
+  // resolution (overwrite, merge, pick another directory) is a decision the user is
+  // better placed to make in their own shell than through a prompt that has to
+  // summarise what would be lost.
+  APP_SCAFFOLD_APP_ID_MISMATCH: (localAppId: string, requestedAppId: string) =>
+    `This directory is already linked to app ${localAppId}, so it can't be set up for app ${requestedAppId}.\n\n  Run \`${CLI.APP_SCAFFOLD}\` (no --app-id) to work on app ${localAppId}, or cd into an empty directory and run \`${CLI.APP_SCAFFOLD_APP_ID(requestedAppId)}\` there.`,
+  APP_SCAFFOLD_BOOTSTRAP_INTRO: (appId: string) => `Setting this directory up for app ${appId}...`,
+  // Said before the confirm, not merged into it: the picker that follows lists the
+  // account's apps, and a user who typed `scaffold` in the wrong directory needs to
+  // know why they are suddenly being shown that list. The confirm is what makes the
+  // list opt-in rather than something the command drops them into.
+  APP_SCAFFOLD_BOOTSTRAP_OFFER:
+    'No app-config.json in this directory, so there is no app to add a feature to.',
+  APP_SCAFFOLD_BOOTSTRAP_CONFIRM: 'Set this directory up for an app you already have?',
+  // Declining is a normal answer, not a failure — but the user still has an empty
+  // directory, so the two remaining routes go on screen instead of exiting silently.
+  APP_SCAFFOLD_BOOTSTRAP_DECLINED: `Nothing to do here yet.\n\n  - run \`${CLI.APP_CREATE}\` to create a new app in this directory, or\n  - cd into an existing project folder and run \`${CLI.APP_SCAFFOLD}\` there.`,
+  APP_SCAFFOLD_SELECT: 'Which app should this directory be set up for?',
+  // Refuses rather than bootstrapping a nested project. `readProjectConfig` reads cwd and
+  // does not walk up, so this is the only thing standing between a mistyped `cd` and a
+  // second app-config.json inside an existing project — after which `app upload` from that
+  // directory pushes the wrong app and says nothing.
+  APP_SCAFFOLD_INSIDE_PROJECT: (projectDir: string) =>
+    `This directory is inside the Brevo app project at ${projectDir}, so setting it up as a second project would nest one inside the other.\n\n  - cd ${projectDir} and run \`${CLI.APP_SCAFFOLD}\` there to work on that app, or\n  - cd to a directory outside it to set up a different app.`,
+  // A UI app's whole configuration is its `ui_app` block, so a record that comes back
+  // without one has nothing to bootstrap from. Says so explicitly rather than writing a
+  // config without the block: that config would read as a valid OAuth app (the block's
+  // presence is the type discriminator), and the next upload would push `auth` where
+  // `ui_app` belonged.
+  //
+  // This is an EDGE CASE, not the ordinary post-create state. An earlier version of this
+  // message asserted the platform stores the block "only once you run `app upload`" —
+  // that is false, and was corrected after reading app-store-bo-be: the CLI create
+  // handler's `persistCreateResultTx` inserts an `app_versions` row at version `0.0.1`
+  // *inside the create transaction*, with `Snapshot.UIApp` set from the request's block
+  // (`http_cli_create_app.go`), and `GET /cli/apps/{id}` serves the block straight back
+  // off the latest snapshot (`http_cli_get_app.go`). So a UI app created through this
+  // CLI is recoverable immediately, with no upload. What reaches this message is a
+  // record whose snapshot genuinely carries no UI block — an app predating that handler,
+  // or one created through another path — which is why the copy no longer explains the
+  // absence by blaming a missing upload.
+  APP_SCAFFOLD_BOOTSTRAP_UNRECOVERABLE: (appId: string) =>
+    `App ${appId} is a UI app, but the platform returned no \`ui_app\` configuration for it, so there is nothing to set this directory up from.\n\n  A UI app's configuration lives in the \`ui_app\` block of app-config.json. Normally the platform holds a copy from the moment the app is created, so this usually means the app was created outside this CLI, or before the platform stored the block.\n\n  - If you still have this app's project folder, cd into it and run \`${CLI.APP_UPLOAD}\` from there, or\n  - run \`${CLI.APP_CREATE}\` and choose "UI app" to author the configuration again.`,
   APP_SCAFFOLD_DIFF_INTRO: (name: string) =>
     `App "${name}" is linked here, but its local config differs from the server:`,
   APP_SCAFFOLD_DIFF_LINE: (field: string, local: string, server: string) =>
@@ -504,3 +422,13 @@ export const messages = {
   // General
   ABORTED: 'Aborted.',
 } as const;
+
+// ELIMINATION SITE — the raw global rather than `isFeatureAvailable`, so esbuild folds
+// the spread to `{}` and drops ./preview-messages entirely. `messages` is one object
+// literal, so a property can only be removed by removing the whole object it arrived in.
+// The `as typeof previewMessages` cast keeps every call site type-safe in both builds;
+// see that module for why the lie is safe.
+export const messages = {
+  ...coreMessages,
+  ...(__BREVO_PREVIEW__ ? previewMessages : ({} as typeof previewMessages)),
+};

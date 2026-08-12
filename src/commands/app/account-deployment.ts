@@ -4,7 +4,7 @@ import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import { readProjectConfig } from '../../lib/config';
 import { parseAccountId } from '../../lib/validators';
-import { accountService } from '../../container';
+import { accountService, appService } from '../../container';
 import { getCallerAccountId } from '../../services/app';
 import { createSpinner } from '../../lib/ui';
 import { SubAccount } from '../../types';
@@ -145,19 +145,44 @@ export async function resolveDeploymentTarget(
 }
 
 /**
- * Enforce the spec's installation-flow gate: an app must be validated by
+ * Enforce the installation-flow gate: an app must be validated by
  * `brevo app upload` before it can be deployed.
  *
- * `version` in app-config.json is only ever written by a successful upload, so
- * its absence is a reliable local signal — and catching it here avoids a wasted
- * round-trip. This is a pre-flight only: when the command runs outside a project
- * directory there is no local config to check, and the server's own rejection is
- * the authority.
+ * **This is the only gate that exists.** It was written as a pre-flight, on the
+ * assumption that the server would reject an unconfigured app with a 422 and was
+ * therefore the real authority. That assumption is false: the installs handler
+ * (`POST /apps/{id}/installs`, app-store-backend `http_create_integration_details.go`)
+ * resolves the app by UUID, checks the plan, and inserts — there is no configured/
+ * uploaded check anywhere on the path, so deploying a never-uploaded app answers
+ * `201` and renders nothing. Verified against `origin/main` (prod image 1.5.0).
+ *
+ * So the gate has to hold for every resolution path, not just the linked-project
+ * one it originally covered. `version` in app-config.json is only ever written by a
+ * successful upload, so a linked project is still answered locally with no round
+ * trip; `--app-id` and the interactive picker fall back to reading the app's
+ * server-side `version`, which the same upload is what creates.
+ *
+ * A read failure is deliberately NOT fatal: this is a guard against a silent
+ * no-op, and refusing to deploy because a GET was unavailable would be a worse
+ * failure than the one being prevented.
  */
-export function assertUploadedBeforeDeploy(): void {
+export async function assertUploadedBeforeDeploy(appId?: string): Promise<void> {
   const projectConfig = readProjectConfig();
-  if (!projectConfig) return;
-  if (!projectConfig.version?.trim()) {
+  if (projectConfig) {
+    if (!projectConfig.version?.trim()) {
+      throw new CliError(messages.APP_DEPLOY_NOT_UPLOADED);
+    }
+    return;
+  }
+  if (!appId) return;
+
+  let app;
+  try {
+    app = await appService.fetchApp(appId);
+  } catch {
+    return;
+  }
+  if (app && !app.version?.trim()) {
     throw new CliError(messages.APP_DEPLOY_NOT_UPLOADED);
   }
 }

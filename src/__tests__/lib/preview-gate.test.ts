@@ -1,0 +1,146 @@
+/**
+ * The gate as a user meets it (BEX-405): what `--help` shows, and what happens when
+ * a hidden command is invoked anyway.
+ *
+ * These build the real command tree the way `bin/index.ts` does, rather than testing
+ * `isFeatureAvailable` again — the unit coverage in `preview.test.ts` already owns
+ * the decision. What is worth asserting here is the wiring: that the decision reaches
+ * two independent renderers (the hand-aligned root screen and Commander's generated
+ * subcommand screen) and the parser, and that it reaches nothing else.
+ */
+import { Command } from 'commander';
+import { messages } from '../../lang/en';
+
+type Tree = {
+  program: Command;
+  rootHelp: string;
+  appHelp: string;
+};
+
+/**
+ * Build the command tree as a given build state would produce it.
+ *
+ * `isolateModules` is what makes this possible at all: `commands/definitions.ts`
+ * resolves its command list, `app create`'s description, the `--distribution` values
+ * and the example list at module load, all from `__BREVO_PREVIEW__`. Re-importing with
+ * the global flipped reproduces what esbuild bakes into each artifact, so both builds
+ * are covered by one test run without building twice.
+ */
+function buildTree(previewBuild: boolean): Tree {
+  const original = globalThis.__BREVO_PREVIEW__;
+  globalThis.__BREVO_PREVIEW__ = previewBuild;
+
+  let tree: Tree | undefined;
+  jest.isolateModules(() => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { createHelpFormatter } = require('../../lib/help');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { registerAll } = require('../../lib/command-registry');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const defs = require('../../commands/definitions');
+
+    const program = new Command();
+    program
+      .name('brevo')
+      .description('Brevo Developer CLI — create, manage, and test OAuth integrations')
+      .version('0.0.0-test')
+      .configureHelp({ formatHelp: createHelpFormatter(program) });
+    registerAll(program, defs.topLevelCommands, [defs.appCommandGroup, defs.skillCommandGroup]);
+
+    tree = {
+      program,
+      rootHelp: render(program),
+      appHelp: render(program.commands.find((c) => c.name() === 'app')!),
+    };
+  });
+  globalThis.__BREVO_PREVIEW__ = original;
+  return tree!;
+}
+
+function render(cmd: Command): string {
+  let captured = '';
+  cmd.configureOutput({ writeOut: (s) => (captured += s), writeErr: (s) => (captured += s) });
+  cmd.outputHelp();
+  return captured;
+}
+
+/** Every command the pre-GA gate covers, and the section heading it sits under. */
+const GATED = ['deploy', 'rollback', 'submit', 'status', 'withdraw'];
+const GATED_HEADINGS = ['App-deployment commands', 'App-review commands'];
+
+/** A representative ungated command per section, to prove the filter is not too wide. */
+const UNGATED = ['init', 'create', 'list', 'credentials', 'upload', 'delete', 'scaffold', 'start'];
+
+describe('the pre-GA gate, end to end', () => {
+  describe('a published (public) build', () => {
+    let tree: Tree;
+    beforeAll(() => {
+      tree = buildTree(false);
+    });
+
+    it.each(GATED)('hides `app %s` from `brevo app --help`', (name) => {
+      expect(tree.appHelp).not.toContain(` ${name} `);
+    });
+
+    it.each(GATED_HEADINGS)('drops the "%s" section from the root help', (heading) => {
+      expect(tree.rootHelp).not.toContain(heading);
+    });
+
+    it.each(UNGATED)('still lists `app %s`', (name) => {
+      expect(tree.appHelp).toContain(name);
+    });
+
+    // The flag is GA; only the `public` value is gated. Dropping the flag would be
+    // wrong — `--distribution private` is the documented default path.
+    it('keeps --distribution but narrows its advertised values', () => {
+      expect(tree.rootHelp).toContain('--distribution private]');
+      expect(tree.rootHelp).not.toContain('private|public');
+    });
+
+    it('stops advertising UI apps in the create description', () => {
+      expect(tree.rootHelp).toContain('Create a new OAuth app');
+      expect(tree.rootHelp).not.toMatch(/UI app/i);
+    });
+
+    it('drops the --distribution public example from `app create --help`', () => {
+      const createHelp = render(
+        tree.program.commands
+          .find((c) => c.name() === 'app')!
+          .commands.find((c) => c.name() === 'create')!,
+      );
+      expect(createHelp).toContain('--distribution private');
+      expect(createHelp).not.toContain('--distribution public');
+    });
+
+    // Not registered at all, so Commander answers `unknown command` rather than the
+    // typed refusal. That is the honest answer here and a deliberate change from the
+    // earlier runtime gate: with the modules eliminated at build time the command
+    // genuinely does not exist in this artifact, so claiming it exists-but-is-withheld
+    // would be the lie. The typed refusal survives only where a value must still be
+    // parsed and rejected — see `--distribution public` in create.test.ts.
+    it.each(GATED)('does not register `app %s`', (name) => {
+      const app = tree.program.commands.find((c) => c.name() === 'app')!;
+      expect(app.commands.find((c) => c.name() === name)).toBeUndefined();
+    });
+  });
+
+  describe('a preview build (PREVIEW=1 yarn link:dev)', () => {
+    let tree: Tree;
+    beforeAll(() => {
+      tree = buildTree(true);
+    });
+
+    it.each(GATED)('lists `app %s`', (name) => {
+      expect(tree.appHelp).toContain(name);
+    });
+
+    it.each(GATED_HEADINGS)('restores the "%s" section', (heading) => {
+      expect(tree.rootHelp).toContain(heading);
+    });
+
+    it('advertises both distribution values and the UI-app choice', () => {
+      expect(tree.rootHelp).toContain('private|public');
+      expect(tree.rootHelp).toMatch(/UI app/i);
+    });
+  });
+});

@@ -5,19 +5,23 @@ branch before merge to `main`. Covers **public and private apps**, the new comma
 **backward compatibility** (existing apps / older `app-config.json` files must keep working
 after upgrading the CLI).
 
-> This file is per-branch working state — delete it before merging to `main`
-> (same rule as `TODO.md` and the `## Per-branch verification` section of
-> `RELEASE-CHECKLIST.md`).
+> This file is per-branch working state — delete it before merging to `main`, the same
+> rule that applies to `RELEASE-CHECKLIST.md`'s `## Per-branch verification` section.
+> Anything here that must outlive the branch belongs in `docs.md` first.
 
-> **⚠️ Public apps are not available to end users yet**, so the shipped agent docs tell
-> AI agents not to create them (see `RELEASE-CHECKLIST.md`). **That does not apply to
-> QA.** Run the public-app cases below (create `--distribution public`, `app submit`,
-> `app status`, `app withdraw`) as written. Those docs skip the restriction for accounts
-> whose `brevo whoami` email ends in `@brevo.com` / `@sendinblue.com` — so **log in with
-> an internal account** when testing these cases. On a non-internal test account an AI
-> assistant will (correctly) push back; run the commands directly in that case. If an
-> end-to-end path isn't live in your environment yet, note it on the case rather than
-> skipping the whole section.
+> **⚠️ Public apps and UI apps are not in a published build (BEX-405).** Their commands
+> are eliminated at build time, so `app submit` / `app status` / `app withdraw` /
+> `app deploy` / `app rollback` answer `unknown command`, `--distribution public` is
+> refused, and the app-type prompt is never asked.
+>
+> **Build the CLI with `PREVIEW=1 yarn link:dev` before running any of those suites**
+> (2, 6, 7 and 12). Nothing else unlocks them — the interim `@brevo.com` /
+> `@sendinblue.com` account exception and `BREVO_ENABLE_PREVIEW=1` were both removed when
+> the guard moved into the build. Against a published build their refusals are the
+> correct result, not a bug.
+>
+> The rest of the suites run against either build. If an end-to-end path isn't live in
+> your environment yet, note it on the case rather than skipping the whole section.
 
 ---
 
@@ -118,6 +122,21 @@ brevo app create --name "QA Flags App" --distribution private \
 ---
 
 ## Suite 2 — `brevo app create`: public apps
+
+> **⚠️ BEX-405 changed the entry condition for this whole suite — read before running it.**
+> Public distribution is gated at **build time**. A published build (`npm i -g
+> @getbrevo/cli`, or plain `yarn build`) refuses `--distribution public` with *"That
+> command is not available yet…"*, exit `1`, and never asks the distribution prompt — it
+> goes straight to a private app.
+>
+> **Every case below requires a preview build: `PREVIEW=1 yarn link:dev`.** There is no
+> account, flag or environment variable that unlocks a published build — the
+> `@brevo.com` / `@sendinblue.com` exception and `BREVO_ENABLE_PREVIEW=1` both existed in
+> an interim version and were removed. Against a published build the correct result for
+> TC-2.1 is the refusal, not an app; that is not a bug to file.
+>
+> The platform *also* refuses public creates from the CLI, so even a preview build may hit
+> the server's own rejection (TC-2.4).
 
 ### TC-2.1 — Create a public app with the flag
 **Priority:** High
@@ -221,10 +240,26 @@ brevo app create --name "QA Flags App" --distribution private \
 
 ## Suite 5 — `brevo app upload` (replaces `brevo app update`)
 
-### TC-5.1 — `brevo app update` is gone
+### TC-5.1 — `brevo app update` is gone, and says so
 **Priority:** High
-**Steps:** `brevo app update --help` and `brevo app update`.
-**Expected:** Unknown-command error (help lists no `update`). `brevo --help` shows `upload`, not `update`. Exit non-zero.
+**Steps:** Run each of:
+- `brevo app update`
+- `brevo app update --name "My App" --redirect-uri http://localhost:3009/auth/callback`
+- `brevo app update --app-id 42 --scope contacts:read --logo-uri https://example.com/logo.png`
+- `brevo app update --help`
+- `brevo app help update`
+- `brevo app update --json`
+- `brevo app update` while **logged out** (`brevo logout` first)
+
+**Expected:** Every one prints the same removal message — it names `brevo app upload`, states that `upload` takes only `--yes`/`--json`, and says to edit `app-config.json` instead of reaching for a flag. Exit `1` in all cases. Specifically:
+- **No** `unknown command 'update'` and **no** `(Did you mean create?)`.
+- **No** `unknown option '--name'` (or any other removed flag) — the flags are swallowed, the message is what comes back.
+- Neither `--help` nor `brevo app help update` prints a usage screen, and neither exits `0`. (`brevo app help create` must still print `create`'s help and exit `0` — the help command itself is untouched.)
+- `--json` writes the `{"error":{"name":"CliError",…,"exitCode":1}}` envelope to stdout.
+- Logged out, it still prints the removal message — **not** `Not authenticated`.
+- **Nothing is uploaded.** It is a signpost, not a forwarding shim; no API call is made.
+
+**Also:** `brevo --help` and `brevo app --help` list `upload` and mention no `update` at all (it is registered hidden).
 
 ### TC-5.2 — `upload` outside a usable project dir → hard error, no API call
 **Priority:** High
@@ -554,7 +589,7 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 ### TC-11.4 — Docs match behaviour
 **Priority:** Medium
 **Steps:** Skim `agent-context/AGENTS.md` and `agent-context/SKILL.md`.
-**Expected:** They describe `upload` (no `--app-id`, only `--yes`/`--json`), `status`, `withdraw`, `--distribution public`, the create/scaffold split, and the `version` field — and do **not** mention `brevo app update`.
+**Expected:** They describe `upload` (no `--app-id`, only `--yes`/`--json`), `status`, `withdraw`, `--distribution public`, the create/scaffold split, and the `version` field. `brevo app update` appears **only** as removed — the migration note pointing at `upload` — never as a command an agent could run.
 
 ### TC-11.5 — Agent docs cover the full current command surface (US-6)
 **Priority:** High
@@ -568,10 +603,12 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 
 **Expected:** Every item above is present in **both** files. Exit criteria is a documentation review, not a command run.
 
-### TC-11.6 — No stale `app update` reference in agent docs (US-6)
+### TC-11.6 — `app update` appears in agent docs only as removed (US-6)
 **Priority:** High
 **Steps:** `grep -n "app update" agent-context/AGENTS.md agent-context/SKILL.md`.
-**Expected:** **No matches** — the removed `brevo app update` command is not mentioned in either file.
+**Expected:** Matches **only** inside the migration note in each file — `AGENTS.md`'s *There is no `brevo app update`* bullet under **Conventions**, and the tail of `SKILL.md`'s *"Update app metadata"* decision-tree row. Both say it was removed, name `brevo app upload` as the replacement, and describe the `exit 1` / nothing-uploaded behaviour.
+
+> **Why this changed:** this case previously expected **no matches at all**. The command is now registered hidden purely to print a signpost, so an agent that meets a stale `brevo app update` in a user's script needs to recognise the `exit 1` and know the fix. What must stay absent is the command presented as *usable* — no command-table row, no example, no decision-tree entry recommending it. Grep hits are fine; a hit that reads like an instruction to run it is a fail.
 
 ### TC-11.7 — Agent docs stay consistent with each other (US-6)
 **Priority:** Medium
@@ -584,9 +621,11 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 
 ## 12 — UI apps / action links (BEX-290)
 
-> **⚠️ UI apps are not available to end users yet**, so the shipped agent docs tell AI
-> agents not to create them. **That does not apply to QA** — same internal-account rule
-> as the public-app note at the top. Run these cases directly.
+> **⚠️ UI apps are not available to end users yet**, and BEX-405 removes them from the
+> published build entirely — `app deploy` / `app rollback` answer `unknown command` and
+> the app-type prompt is never asked. **Every case below requires a preview build:
+> `PREVIEW=1 yarn link:dev`**, the same entry condition as the public-app suite. No
+> account or env var unlocks a published build.
 >
 > **Field names in the `ui_app` block are confirmed** against the platform
 > (its manifest read path and its extensibility UI kit — BEX-308 / BEX-350). What is
@@ -613,7 +652,9 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 > to the rows it already holds, which are a superset. Only the first call aborts.
 >
 > **The block shape changed (BEX-290).** `surface_point_list` is now a list of
-> `{ surface_point, context? }` objects, the text fields are `label` / `more_info` (was
+> `{ surface_point_name, context? }` objects — the key takes the registry's **kebab-case
+> slug** (`contact-details-header-menu`), not the dotted slot name — the text fields are
+> `label` / `more_info` (was
 > `heading` / `subheading`), there is no top-level `context`, and `link_target` is no
 > longer in `app-config.json` at all — `brevo app upload` injects `_blank`. A config
 > written by an earlier build of this branch is **rejected** by upload with a migration
@@ -632,13 +673,17 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Priority:** High
 **Preconditions:** BEX-361 endpoint available (see the section preamble).
 **Steps:** `brevo app create`, choose **UI app**, and walk the whole flow.
-**Expected:** The order is **"Do you want to add a link or an iframe?"** → "Which record pages should it appear on?" → "Where should it appear on those pages?" → "Label — …" → "More info — … (optional)" → "Redirect link — …". Five questions, one optional. The first lists **Link** as selectable and **Iframe** as visibly disabled ("coming soon"), and the disabled entry cannot be selected. There is **no** "How should it appear on those pages?" (kind) question, **no** separate "Where on those pages?" (place) question, and **no** record-context question anywhere.
+**Expected:** The order is **"Do you want to add a link or an iframe?"** → "Which record pages should it appear on?" → "Where should it appear on those pages?" (one prompt **per picked page** — see TC-12.2c) → "Label — …" → "More info — … (optional)" → "Redirect link — …" → **"App logo URL"** (optional) → "Output directory". The logo and output-directory prompts are easy to miss when scripting the walkthrough: they belong to the shared create flow rather than the UI-app one, so they come after every UI-specific question. The first lists **Link** as selectable and **Iframe** as visibly disabled ("coming soon"), and the disabled entry cannot be selected. There is **no** "How should it appear on those pages?" (kind) question, **no** separate "Where on those pages?" (place) question, and **no** record-context question anywhere.
 
-### TC-12.2c — The single grouped placement prompt
+### TC-12.2c — One single-select placement prompt per picked page
 **Priority:** High
 **Preconditions:** BEX-361 endpoint available.
 **Steps:** `brevo app create` → **UI app** → **Link** → tick **contact** and **deal** at the pages prompt.
-**Expected:** ONE placement prompt listing every placement on both pages, grouped under a separator per page (`contact`, then `deal`). Choices read as page regions plus the shape they render as — e.g. `Header "More" (•••) menu — menu entry`, `Sidebar — card`. **No kebab-case slug** (like `contact-details-header-menu`) appears anywhere in the prompt. Ticking a menu entry on one page and a card on the other is allowed — one app can mix both. Submitting with nothing ticked is refused ("Pick at least one spot"), and ticking spots on only *one* of the two pages is also refused, naming the page with nothing selected. If a page offers exactly one placement, it comes pre-ticked.
+**Expected:** **One prompt per picked page**, asked in turn — a `contact` placement prompt, then a `deal` one — each a **single-select list**, not a checkbox. Choices read as page regions plus the shape they render as — e.g. `Header "More" (•••) menu — menu entry`, `Sidebar — card`. **No kebab-case slug** (like `contact-details-header-menu`) appears anywhere in the prompt. Picking a menu entry on one page and a card on the other is allowed — one app can mix both.
+
+One placement per page is enforced *structurally*: a single-select cannot be left empty and cannot take two values, so there is no "pick at least one spot" or "you missed a page" validation message to see — those were deleted along with the grouped prompt. Note the platform is more permissive than this (it rejects only a *duplicate* slot), so a hand-edited config with two spots on one page still uploads; the single-per-page rule is the CLI's, and is deliberate.
+
+A page the registry offers no usable placement on is **skipped with a warning** rather than prompted for — the page prompt cannot know in advance, because a location listing carries no extension-type information.
 
 ### TC-12.2b — UI-app create aborts when the surface-points fetch fails
 **Priority:** High
@@ -656,7 +701,7 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Priority:** High
 **Preconditions:** BEX-361 endpoint available.
 **Steps:** Complete the UI-app flow — **Link**, one or more record pages, one or more placements, then a label, a `more_info` line and a redirect link (`https://…`).
-**Expected:** A "UI app created" box shows extension type, each placement with its seeded record context, the label, more info and redirect link — and **no** `Redirect URL` lines. It states that the menu entry is labelled with **the label you typed**, and that on a card that text becomes the button while the card's *title* is the app name. It also prints an **example URL** — the redirect link with the seeded context fields as query parameters and placeholder values. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extension_type: "actionLink"`, `surface_point_list` (a list of `{ surface_point, context? }` **objects**), `label`, `more_info`, `redirect_link` — and **no** `link_target`, `heading`, `subheading`, top-level `context`, `properties`, `trigger`, `surface`, `placement` or `contextProperties` keys. Every context field name is one of `recordId`, `recordName`, `userId`, `locale`, `accountId`. `auth` is exactly the empty object `{}` — **no** `scopes`, **no** `redirectUris`, **no** `type` key — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
+**Expected:** A "UI app created" box shows extension type, each placement with its seeded record context, the label, more info and redirect link — and **no** `Redirect URL` lines. It states that the menu entry is labelled with **the label you typed**, and that on a card that text becomes the button while the card's *title* is the app name. It also prints an **example URL** — the redirect link with the seeded context fields as query parameters and placeholder values. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extension_type: "actionLink"`, `surface_point_list` (a list of `{ surface_point_name, context? }` **objects**, the name being the registry's kebab-case slug), `label`, `more_info`, `redirect_link` — and **no** `link_target`, `heading`, `subheading`, top-level `context`, `properties`, `trigger`, `surface`, `placement` or `contextProperties` keys. Every context field name is one of `recordId`, `recordName`, `userId`, `locale`, `accountId`. `auth` is exactly the empty object `{}` — **no** `scopes`, **no** `redirectUris`, **no** `type` key — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
 
 ### TC-12.3b — Record context is seeded per placement, and reaches the URL as query params
 **Priority:** High
@@ -668,7 +713,7 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Priority:** High
 **Preconditions:** TC-12.3 done; ability to observe the request.
 **Steps:** `brevo app upload` from the project directory.
-**Expected:** The summary includes a `UI app:` block listing extension type, each placement with its context, label, more info and redirect link, plus a `Link target: _blank (added on upload; not a field in app-config.json)` row — and **no** "Redirect URLs" row. The payload carries the block under the **`ui_app`** key **with `link_target: "_blank"` added**, alongside `version`/`name`/`logo_uri`, and has **no `auth` key at all** (UI apps carry no OAuth block). The server accepts it; `Version:` is printed and written back to `app-config.json` with `auth` restored as exactly the empty object `{}`. **Critically: `app-config.json` must still have no `link_target` afterwards** — the server defaults and echoes that field, and the write-back strips it.
+**Expected:** The summary includes a `UI app:` block listing extension type, each placement with its context, label, more info and redirect link — and **no** "Redirect URLs" row, and **no** `Link target:` row (that row was deliberately removed; `link_target` is injected into the payload but is not a field the partner authors, so showing it in a local-vs-server diff only invited someone to try editing it). The payload carries the block under the **`ui_app`** key **with `link_target: "_blank"` added**, alongside `version`/`name`/`logo_uri`, and has **no `auth` key at all** (UI apps carry no OAuth block). The server accepts it; `Version:` is printed and written back to `app-config.json` with `auth` restored as exactly the empty object `{}`. **Critically: `app-config.json` must still have no `link_target` afterwards** — the server defaults and echoes that field, and the write-back strips it.
 
 ### TC-12.5 — Editing only the block is detected as a change
 **Priority:** High
@@ -688,16 +733,25 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 ### TC-12.6 — Extension-point validation (the silent-failure guard)
 **Priority:** High
 **Why this matters:** the platform *drops* an unregistered slot name and the UI kit matches names by exact string equality — both silently. These rejections are the only place a bad name is ever reported.
+**A slot has two names, and the authored one is the slug.** Each registry row carries a dotted `extension_point_name` (`contactDetails.headerMenu.action`) *and* a kebab-case `surface_point_name` slug (`contact-details-header-menu`), 1:1. The authored key is **`surface_point_name`** and it takes the **slug**. The dotted form is what renders and what every spec quotes, which makes it the natural thing to try — and authoring it is rejected. Watch for that specifically.
+
+**The CLI no longer holds a list of valid slot names.** Local validation is deliberately *shape-only*; the registry is the sole authority, so an unregistered name passes locally and is rejected by the **server**. Do not expect "Unknown extension point" from the CLI — that local mirror was removed because a copy can only lag the registry, and it failed in both directions.
+
 **Steps:** For each, set `ui_app.surface_point_list` and run `brevo app upload`:
-1. `[{"surface_point":"contact.header.action"}]` — the pre-BEX-350 grammar
-2. `[{"surface_point":"contact.headerMenu.action"}]` — record type instead of the page name
-3. `[{"surface_point":"contactdetails.headerMenu.action"}]` — wrong casing
-4. `[{"surface_point":"contactDetails.overviewMain.widget"}]` — a widget slot for an action link
+1. `[{"surface_point_name":"contactDetails.headerMenu.action"}]` — the dotted name where the slug belongs
+2. `[{"surface_point_name":"contact-header"}]` — a slug with no registry row
+3. `[{"surface_point_name":""}]` — blank
+4. `[{"surface_point":"contact-details-header-menu"}]` — the pre-rename key
 5. `[]` — empty list
-6. the same `surface_point` twice — duplicates
-7. `[{"surface_point":"contactDetails.headerMenu.action","context":"recordId"}]` — context not an array
-8. `[{"surface_point":"contactDetails.headerMenu.action","context":["recordId","recordId"]}]` — duplicated context field
-**Expected:** Each fails before any network call, naming the field; exit `1`. Cases 1–3 report "Unknown extension point" and list the valid registry. Case 4 is **accepted** — a widget slot renders an action link as a card, so there is no kind rule to break. Case 5 asks for at least one placement; 6 reports duplicates; 7–8 name the offending entry's `context`.
+6. the same `surface_point_name` twice — duplicates
+7. `[{"surface_point_name":"contact-details-header-menu","context":"recordId"}]` — context not an array
+8. `[{"surface_point_name":"contact-details-header-menu","context":["recordId","recordId"]}]` — duplicated context field
+
+**Expected:** Split by who rejects them.
+
+- **Cases 1 and 2 reach the server** — they are well-formed strings, so the CLI sends them. The upload endpoint answers **400**, naming the offending slot(s) (`ui_app.surface_point_list contains unregistered extension point(s)`). Exit `1`. This is the intended division of labour, not a missing check.
+- **Cases 3–8 fail locally**, before any network call, naming the field; exit `1`. (3) blank slot name; (4) entries must carry `surface_point_name` — the bare `surface_point` spelling is used nowhere and should be reported as an unrecognised entry shape; (5) at least one placement; (6) duplicate slots; (7)–(8) the offending entry's `context`.
+- A **widget** slot is **accepted** for an action link — it renders as a card, so there is no kind rule to break.
 
 ### TC-12.7 — Deploy to an account, and the action link renders
 **Priority:** High
@@ -715,15 +769,19 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Steps:** In a UI-app project whose `app-config.json` has no `version` (or a freshly created, never-uploaded app), run `brevo app deploy <account-id>`.
 **Expected:** Refuses with "Please first validate your configuration with `brevo app upload`"; exit `1`; nothing deployed.
 
-### TC-12.10 — Remove from an account, and idempotency
+### TC-12.10 — Roll back from an account, and idempotency
 **Priority:** High
-**Steps:** `brevo app remove <account-id>` on a deployed app; then run it again.
-**Expected:** First run: "App … removed from account …", entry gone from the record. Second run: reports the app is not deployed to that account and exits **`0`** (not an error). Under `--json`: `{"removed": false, "reason": "NOT_DEPLOYED", …}`.
+**Steps:** `brevo app rollback <account-id>` on a deployed app; then run it again.
+**Expected:** First run: the app is rolled back from the account and the entry is gone from the record. Second run: reports the app is not deployed to that account and exits **`0`** (not an error). Under `--json`: `{"rolledBack": false, "reason": "NOT_DEPLOYED", …}`.
+
+Note the second run relies on the uninstall route answering **404** for both "no such install" and "no such app" — it has no `installation_id` to delete by, so it cannot distinguish them. `rollback` therefore maps *any* 404 to this informational path. Do not treat a 404 here as a failure.
 
 ### TC-12.11 — Field validation and account-ID validation
 **Priority:** Medium
 **Steps:** (a) set `ui_app.redirect_link` to `http://example.com/x` and upload; (b) set it to `http://localhost:3000/x` and upload; (c) blank `ui_app.label` and upload; (d) set `ui_app.label` to 49 characters and upload; (e) set `ui_app.more_info` to 256 characters and upload; (f) add `ui_app.modal_iframe_url` and upload; (g) `brevo app deploy abc`; (h) `brevo app deploy` with no argument.
-**Expected:** (a) rejected — must use https; (b) **accepted** (loopback exemption); (c) rejected — label cannot be empty; (d) rejected — at most 48 characters; (e) rejected — at most 255 characters; (f) rejected — only used by `iframeExtension`; (g) "not a numeric Brevo account ID"; (h) "Missing account ID" + usage. All rejections exit `1` with no API call. Also check the prompts themselves reject (c)–(e) during `brevo app create`, before anything is written.
+**Expected:** (a) rejected — must use https; (b) **accepted** (loopback exemption); (c) rejected — label cannot be empty; (d) rejected — at most 48 characters; (e) rejected — at most 255 characters; (f) rejected — only used by `iframeExtension`; (g) "not a numeric Brevo account ID". Rejections (a)–(g) exit `1` with no API call. Also check the prompts themselves reject (c)–(e) during `brevo app create`, before anything is written.
+
+(h) is **not** an error: `[account-id]` is optional on both `deploy` and `rollback`. Omitted, the target resolves from the authenticated account — a plain account deploys into itself with no prompt (so `--json`/CI still work), a corporate account is offered a picker of its sub-accounts. Expect a successful deploy into your own account, not "Missing account ID". The explicit positional is still checked first and remains the only way to reach an account the listing won't show, notably a deactivated sub-account.
 
 ### TC-12.12 — A UI app cannot be created non-interactively
 **Priority:** High

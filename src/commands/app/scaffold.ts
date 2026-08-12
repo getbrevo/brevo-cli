@@ -18,7 +18,15 @@ import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { loadBaseTemplates, loadFeatureTemplates, FeatureType } from '../../templates';
 import { containsLegacyAllScope } from '../../lib/validators';
-import { readProjectConfig, ProjectConfig, isUiAppConfig } from '../../lib/config';
+import {
+  readProjectConfig,
+  findEnclosingProjectDir,
+  ProjectConfig,
+  isUiAppConfig,
+} from '../../lib/config';
+import { resolveFromRecord } from '../../app-types';
+import { stripUiAppWireOnlyKeys } from '../../app-types/wire';
+import { promptAppSelection } from './select-app';
 import { OAuthApp, UiApp } from '../../types';
 
 interface TreeNode {
@@ -155,7 +163,19 @@ export async function fetchAppContext(
 // callers/tests that compare against `{ targetDir, mergeOnly, chooseAgain }`
 // via `toEqual` keep working unmodified (`toEqual` ignores undefined keys).
 export type ResolveProjectDirectoryResult =
-  | { targetDir: string; mergeOnly: boolean; chooseAgain: boolean; unresolved?: false }
+  | {
+      targetDir: string;
+      mergeOnly: boolean;
+      chooseAgain: boolean;
+      /**
+       * Whether `targetDir` was already on disk when the decision was taken.
+       * `applyProjectDirectory` needs it to know whether to `mkdir`, and it cannot
+       * re-test with `existsSync` because by then the answer may be "yes, because
+       * we just made it".
+       */
+      existed: boolean;
+      unresolved?: false;
+    }
   | { targetDir: string; unresolved: true };
 
 export async function resolveProjectDirectory(
@@ -177,14 +197,10 @@ export async function resolveProjectDirectory(
         ])
       ).outputDir as string);
   const targetDir = path.resolve(outputDir);
+  const existed = fs.existsSync(targetDir);
 
-  if (!fs.existsSync(targetDir)) {
-    if (!jsonMode) {
-      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
-    }
-    fs.mkdirSync(targetDir, { recursive: true });
-    process.chdir(targetDir);
-    return { targetDir, mergeOnly: false, chooseAgain: false };
+  if (!existed) {
+    return { targetDir, mergeOnly: false, chooseAgain: false, existed: false };
   }
 
   // --json can't ask "Overwrite / Merge / Choose a different path" either —
@@ -206,15 +222,48 @@ export async function resolveProjectDirectory(
     },
   ]);
   if (action === 'new') {
-    return { targetDir, mergeOnly: false, chooseAgain: true };
+    return { targetDir, mergeOnly: false, chooseAgain: true, existed: true };
   }
-  if (targetDir === process.cwd()) {
-    logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
-  } else {
-    logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
+  return { targetDir, mergeOnly: action === 'merge', chooseAgain: false, existed: true };
+}
+
+/**
+ * Perform the directory decision taken by `resolveProjectDirectory` — create it if
+ * needed, announce it, and move into it.
+ *
+ * Split out from the resolve step because the two halves have opposite ordering
+ * constraints in `app create`. The *decision* has to happen before the app is
+ * registered, so that abandoning a prompt (Ctrl-C at "Output directory:") cannot
+ * leave an app stranded on the server with no project. The *mutation* has to happen
+ * after, because until the create returns there may be no app to build a project
+ * for — and a create can fail for reasons no amount of local validation predicts (a
+ * plan quota `403`, a dropped connection, an unmapped `400`). Doing both up front
+ * meant every one of those failures left a directory behind and the process `chdir`'d
+ * into it, so the user's next command ran somewhere they had not chosen.
+ *
+ * A no-op for the two results that describe no directory to apply: an unresolved
+ * `--json` conflict, and `chooseAgain`, which is the caller being asked to loop.
+ */
+export function applyProjectDirectory(
+  decision: ResolveProjectDirectoryResult,
+  jsonMode = false,
+): void {
+  if (decision.unresolved || decision.chooseAgain) return;
+
+  const { targetDir, existed } = decision;
+  if (!existed) {
+    if (!jsonMode) {
+      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
+    }
+    fs.mkdirSync(targetDir, { recursive: true });
+  } else if (!jsonMode) {
+    if (targetDir === process.cwd()) {
+      logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
+    } else {
+      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
+    }
   }
   process.chdir(targetDir);
-  return { targetDir, mergeOnly: action === 'merge', chooseAgain: false };
 }
 
 export async function promptFeatureType(interactive: boolean): Promise<FeatureType> {
@@ -575,18 +624,137 @@ async function resolveScaffoldPlan(
   return { cancelled: false, appId, ctx, refreshBase: true };
 }
 
+// Set an empty directory up for an app that already exists on the platform.
+//
+// Unlike `resolveScaffoldPlan` there is nothing local to diff against, so there is
+// no drift question to ask and `refreshBase` is unconditionally true — writing
+// app-config.json is the point of the command in this mode, not a side effect of
+// consenting to a refresh.
+//
+// This is also the one place the *server* is authoritative about the app type.
+// `fetchAppContext` deliberately ignores `appDetails.ui_app` and takes the block
+// from its caller, because its two original callers both knew the type locally and
+// stale server data must not reclassify an app. Bootstrapping knows nothing
+// locally — that is its premise — so the server's answer is the only one there is,
+// and taking it is the same choice those callers made, not an exception to it.
+async function resolveBootstrapPlan(appId: string, jsonMode: boolean): Promise<ScaffoldPlan> {
+  if (!jsonMode) logInfo(messages.APP_SCAFFOLD_BOOTSTRAP_INTRO(appId));
+  const probe = await fetchAppContext(appId, jsonMode);
+  const record = probe.appDetails;
+
+  // Refuse before writing anything when the server cannot answer with enough to rebuild
+  // a complete app-config.json. Today that means exactly one case: a UI app created but
+  // never uploaded, whose `ui_app` block the read endpoint sources from the latest upload
+  // snapshot and so returns empty.
+  //
+  // It has to be a refusal rather than a partial write, because the omission is invisible.
+  // The presence of `ui_app` IS the app-type discriminator, so a config written without it
+  // does not read as an incomplete UI app — it reads as a perfectly valid OAuth one, and
+  // the next `app upload` pushes an `auth` block where `ui_app` belonged.
+  //
+  // Asked of the app type rather than tested inline as `!record.ui_app`, so a third type
+  // answers the same question instead of needing someone to find this branch by hand.
+  // Skipped entirely when there is no record at all: that is a fetch failure, which
+  // `fetchAppContext` has already reported on its own terms.
+  const appType = resolveFromRecord(record);
+  if (record && !appType.recoverableFromRecord(record)) {
+    throw new CliError(messages.APP_SCAFFOLD_BOOTSTRAP_UNRECOVERABLE(appId));
+  }
+
+  // Strip the keys the platform owns before the block reaches app-config.json — it
+  // injects `link_target`, manages the snapshot `version`, and stamps the dotted
+  // `extension_point_name` onto every entry. None is authored, and writing one into the
+  // file puts a value there that the very next `app upload` rejects as an unknown key.
+  // Same owner the upload diff and write-back use; see `src/app-types/wire.ts`.
+  const serverUiApp = record?.ui_app ? stripUiAppWireOnlyKeys(record.ui_app) : undefined;
+  const ctx = serverUiApp ? { ...probe, uiApp: serverUiApp } : probe;
+  return { cancelled: false, appId, ctx, refreshBase: true };
+}
+
+/**
+ * Which app should an empty directory be set up for?
+ *
+ * `--app-id` wins when given — it is the non-interactive entry point and the migration
+ * path off `brevo app update --app-id <id>`. Without it, an interactive run picks from
+ * the account's apps, because a user who has lost their project folder (fresh clone, new
+ * laptop, a create that ran in CI) has the app but not necessarily its ID.
+ *
+ * Falls back to the no-config error whenever prompting is impossible — under `--json` or
+ * off a TTY — rather than picking an app on the user's behalf. That error already names
+ * `--app-id`, which is the answer for those cases.
+ */
+async function resolveBootstrapAppId(
+  requestedAppId: string | undefined,
+  jsonMode: boolean,
+): Promise<string | undefined> {
+  if (requestedAppId) return requestedAppId;
+  if (jsonMode || !process.stdin.isTTY) {
+    throw new CliError(messages.APP_SCAFFOLD_NO_CONFIG);
+  }
+  // Asked before the picker rather than opening straight into it. Bootstrapping is
+  // not what `scaffold` normally does, and the most common way to arrive here is a
+  // mistyped `cd` — for that user the list of their apps is a non-sequitur, and the
+  // useful answer is "no". Returning `undefined` for a decline keeps that a normal
+  // outcome rather than an error the caller has to recognise.
+  logInfo(messages.APP_SCAFFOLD_BOOTSTRAP_OFFER);
+  const { useExisting } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'useExisting',
+      message: messages.APP_SCAFFOLD_BOOTSTRAP_CONFIRM,
+      default: true,
+    },
+  ]);
+  if (!useExisting) return undefined;
+  const { appId } = await promptAppSelection(messages.APP_SCAFFOLD_SELECT);
+  return appId;
+}
+
 export const scaffoldCommand = withCommandHandler(
-  async (options: { json?: boolean; overwrite?: boolean }): Promise<void> => {
+  async (options: { json?: boolean; overwrite?: boolean; appId?: string }): Promise<void> => {
     const jsonMode = !!options.json;
     const overwrite = !!options.overwrite;
+    const requestedAppId = options.appId?.trim() || undefined;
 
-    // Scaffolding a feature only makes sense inside an already-created project.
+    // Scaffolding a feature only makes sense inside an already-created project —
+    // unless we are setting the directory up for an app that already exists, either
+    // named by `--app-id` or chosen from the picker.
     const localConfig = readProjectConfig();
+
+    // Everything below until the plan is the bootstrap branch's own pre-flight.
+    let bootstrapAppId: string | undefined;
     if (!localConfig) {
-      throw new CliError(messages.APP_SCAFFOLD_NO_CONFIG);
+      // `readProjectConfig` reads cwd and deliberately does not walk up, which makes a
+      // directory one level inside a project indistinguishable from an empty one
+      // outside it. They must not get the same answer: bootstrapping into `myapp/src/`
+      // would leave a second app-config.json nested in the first, after which
+      // `app upload` from that directory pushes the wrong app with no warning. Checked
+      // before the picker so the user is told what is wrong rather than being asked to
+      // choose an app the command will not use.
+      const enclosingProject = findEnclosingProjectDir();
+      if (enclosingProject) {
+        throw new CliError(messages.APP_SCAFFOLD_INSIDE_PROJECT(enclosingProject));
+      }
+      bootstrapAppId = await resolveBootstrapAppId(requestedAppId, jsonMode);
+      // Declined the offer: nothing to scaffold and nothing went wrong, so exit 0
+      // with the remaining routes on screen rather than raising the no-config error
+      // the user has just been shown a friendlier version of.
+      if (!bootstrapAppId) {
+        logInfo(messages.APP_SCAFFOLD_BOOTSTRAP_DECLINED);
+        return;
+      }
     }
 
-    const plan = await resolveScaffoldPlan(localConfig, jsonMode);
+    // Checked before any fetch or write: pointing `--app-id` at a directory that
+    // belongs to another app is a mistake worth catching for free, and a bootstrap
+    // here would overwrite that app's app-config.json with a different app's.
+    if (localConfig && requestedAppId && localConfig.appId !== requestedAppId) {
+      throw new CliError(messages.APP_SCAFFOLD_APP_ID_MISMATCH(localConfig.appId, requestedAppId));
+    }
+
+    const plan = localConfig
+      ? await resolveScaffoldPlan(localConfig, jsonMode)
+      : await resolveBootstrapPlan(bootstrapAppId!, jsonMode);
     if (plan.cancelled) {
       if (jsonMode) {
         jsonOutput({
@@ -607,7 +775,12 @@ export const scaffoldCommand = withCommandHandler(
     // an action link. `app scaffold` degrades to a base-config refresh so the
     // command still has a use inside a UI-app project, instead of offering an
     // OAuth test server the app can't use.
-    if (isUiAppConfig(localConfig)) {
+    //
+    // Bootstrapping has no local config to classify, so it falls back to the block
+    // `resolveBootstrapPlan` read off the server; the two agree on the linked path,
+    // where `ctx.uiApp` is the local block by construction.
+    const isUiApp = localConfig ? isUiAppConfig(localConfig) : Boolean(ctx.uiApp);
+    if (isUiApp) {
       const base = refreshBase ? runBaseScaffold(appId, ctx, targetDir, false) : null;
       if (jsonMode) {
         jsonOutput({

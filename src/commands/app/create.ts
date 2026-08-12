@@ -9,6 +9,7 @@ import { ApiError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName } from '../../lib/validators';
+import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 import { printBox, createSpinner } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
 import {
@@ -17,6 +18,7 @@ import {
   runBaseScaffold,
   runFeatureScaffold,
   resolveProjectDirectory,
+  applyProjectDirectory,
   promptFeatureType,
   reportBaseScaffoldSuccess,
   reportScaffoldSuccess,
@@ -97,7 +99,15 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
 export type AppType = 'oauth' | 'ui';
 
 async function resolveAppType(interactive: boolean): Promise<AppType> {
-  if (!interactive) {
+  // A UI app is only reachable through this prompt (there is no `--type` flag), so
+  // gating the feature means not asking at all rather than asking and refusing.
+  // Skipping the prompt outright restores the exact pre-BEX-290 flow — one fewer
+  // question, straight to an OAuth app — instead of showing a one-item list.
+  // ELIMINATION SITE — the raw global, not `isFeatureAvailable('ui-app-type')`. esbuild
+  // cannot fold a function call, so the helper alone would leave this branch live and
+  // keep the whole UI-authoring layer (registry reads, placement prompts, the summary
+  // box) in the published bundle. Checked first so the rest folds away with it.
+  if (!__BREVO_PREVIEW__ || !interactive || !isFeatureAvailable('ui-app-type')) {
     return 'oauth';
   }
   const answer = await inquirer.prompt([
@@ -116,10 +126,23 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
 
 // 2. Distribution type
 async function resolveDistribution(distributionFlag: string | undefined): Promise<string> {
+  // Public distribution is pre-GA (BEX-405). The flag keeps validating against the
+  // full set so `--distribution public` still fails as an *unreleased feature* rather
+  // than as an unknown value — the second would be a lie, and would send the user
+  // looking for a typo. `validateEnum` runs first so a genuine typo still gets the
+  // "invalid value" error it deserves.
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
+  if (distributionFlag === 'public') {
+    assertFeatureAvailable('public-distribution');
+  }
   if (distributionFlag) {
     return distributionFlag;
+  }
+  // Same reasoning as the app-type prompt: with only one choice left there is
+  // nothing to ask, so a locked run skips straight to a private app.
+  if (!isFeatureAvailable('public-distribution')) {
+    return 'private';
   }
   const answer = await inquirer.prompt([
     {
@@ -257,9 +280,17 @@ async function resolveLogoUri(
 }
 
 type CreateDirectoryResult =
-  | { targetDir: string; mergeOnly: boolean; skipped: false }
+  | { targetDir: string; mergeOnly: boolean; skipped: false; existed: boolean }
   | { targetDir: string; skipped: true };
 
+/**
+ * Decide where the project goes — prompts only, no filesystem writes.
+ *
+ * Deliberately free of side effects so it can run *before* the app is created
+ * (abandoning a prompt must not orphan an app on the server) while the directory
+ * itself is only touched *after* the create succeeds. `applyCreateDirectory` is the
+ * other half; see `applyProjectDirectory` in `./scaffold` for the full reasoning.
+ */
 async function resolveCreateDirectory(
   appName: string,
   interactive: boolean,
@@ -271,9 +302,7 @@ async function resolveCreateDirectory(
     if (fs.existsSync(targetDir)) {
       return { targetDir, skipped: true };
     }
-    fs.mkdirSync(targetDir, { recursive: true });
-    process.chdir(targetDir);
-    return { targetDir, mergeOnly: false, skipped: false };
+    return { targetDir, mergeOnly: false, skipped: false, existed: false };
   }
 
   let dir = await resolveProjectDirectory(`./${slug}`);
@@ -288,7 +317,26 @@ async function resolveCreateDirectory(
     // changes.
     throw new CliError(messages.APP_CREATE_DIR_UNRESOLVED);
   }
-  return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly, skipped: false };
+  return {
+    targetDir: dir.targetDir,
+    mergeOnly: dir.mergeOnly,
+    skipped: false,
+    existed: dir.existed,
+  };
+}
+
+/** Apply a decision from `resolveCreateDirectory`. Call only after the app exists. */
+function applyCreateDirectory(dir: CreateDirectoryResult, jsonMode: boolean): void {
+  if (dir.skipped) return;
+  applyProjectDirectory(
+    {
+      targetDir: dir.targetDir,
+      mergeOnly: dir.mergeOnly,
+      chooseAgain: false,
+      existed: dir.existed,
+    },
+    jsonMode,
+  );
 }
 
 interface CreateAppInputs {
@@ -458,7 +506,11 @@ export const createCommand = withCommandHandler(
     // collect placement + destination. Neither path runs the other's prompts.
     let redirectUris: string[] = [];
     let uiApp: UiApp | undefined;
-    if (appType === 'ui') {
+    // Same elimination site as `resolveAppType`: this is the only call to
+    // `resolveUiApp`, so guarding it on the build global is what lets the bundler drop
+    // `app-types/ui/authoring.ts`. In a public build `appType` can never be `'ui'`
+    // anyway — the prompt isn't asked — so this changes nothing at runtime.
+    if (__BREVO_PREVIEW__ && appType === 'ui') {
       uiApp = await resolveUiApp();
     } else {
       redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
@@ -470,6 +522,10 @@ export const createCommand = withCommandHandler(
 
     const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri, uiApp };
     const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
+
+    // The app now provably exists, so it is safe to touch the filesystem. Before
+    // this line a failed create left a stray directory and a moved cwd behind.
+    applyCreateDirectory(dir, jsonMode);
 
     // Store app credentials locally — client_secret may not be retrievable again.
     // Guarded because a UI app has no OAuth credentials to cache: writing the pair
@@ -502,8 +558,11 @@ export const createCommand = withCommandHandler(
       ...(result.version ? { version: result.version } : {}),
     };
 
+    // `uiApp` is always undefined in a public build, but an unguarded reference to
+    // `renderCreatedUiApp` still keeps its module in the bundle — hence the global here
+    // as well. Both call sites have to be guarded or neither elimination happens.
     const renderBox = (): void =>
-      uiApp
+      __BREVO_PREVIEW__ && uiApp
         ? renderCreatedUiApp(result, finalAppName, uiApp, logoUri)
         : renderCreatedApp(result, finalAppName, logoUri);
 

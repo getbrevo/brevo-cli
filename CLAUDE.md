@@ -9,25 +9,23 @@ Brevo Developer CLI (`@getbrevo/cli`) — create, manage, and test OAuth integra
 - **Package manager:** Yarn >= 1.19.1
 - **Public CLI reference:** https://developers.brevo.com/docs/cli-reference — keep behaviour, flags, and exit codes in sync with this page when changing user-facing commands.
 
-## Public app distribution is not GA — the agent-doc notice is deliberate
+## Public app distribution is not GA — the published build omits it (BEX-405)
 
-Public app distribution is **not live on the Brevo platform**. The CLI already ships the surface for it — `brevo app create --distribution public`, `brevo app submit`, `brevo app status`, `brevo app withdraw` — but nothing behind those commands is usable yet.
+Public app distribution is **not live on the Brevo platform**. The repo contains the whole surface — `brevo app create --distribution public`, `brevo app submit`, `brevo app status`, `brevo app withdraw` — but a **published build does not**: `scripts/build.mjs` eliminates the review-lifecycle commands from the bundle, and `--distribution public` is refused with a typed `CliError`.
 
-Because that surface is shipped and unguarded, `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a **⚠️ Public apps are not available yet** notice telling agents never to create a public app or drive the review lifecycle. Root `AGENTS.md`, this file, and `README.md` mirror it.
+**This does not restrict work in this repo.** Building, changing, testing, and QA-ing the public-app code paths is expected and unblocked — write the code, run the commands, create public apps against test environments. Build with `PREVIEW=1 yarn link:dev` (or `yarn build:preview`) and the full surface is there. Never refuse or hedge on a public-app task in this repo.
 
-**This does not restrict work in this repo.** Building, changing, testing, and QA-ing the public-app code paths is expected and unblocked — write the code, run the commands, create public apps against test environments, work through the public-app cases in `QA-TESTCASES.md`. The notice governs what the shipped docs tell an *end user's* agent; it is not a freeze on the feature. Never refuse or hedge on a public-app task in this repo because of it.
-
-- **Do not remove or soften that notice** as part of unrelated cleanup. It is the only thing stopping an AI agent from leading a user into creating a public app they can't do anything with.
-- **Keep the *Exception — internal Brevo accounts* clause** in both shipped docs. It tells the agent to run `brevo whoami --json` and skip the restriction when `email` ends in `@brevo.com` or `@sendinblue.com`. Without it the notice blocks dogfooding: an agent helping a Brevo developer or QA test `app submit` would refuse. Gating on the account domain rather than on the user's say-so keeps it objective — an end user can't talk their way past it.
-- **The domain check is a guardrail, not a security boundary.** It's client-side guidance in a doc; anyone can ignore the docs and pass `--distribution public` themselves. If public apps must actually be restricted pre-GA, that belongs on the API.
-- **This is documentation-level only.** The CLI itself still accepts `--distribution public` without a warning or a guard, by design — a runtime guard is tracked separately (see `RELEASE-CHECKLIST.md`). If one is ever added, it needs the same internal-account escape hatch.
-- **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* to remove the notice everywhere in one pass.
+- **The guard is the build, not the docs.** This replaced a documentation-only notice (and then a runtime check). `agent-context/SKILL.md` and `AGENTS.md` no longer carry a *⚠️ not available yet* section or an *Exception — internal Brevo accounts* clause; they carry one rule instead — `brevo --help` is the complete surface. Don't reintroduce prohibition prose: an agent can't be led into a command that isn't in the binary.
+- **There is deliberately no runtime escape hatch.** The earlier gate unlocked on an `@brevo.com` account or `BREVO_ENABLE_PREVIEW=1`; both are gone. A compile-time guard any user can switch back on is a runtime guard wearing a costume, and it has to ship the surface in order to reveal it. Internal testing is a different artifact, not a different flag. **Do not add one back.**
+- **Two layers, no soft middle.** The build removes the surface; the Brevo API refuses public-app creation independently (`400 invalid_parameter`). There is no longer a client-side check for a user to talk past, so the old "guardrail, not a security boundary" caveat no longer applies.
+- **`src/lib/preview.ts` → `FEATURE_STAGE` is the single source of truth** for what is gated. Flipping a row to `'ga'` is necessary but **not sufficient** for a command: gated command definitions live in `src/commands/preview-definitions.ts` and are referenced from behind `__BREVO_PREVIEW__`, a *build* flag, so a GA feature left in that module is still eliminated. See `RELEASE-CHECKLIST.md` → *Before public-apps GA* for the full sequence.
+- **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* in one pass.
 
 ## UI apps are not GA either — same deal (BEX-290)
 
-UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The CLI ships the surface — the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app deploy <account-id>`, `brevo app rollback <account-id>` — and, exactly as with public apps, `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a **⚠️ UI apps are not available yet** notice reusing the same *Exception — internal Brevo accounts* clause. `README.md` mirrors it.
+UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The repo contains the surface — the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app deploy [account-id]`, `brevo app rollback [account-id]` — and, exactly as with public apps, a **published build does not**: the two commands are eliminated from the bundle and the app-type prompt is not asked, so a public build creates an OAuth app exactly as it did before BEX-290.
 
-**Every clause of the public-apps section above applies verbatim** — it does not restrict work in this repo, don't remove or soften the notice during unrelated cleanup, keep the internal-account escape hatch, and it's documentation-level only (no runtime guard, by design).
+**Every clause of the public-apps section above applies verbatim** — it does not restrict work in this repo (`PREVIEW=1 yarn link:dev` gives you the full surface), the guard is the build rather than the docs, there is deliberately no runtime escape hatch, and flipping `FEATURE_STAGE` alone is not enough to release a command.
 
 **The `ui_app` block IS the app snapshot the platform stores, field for field.** Field names are confirmed against both of its consumers — the manifest read path and the extensibility UI kit (BEX-308 / BEX-350). Do **not** reintroduce the UIApp Support Spec's `properties`/`trigger` vocabulary: nothing on the platform reads those names.
 
@@ -48,7 +46,9 @@ Five consequences worth knowing before touching this code:
 
 **Wire contracts — what is confirmed and what is still assumed.** The upload contract is confirmed against the platform's CLI upload endpoint: the block travels under the `ui_app` key on `POST /v3/app-store/apps/{id}/upload` (the earlier `snapshot` key was rejected server-side; "snapshot" on the platform names the whole stored app config).
 
-**The block travels on `POST /v3/app-store/apps` (create) too, under the same key.** It used to be upload-only, on the reasoning that create merely registers the record while upload is the platform's validation authority for the configuration. That was wrong in one specific way: `ui_app` is the app-type discriminator on the wire exactly as it is in `app-config.json`, so a create that omits it *and* omits `auth` (as a UI app must — an action link has no OAuth callback) reads as an OAuth app that forgot its callbacks, and the endpoint answers `400 invalid_request` / `redirect_uris is required and must not be empty`. The two blocks are mutually exclusive on both requests: a UI app sends `ui_app` and no `auth`, an OAuth app sends `auth` and no `ui_app`. Upload still sends the block and remains the validation authority; create sends it so the record is created as the right type. Whether the create endpoint actually branches on it is **not yet confirmed** — see `RELEASE-CHECKLIST.md` → *Per-branch verification*. The deploy transport is confirmed too, and it is **one resource, not two routes** — `POST /v3/app-store/apps/{id}/installs` to install and `DELETE` on the same path to remove (app-store-backend PR #717, BEX-362/BEX-364). Both carry the same body: `client_id`, `deploy_client_id`, `name`, `is_developer` — of which only `name` and `is_developer` are always present, see below. The `deploy` / `rollback` commands are named for the partner-facing verb; the resource is an install.
+**The block travels on `POST /v3/app-store/apps` (create) too, under the same key.** It used to be upload-only, on the reasoning that create merely registers the record while upload is the platform's validation authority for the configuration. That was wrong in one specific way: `ui_app` is the app-type discriminator on the wire exactly as it is in `app-config.json`, so a create that omits it *and* omits `auth` (as a UI app must — an action link has no OAuth callback) reads as an OAuth app that forgot its callbacks, and the endpoint answers `400 invalid_request` / `redirect_uris is required and must not be empty`. The two blocks are mutually exclusive on both requests: a UI app sends `ui_app` and no `auth`, an OAuth app sends `auth` and no `ui_app`. Upload still sends the block and remains the validation authority; create sends it so the record is created as the right type. **Confirmed against the deployed handler** (`http_cli_create_app_public.go`, bo-be `origin/main` at prod image 1.7.0): the presence of `auth` *or* `ui_app` is literally what selects the contract — `isPublicAppsRequestBody` sniffs for those two keys, a body carrying neither routes to the legacy flat-OAuth flow, and `validatePublicAppsBlocks` then enforces "at least one of auth or ui_app". So the discriminator is the same on the wire as it is in `app-config.json`, and the endpoint both branches on the block and persists it.
+
+**The create response echoes that nesting back**, which is the one thing this design costs: credentials arrive as `auth: {client_id, client_secret, scopes, redirect_uris}`, not at the top level. `createApp()` lifts them in `flattenCreateAuth` so no call site has to know — see BEX-405, which is what happens when they aren't lifted. The response is a closed struct of `{app_id, name, logo_uri, version, distribution_type, auth?, ui_app?}`: there are **no timestamps on it**, and `link_target` is deliberately never echoed on the `ui_app` block. The deploy transport is confirmed too, and it is **one resource, not two routes** — `POST /v3/app-store/apps/{id}/installs` to install and `DELETE` on the same path to remove (app-store-backend PR #717, BEX-362/BEX-364). Both carry the same body: `client_id`, `deploy_client_id`, `name`, `is_developer` — of which only `name` and `is_developer` are always present, see below. The `deploy` / `rollback` commands are named for the partner-facing verb; the resource is an install.
 
 **`client_id` and `deploy_client_id` are not interchangeable.** `client_id` is the *caller* — the account that owns the app, which the server resolves it against via `FindIDByUUID(uuid, client_id)`; the CLI sends the authenticated account's `organization_id` (`getOrganizationId()` in `src/lib/config.ts`, read by `buildInstallPayload()` in `src/services/app.ts`). `deploy_client_id` is the *target* the install lands in, and the server falls back to `client_id` when it is absent. They differ only for a corporate deploy into a sub-account — collapsing them 404s the app lookup.
 
@@ -58,7 +58,11 @@ Do **not** "tidy" this into `Number()` on everything (`NaN` → `null` → also 
 
 **DELETE answers 404, not 422**, and for both "app doesn't exist" and "no such install" — the developer uninstall route has no `installation_id` to delete by, so it resolves the install from the body and can't distinguish the two in the status code. `rollbackApp()` therefore deliberately skips `rethrowNotFound` and `app rollback` maps *any* 404 to its informational not-deployed path (exit 0). Do not "fix" that by matching on the server's error copy.
 
-Still assumed: HTTP 422 for deploy's "not uploaded" (PR #717 is uninstall-only), whether the POST response carries an install ID worth surfacing, and the `type === 'corporate'` discriminator on `/v3/account/info` that account resolution branches on — all marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+**Deploy has no server-side upload gate — the CLI's is the only one.** The assumed `422 app_not_configured` for "deployed before it was uploaded" **does not exist**: app-store-backend's installs handler (`http_create_integration_details.go`, verified on `origin/main` at prod image 1.5.0) resolves the app by UUID, checks the plan, and inserts. There is no configured/uploaded check on the path, so deploying a never-uploaded app answers `201` and renders nothing. `assertUploadedBeforeDeploy()` therefore has to hold for *every* resolution path, not just the linked-project one: a linked project is answered from `app-config.json`'s `version` (no round trip), and `--app-id` / the picker read the app's server-side `version`. Do not weaken it back to a "pre-flight" on the belief that the server will catch it — and if a server-side check does land, keep the local one, because it is what avoids a wasted install. The 422 branch in `deploy.ts` is kept as dead-but-deliberate defence; its comment says so.
+
+Also confirmed on that endpoint: **the body's `client_id` is ignored whenever the gateway sets `X-Sib-Client-Id`** — `extractClientID` reads the header *first* and only falls back to the body. That is why omitting a non-numeric identifier is safe rather than merely tolerable. The POST response is `{brevo_integration_id, installation_id}` (both the same value); the CLI discards it, which is fine while rollback addresses the install by account rather than by ID.
+
+Still assumed: the `type === 'corporate'` discriminator on `/v3/account/info` that account resolution branches on — it lives on the account API, not in either app-store repo, so reading the app-store code cannot settle it. Marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
 
 **`[account-id]` is optional on both commands.** Omitted, the target resolves from the authenticated account: a plain account deploys into itself (no prompt, so `--json`/CI still work), a corporate account picks from `GET /v3/corporate/subAccount`. Resolution lives once in `resolveDeploymentTarget()` (`src/commands/app/account-deployment.ts`) and both commands inherit it. The explicit positional is checked first — it keeps CI unchanged and is the only way to reach an account the listing won't show, notably a deactivated sub-account.
 
@@ -161,7 +165,13 @@ src/
 - **Commands** are registered declaratively in `src/commands/definitions.ts` — handler functions live in their own files.
 - **Error handling** uses `CliError` (user-facing) and `ApiError` (HTTP errors) from `src/lib/errors.ts`. Commands are wrapped with `withCommandHandler()`.
 - **JSON output** — every command supports `--json` via `jsonOutput()` from `src/lib/json-output.ts`.
-- **`brevo app update`** supports `--name`, `--redirect-uri` (repeatable, appends), `--logo-uri`, and `--app-id` flags. Without flags it pushes the full `app-config.json` (current behavior; includes `logoUri` when non-empty). With flags it merges: flag values override/append existing values from `app-config.json` or the API. After a successful update, `app-config.json` is written back if it exists and the app ID matches (and `--logo-uri` writes the new value into the file).
+- **`brevo app upload`** replaced `brevo app update` (BEX-250). It takes only `--yes` and `--json`; there are no edit flags. It pushes the whole of `app-config.json` after showing a local-vs-server diff, and writes the server-confirmed state back. To change an app's name, redirect URLs, scopes or logo, edit `app-config.json` and upload. `distribution_type` is immutable after `app create` — `APP_UPLOAD_DISTRIBUTION_IMMUTABLE` refuses locally before anything is pushed.
+- **A removed command stays registered, hidden, to name its replacement.** `src/lib/removed-commands.ts` is the table; `command-registry.ts` registers each entry as a hidden command whose action throws its message, and `auth-guard.ts` exempts them so a logged-out user reaches the message rather than `brevo login`. The one entry today is `app update` → `messages.APP_UPDATE_REMOVED`. This is **not** a shim: nothing is forwarded, nothing is uploaded, and it exits `1`. Do not "clean up" the hidden command — without it Commander answers `unknown command 'update'` plus a string-distance guess, which was `create`, i.e. the CLI's own suggestion for the most likely stale invocation was to make a second app. The registration also sets `allowUnknownOption` / `allowExcessArguments` (so the removed flags reach the message instead of `unknown option '--name'`) and `helpOption(false)` (so `--help` can't print a usage screen and exit `0`), and it replaces the instance's `help()` because `brevo app help update` calls that method directly — Commander's help command does not skip hidden commands and has no hook in front of it. All four are load-bearing and covered in `__tests__/lib/removed-commands.test.ts`. `agent-context/SKILL.md` and `agent-context/AGENTS.md` each carry a migration note for it — the name may appear there **only** as removed, never as a command-table row, example or decision-tree entry, which is what QA `TC-11.6` now checks.
+- **`brevo app scaffold` has two modes, selected by whether cwd holds an `app-config.json`.** With one it adds a feature to the linked app (the original meaning). Without one it *bootstraps* — sets the directory up for an app that already exists — which is the only path that produces a config for an existing app, and the migration off `brevo app update --app-id`. `--app-id` names the app; omitted on a TTY, the command offers (`APP_SCAFFOLD_BOOTSTRAP_CONFIRM`, default yes) and then shows `promptAppSelection`, because someone who lost their folder has the app but not its ID. The offer is interactive-only — under `--json`/non-TTY it raises `APP_SCAFFOLD_NO_CONFIG` — so scripts keep their old behaviour and a decline exits `0`. Three refusals fire before any network call, and each exists because its failure is silent rather than loud:
+  - **`findEnclosingProjectDir()`** (`src/lib/config.ts`) blocks bootstrapping *inside* another project. `readProjectConfig` reads cwd and deliberately never walks up — every other command wants that — so one stray `cd` would otherwise nest a second `app-config.json` and the next `app upload` from there would push the wrong app. Do not "fix" `readProjectConfig` to walk up instead; the walk belongs only to this branch, and it excludes cwd by design.
+  - **`recoverableFromRecord`** on the app-type registry blocks a **UI app that was never uploaded**. The read endpoint sources `ui_app` from the latest `app_versions` snapshot, so such an app returns no block — and a config missing it reads as a valid *OAuth* app, since the block's presence is the discriminator. Asked of the type rather than tested as `!record.ui_app`, so a third type answers the same question. An OAuth app is always recoverable (its config is the record).
+  - **the app-ID mismatch check** blocks `--app-id` against a directory linked to a different app.
+- **`ui_app` wire-only keys are stripped in exactly one place**, `stripUiAppWireOnlyKeys` in `src/app-types/wire.ts`, reading `uiAppType.wireOnlyKeys`. Its three consumers are the upload diff, the upload write-back, and the scaffold bootstrap's write. That traversal used to be duplicated per consumer and had to be fixed separately each time a new server-stamped key appeared (`link_target`, then `extension_point_name` one level down inside an entry) — do not add a fourth copy.
 - **Scaffold templates** in `src/templates/files/*.tmpl` use `{{VARIABLE}}` placeholders. Variables are defined in `scaffold.ts` and listed in `templates/index.ts`. Templates must reference both `npm` and `yarn` (not npm-only). Use `brevo app start oauth` (not `brevo app start`).
 - **Credentials** are stored in `~/.brevo/credentials.json`. App credentials (clientId/clientSecret) are cached per app ID under an `apps` key.
 
@@ -184,6 +194,7 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - Changed defaults (new opt-in/opt-out, changed prompt behavior).
 - Changed exit codes or error messages that scripts may match on.
 - Removed features that the docs currently advertise (e.g. removing `brevo skill:cli update` requires removing it from both docs).
+- **A feature going GA.** Taking a feature out of a `## Before …GA` section in `RELEASE-CHECKLIST.md` is a user-visible change like any other — it adds commands, flags or prompts to the published CLI. **Update `agent-context/SKILL.md` and `agent-context/AGENTS.md` for that feature in the same PR**, before ticking it off the checklist. Their reference text for a gated feature was *deleted* rather than hidden, so recover it from git rather than rewriting it — each GA section names the commit to recover from. A GA release that ships the commands but not the docs is the worst of both: agents keep telling users the feature doesn't exist, and the docs say so in writing.
 
 **What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
 
@@ -196,28 +207,35 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - Services are tested against mocked API client responses.
 - Template tests verify variable substitution, not file I/O.
 
-## Working docs: RELEASE-CHECKLIST.md and TODO.md
+## Working docs: `RELEASE-CHECKLIST.md` and `docs.md`
 
-`RELEASE-CHECKLIST.md` (formerly `TESTING.md`) and `TODO.md` track in-flight work at the repo
-root. `TODO.md` is a running work tracker. `RELEASE-CHECKLIST.md` has **two sections that live
-by different rules** — read its header before editing it:
+Two durable docs at the repo root, with different jobs. Read this before editing either.
 
-- `## Before public-apps GA` — **durable.** Survives into `main` and stays there until public
-  app distribution ships. Do not delete it as part of branch cleanup.
-- `## Per-branch verification` — **scratch.** Same role the old `TESTING.md` had; exists only
-  for the lifetime of a branch/PR.
+- **`RELEASE-CHECKLIST.md` — the GA runbook.** Ordered, mechanical steps for the day a
+  feature ships. Its `## Before public-apps GA` and `## Before UI-apps GA` sections are
+  **durable**: they survive into `main` and stay until those features ship. Do not delete
+  them as branch cleanup. Its `## Per-branch verification` section is **scratch** — it
+  exists for the life of a branch and is cleared before merge.
+- **`docs.md` — the open-questions log**, for the two pre-GA features. Part 1 is release
+  copy held until GA; Part 2 is everything still unknown or undecided. Not in
+  `package.json` `files:`, so it never ships to npm.
+
+The split is *what to do on the day* versus *what is still unknown*. An item moves from
+`docs.md` to `RELEASE-CHECKLIST.md` when it turns into a release step, and is deleted from
+`docs.md` when it resolves.
 
 Working rules:
 
 - **Whenever you make a change that needs verification**, append an entry under
   `## Per-branch verification` (follow its template) covering what must hold true — new
   criteria, not a rewrite of old ones.
-- **Whenever you identify follow-up work that isn't done in the current change**, append an
-  item to `TODO.md` under `## Open` rather than letting it fall through silently.
-- **Before merging the branch into `main`, delete `TODO.md` and clear the
-  `## Per-branch verification` section of `RELEASE-CHECKLIST.md`** — per-branch working state
-  doesn't belong in `main`'s history. **Keep the file itself and its
-  `## Before public-apps GA` section.**
+- **Whenever you identify follow-up work that isn't done in the current change**, add it to
+  `docs.md` → *Part 2* rather than letting it fall through silently. (There was a
+  `TODO.md` here; it was folded into `docs.md` because its contents were entirely
+  public-app / UI-app follow-ups.)
+- **Before merging the branch into `main`, clear the `## Per-branch verification` section
+  of `RELEASE-CHECKLIST.md`** — per-branch working state doesn't belong in `main`'s
+  history. **Keep the file itself and both `## Before …GA` sections.**
 
 ## Adding a new command
 

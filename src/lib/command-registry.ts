@@ -1,5 +1,10 @@
 import { Command } from 'commander';
 import type { Capability } from '../app-types/capabilities';
+import { CliError } from './errors';
+import { FEATURE_STAGE, assertFeatureAvailable, isFeatureAvailable } from './preview';
+import type { PreviewFeature } from './preview';
+import { removedCommandsIn } from './removed-commands';
+import type { RemovedCommand } from './removed-commands';
 
 export interface CommandOption {
   flags: string;
@@ -47,10 +52,36 @@ export interface SubcommandGroupDefinition {
 }
 
 /**
+ * The pre-GA feature a command's `requires` names, if any.
+ *
+ * `Capability` is the wider set — `oauth-flow`, `redirect-uris` and `scaffold-feature`
+ * are capabilities that no gate applies to. Only the names that also appear in
+ * `FEATURE_STAGE` are gateable, so the lookup is a membership test rather than a cast.
+ */
+export function previewFeatureOf(def: CommandDefinition): PreviewFeature | undefined {
+  if (!def.requires) return undefined;
+  return def.requires in FEATURE_STAGE ? (def.requires as PreviewFeature) : undefined;
+}
+
+/**
  * Register a flat command on the program.
+ *
+ * A command gated behind an unreleased feature is registered `hidden` rather than
+ * skipped. Skipping would drop it from the parser too, so invoking it would produce
+ * Commander's `unknown command` — which tells the user the CLI has no such command,
+ * when in fact it has one that isn't released. Registering it hidden keeps the typed
+ * refusal (`assertFeatureAvailable`) and its exit code.
+ *
+ * Note this is a *feature* gate, not the capability gate `requires` is documented as
+ * not being. The distinction is real: a capability gate depends on which app you are
+ * acting on and each command answers it in its own words, while this one depends only
+ * on whether the feature has shipped and is the same answer for every command. That
+ * is why one interceptor is right here and wrong there.
  */
 function registerCommand(parent: Command, def: CommandDefinition): void {
-  const cmd = parent.command(def.name).description(def.description);
+  const gatedBehind = previewFeatureOf(def);
+  const hidden = Boolean(gatedBehind) && !isFeatureAvailable(gatedBehind!);
+  const cmd = parent.command(def.name, { hidden }).description(def.description);
 
   if (def.arguments) {
     for (const arg of def.arguments) {
@@ -76,11 +107,55 @@ function registerCommand(parent: Command, def: CommandDefinition): void {
   }
 
   cmd.action((...actionArgs) => {
+    // Re-checked here rather than reusing `hidden` above: that was computed at
+    // registration, and the refusal must reflect the state at invocation. Same answer
+    // in practice, but the gate reads the credentials file and the env, and neither
+    // belongs frozen in a module-init constant.
+    if (gatedBehind) assertFeatureAvailable(gatedBehind);
     // Commander passes positional args first, then options object, then Command
     const opts = actionArgs.at(-2) as Record<string, unknown>;
     const positionalArgs = actionArgs.slice(0, -2);
     return def.handler(opts, ...positionalArgs);
   });
+}
+
+/**
+ * Register a command that no longer exists, purely so it can say so.
+ *
+ * See `lib/removed-commands.ts` for why a removed name is worth registering at all.
+ * Four settings make the message reachable however the old invocation was typed, and
+ * each one is load-bearing:
+ *
+ * - `hidden` keeps it out of `brevo app --help`. It is not a command on offer; it is a
+ *   forwarding address.
+ * - `allowUnknownOption` plus a variadic argument swallow the flags the command used to
+ *   take, so `brevo app update --name X` gets the migration message instead of
+ *   Commander's `unknown option '--name'` — which would bury the one thing the user
+ *   needs to know behind a complaint about a flag that is gone either way.
+ * - `allowExcessArguments` does the same for stray operands.
+ * - `helpOption(false)` sends `brevo app update --help` to the message too. Left on,
+ *   Commander would print a usage screen for a command that isn't there and exit `0`,
+ *   which is the one answer a script must not get.
+ */
+function registerRemovedCommand(parent: Command, removed: RemovedCommand): void {
+  const cmd = parent
+    .command(removed.name, { hidden: true })
+    .allowUnknownOption(true)
+    .allowExcessArguments(true)
+    .helpOption(false)
+    .argument('[args...]')
+    .action(() => {
+      throw new CliError(removed.message);
+    });
+
+  // `brevo app help update` is the one route that reaches neither the action nor the
+  // help option: Commander's help command calls the target's `help()` directly
+  // (`_dispatchHelpCommand`, which does not skip hidden commands), printing a usage
+  // screen and exiting `0`. There is no hook in front of that, so the method itself is
+  // replaced — the same message, by the same route as every other invocation.
+  cmd.help = () => {
+    throw new CliError(removed.message);
+  };
 }
 
 /**
@@ -90,6 +165,9 @@ function registerSubcommandGroup(parent: Command, group: SubcommandGroupDefiniti
   const groupCmd = parent.command(group.name).description(group.description);
   for (const def of group.commands) {
     registerCommand(groupCmd, def);
+  }
+  for (const removed of removedCommandsIn(group.name)) {
+    registerRemovedCommand(groupCmd, removed);
   }
 }
 
@@ -103,6 +181,9 @@ export function registerAll(
 ): void {
   for (const cmd of commands) {
     registerCommand(program, cmd);
+  }
+  for (const removed of removedCommandsIn()) {
+    registerRemovedCommand(program, removed);
   }
   for (const group of groups) {
     registerSubcommandGroup(program, group);

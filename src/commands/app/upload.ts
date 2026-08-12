@@ -18,7 +18,8 @@ import {
 import { validateScopes, containsLegacyAllScope } from '../../lib/validators';
 import { DEFAULT_LINK_TARGET, EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
 import { OAuthApp, UiApp, UploadAppResponse } from '../../types';
-import { appTypeById, resolveFromConfig } from '../../app-types';
+import { resolveFromConfig } from '../../app-types';
+import { stripUiAppWireOnlyKeysFrom } from '../../app-types/wire';
 import { formatPlacementLines } from '../../app-types/ui/fields';
 
 interface UploadOptions {
@@ -148,52 +149,15 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
   };
 }
 
-// Keys that exist on one side of the comparison only, and so can never signal a real
-// local edit (BEX-290):
-//
-//   - `link_target` — injected into the payload by this command and defaulted by the
-//     server, but deliberately absent from app-config.json. Comparing it would make the
-//     block read as changed on every single upload, and "Already up to date" would never
-//     print for a UI app again.
-//   - `version`     — the server-managed snapshot version. Same asymmetry.
-//   - `extension_point_name` — the dotted slot name the platform resolves from each entry's
-//     `surface_point_name` and stamps onto its own stored copy. Nothing here authors it and
-//     the server does not echo it, so it should never arrive — it is listed anyway because
-//     the cost of being wrong is asymmetric: if it ever did arrive, comparing it would
-//     report drift on a field the partner cannot edit, and writing it back would put a
-//     value into app-config.json that the very next upload rejects as an unknown key.
-//
-// Unlike the two above, this one lives INSIDE each `surface_point_list` entry rather than at
-// the top of the block, which is why the strip below recurses to every level.
-//
-// The list itself now belongs to the app type (`src/app-types/ui/index.ts` →
-// `wireOnlyKeys`), so a type that gains a server-stamped field declares it beside itself
-// instead of in this command. Read here through the registry rather than imported from the ui
-// module directly, so this command stays type-agnostic.
-const UPLOAD_INJECTED_UI_APP_KEYS: readonly string[] = appTypeById('ui').wireOnlyKeys;
-
-/**
- * Strip the wire-only keys above from a value at every depth.
- *
- * This is the ONLY place that reads `UPLOAD_INJECTED_UI_APP_KEYS`. Both consumers — the
- * write-back (`withoutInjectedKeys`) and the diff's equality check
- * (`canonicalizeUiApp`) — go through it, so a key added to the list above cannot be
- * honoured by one and forgotten by the other. That split is not hypothetical: the diff and
- * the write-back each had their own traversal, and each had to be fixed separately when
- * `link_target` started arriving on the server's echo and again when
- * `extension_point_name` turned up one level down inside an entry.
- */
-function stripInjectedKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripInjectedKeys);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([key]) => !UPLOAD_INJECTED_UI_APP_KEYS.includes(key))
-        .map(([k, v]) => [k, stripInjectedKeys(v)]),
-    );
-  }
-  return value;
-}
+// The wire-only keys — the ones that exist on the server's side of the comparison only, and
+// so can never signal a real local edit (BEX-290) — are declared by the app type
+// (`src/app-types/ui/index.ts` → `wireOnlyKeys`) and stripped by the shared traversal in
+// `src/app-types/wire.ts`. See that module for why the rule lives in one place: this command's
+// diff and write-back each used to carry their own copy of it, and each had to be fixed
+// separately when `link_target` started arriving on the echo and again when
+// `extension_point_name` turned up one level down inside an entry. The scaffold's pull path is
+// now a third consumer, which is what moved it out of here.
+const stripInjectedKeys = stripUiAppWireOnlyKeysFrom;
 
 /** Recursively sort object keys, so a serialized comparison is key-order-independent. */
 function sortKeysDeep(value: unknown): unknown {
