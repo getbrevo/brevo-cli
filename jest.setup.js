@@ -1,20 +1,18 @@
 /**
- * Unlock the pre-GA gate for the whole suite (BEX-405).
+ * Define the build-time globals that esbuild substitutes in a real build (BEX-405).
  *
- * Without this, `isPreviewUnlocked()` reads whatever `~/.brevo/credentials.json`
- * happens to hold on the machine running the tests — so the ~80 tests covering
- * `app deploy`, `app rollback`, `app submit`, `app status`, `app withdraw`, UI-app
- * creation and `--distribution public` would pass on a Brevo developer's laptop and
- * fail in CI, or flip mid-run as another suite repoints `BREVO_CONFIG_HOME`. Test
- * outcomes must not depend on who is logged in.
+ * `__BREVO_PREVIEW__` does not exist under jest — nothing is bundled, so nothing is
+ * substituted — and every module that reads it would throw `ReferenceError` on import.
+ * Defining it here gives the suite a single, explicit build state to run against.
  *
- * Those tests are about the features, not about the gate. The gate has its own
- * coverage in `src/__tests__/lib/preview.test.ts`, plus the locked-path cases in
- * `command-registry`, `help` and `create` — all of which override this explicitly
- * (`delete process.env.BREVO_ENABLE_PREVIEW`) so they exercise a genuinely locked
- * CLI rather than trusting the default.
- *
- * Set here rather than in each file so that adding a test for a gated command needs
- * no ceremony, and so this comment is the one place explaining why.
+ * **It is `true`, i.e. the preview build.** The ~80 tests covering `app deploy`,
+ * `app rollback`, `app submit`, `app status`, `app withdraw`, UI-app creation and
+ * `--distribution public` are tests of those features, not of the gate; running them
+ * against a public build would mean asserting that five commands don't exist. The gate
+ * itself is covered separately in `src/__tests__/lib/preview.test.ts` and
+ * `preview-gate.test.ts`, which flip this global and re-import through
+ * `jest.isolateModules` so both build states are exercised in one run — that is the
+ * whole reason the flag is read through a global rather than baked by the bundler
+ * alone.
  */
-process.env.BREVO_ENABLE_PREVIEW = '1';
+globalThis.__BREVO_PREVIEW__ = true;

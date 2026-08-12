@@ -1,35 +1,42 @@
 /**
  * The pre-GA gate (BEX-405).
  *
- * Public app distribution and UI apps are both shipped in this CLI but **not live on
- * the Brevo platform**. Until BEX-405 the only thing keeping a user — or their AI
- * agent — out of them was a notice in `agent-context/SKILL.md` / `AGENTS.md`, which
- * works exactly as far as the agent's cooperation goes and no further. This module
- * is the runtime half: gated surface is hidden from every help screen and refused
- * when invoked.
+ * Public app distribution and UI apps are built in this repo but **not live on the
+ * Brevo platform**. The published package must not expose either: not in help, not to
+ * a direct invocation, and — because the guard is applied at build time — not in the
+ * shipped code at all. `scripts/build.mjs` eliminates every gated branch and
+ * tree-shakes the command modules only those branches referenced.
  *
- * **This is a guardrail, not a security boundary**, and `CLAUDE.md` is explicit
- * about it: the check runs client-side, anyone can build from source or call the API
- * directly, and real enforcement belongs on the API. What it stops is *accidental*
- * use — a partner, or an agent acting for one, creating an app they can do nothing
- * with.
+ * ## Why this has no runtime escape hatch
+ *
+ * The first version of this gate unlocked on an `@brevo.com` / `@sendinblue.com`
+ * account or an opt-in env var, mirroring the clause the agent docs used to carry.
+ * Both were removed when the flag moved to build time. A compile-time guard that any
+ * user can switch back on is a runtime guard wearing a costume — and worse, it has to
+ * ship the surface in order to be able to reveal it, which defeats the point of
+ * building it out. Internal testing is `PREVIEW=1 yarn link:dev`, which produces a
+ * genuinely different artifact.
+ *
+ * That also means this is no longer "a guardrail, not a security boundary": there is
+ * nothing client-side left to bypass. The Brevo API remains the real authority and
+ * refuses both features per account independently (`400 invalid_parameter` on a public
+ * create, `403 ui_app_not_enabled` on a UI app), so the two layers are the build and
+ * the server, with nothing in between for a user to talk their way past.
  *
  * ## One table, so GA is one edit
  *
  * `FEATURE_STAGE` is the only place a feature's readiness is stated. Help filtering,
- * the runtime refusal, and the `app create` prompt all read it, so flipping a row to
- * `'ga'` releases that feature everywhere at once — no second list to find. See
- * `RELEASE-CHECKLIST.md` → *Before public-apps GA* / *Before UI-apps GA* for the
- * removal pass.
+ * the runtime refusal, the command registry and the two `app create` prompts all read
+ * it through `isFeatureAvailable`, so flipping a row to `'ga'` releases that feature
+ * everywhere at once. See `RELEASE-CHECKLIST.md` → *Before public-apps GA* /
+ * *Before UI-apps GA*.
  *
- * Two of the four names are `Capability` values from `app-types/capabilities.ts`, and
- * that is deliberate rather than coincidental: commands already declare `requires` in
- * `commands/definitions.ts`, so command gating falls straight out of the field that
- * is already there. The other two are not capabilities — they gate a prompt choice
- * and a flag value, neither of which is a command.
+ * Two of the four names are `Capability` values from `app-types/capabilities.ts`,
+ * deliberately: commands already declare `requires` in `commands/definitions.ts`, so
+ * command gating falls straight out of the field that is already there. The other two
+ * gate a prompt choice and a flag value, neither of which is a command.
  */
 import { CliError } from './errors';
-import { getEmail } from './config';
 import { messages } from '../lang/en';
 
 export type PreviewFeature =
@@ -58,42 +65,17 @@ export const FEATURE_STAGE: Readonly<Record<PreviewFeature, FeatureStage>> = {
 } as const;
 
 /**
- * Accounts that may use preview features regardless of stage.
+ * Is this feature usable in this build — either released, or built with `PREVIEW=1`?
  *
- * Same rule the agent docs already carry in their *Exception — internal Brevo
- * accounts* clause, and for the same reason: gating on the account domain rather than
- * on the user's say-so keeps it objective — an end user cannot talk their way past
- * it, while dogfooding and QA are unaffected.
+ * Reads the build global directly rather than a module-level constant, for two reasons.
+ * esbuild substitutes it here, so a published build folds this to
+ * `FEATURE_STAGE[feature] === 'ga'` with no runtime flag left. And under jest the read
+ * happens per call, which is what lets a test flip build states without re-importing
+ * every module that has already captured a constant — the bug that a `PREVIEW_BUILD`
+ * export caused when this was first written.
  */
-const INTERNAL_EMAIL_DOMAINS = ['@brevo.com', '@sendinblue.com'] as const;
-
-/** Opt-in override, for CI and for QA runs against a non-Brevo test account. */
-export const PREVIEW_ENV_VAR = 'BREVO_ENABLE_PREVIEW';
-
-function envOptIn(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[PREVIEW_ENV_VAR] === '1' || env[PREVIEW_ENV_VAR] === 'true';
-}
-
-/**
- * Is the caller allowed to use preview features?
- *
- * Deliberately **synchronous and offline**. The email comes from the credentials
- * already cached at `~/.brevo/credentials.json` (`getEmail()`), not from a `whoami`
- * round-trip, for three reasons: help output must render before any network call and
- * while logged out; a network hop on every invocation to decide what to *print* is
- * indefensible; and a gate that fails when the API is slow would be worse than no
- * gate. Logged out ⇒ locked, which is the safe direction.
- */
-export function isPreviewUnlocked(): boolean {
-  if (envOptIn()) return true;
-  const email = getEmail()?.trim().toLowerCase();
-  if (!email) return false;
-  return INTERNAL_EMAIL_DOMAINS.some((domain) => email.endsWith(domain));
-}
-
-/** Is this specific feature usable right now — either GA, or unlocked for this caller? */
 export function isFeatureAvailable(feature: PreviewFeature): boolean {
-  return FEATURE_STAGE[feature] === 'ga' || isPreviewUnlocked();
+  return FEATURE_STAGE[feature] === 'ga' || __BREVO_PREVIEW__;
 }
 
 /**
@@ -101,12 +83,14 @@ export function isFeatureAvailable(feature: PreviewFeature): boolean {
  *
  * One message for all four, unlike `assertCapability` in `app-types/capabilities.ts`,
  * which takes the caller's wording so each command keeps the error string it shipped
- * with. The distinction matters and is not an inconsistency: those messages are
- * *existing* contracts a script may match on, whereas this refusal is new surface with
- * no callers to break — and it answers a different question ("this feature isn't
- * released") than a capability error does ("this app doesn't support that"). The two
- * gates also never fire on the same run: this one runs first, so `app submit` reaches
- * its own not-public refusal byte-identical to before.
+ * with. Not an inconsistency: those are existing contracts a script may match on,
+ * while this is new surface with no callers to break, and it answers a different
+ * question ("this feature isn't released") than a capability error does ("this app
+ * doesn't support that").
+ *
+ * Reachable in a published build only through `app create --distribution public` —
+ * the flag parses before the gate sees it, so the value has to be refused rather than
+ * hidden. Every gated *command* is gone from the binary and never reaches here.
  */
 export function assertFeatureAvailable(feature: PreviewFeature): void {
   if (isFeatureAvailable(feature)) return;

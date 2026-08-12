@@ -17,10 +17,6 @@ jest.mock('inquirer', () => ({
 
 jest.mock('../../../lib/config', () => ({
   getApiKey: jest.fn().mockReturnValue('test-key'),
-  // Read by the pre-GA gate (BEX-405). Undefined = logged out = locked, which only
-  // matters in the locked-path suite at the bottom of this file — everything else
-  // runs unlocked via BREVO_ENABLE_PREVIEW in jest.setup.js.
-  getEmail: jest.fn(),
   saveAppCredentials: jest.fn(),
   saveAppName: jest.fn(),
   hasLocalApp: jest.fn().mockReturnValue(false),
@@ -75,7 +71,6 @@ import {
   saveAppName,
   hasLocalApp,
   readProjectConfig,
-  getEmail,
 } from '../../../lib/config';
 import { messages } from '../../../lang/en';
 import {
@@ -2171,12 +2166,13 @@ describe('app/create', () => {
   // interceptor cannot reach them: the *UI app* choice is a prompt option and
   // `public` is a flag VALUE. They are gated inside the flow instead, and the
   // shape of the refusal differs — a prompt choice is withheld, a flag is refused.
-  describe('while public distribution and UI apps are pre-GA', () => {
+  describe('in a published (public) build', () => {
     beforeEach(() => {
-      // jest.setup.js unlocks the gate for the suite so the feature tests above
-      // don't depend on who is logged in. These want a genuinely locked CLI.
-      delete process.env.BREVO_ENABLE_PREVIEW;
-      (getEmail as jest.Mock).mockReturnValue(undefined);
+      // jest.setup.js runs the suite as a preview build so the feature tests above
+      // exercise the features rather than the gate. These want the public artifact.
+      // `create.ts` reads the flag per call, so flipping the global is enough — no
+      // module re-import needed, unlike the definitions/help tests.
+      globalThis.__BREVO_PREVIEW__ = false;
       (appService.createApp as jest.Mock).mockResolvedValue({
         app_id: 42,
         name: 'Test App',
@@ -2187,7 +2183,7 @@ describe('app/create', () => {
     });
 
     afterEach(() => {
-      process.env.BREVO_ENABLE_PREVIEW = '1';
+      globalThis.__BREVO_PREVIEW__ = true;
     });
 
     it('refuses --distribution public with the unreleased-feature message', async () => {
@@ -2245,9 +2241,10 @@ describe('app/create', () => {
       expect(payload.distribution_type).toBe('private');
     });
 
-    // The escape hatch has to work here too, or QA and dogfooding lose the flow.
-    it('allows --distribution public from an internal Brevo account', async () => {
-      (getEmail as jest.Mock).mockReturnValue('dev@brevo.com');
+    // The same command in a preview build, which is what `PREVIEW=1 yarn link:dev`
+    // produces and how this path is tested locally.
+    it('allows --distribution public in a preview build', async () => {
+      globalThis.__BREVO_PREVIEW__ = true;
 
       await createCommand({ name: 'Test App', distribution: 'public', json: true });
 

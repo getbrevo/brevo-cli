@@ -1,96 +1,31 @@
 import { CliError } from '../../lib/errors';
 import { messages } from '../../lang/en';
+import { FEATURE_STAGE, assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 
-jest.mock('../../lib/config', () => ({
-  getEmail: jest.fn(),
-}));
-
-import { getEmail } from '../../lib/config';
-import {
-  FEATURE_STAGE,
-  PREVIEW_ENV_VAR,
-  assertFeatureAvailable,
-  isFeatureAvailable,
-  isPreviewUnlocked,
-} from '../../lib/preview';
-
-const mockedGetEmail = getEmail as jest.Mock;
+/**
+ * Run a block as a given build state would.
+ *
+ * `isFeatureAvailable` reads `__BREVO_PREVIEW__` per call, so setting the global is
+ * enough — no module re-import. That is deliberate: an earlier version captured the
+ * flag in a module constant, which made the gate untestable without `isolateModules`
+ * and, worse, meant an importing module froze the value at load. Only the *elimination*
+ * sites (`definitions.ts`, `help.ts`) still need re-importing, because they read the
+ * global at module scope; `preview-gate.test.ts` covers those.
+ */
+function asBuild(previewBuild: boolean): void {
+  beforeEach(() => {
+    globalThis.__BREVO_PREVIEW__ = previewBuild;
+  });
+  afterEach(() => {
+    globalThis.__BREVO_PREVIEW__ = true;
+  });
+}
 
 describe('lib/preview', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    // The suite-wide setup file unlocks the gate so feature tests don't depend on
-    // who is logged in (see jest.setup.js). These tests are about the gate itself,
-    // so they start from genuinely locked and opt in per case.
-    delete process.env[PREVIEW_ENV_VAR];
-    mockedGetEmail.mockReturnValue(undefined);
-  });
-
-  afterAll(() => {
-    process.env[PREVIEW_ENV_VAR] = '1';
-  });
-
-  describe('isPreviewUnlocked', () => {
-    // Logged out is the state a fresh install is in, and the state every help
-    // render must survive. It has to be the locked answer, not an error.
-    it('is locked when there is no cached email', () => {
-      expect(isPreviewUnlocked()).toBe(false);
-    });
-
-    it('is locked for an external account', () => {
-      mockedGetEmail.mockReturnValue('partner@example.com');
-      expect(isPreviewUnlocked()).toBe(false);
-    });
-
-    it.each(['dev@brevo.com', 'dev@sendinblue.com'])('is unlocked for %s', (email) => {
-      mockedGetEmail.mockReturnValue(email);
-      expect(isPreviewUnlocked()).toBe(true);
-    });
-
-    // Emails are case-insensitive in practice and the stored value is whatever the
-    // API returned, so the comparison normalizes rather than trusting the casing.
-    it('matches the internal domains case-insensitively and ignores surrounding space', () => {
-      mockedGetEmail.mockReturnValue('  DEV@Brevo.COM  ');
-      expect(isPreviewUnlocked()).toBe(true);
-    });
-
-    // The check is `endsWith('@brevo.com')`, not `includes('brevo.com')`: a lookalike
-    // domain must not pass, or the guardrail is decorative.
-    it.each([
-      'attacker@brevo.com.evil.test',
-      'brevo.com@example.com',
-      'devbrevo.com',
-      'dev@notbrevo.com',
-    ])('is locked for the lookalike %s', (email) => {
-      mockedGetEmail.mockReturnValue(email);
-      expect(isPreviewUnlocked()).toBe(false);
-    });
-
-    it.each(['1', 'true'])('is unlocked by %s in the opt-in env var', (value) => {
-      process.env[PREVIEW_ENV_VAR] = value;
-      expect(isPreviewUnlocked()).toBe(true);
-    });
-
-    // Matches how BREVO_NO_UPDATE_NOTIFIER and BREVO_NO_SKILL_AUTOREFRESH are read:
-    // an explicit '1'/'true', not any non-empty value. `=0` must not mean "on".
-    it.each(['0', 'false', '', 'yes'])('stays locked for the env value %p', (value) => {
-      process.env[PREVIEW_ENV_VAR] = value;
-      expect(isPreviewUnlocked()).toBe(false);
-    });
-
-    it('does not need the network or the API', () => {
-      mockedGetEmail.mockReturnValue('dev@brevo.com');
-      isPreviewUnlocked();
-      // The whole point of reading the cached credential: help must render while
-      // logged out and before any request, and a slow API must never change the gate.
-      expect(mockedGetEmail).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('isFeatureAvailable', () => {
-    // Guards the intent of this release: all four are pre-GA. When one ships, this
-    // assertion is the thing that fails and points at the GA checklist.
-    it('reports every gated feature as preview', () => {
+  describe('FEATURE_STAGE', () => {
+    // Guards the intent of this release: all four are pre-GA. When one ships, this is
+    // the assertion that fails and points at the GA checklist.
+    it('lists every gated feature as preview', () => {
       expect(FEATURE_STAGE).toEqual({
         'account-install': 'preview',
         'review-lifecycle': 'preview',
@@ -98,49 +33,86 @@ describe('lib/preview', () => {
         'public-distribution': 'preview',
       });
     });
+  });
 
-    it('is false for every preview feature while locked', () => {
+  describe('a published (public) build', () => {
+    asBuild(false);
+
+    it('reports every preview feature as unavailable', () => {
       for (const feature of Object.keys(FEATURE_STAGE)) {
         expect(isFeatureAvailable(feature as keyof typeof FEATURE_STAGE)).toBe(false);
       }
     });
 
-    it('is true for every preview feature once unlocked', () => {
-      mockedGetEmail.mockReturnValue('dev@brevo.com');
-      for (const feature of Object.keys(FEATURE_STAGE)) {
-        expect(isFeatureAvailable(feature as keyof typeof FEATURE_STAGE)).toBe(true);
-      }
-    });
-  });
-
-  describe('assertFeatureAvailable', () => {
-    it('throws a CliError naming the reason when locked', () => {
-      expect(() => assertFeatureAvailable('review-lifecycle')).toThrow(CliError);
-      expect(() => assertFeatureAvailable('review-lifecycle')).toThrow(
-        messages.PREVIEW_FEATURE_UNAVAILABLE,
-      );
-    });
-
-    // Exit code 1, not 0: scripts branch on it.
-    it('exits non-zero', () => {
+    it('refuses with a typed CliError and exit code 1', () => {
+      expect(() => assertFeatureAvailable('public-distribution')).toThrow(CliError);
       try {
-        assertFeatureAvailable('review-lifecycle');
+        assertFeatureAvailable('public-distribution');
         throw new Error('expected a refusal');
       } catch (err) {
+        expect((err as CliError).name).toBe('CliError');
+        expect((err as CliError).message).toBe(messages.PREVIEW_FEATURE_UNAVAILABLE);
         expect((err as CliError).exitCode).toBe(1);
       }
     });
 
-    // The message must not name the env var or the internal-account exception: an
-    // end user can use neither, so mentioning them only invites an attempt.
-    it('does not leak the escape hatches', () => {
-      expect(messages.PREVIEW_FEATURE_UNAVAILABLE).not.toContain(PREVIEW_ENV_VAR);
-      expect(messages.PREVIEW_FEATURE_UNAVAILABLE).not.toContain('brevo.com');
+    // The whole point of moving the flag to build time. If any of these re-enabled the
+    // gate, the guard would be a runtime one again and the surface would have to ship
+    // in order to be revealable.
+    it.each([
+      ['BREVO_ENABLE_PREVIEW', '1'],
+      ['BREVO_PREVIEW', '1'],
+      ['BREVO_PREVIEW_BUILD', '1'],
+    ])('cannot be unlocked by %s=%s', (name, value) => {
+      const original = process.env[name];
+      process.env[name] = value;
+      try {
+        expect(isFeatureAvailable('review-lifecycle')).toBe(false);
+      } finally {
+        if (original === undefined) delete process.env[name];
+        else process.env[name] = original;
+      }
     });
 
-    it('does not throw once unlocked', () => {
-      mockedGetEmail.mockReturnValue('dev@brevo.com');
+    // The account-based escape hatch was removed with the env var. The gate must not
+    // read credentials at all — a build-time flag that consults who you are logged in
+    // as is a runtime flag.
+    it('does not consult the logged-in account', () => {
+      const config = require('../../lib/config');
+      const spy = jest.spyOn(config, 'getEmail');
+      isFeatureAvailable('review-lifecycle');
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    // Not named in the refusal: an end user can act on neither, so mentioning either
+    // would only invite an attempt.
+    it('does not leak the build flag in the message', () => {
+      expect(messages.PREVIEW_FEATURE_UNAVAILABLE).not.toMatch(/PREVIEW|brevo\.com/i);
+    });
+  });
+
+  describe('a preview build (PREVIEW=1)', () => {
+    asBuild(true);
+
+    it('reports every preview feature as available', () => {
+      for (const feature of Object.keys(FEATURE_STAGE)) {
+        expect(isFeatureAvailable(feature as keyof typeof FEATURE_STAGE)).toBe(true);
+      }
+    });
+
+    it('does not refuse', () => {
       expect(() => assertFeatureAvailable('review-lifecycle')).not.toThrow();
+    });
+  });
+
+  // The suite runs as a preview build (jest.setup.js), so the directly imported
+  // bindings should agree with the preview gate — a guard against the setup file
+  // drifting from what these tests assume.
+  describe('the suite default', () => {
+    it('runs as a preview build', () => {
+      expect(isFeatureAvailable('review-lifecycle')).toBe(true);
+      expect(() => assertFeatureAvailable('account-install')).not.toThrow();
     });
   });
 });

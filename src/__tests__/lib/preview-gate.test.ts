@@ -10,12 +10,6 @@
  */
 import { Command } from 'commander';
 import { messages } from '../../lang/en';
-import { PREVIEW_ENV_VAR } from '../../lib/preview';
-
-jest.mock('../../lib/config', () => ({
-  ...jest.requireActual('../../lib/config'),
-  getEmail: jest.fn(() => undefined),
-}));
 
 type Tree = {
   program: Command;
@@ -24,18 +18,17 @@ type Tree = {
 };
 
 /**
- * Build the command tree with the gate in a known state.
+ * Build the command tree as a given build state would produce it.
  *
- * `isolateModules` matters: `commands/definitions.ts` resolves `app create`'s
- * description, its `--distribution` values and its example list at module load, so a
- * cached module would carry the previous run's answer.
+ * `isolateModules` is what makes this possible at all: `commands/definitions.ts`
+ * resolves its command list, `app create`'s description, the `--distribution` values
+ * and the example list at module load, all from `__BREVO_PREVIEW__`. Re-importing with
+ * the global flipped reproduces what esbuild bakes into each artifact, so both builds
+ * are covered by one test run without building twice.
  */
-function buildTree(unlocked: boolean): Tree {
-  if (unlocked) {
-    process.env[PREVIEW_ENV_VAR] = '1';
-  } else {
-    delete process.env[PREVIEW_ENV_VAR];
-  }
+function buildTree(previewBuild: boolean): Tree {
+  const original = globalThis.__BREVO_PREVIEW__;
+  globalThis.__BREVO_PREVIEW__ = previewBuild;
 
   let tree: Tree | undefined;
   jest.isolateModules(() => {
@@ -60,6 +53,7 @@ function buildTree(unlocked: boolean): Tree {
       appHelp: render(program.commands.find((c) => c.name() === 'app')!),
     };
   });
+  globalThis.__BREVO_PREVIEW__ = original;
   return tree!;
 }
 
@@ -78,12 +72,7 @@ const GATED_HEADINGS = ['App-deployment commands', 'App-review commands'];
 const UNGATED = ['init', 'create', 'list', 'credentials', 'upload', 'delete', 'scaffold', 'start'];
 
 describe('the pre-GA gate, end to end', () => {
-  const originalEnv = process.env[PREVIEW_ENV_VAR];
-  afterAll(() => {
-    process.env[PREVIEW_ENV_VAR] = originalEnv ?? '1';
-  });
-
-  describe('locked (logged out, or a non-Brevo account)', () => {
+  describe('a published (public) build', () => {
     let tree: Tree;
     beforeAll(() => {
       tree = buildTree(false);
@@ -123,17 +112,19 @@ describe('the pre-GA gate, end to end', () => {
       expect(createHelp).not.toContain('--distribution public');
     });
 
-    // Hidden, not unregistered. An unregistered command would answer `unknown
-    // command`, telling the user the CLI has no such command when in fact it has one
-    // that isn't released — and it would lose the typed exit code.
-    it.each(GATED)('still parses `app %s` and refuses it with a typed message', async (name) => {
-      await expect(tree.program.parseAsync(['app', name], { from: 'user' })).rejects.toThrow(
-        messages.PREVIEW_FEATURE_UNAVAILABLE,
-      );
+    // Not registered at all, so Commander answers `unknown command` rather than the
+    // typed refusal. That is the honest answer here and a deliberate change from the
+    // earlier runtime gate: with the modules eliminated at build time the command
+    // genuinely does not exist in this artifact, so claiming it exists-but-is-withheld
+    // would be the lie. The typed refusal survives only where a value must still be
+    // parsed and rejected — see `--distribution public` in create.test.ts.
+    it.each(GATED)('does not register `app %s`', (name) => {
+      const app = tree.program.commands.find((c) => c.name() === 'app')!;
+      expect(app.commands.find((c) => c.name() === name)).toBeUndefined();
     });
   });
 
-  describe('unlocked (internal account, or the opt-in env var)', () => {
+  describe('a preview build (PREVIEW=1 yarn link:dev)', () => {
     let tree: Tree;
     beforeAll(() => {
       tree = buildTree(true);

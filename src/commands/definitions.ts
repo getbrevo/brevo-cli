@@ -2,24 +2,24 @@ import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-reg
 import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
+// The gated subcommands are referenced only through this binding, and only from behind
+// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their five handler
+// modules — from a published build. Importing any of those handlers directly here would
+// make them live references again and ship the whole surface. See ./preview-definitions.ts.
+import { previewAppCommands } from './preview-definitions';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
 import { logoutCommand } from './logout';
 import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
-import { deployCommand } from './app/deploy';
-import { rollbackCommand } from './app/rollback';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
-import { statusCommand } from './app/status';
 import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
-import { withdrawCommand } from './app/withdraw';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
-import { submitCommand } from './app/submit';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
 
@@ -124,26 +124,6 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       handler: (opts) => listCommand({ json: Boolean(opts.json) }),
     },
     {
-      name: 'status',
-      requires: 'review-lifecycle',
-      description: "Show an app's review status",
-      examples: [
-        'brevo app status',
-        'brevo app status --app-id 42',
-        'brevo app status --app-id 42 --json',
-      ],
-      options: [
-        {
-          flags: '--app-id <id>',
-          description: 'App ID (uses app-config.json if omitted)',
-          parser: (v) => parseAppId(v),
-        },
-        { flags: '--json', description: 'Output as JSON' },
-      ],
-      handler: (opts) =>
-        statusCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
-    },
-    {
       name: 'credentials',
       description: 'Show client ID and secret for an app',
       examples: [
@@ -181,72 +161,6 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         }),
     },
     {
-      name: 'deploy',
-      requires: 'account-install',
-      description: 'Make an app available in a Brevo account',
-      arguments: [
-        {
-          name: '[account-id]',
-          description: 'Brevo account (tenant) ID (defaults to your own account)',
-        },
-      ],
-      examples: [
-        'brevo app deploy',
-        'brevo app deploy 99999',
-        'brevo app deploy 99999 --app-id 42',
-        'brevo app deploy 99999 --force --json',
-      ],
-      options: [
-        {
-          flags: '--app-id <id>',
-          description: 'App ID (uses app-config.json if omitted)',
-          parser: (v) => parseAppId(v),
-        },
-        { flags: '--force', description: 'Skip confirmation (for CI)' },
-        { flags: '--json', description: 'Output as JSON' },
-      ],
-      handler: (opts, accountId) =>
-        deployCommand({
-          accountId: accountId as string | undefined,
-          appId: opts.appId as string | undefined,
-          force: Boolean(opts.force),
-          json: Boolean(opts.json),
-        }),
-    },
-    {
-      name: 'rollback',
-      requires: 'account-install',
-      description: 'Roll back an app from a Brevo account',
-      arguments: [
-        {
-          name: '[account-id]',
-          description: 'Brevo account (tenant) ID (defaults to your own account)',
-        },
-      ],
-      examples: [
-        'brevo app rollback',
-        'brevo app rollback 99999',
-        'brevo app rollback 99999 --app-id 42',
-        'brevo app rollback 99999 --force --json',
-      ],
-      options: [
-        {
-          flags: '--app-id <id>',
-          description: 'App ID (uses app-config.json if omitted)',
-          parser: (v) => parseAppId(v),
-        },
-        { flags: '--force', description: 'Skip confirmation (for CI)' },
-        { flags: '--json', description: 'Output as JSON' },
-      ],
-      handler: (opts, accountId) =>
-        rollbackCommand({
-          accountId: accountId as string | undefined,
-          appId: opts.appId as string | undefined,
-          force: Boolean(opts.force),
-          json: Boolean(opts.json),
-        }),
-    },
-    {
       name: 'delete',
       description: 'Delete an app',
       examples: ['brevo app delete --app-id 42', 'brevo app delete --app-id 42 --force'],
@@ -261,31 +175,6 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       ],
       handler: (opts) =>
         deleteCommand({
-          appId: opts.appId as string | undefined,
-          force: Boolean(opts.force),
-          json: Boolean(opts.json),
-        }),
-    },
-    {
-      name: 'withdraw',
-      requires: 'review-lifecycle',
-      description: 'Withdraw an app from submission',
-      examples: [
-        'brevo app withdraw --app-id 42',
-        'brevo app withdraw --app-id 42 --force',
-        'brevo app withdraw --app-id 42 --json',
-      ],
-      options: [
-        {
-          flags: '--app-id <id>',
-          description: 'App ID',
-          parser: (v) => parseAppId(v),
-        },
-        { flags: '--force', description: 'Skip confirmation (for CI)' },
-        { flags: '--json', description: 'Output as JSON' },
-      ],
-      handler: (opts) =>
-        withdrawCommand({
           appId: opts.appId as string | undefined,
           force: Boolean(opts.force),
           json: Boolean(opts.json),
@@ -357,32 +246,16 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           port: opts.port as number | undefined,
         }),
     },
-    {
-      name: 'submit',
-      requires: 'review-lifecycle',
-      description: 'Submit a public app for review',
-      examples: [
-        'brevo app submit',
-        'brevo app submit --app-id 42',
-        'brevo app submit --app-id 42 --json',
-      ],
-      options: [
-        {
-          flags: '--app-id <id>',
-          description: 'App ID (uses app-config.json if omitted)',
-          parser: (v) => parseAppId(v),
-        },
-        {
-          flags: '--json',
-          description: 'Print the submission form URL as JSON instead of opening a browser',
-        },
-      ],
-      handler: (opts) =>
-        submitCommand({
-          appId: opts.appId as string | undefined,
-          json: Boolean(opts.json),
-        }),
-    },
+    // ELIMINATION SITE — the raw global rather than `isFeatureAvailable()` on purpose:
+    // esbuild substitutes the global here, folds the ternary to `[]`, and can then drop
+    // `previewAppCommands` and the five handler modules only it imports. Importing the
+    // constant instead leaves a runtime ternary and ships the whole gated surface. See
+    // src/globals.d.ts.
+    //
+    // Appended, not interleaved, so the spread is one foldable expression. Ordering in
+    // `brevo app --help` is unaffected in a public build (there is nothing to order);
+    // a preview build simply lists these five last.
+    ...(__BREVO_PREVIEW__ ? previewAppCommands : []),
   ],
 };
 

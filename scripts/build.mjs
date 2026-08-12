@@ -1,0 +1,139 @@
+/**
+ * Build the CLI (BEX-405).
+ *
+ * esbuild rather than `tsc` for one reason: the pre-GA command surface has to be
+ * *absent* from the published package, not merely unreachable. `tsc` does no dead-code
+ * elimination, so a `if (PREVIEW_BUILD)` guard would still emit every gated command
+ * into `dist/`. esbuild folds the flag to a literal, drops the dead branch, and then
+ * tree-shakes the handler modules that only the dead branch referenced.
+ *
+ * `PREVIEW=1` opts into a full-surface build for local testing (`PREVIEW=1 yarn
+ * link:dev`). The default is a gated build, so `prepublishOnly` cannot accidentally
+ * publish the preview surface — the safe value is the one you get by not thinking
+ * about it.
+ *
+ * ## Two things here are load-bearing and easy to break
+ *
+ * **The bundle stays at `dist/bin/index.js`.** Three modules resolve paths from
+ * `__dirname` at runtime, and this location is what keeps two of them correct without
+ * a source change: `bin/index.ts` and `lib/cli-version.ts` read
+ * `../../package.json`, and `skills/index.ts` reads `../../agent-context` — all of
+ * which land on the package root from `dist/bin/`, exactly as they did when `tsc`
+ * emitted them to `dist/bin/` and `dist/lib/`. Moving the bundle up to `dist/` would
+ * silently resolve them one directory too high.
+ *
+ * **Templates are copied to `dist/bin/files`, not `dist/templates/files`.** Bundling
+ * collapses every module's `__dirname` to the bundle's own directory, so
+ * `templates/index.ts`'s `path.resolve(__dirname, 'files')` now means
+ * `dist/bin/files`. Copying there keeps that line correct in both worlds: under jest
+ * it still resolves to `src/templates/files`, because nothing is bundled there.
+ *
+ * Dependencies stay external (`packages: 'external'`). Bundling `commander` and
+ * `inquirer` would buy nothing — the elimination we need is of our own modules — and
+ * inquirer's dynamic requires do not survive bundling cleanly.
+ */
+import * as esbuild from 'esbuild';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const preview = process.env.PREVIEW === '1' || process.env.PREVIEW === 'true';
+const outfile = path.join(root, 'dist/bin/index.js');
+
+fs.rmSync(path.join(root, 'dist'), { recursive: true, force: true });
+
+const result = await esbuild.build({
+  entryPoints: [path.join(root, 'src/bin/index.ts')],
+  outfile,
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'cjs',
+  packages: 'external',
+  sourcemap: true,
+  legalComments: 'none',
+  logLevel: 'info',
+  metafile: true,
+  // `minifySyntax` is what actually performs the elimination: without it esbuild
+  // substitutes the define but leaves `...false ? previewAppCommands : []` standing,
+  // which is still a live reference and keeps every gated module in the bundle.
+  // Folding the ternary is what makes the branch unreachable and the modules
+  // droppable.
+  //
+  // `minifyWhitespace` is not cosmetic either — esbuild preserves comments in
+  // unminified output, and the comments around the gated code name the commands they
+  // guard. Stripping them keeps the public bundle free of the surface in prose as well
+  // as in code.
+  //
+  // `minifyIdentifiers` stays OFF: mangled names would make a user's stack trace
+  // useless in bug reports, and it buys nothing here. The sourcemap covers the rest.
+  minifySyntax: true,
+  minifyWhitespace: true,
+  minifyIdentifiers: false,
+  // Substituted before parsing, at every use site. A bare global rather than the
+  // exported `PREVIEW_BUILD` constant because esbuild folds a constant only inside its
+  // declaring module — an importer would still emit a runtime ternary and keep the
+  // dead branch's imports alive. See src/globals.d.ts.
+  define: {
+    __BREVO_PREVIEW__: preview ? 'true' : 'false',
+  },
+});
+
+fs.cpSync(path.join(root, 'src/templates/files'), path.join(root, 'dist/bin/files'), {
+  recursive: true,
+});
+
+fs.chmodSync(outfile, 0o755);
+
+// Fail the build rather than publish a gated package that still carries the surface.
+// The check is deliberately on the OUTPUT, not on the config: a define typo, a stray
+// static import, or a future refactor that makes a gated module reachable would all
+// leave the config looking correct while the bundle quietly regained the commands.
+// Markers are top-level bindings that exist ONLY inside gated modules, so finding one
+// means that module survived. Deliberately not message keys from `lang/en.ts`: those
+// live in a single object literal, which esbuild cannot prune property-by-parameter
+// even at zero references, so they would report a leak that no amount of correct
+// gating could clear. The gated copy therefore still ships as inert strings — tracked
+// in RELEASE-CHECKLIST.md; the commands, their API calls and their registration do not.
+//
+// `minifyIdentifiers` is off, so these names survive verbatim if the module does.
+const LEAK_MARKERS = [
+  'previewAppCommands', // commands/preview-definitions.ts
+  'deployCommand', // commands/app/deploy.ts
+  'rollbackCommand', // commands/app/rollback.ts
+  'submitCommand', // commands/app/submit.ts
+  'statusCommand', // commands/app/status.ts
+  'withdrawCommand', // commands/app/withdraw.ts
+  'resolveDeploymentTarget', // commands/app/account-deployment.ts
+];
+
+if (!preview) {
+  const bundle = fs.readFileSync(outfile, 'utf-8');
+  const leaked = LEAK_MARKERS.filter((marker) => bundle.includes(marker));
+  if (leaked.length > 0) {
+    throw new Error(
+      `Gated surface leaked into a public build: ${leaked.join(', ')}.\n` +
+        'A gated module is reachable from live code. Check that it is referenced only ' +
+        'from behind `__BREVO_PREVIEW__` (not the imported PREVIEW_BUILD constant, which ' +
+        'esbuild cannot fold across modules) and that nothing else imports it.',
+    );
+  }
+} else {
+  // Inverted on a preview build: a marker going missing here means the elimination is
+  // firing when it shouldn't, which would silently ship a preview build with no preview
+  // surface — the failure that looks like everything working.
+  const bundle = fs.readFileSync(outfile, 'utf-8');
+  const missing = LEAK_MARKERS.filter((marker) => !bundle.includes(marker));
+  if (missing.length > 0) {
+    throw new Error(
+      `Preview build is missing gated surface: ${missing.join(', ')}.\n` +
+        'PREVIEW=1 should include every gated module.',
+    );
+  }
+}
+
+const bytes = fs.statSync(outfile).size;
+console.log(
+  `${preview ? 'preview' : 'public'} build → dist/bin/index.js (${(bytes / 1024).toFixed(1)} kB)`,
+);
