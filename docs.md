@@ -263,17 +263,14 @@ When an item here resolves, delete it; when it becomes a release step, move it t
       `src/lib/config.ts` — no `client_id`, no callbacks). Both the fallback and its comment
       go once the block is echoed. The alternative if the platform declines is an N+1
       per-app read, which is worse.
-- [ ] **File the create→read-back 404, then remove the fallback.** `POST /v3/app-store/apps`
-      returns an app ID that `GET /v3/app-store/apps/{id}` answers
-      `{"error":"id not found","code":"not_found"}` for, under a second later — observed on
-      staging 2026-08-07 for a UI app. `app create` tolerates it by scaffolding from the
-      create response (`fetchAppContext`'s `fallbackApp`), which is a workaround: the read is
-      still the only source of `scopes`, and any later command reading that app by ID hits
-      the same wall. **Confirm the shape first** — GET a known UI app and a known OAuth app
-      in the same account. If only the UI app 404s, the read path likely excludes an app with
-      no `auth` block (scoping on `FindIDByUUID(uuid, client_id)`, or a join a UI app has no
-      row for) and it belongs on app-store-backend. Once the read resolves, the fallback and
-      `resolveAppCredentials`'s `tolerateMissing` both come out.
+- [x] **The create→read-back 404 does not reproduce — but RETEST WITH A UI APP before
+      removing the fallback.** Checked against staging 2026-08-12: `POST /v3/app-store/apps`
+      returned `201` and `GET /v3/app-store/apps/{id}` immediately after returned `200` with
+      the full app. The 404 reported on 2026-08-07 was for a **UI app**; this check used an
+      OAuth app, so it narrows the report rather than disproving it. Retest with a UI app
+      before deleting `fetchAppContext`'s `fallbackApp` or `resolveAppCredentials`'s
+      `tolerateMissing` — if a UI app still 404s, the read path excludes an app with no
+      `auth` block and it belongs on app-store-backend.
 - [ ] **`surface_point_name` has no unique constraint, and the stamp inherits that.**
       app-store-backend's own comment (`http_get_apps_extensibility.go`, `slotName`) states
       it: a slug is `<page>-<section>` with the component KIND dropped, and the column has no
@@ -348,7 +345,19 @@ Each is marked in a comment at its call site.
 - [ ] **BEX-355 sign-off that an absent `source` is contract-valid.** The CLI stopped sending
       `source: 'cli'` after the platform started reading it as policy (`400
       invalid_parameter`, *public apps cannot be created with source "cli"*). The backend
-      derives the caller from the `User-Agent` header instead.
+      derives the caller from the `User-Agent` header instead. **Staging accepts the omission**
+      — a private create with no `source` and no `cli_version` returned `201` (2026-08-12) —
+      but that only proves it is not *rejected*. Still needs the owners to confirm it does
+      not change attribution, rate-limiting or gating.
+
+- [ ] **The app-read responses disagree on shape, and the CLI absorbs it.** Confirmed on
+      staging 2026-08-12: `POST /apps` and `POST /apps/{id}/upload` return OAuth fields
+      **nested** under `auth`, while `GET /apps/{id}` returns them **flat** (`client_id`,
+      `redirect_uris` at the top level). The CLI copes — `flattenCreateAuth` tolerates both
+      on create, and the read path expects flat — so nothing is broken. But it is one
+      resource described two ways, which is how the original nesting regression hid as long
+      as it did. Worth raising on BEX-355 rather than leaving each new consumer to
+      rediscover it.
 
 ## UX decisions — open, and each a choice rather than a bug
 
@@ -370,6 +379,11 @@ Each is marked in a comment at its call site.
       picking it.
 - [ ] **`promptAppSelection` is an unpaginated `rawlist` over every app on the account.** Fine
       at today's counts; it degrades past a screenful.
+- [ ] **`app upload --json` reports a stale `next.version`.** Observed 2026-08-12: the
+      top-level `version` correctly showed the new `0.0.2` while `next.version` still read
+      `0.0.1` — `next` is built from the local config before the server assigns the bump.
+      Cosmetic, but `next` reads as "what it will become", so it should carry the new version
+      or drop the field.
 
 ## Deliberately parked — don't "fix" without revisiting the decision
 
@@ -401,6 +415,26 @@ Each is marked in a comment at its call site.
 
 `QA-TESTCASES.md` is the manual plan for the whole branch. Its public-app and UI-app
 sections have drifted, and QA would file passes as failures:
+
+- [ ] **`yarn smoke --against=local` builds the wrong artifact, and fails silently.**
+      `stepReinstall` (`scripts/smoke/core.ts`) runs `yarn build`, which since BEX-405 is
+      the **public** build — so `app submit` / `status` / `withdraw` / `deploy` /
+      `rollback` are not in the binary the suite then tests. The harness turns a missing
+      command into a *skip* rather than a failure (`requireCommand()`), so the public
+      suite reports `⊘ skipped` on every step and the run **exits green having tested
+      nothing**. That is worse than a red run: it looks like coverage.
+
+      **Fix is one line** — `execOrThrow(PKG_YARN, ['build:preview'], state)` instead of
+      `['build']`. The gated suites exist to exercise gated commands, so the artifact they
+      install has to be the preview one.
+
+      **`--against=published` needs no change.** It installs from npm, where those commands
+      genuinely are absent, so skipping is the correct and honest outcome there.
+
+      **Convention to hold going forward:** the public-app and UI-app suites are run
+      against a **preview build only** (`PREVIEW=1 yarn link:dev`, or `--against=local`
+      once the line above is fixed). Everything else runs against either build. This is
+      the same split `QA-TESTCASES.md`'s preamble now states for the manual plan.
 
 - [x] **The public-app and UI-app suites cannot run against a published build** — noted at
       the top of the file and on suites 2 and 12. Every notice now says `PREVIEW=1 yarn

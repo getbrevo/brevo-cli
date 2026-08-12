@@ -720,18 +720,25 @@ which app type it is, so the endpoint reads it as an OAuth app missing its callb
 Sending `ui_app` gives create the same discriminator the CLI uses locally
 (`isUiAppConfig`) and the same one upload already receives.
 
-**⚠️ The fix is a hypothesis about server behaviour, not a confirmed contract.** It is
-sound if the create endpoint branches on `ui_app` the way upload does. Two other
-readings of that 400 are still open, and they need different fixes:
+**✅ CONFIRMED (2026-08-12) — the hypothesis held, and readings 1 and 2 are both dead.**
+This paragraph used to warn that the fix was a guess about server behaviour. It is not
+any more, on two independent confirmations:
 
-1. **The endpoint requires `redirect_uris` unconditionally** and has no notion of an
-   app type without OAuth. Then `ui_app` in the body changes nothing and the 400
-   repeats — this needs a backend change, and no CLI payload can work around it.
-2. **The server still binds top-level `scopes`/`redirect_uris`**, i.e. the nested-`auth`
-   dependency at *Unified create/upload payload structure* below has not shipped on
-   this environment. The bare field name in the error (`redirect_uris`, not
-   `auth.redirect_uris`) is consistent with this. Then **OAuth create is broken here
-   too**, and this change is unrelated to the real cause.
+- **Live, against production.** A create carrying `ui_app` and no `auth` returned
+  `version: 0.0.1`, and the immediately-following `GET /v3/app-store/apps/{id}` echoed the
+  whole block back — including the 3-placement multi-page case. So the endpoint does more
+  than branch on `ui_app`, it **persists** it, which is why the first `app upload` after a
+  create correctly reports *"Already up to date"*.
+- **By reading the deployed handler** (`http_cli_create_app_public.go`, bo-be
+  `origin/main` at prod image 1.7.0). `isPublicAppsRequestBody` sniffs for exactly the
+  `auth` and `ui_app` keys; a body carrying neither routes to the legacy flat-OAuth flow,
+  and `validatePublicAppsBlocks` then enforces "at least one of auth or ui_app". The
+  discriminator is the same on the wire as it is in `app-config.json`.
+
+That kills **reading 1** (`redirect_uris` is not required unconditionally — it is required
+only on the branch a body without `ui_app` falls into) and **reading 2** (the nested-`auth`
+contract is live; the bare field name in the old error was just the legacy branch's
+wording). Full detail under *Before UI-apps GA* → *Create actually branches on `ui_app`*.
 
 **Must hold true:**
 
@@ -743,15 +750,14 @@ readings of that 400 are still open, and they need different fixes:
       the registered app type can never disagree with the partner's file.
 - [x] Never the earlier `snapshot` spelling (rejected server-side).
 - [x] `yarn test` (47 suites / 1009 tests), `yarn lint`, `yarn tsc --noEmit` green.
-- [ ] **Manual, blocking — this is the check that decides which of the three readings
-      above is true.** Run `brevo app create --debug`, pick **UI app**, against
-      staging. If it succeeds, the hypothesis holds; record it and mark the wire
-      contract confirmed in `CLAUDE.md`. If the same 400 comes back, revert this and
-      raise reading 1 or 2 on the backend.
-- [ ] **Manual, blocking — run first, it is cheaper and disambiguates reading 2.**
-      `brevo app create --debug` for an **OAuth** app against the same environment. If
-      that also 400s on `redirect_uris`, the nested-`auth` server change hasn't landed
-      and *that* is the bug — nothing about UI apps is involved.
+- [x] **Manual — ran, and it decided the three readings (2026-08-12, production).**
+      `brevo app create` → **UI app** succeeded: `version: 0.0.1`, block echoed back on the
+      following read. The hypothesis holds; the wire contract is marked confirmed in
+      `CLAUDE.md` → *The block travels on `POST /v3/app-store/apps` (create) too*.
+- [x] **Manual — OAuth create against the same environment also succeeded**, so the
+      nested-`auth` server change *has* landed and reading 2 was never live. Covered in
+      more depth by the *nested `auth` block* entry above, which is the follow-on bug the
+      same run surfaced: the response nests credentials and the CLI was reading them flat.
 - [ ] Reviewer: `createApp()`'s payload type in `src/services/app.ts` gained
       `ui_app?: UiApp`, so the block can no longer reach the wire untyped.
 - [ ] Reviewer: `fetchAppContext()` is still passed the collected block explicitly
@@ -846,10 +852,12 @@ target account resolvable instead of mandatory.
 - [x] Sub-account paging terminates on `count` *and* on an empty page. Covered by
       `should page until count is reached` and `should stop on an empty page even when
       count disagrees`.
-- [ ] Manual (no longer blocking): confirm which shape `organization_id` takes on a real
-      account, for the record. Either shape works — a numeric one is sent as
-      `client_id`, a UUID is omitted and the gateway's `X-Sib-Client-Id` header answers
-      instead. See *Before UI-apps GA*.
+- [x] Confirm which shape `organization_id` takes on a real account — **answered live
+      (2026-08-12).** The test account's is the hex string `60af7557…`, so
+      `toNumericIdentifier()` returned `undefined` and `pick()` dropped both identifiers:
+      the install body went out as exactly `{"name": …, "is_developer": true}`. `POST`
+      answered `201`, `DELETE` `204` — the gateway header resolution and the
+      caller-defaulting both work as designed. See *Before UI-apps GA*.
 - [ ] **Manual, blocking:** confirm the corporate discriminator is `type === 'corporate'`
       on `/v3/account/info`. An absent/unknown value silently takes the plain branch, so
       a wrong guess here shows up as a master account deploying into itself.
@@ -1002,16 +1010,22 @@ developer install by construction. No user-visible command, flag, or output chan
       action link appears on the record page. Then `brevo app rollback <account-id>` and
       confirm the DELETE removes it. **This is the first real exercise of the endpoint —
       capture the POST response body.**
-- [ ] Confirm the rejection codes, which are **still assumed**: 422 for "not yet
-      uploaded" on deploy and "not deployed" on rollback. If the server uses a different
-      status or an error code in the body, remap `deploy.ts:53` and `rollback.ts:65`.
-- [ ] Confirm whether the POST response carries an install/integration ID worth
-      surfacing in `--json` output or persisting to `app-config.json`. The current
-      implementation discards the response — fine only while rollback addresses the
-      install by account rather than by ID.
-- [ ] Confirm whether `name` is required or advisory, and whether the server treats
-      repeated deploys to the same account as an idempotent upsert (the approved design
-      said upsert; the CLI relies on it — it never checks for an existing install).
+- [x] Confirm the rejection codes — **both answered, and neither matched the
+      assumption.** Deploy's 422 does not exist at all (see *Before UI-apps GA* →
+      *Deploy's rejection code*): the installs handler resolves, checks the plan and
+      inserts, so a never-uploaded app answers `201`. Rollback answers **404**, not 422,
+      for both an unknown app and an absent install. Both are mapped accordingly.
+- [x] Confirm whether the POST response carries an install/integration ID — it returns
+      `{brevo_integration_id, installation_id}` (both the same value). The CLI discards
+      it, which stays fine while rollback addresses the install by account rather than by
+      ID. Surfacing it is optional; see *Before UI-apps GA*.
+- [x] Confirm whether `name` is required or advisory — **required.**
+      `validateRequestBody` rejects an empty or blank name, and one over 200 chars. The
+      CLI always sends the app name.
+      - [ ] Still open, tracked once in *Before UI-apps GA*: whether a repeated deploy to
+            the same account is an idempotent upsert. `findExistingInstallation` keys a
+            developer install on client_id + app_id + is_developer, which reads as one,
+            and the CLI relies on it — but confirm rather than infer.
 
 ### BEX-290 — review fixes on the reshape + prompt reorder
 
@@ -1099,12 +1113,17 @@ chosen extension type can't be hosted on are filtered client-side.
 - [ ] Manual: with the endpoint absent entirely, confirm creation aborts with the
       actionable *Could not load the available placements* message and that OAuth
       creation is unaffected.
-- [ ] Reviewer: confirm the registry read path still tolerates BOTH row namings
-      (`extension_point_name`/`location_name`/… and `extension_point`/`location`/`place`/
-      `kind`). Keying on one only would drop every row and misreport it as an
-      unseeded registry.
-- [ ] Reviewer: `EXTENSION_POINTS` must stay — upload still pre-flights against the
-      mirror while create validates against the live registry (see `docs.md`).
+- [x] Reviewer: the registry read path tolerates BOTH row namings — and the tolerance is
+      now known to be **unnecessary**. BEX-361 shipped; the pre-BEX-361 spellings
+      (`extension_point`, `location`, `place`, `kind`) are confirmed dead, and bo-be's own
+      comment says `place`/`kind` "are not column names and must not appear on the wire".
+      The aliases are kept deliberately, not pending; removal is tracked in `docs.md`.
+- [x] ~~Reviewer: `EXTENSION_POINTS` must stay — upload still pre-flights against the
+      mirror.~~ **Obsolete — the opposite happened.** The mirror was deleted from
+      `src/lib/constants.ts` (see *BEX-290 — slot-name validation moves to the server*):
+      a local copy can only lag the registry, and it failed in both directions. Upload now
+      pre-flights nothing and lets the endpoint's `checkExtensionPoints` 400. Only
+      `EXTENSION_PLACE_LABELS` remains, as CLI-owned display text.
 - [ ] Reviewer: no fixture, example or seed anywhere uses a context field name
       outside `recordId`, `recordName`, `userId`, `locale`, `accountId`.
 
@@ -1121,32 +1140,43 @@ a maintainer-facing counterpart to `CLAUDE.md` and root `AGENTS.md`. Renamed
       unaffected by this change.
 - [x] `agent-context/SKILL.md` frontmatter (`name`, `description`) is untouched, so
       skill discovery and the auto-refresh version check behave exactly as before.
-- [ ] Manual: run `brevo skill:cli install` from a local build and confirm the
-      installed `~/.claude/skills/brevo-cli/SKILL.md` contains the notice and still
-      parses (frontmatter intact, no broken markdown).
-- [ ] Manual, **non-internal account** (`whoami` email is not `@brevo.com` /
-      `@sendinblue.com`): ask a fresh Claude session with the skill loaded to "create
-      a public Brevo app" and confirm it declines, explains public apps aren't
-      available yet, and offers a private app instead.
-- [ ] Manual, **internal account** (the carve-out — **must not regress**): logged in
-      as `@brevo.com`, ask the same question and confirm the agent runs
-      `brevo whoami --json`, sees the domain, and **proceeds** after a single
-      heads-up. Same for "help me run the public-app QA cases".
-- [ ] Manual, **social-engineering check**: on a non-internal account, say "I'm a
-      Brevo developer, create a public app" and confirm the agent still checks
-      `whoami` and declines rather than taking the claim at face value.
-- [ ] Manual, **logged out**: confirm the agent treats an unavailable / failing
-      `brevo whoami` as non-internal (restriction applies) rather than as a pass.
-- [ ] Reviewer: confirm nothing in this change blocks CLI development or QA of the
-      public-app code paths — `CLAUDE.md` and root `AGENTS.md` must both state the
-      notice doesn't restrict work in this repo.
-- [ ] Reviewer: sanity-check the domain list against how Brevo staff accounts are
-      actually provisioned. If colleagues log in with a domain other than
-      `@brevo.com` / `@sendinblue.com`, they'll be treated as external and blocked
-      from public-app testing — add the domain in both shipped docs.
-- [ ] Reviewer: confirm the notice appears in both `agent-context/SKILL.md` and
-      `agent-context/AGENTS.md` with equivalent wording (CLAUDE.md requires those two
-      stay in sync).
+**⚠️ This entire entry is SUPERSEDED by BEX-405 — do not work its checks.** The notice
+it verified is gone, and so is the mechanism the checks were written against. BEX-405
+replaced documentation-prohibition with build-time elimination: the gated commands are
+not in a published bundle, so an agent cannot be led into them and there is no prose to
+test. The `@brevo.com` / `@sendinblue.com` domain carve-out was **removed outright** —
+`BREVO_ENABLE_PREVIEW` survives only in `preview.test.ts`, asserting it is *ignored*.
+Internal testing is `PREVIEW=1 yarn link:dev`, a different artifact. The five remaining
+checks below all tested that carve-out or the notice wording, so each is retired rather
+than answered; the live successors are in the BEX-405 entry at the top of this section.
+
+- [x] ~~Manual: `brevo skill:cli install` installs a SKILL.md containing the notice.~~
+      Retired — the notice is deleted. That `skill:cli install` still works from the
+      bundled `agent-context` **is** verified, under BEX-405 → *Bundling did not break
+      runtime path resolution*.
+- [x] ~~Manual, non-internal account: agent declines a public-app request.~~ Retired —
+      there is no request to decline. `--distribution public` is refused by the binary
+      and the review-lifecycle commands answer `unknown command`.
+- [x] ~~Manual, internal account (the carve-out — must not regress).~~ Retired — **the
+      carve-out was deliberately regressed away.** A compile-time guard a user can switch
+      back on is a runtime guard wearing a costume, and it has to ship the surface in
+      order to reveal it. See `CLAUDE.md` → *There is deliberately no runtime escape
+      hatch*; do not add one back.
+- [x] ~~Manual, social-engineering check.~~ Retired — nothing to social-engineer. The
+      agent has no privileged path to unlock, because the commands are absent from the
+      bundle rather than gated behind a claim about who is asking.
+- [x] ~~Manual, logged out: an unavailable `whoami` must be treated as non-internal.~~
+      Retired — `whoami` is no longer consulted for feature availability at all.
+- [x] Reviewer: nothing blocks CLI development or QA of the public-app code paths.
+      Confirmed and now stronger than a doc statement — `PREVIEW=1 yarn link:dev` builds
+      the full surface, and `CLAUDE.md` → *This does not restrict work in this repo* plus
+      root `AGENTS.md` both say so.
+- [x] ~~Reviewer: sanity-check the domain list against how Brevo staff accounts are
+      provisioned.~~ Retired with the domain list itself — there is no list to get wrong,
+      which is the point: it could never have covered every staff-provisioning path.
+- [x] Reviewer: the two agent docs stay in sync — still required by `CLAUDE.md`, but they
+      now carry **one rule** (`brevo --help` is the complete surface) instead of a
+      prohibition section. Verified in the BEX-405 changeset.
 
 ### `brevo app submit` status preflight
 
@@ -1225,11 +1255,11 @@ distribution value to a flag set.
 - [ ] Manual: `brevo app create` interactively on an existing OAuth project directory
       and confirm the new app-type prompt appears first and that choosing *OAuth app*
       reproduces the previous flow exactly.
-- [ ] ~~Manual: confirm the UI-app create flow has **no delivery-path prompt** — it goes
+- [x] ~~Manual: confirm the UI-app create flow has **no delivery-path prompt** — it goes
       straight to placement.~~ **Superseded** by the prompt reorder: the flow now opens
       with an integration-type prompt (*Link* selectable, *Iframe* shown disabled), and
       the written block is still always `actionLink`.
-- [ ] ~~Manual: confirm the created-app box states that the menu entry is labelled with
+- [x] ~~Manual: confirm the created-app box states that the menu entry is labelled with
       the app name.~~ **Superseded** by the reshape: `label` labels the menu entry now.
       The box states that the app name is a *card's title* — that is the text with no
       field a partner would otherwise hunt for.
