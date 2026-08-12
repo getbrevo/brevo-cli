@@ -416,6 +416,51 @@ agent-facing docs describe only what a public build ships.
 Append an entry per change that needs verifying. Clear this section (keep the
 heading) before merging into `main`.
 
+### BEX-405 — the pre-GA surface is removed at build time (2026-08-12)
+
+**Change:** the gate moved from a runtime check to build-time elimination. `yarn build`
+(esbuild, `scripts/build.mjs`) folds `__BREVO_PREVIEW__` to `false` and drops the gated
+modules; `PREVIEW=1 yarn build` (or `yarn link:dev`) keeps them. The earlier escape
+hatches — an `@brevo.com` account check and `BREVO_ENABLE_PREVIEW=1` — are **gone**;
+internal testing is a different artifact, not a different flag.
+
+**What is eliminated from a public build:** the five gated command modules and their
+definitions, `commands/app/account-deployment.ts`, the whole UI-authoring layer
+(`app-types/ui/authoring.ts` — registry reads, placement prompts, summary box), the
+gated root-help sections, and 63 gated strings (`lang/preview-messages.ts`).
+183.8 kB → 167.2 kB.
+
+**What is NOT eliminated, by construction:** properties of object literals, which
+esbuild cannot prune — `CLI.APP_DEPLOY`/`APP_ROLLBACK`/`APP_SUBMIT`/`APP_WITHDRAW`, the
+`/withdraw` and `/installs` entries in `ENDPOINTS`, and `appService`'s `deployApp` /
+`rollbackApp` / `withdrawApp` methods. All inert — nothing reaches them and no help
+lists them. Fixable with the same split used for `lang/preview-messages.ts` if it ever
+matters; deliberately not done here.
+
+**Must hold true:**
+
+- [x] `yarn build` fails if a gated module survives; `yarn build:preview` fails if one
+      goes missing. Both directions asserted on the output in `scripts/build.mjs`.
+- [x] A public artifact answers `unknown command` for all five gated commands, refuses
+      `--distribution public` with the typed message, and ignores
+      `BREVO_ENABLE_PREVIEW=1`. Verified by running `dist/bin/index.js`.
+- [x] A preview artifact lists all five in `brevo app --help`.
+- [x] Bundling did not break runtime path resolution — `--version` (package.json),
+      `skill:cli install` (agent-context), scaffolding (templates at `dist/bin/files`).
+      All three verified against the built artifact, not mocks.
+- [x] `npx tsc --noEmit`, `yarn lint`, `yarn format:check`, `yarn test`
+      (56 suites / 1189 tests) green.
+- [ ] **Manual, blocking:** `npm pack` and install the tarball in a clean directory —
+      confirm `brevo app scaffold` writes template files and `brevo skill:cli install`
+      works from the *packed* layout, not just from `dist/` in the repo. The `files:`
+      allowlist still says `dist`, which now contains a different tree.
+- [ ] **Manual:** confirm CI's `yarn install --frozen-lockfile` accepts the added
+      `esbuild` devDependency — it reuses tsx's existing `esbuild@~0.28.0` lockfile
+      entry, so no lockfile change was needed, but that is worth seeing go green once.
+- [ ] Reviewer: `sideEffects: false` was added to `package.json`. It is what lets the
+      bundler drop unused modules. Confirm no module in `src/` is imported purely for a
+      side effect (there are none today — `grep -rn "^import '" src`).
+
 ### The deploy upload-gate covers every resolution path (2026-08-12)
 
 **Change:** `assertUploadedBeforeDeploy()` takes the resolved app ID and became

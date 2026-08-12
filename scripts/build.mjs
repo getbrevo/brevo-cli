@@ -91,13 +91,23 @@ fs.chmodSync(outfile, 0o755);
 // static import, or a future refactor that makes a gated module reachable would all
 // leave the config looking correct while the bundle quietly regained the commands.
 // Markers are top-level bindings that exist ONLY inside gated modules, so finding one
-// means that module survived. Deliberately not message keys from `lang/en.ts`: those
-// live in a single object literal, which esbuild cannot prune property-by-parameter
-// even at zero references, so they would report a leak that no amount of correct
-// gating could clear. The gated copy therefore still ships as inert strings — tracked
-// in RELEASE-CHECKLIST.md; the commands, their API calls and their registration do not.
+// means that module survived. `minifyIdentifiers` is off, so these names appear
+// verbatim if the module does.
 //
-// `minifyIdentifiers` is off, so these names survive verbatim if the module does.
+// WHAT THIS CANNOT CATCH, and why it is not a bug in the list: esbuild cannot prune
+// individual properties from an object literal, so anything reached as `OBJECT.KEY`
+// survives at zero references. Three such objects still carry gated names in a public
+// build — `CLI.APP_DEPLOY`/`APP_ROLLBACK`/`APP_SUBMIT`/`APP_WITHDRAW` and the
+// `/withdraw` + `/installs` entries in `ENDPOINTS` (both `lib/constants.ts`), and the
+// `deployApp`/`rollbackApp`/`withdrawApp` methods on the `appService` literal
+// (`services/app.ts`). They are inert: no command reaches them and no help lists them.
+// `lang/en.ts` had the same problem and was fixed by moving the gated strings into
+// `lang/preview-messages.ts` and spreading that in behind the build flag — the same
+// treatment would work for these three if the residue ever matters. Tracked in
+// RELEASE-CHECKLIST.md.
+//
+// So: a marker here must name a MODULE-level binding, never an object property, or the
+// check fails in a way no amount of correct gating can clear.
 const LEAK_MARKERS = [
   'previewAppCommands', // commands/preview-definitions.ts
   'deployCommand', // commands/app/deploy.ts
