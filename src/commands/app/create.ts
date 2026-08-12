@@ -9,6 +9,7 @@ import { ApiError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName } from '../../lib/validators';
+import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 import { printBox, createSpinner } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
 import {
@@ -97,7 +98,11 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
 export type AppType = 'oauth' | 'ui';
 
 async function resolveAppType(interactive: boolean): Promise<AppType> {
-  if (!interactive) {
+  // A UI app is only reachable through this prompt (there is no `--type` flag), so
+  // gating the feature means not asking at all rather than asking and refusing.
+  // Skipping the prompt outright restores the exact pre-BEX-290 flow — one fewer
+  // question, straight to an OAuth app — instead of showing a one-item list.
+  if (!interactive || !isFeatureAvailable('ui-app-type')) {
     return 'oauth';
   }
   const answer = await inquirer.prompt([
@@ -116,10 +121,23 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
 
 // 2. Distribution type
 async function resolveDistribution(distributionFlag: string | undefined): Promise<string> {
+  // Public distribution is pre-GA (BEX-405). The flag keeps validating against the
+  // full set so `--distribution public` still fails as an *unreleased feature* rather
+  // than as an unknown value — the second would be a lie, and would send the user
+  // looking for a typo. `validateEnum` runs first so a genuine typo still gets the
+  // "invalid value" error it deserves.
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
+  if (distributionFlag === 'public') {
+    assertFeatureAvailable('public-distribution');
+  }
   if (distributionFlag) {
     return distributionFlag;
+  }
+  // Same reasoning as the app-type prompt: with only one choice left there is
+  // nothing to ask, so a locked run skips straight to a private app.
+  if (!isFeatureAvailable('public-distribution')) {
+    return 'private';
   }
   const answer = await inquirer.prompt([
     {

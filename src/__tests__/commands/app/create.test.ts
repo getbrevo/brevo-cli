@@ -17,6 +17,10 @@ jest.mock('inquirer', () => ({
 
 jest.mock('../../../lib/config', () => ({
   getApiKey: jest.fn().mockReturnValue('test-key'),
+  // Read by the pre-GA gate (BEX-405). Undefined = logged out = locked, which only
+  // matters in the locked-path suite at the bottom of this file — everything else
+  // runs unlocked via BREVO_ENABLE_PREVIEW in jest.setup.js.
+  getEmail: jest.fn(),
   saveAppCredentials: jest.fn(),
   saveAppName: jest.fn(),
   hasLocalApp: jest.fn().mockReturnValue(false),
@@ -71,7 +75,9 @@ import {
   saveAppName,
   hasLocalApp,
   readProjectConfig,
+  getEmail,
 } from '../../../lib/config';
+import { messages } from '../../../lang/en';
 import {
   fetchAppContext,
   runBaseScaffold,
@@ -2157,6 +2163,96 @@ describe('app/create', () => {
       expect(parsed.clientId).toBe('cli-123');
       expect(parsed.redirectUri).toEqual(['http://localhost:3009/auth/callback']);
       expect(parsed).not.toHaveProperty('uiApp');
+    });
+  });
+
+  // ──────── The pre-GA gate inside `app create` (BEX-405) ────────
+  // Two of the four gated features are not commands, so `command-registry`'s
+  // interceptor cannot reach them: the *UI app* choice is a prompt option and
+  // `public` is a flag VALUE. They are gated inside the flow instead, and the
+  // shape of the refusal differs — a prompt choice is withheld, a flag is refused.
+  describe('while public distribution and UI apps are pre-GA', () => {
+    beforeEach(() => {
+      // jest.setup.js unlocks the gate for the suite so the feature tests above
+      // don't depend on who is logged in. These want a genuinely locked CLI.
+      delete process.env.BREVO_ENABLE_PREVIEW;
+      (getEmail as jest.Mock).mockReturnValue(undefined);
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 42,
+        name: 'Test App',
+        client_id: 'cli-123',
+        client_secret: 'secret-456',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+    });
+
+    afterEach(() => {
+      process.env.BREVO_ENABLE_PREVIEW = '1';
+    });
+
+    it('refuses --distribution public with the unreleased-feature message', async () => {
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'public', json: true }),
+      ).rejects.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
+    });
+
+    // The refusal must land BEFORE any filesystem work. `app create` creates and
+    // chdirs into the project directory as part of the flow, so a late refusal
+    // would leave a stray directory and a moved cwd behind for a command that
+    // failed — the same failure mode TODO.md records for a server-side refusal.
+    it('refuses before creating anything', async () => {
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'public', json: true }),
+      ).rejects.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
+
+      expect(appService.createApp).not.toHaveBeenCalled();
+      expect(resolveProjectDirectory).not.toHaveBeenCalled();
+      expect(chdirSpy).not.toHaveBeenCalled();
+    });
+
+    // A genuine typo must still read as a typo. Routing every bad value through the
+    // unreleased-feature message would send the user hunting for a feature flag.
+    it('still rejects an invalid distribution as an invalid value', async () => {
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'privte', json: true }),
+      ).rejects.toThrow(/--distribution/);
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'privte', json: true }),
+      ).rejects.not.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
+    });
+
+    it('does not ask for the app type, and creates an OAuth app', async () => {
+      mockPrompt.mockResolvedValue({ redirectUrl: '', logoUri: '', scaffold: false });
+
+      await createCommand({ name: 'Test App', distribution: 'private' });
+
+      const asked = mockPrompt.mock.calls.flatMap((call) => call[0]).map((q) => q?.name);
+      expect(asked).not.toContain('appType');
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload).not.toHaveProperty('ui_app');
+    });
+
+    // With `public` withheld the prompt has one answer left, so asking is noise.
+    // Skipping it restores the pre-BEX-249 flow rather than showing a one-item list.
+    it('does not ask for the distribution, and defaults to private', async () => {
+      mockPrompt.mockResolvedValue({ redirectUrl: '', logoUri: '', scaffold: false });
+
+      await createCommand({ name: 'Test App' });
+
+      const asked = mockPrompt.mock.calls.flatMap((call) => call[0]).map((q) => q?.name);
+      expect(asked).not.toContain('distribution');
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.distribution_type).toBe('private');
+    });
+
+    // The escape hatch has to work here too, or QA and dogfooding lose the flow.
+    it('allows --distribution public from an internal Brevo account', async () => {
+      (getEmail as jest.Mock).mockReturnValue('dev@brevo.com');
+
+      await createCommand({ name: 'Test App', distribution: 'public', json: true });
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.distribution_type).toBe('public');
     });
   });
 });

@@ -1,5 +1,7 @@
 import { Command } from 'commander';
 import type { Capability } from '../app-types/capabilities';
+import { FEATURE_STAGE, assertFeatureAvailable, isFeatureAvailable } from './preview';
+import type { PreviewFeature } from './preview';
 
 export interface CommandOption {
   flags: string;
@@ -47,10 +49,36 @@ export interface SubcommandGroupDefinition {
 }
 
 /**
+ * The pre-GA feature a command's `requires` names, if any.
+ *
+ * `Capability` is the wider set — `oauth-flow`, `redirect-uris` and `scaffold-feature`
+ * are capabilities that no gate applies to. Only the names that also appear in
+ * `FEATURE_STAGE` are gateable, so the lookup is a membership test rather than a cast.
+ */
+export function previewFeatureOf(def: CommandDefinition): PreviewFeature | undefined {
+  if (!def.requires) return undefined;
+  return def.requires in FEATURE_STAGE ? (def.requires as PreviewFeature) : undefined;
+}
+
+/**
  * Register a flat command on the program.
+ *
+ * A command gated behind an unreleased feature is registered `hidden` rather than
+ * skipped. Skipping would drop it from the parser too, so invoking it would produce
+ * Commander's `unknown command` — which tells the user the CLI has no such command,
+ * when in fact it has one that isn't released. Registering it hidden keeps the typed
+ * refusal (`assertFeatureAvailable`) and its exit code.
+ *
+ * Note this is a *feature* gate, not the capability gate `requires` is documented as
+ * not being. The distinction is real: a capability gate depends on which app you are
+ * acting on and each command answers it in its own words, while this one depends only
+ * on whether the feature has shipped and is the same answer for every command. That
+ * is why one interceptor is right here and wrong there.
  */
 function registerCommand(parent: Command, def: CommandDefinition): void {
-  const cmd = parent.command(def.name).description(def.description);
+  const gatedBehind = previewFeatureOf(def);
+  const hidden = Boolean(gatedBehind) && !isFeatureAvailable(gatedBehind!);
+  const cmd = parent.command(def.name, { hidden }).description(def.description);
 
   if (def.arguments) {
     for (const arg of def.arguments) {
@@ -76,6 +104,11 @@ function registerCommand(parent: Command, def: CommandDefinition): void {
   }
 
   cmd.action((...actionArgs) => {
+    // Re-checked here rather than reusing `hidden` above: that was computed at
+    // registration, and the refusal must reflect the state at invocation. Same answer
+    // in practice, but the gate reads the credentials file and the env, and neither
+    // belongs frozen in a module-init constant.
+    if (gatedBehind) assertFeatureAvailable(gatedBehind);
     // Commander passes positional args first, then options object, then Command
     const opts = actionArgs.at(-2) as Record<string, unknown>;
     const positionalArgs = actionArgs.slice(0, -2);

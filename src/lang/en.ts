@@ -55,6 +55,17 @@ export const messages = {
   WHOAMI_CREDENTIAL_MISMATCH: (fields: string[]) =>
     `Local credentials mismatch with API for: ${fields.join(', ')}. Run \`${CLI.LOGIN}\` to re-authenticate.`,
 
+  // Pre-GA gate (BEX-405). One message for every gated command, prompt choice and
+  // flag value — see `src/lib/preview.ts` for why this one is shared while the
+  // capability refusals each keep their own wording.
+  //
+  // Deliberately says nothing about the internal-account escape hatch or the env
+  // var: an end user cannot use either, so naming them would only invite an attempt.
+  // Both are documented where the people who need them will look — the agent docs
+  // and the README.
+  PREVIEW_FEATURE_UNAVAILABLE:
+    'That command is not available yet. It is part of a Brevo feature that has not been released.',
+
   // App create
   APP_CREATE_NAME_PROMPT: 'App name:',
   APP_CREATE_TYPE_PROMPT: 'Distribution type?',

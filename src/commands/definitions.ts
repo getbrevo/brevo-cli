@@ -1,5 +1,7 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
 import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
+import { isFeatureAvailable } from '../lib/preview';
+import { createDescription, distributionValues } from '../lib/help';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -65,11 +67,17 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'create',
-      description: 'Create a new app (OAuth integration or UI app)',
+      description: createDescription(),
+      // The `--distribution public` example is filtered out while public distribution
+      // is pre-GA (BEX-405) — `brevo app create --help` must not advertise a value the
+      // command will refuse. Filtered from the same table the refusal reads, so GA
+      // restores it without an edit here.
       examples: [
         'brevo app create',
         'brevo app create --name "My App" --distribution private',
-        'brevo app create --name "My App" --distribution public',
+        ...(isFeatureAvailable('public-distribution')
+          ? ['brevo app create --name "My App" --distribution public']
+          : []),
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
@@ -80,7 +88,10 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       // creates.
       options: [
         { flags: '--name <name>', description: 'App name' },
-        { flags: '--distribution <type>', description: 'Distribution type (private|public)' },
+        {
+          flags: '--distribution <type>',
+          description: `Distribution type (${distributionValues()})`,
+        },
         {
           flags: '--redirect-uri <url>',
           description: 'Redirect URI (repeatable, OAuth apps only)',
