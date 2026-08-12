@@ -2262,10 +2262,11 @@ describe('app/create', () => {
       ).rejects.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
     });
 
-    // The refusal must land BEFORE any filesystem work. `app create` creates and
-    // chdirs into the project directory as part of the flow, so a late refusal
-    // would leave a stray directory and a moved cwd behind for a command that
-    // failed — the same failure mode TODO.md records for a server-side refusal.
+    // The refusal must land BEFORE any filesystem work. `app create` decides its
+    // target directory and then applies it (mkdir + chdir), so a refusal arriving
+    // after the apply step would leave a stray directory and a moved cwd behind for
+    // a command that failed — the same failure mode a server-side refusal used to
+    // cause before the decide/apply split.
     it('refuses before creating anything', async () => {
       await expect(
         createCommand({ name: 'Test App', distribution: 'public', json: true }),

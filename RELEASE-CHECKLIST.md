@@ -102,29 +102,32 @@ because the doc steps below describe surface that does not exist until it is ope
       `## Per-branch verification` is empty, delete the file and drop the
       *Working docs* reference to it from `CLAUDE.md`.
 
-**Related follow-ups (not blockers for GA removal):**
+**Related follow-ups (not blockers for GA removal).** Open questions live in `docs.md`
+→ *Part 2 — outstanding work*, not here: this file is the GA runbook, that one is the
+open-questions log. Only settled decisions are recorded below, for the reasoning.
 
-- [x] **Decided and shipped (BEX-405): the CLI refuses, it does not warn.** The
-      question was whether to guard `--distribution public` at runtime or keep relying
-      on documentation. Documentation alone was never enforcement — it worked exactly
-      as far as the reading agent's cooperation went — so the gate is real: the value
-      is hidden from every help screen and refused with a typed `CliError` (exit 1)
-      before any filesystem work. *Warn* was rejected because a warning still creates
-      the app, which is the outcome the notice existed to prevent.
+- [x] **Decided and shipped (BEX-405): the guard is the build, not a runtime check.**
+      The question was whether to guard `--distribution public` at runtime or keep relying
+      on documentation. It landed further than either: `scripts/build.mjs` eliminates the
+      review-lifecycle commands from the published bundle, and `--distribution public` —
+      which must still be parsed before it can be rejected — is refused with a typed
+      `CliError` (exit 1) before any filesystem work. *Warn* was rejected because a warning
+      still creates the app, which is the outcome the notice existed to prevent.
 
-      The escape hatch is the same one the docs already used — an `@brevo.com` /
-      `@sendinblue.com` account — plus `BREVO_ENABLE_PREVIEW=1` for CI and for QA on a
-      non-Brevo test account. It reads the *cached* credential, not `whoami`, so help
-      renders while logged out and a slow API cannot change the gate. Logged out is
-      locked. Per `CLAUDE.md` this remains a guardrail, not a security boundary:
-      client-side, bypassable by building from source, and real enforcement still
-      belongs on the API.
+      **There is no escape hatch.** An interim version unlocked on an `@brevo.com` /
+      `@sendinblue.com` account or `BREVO_ENABLE_PREVIEW=1`; both were removed when the flag
+      moved to build time, because a compile-time guard a user can switch back on is a
+      runtime guard wearing a costume — and it has to ship the surface in order to reveal
+      it. Internal testing is `PREVIEW=1 yarn link:dev`, a different artifact.
 
-      **Removal is now a GA step — see the item added to the list above.**
-- [x] `README.md`'s command table drift — the stale `brevo app update` row (replaced
-      by `brevo app upload`) was fixed in the BEX-290 branch. Still omits
-      `brevo app status` / `submit` / `withdraw` / `available-scopes`; worth a
-      separate pass.
+      That also retires the old "guardrail, not a security boundary" caveat: there is no
+      client-side check left to bypass. The two layers are the build and the API.
+
+      **Removal is a GA step — see the list above.**
+- [x] `README.md`'s command table drift — **closed.** The stale `brevo app update` row was
+      fixed in the BEX-290 branch and `brevo app available-scopes` was added on this one.
+      `status` / `submit` / `withdraw` stay out by design until GA, when the list above
+      restores them.
 
 ---
 
@@ -173,7 +176,9 @@ agent-facing docs describe only what a public build ships.
       (excluding `node_modules/`, `dist/`, `coverage/`) returns only this file.
 - [ ] Delete this whole `## Before UI-apps GA` section.
 
-**Related follow-ups (not blockers for GA removal):**
+**Related follow-ups (not blockers for GA removal).** Open questions live in `docs.md`
+→ *Part 2 — outstanding work*, not here: this file is the GA runbook, that one is the
+open-questions log. Only settled decisions are recorded below, for the reasoning.
 
 - [x] **`ui_app` field names — RESOLVED.** Confirmed against both of the platform's
       consumers — the manifest read path and the extensibility UI kit
@@ -190,10 +195,6 @@ agent-facing docs describe only what a public build ships.
       `link_target` is no longer authored into the file at all — `app upload` injects
       `_blank`. The UIApp Support Spec's `properties`/`trigger` vocabulary is not read
       anywhere and has been dropped.
-- [ ] **Ship the UI-kit rendering change before or with this CLI.** `label` labels the
-      header-menu item and `more_info` renders as its second line; until the frontend
-      does that, a partner authors a `label` the menu never shows. This is a sequencing
-      requirement, not a CLI change — the CLI is the producer and is ready.
 - [x] **Coordinate the BEX-350 registry reseed — SEEDED (verified 2026-08-12).**
       bo-be `origin/main`'s `specs/database.sql` carries all twelve rows in the
       BEX-350 grammar, each with both identities: the dotted `extension_point_name`
@@ -209,15 +210,6 @@ agent-facing docs describe only what a public build ships.
       registry. `EXTENSION_PLACE_LABELS` in the same file is **CLI-owned display
       text and stays** — the registry exposes no display-name column, so either the
       CLI keeps this map or the platform adds one.
-- [ ] **Confirm the per-slot context columns are seeded.** There is no context prompt
-      any more: `brevo app create` seeds each `surface_point_list` entry's `context`
-      from that registry row's own default, and the upload endpoint validates each
-      entry against that row's allow-list. Two consequences: a row with no default
-      yields an entry with no `context` (which means "no narrowing", so it degrades
-      safely), and a default outside its own allow-list would make the CLI author a
-      config its own upload rejects — which reads as a CLI bug. The registry is
-      expected to keep each default inside its allow-list; worth confirming that is
-      enforced rather than true by luck.
 - [x] **Snapshot write path confirmed.** The platform's upload endpoint
       (app-store-bo-be `POST /cli/apps/{app_id}/upload`, branch
       feat/bex-355-cli-snapshot-contract) binds the block under `ui_app` and
@@ -236,7 +228,7 @@ agent-facing docs describe only what a public build ships.
       placements on the pages that were picked.
       - [x] `/surface-points/locations` answers `{ locations: []string, count: int }`.
             Confirmed — the response struct is exactly those two fields. The CLI's
-            bare-array tolerance is now provably unnecessary (see TODO.md); it is
+            bare-array tolerance is now provably unnecessary (see `docs.md`); it is
             being kept deliberately, not pending.
       - [x] The response rows carry `extension_point_name`, `location_name`,
             `section_name`, `component_type`, `surface_point_name`,
@@ -255,7 +247,7 @@ agent-facing docs describe only what a public build ships.
       - [x] `?location=` is honoured and an unknown value 400s listing the valid
             locations (`parseLocationFilter`), rather than being silently dropped.
             There is also an explicit `all` sentinel for "no filter". Confirmed, so
-            the unfiltered retry can go (see TODO.md) — again, kept deliberately.
+            the unfiltered retry can go (see `docs.md`) — again, kept deliberately.
       - [x] Row order is deterministic: `buildSurfacePoints` sorts by
             (`location_name`, `section_name`, `component_type`) with
             `extension_point_name` as the tiebreaker, and bo-be documents the
@@ -272,7 +264,7 @@ agent-facing docs describe only what a public build ships.
       `GET /v3/app-store/apps/{id}` answers `client_id: ""` with `grant_types: null`,
       `redirect_uris: null`, `scopes: null`. So `auth: {}` in the file is accurate.
       (Related bug found in the same run: the create response nests credentials under
-      `auth` and the CLI reads them flat — see `TODO.md`.)
+      `auth` and the CLI reads them flat — see `docs.md`.)
 - [x] **Create actually branches on `ui_app` — ANSWERED live (2026-08-12, production).**
       The open question in `CLAUDE.md` ("whether the create endpoint actually branches on
       it is not yet confirmed") is settled: it does more than branch, it **persists the
@@ -358,18 +350,6 @@ agent-facing docs describe only what a public build ships.
       UUID during BEX-290; if that holds, deploy/rollback still work, they just lean on
       the header. Worth confirming the shape for the record, but it no
       longer gates GA.
-- [ ] **Confirm the corporate discriminator — STILL OPEN, and not answerable from
-      the app-store repos.** Account resolution branches on `type === 'corporate'`
-      from `/v3/account/info`, an **assumed** field name and value
-      (`AccountResponse.type` in `src/types.ts` carries the ⚠️ marker). That endpoint
-      belongs to the account API, so the 2026-08-12 sweep of app-store-bo-be and
-      app-store-backend could not settle it — it needs the account API's owners or a
-      corporate account to test with. It is typed optional and an absent/unknown value
-      degrades to the plain-account branch, which resolves deterministically and never
-      prompts; the cost of being wrong is that a master account must pass
-      `[account-id]` explicitly. Confirm the field, and confirm that
-      `GET /v3/corporate/subAccount` is reachable with both an api-key and an OAuth
-      bearer token (the CLI sends whichever the user logged in with).
 - [x] **`GET /v3/app-store/apps/{id}` returns the `ui_app` block — CONFIRMED
       (2026-08-12, bo-be `origin/main`).** The echo is already shipped, not planned:
       `applyLatestVersionFields` reads the latest `app_versions` row and sets
@@ -388,11 +368,11 @@ agent-facing docs describe only what a public build ships.
       snapshot read on the list path. So `brevo app list`'s UI-app detection must keep
       its heuristic (`isUiAppRecord` — no `client_id`, no callbacks) and the detail
       rows in `printUiApp` stay unit-tested only. This is a platform ask, not a CLI
-      fix — see TODO.md.
+      fix — see `docs.md`.
 - [x] **`owner_user_id: 0` on UI-app records — EXPLAINED, and it is not a bug to
       raise.** The field is OAuth-service-owned. An app with no linked OAuth
       credentials has no OAuth body to source it from, so `buildAppStoreOnlyResponse`
-      leaves it at the zero value. Nothing in the CLI reads it. The TODO.md item that
+      leaves it at the zero value. Nothing in the CLI reads it. The item that
       called this a create-path failure to stamp the owner was wrong.
 - [x] **Decided and shipped (BEX-405): the CLI gates the UI-app path too.** Same
       decision as `--distribution public` — refuse, don't warn — and the same escape
@@ -557,7 +537,7 @@ pair to cache.
 ### BEX-355 — `app create` stops sending `source: 'cli'` (2026-08-07)
 
 **Change:** `createApp()` posts the declared payload and nothing else. This closes
-the open `TODO.md` item on the key's fate, and it is the last top-level key the CLI
+the open `docs.md` item on the key's fate, and it is the last top-level key the CLI
 was adding to a request body outside the declared contract (`cli_version` went
 earlier on this branch).
 
@@ -615,12 +595,12 @@ backend still identifies the caller from the structured `User-Agent`
       marker written to disk, unrelated.
 - [x] Reviewer: decide whether `--distribution public` should now fail locally with
       a real message instead of surfacing the raw server `400` after the scaffold
-      directory has already been created and entered. Tracked in `TODO.md`; see also
+      directory has already been created and entered. Tracked in `docs.md`; see also
       the runtime-guard item under *Before public-apps GA*.
 
       **Decided (2026-08-12): translate the server's refusal, do not guard locally.**
       See the entry below. The stray-directory half of this item is not fixed and is
-      now tracked separately in `TODO.md` — it affects every hard create failure, not
+      now tracked separately in `docs.md` — it affects every hard create failure, not
       just this one, and fixing it trades against orphan-app risk.
 
 ### `app create` explains the platform's public-app refusal (2026-08-12)
@@ -913,7 +893,7 @@ needed for this.
 **`EXTENSION_PLACE_LABELS` is deliberately kept.** It is CLI-owned partner-facing
 display text, not a mirror of anything: the registry has no display-name column,
 and `surface_point_name` holds kebab slugs (`contact-details-header-menu`) that
-would be worse to show a partner. `TODO.md` previously listed it for deletion
+would be worse to show a partner. `docs.md` previously listed it for deletion
 alongside the mirror; that was wrong and is corrected.
 
 **Must hold true:**
@@ -944,7 +924,7 @@ alongside the mirror; that was wrong and is corrected.
       confirm that reasoning holds.
 - [ ] Reviewer: `agent-context/SKILL.md` and `agent-context/AGENTS.md` are both
       updated and still in sync (CLAUDE.md requires it), along with `CLAUDE.md`,
-      `TODO.md` and the changeset.
+      `docs.md` and the changeset.
 
 ### BEX-290 — `undeploy` → `rollback` rename (2026-08-06)
 
@@ -1124,7 +1104,7 @@ chosen extension type can't be hosted on are filtered client-side.
       `kind`). Keying on one only would drop every row and misreport it as an
       unseeded registry.
 - [ ] Reviewer: `EXTENSION_POINTS` must stay — upload still pre-flights against the
-      mirror while create validates against the live registry (see TODO.md).
+      mirror while create validates against the live registry (see `docs.md`).
 - [ ] Reviewer: no fixture, example or seed anywhere uses a context field name
       outside `recordId`, `recordName`, `userId`, `locale`, `accountId`.
 
@@ -1644,7 +1624,7 @@ strictly and 400s on unknown top-level keys, and the version already travels on
 every request in the `User-Agent` header (`src/lib/telemetry.ts`). The scaffold
 no longer stamps `cliVersion` into `app-config.json` (template line, `{{CLI_VERSION}}`
 var, `ProjectConfig.cliVersion` type all removed — nothing ever read the field).
-`source: 'cli'` on create is deliberately untouched (see `TODO.md`).
+`source: 'cli'` on create is deliberately untouched (see `docs.md`).
 
 **Must hold true:**
 
@@ -1887,7 +1867,7 @@ Partner-visible prompts are unchanged. Two behavioural consequences:
 - **The narrowed read has no already-held superset to fall back on**, so a read
   that fails, or that covers fewer of the picked pages than were asked for, is
   retried UNFILTERED and narrowed client-side. Only a failure of both aborts.
-  Tracked for removal once `?location=` is confirmed honoured (TODO.md).
+  Tracked for removal once `?location=` is confirmed honoured (`docs.md`).
 
 **Must hold true:**
 
@@ -2134,14 +2114,14 @@ the copy stored last time.
       shim for the old key, and decodes `extension_point_name` and *prefers* it over
       the slug (`snapshotSurfacePoint.slotName`). This branch closes a mismatch
       rather than opening one — but that makes the deploy order matter in three
-      places, not two. See `TODO.md` for the two review notes it leaves behind (a
+      places, not two. See `docs.md` for the two review notes it leaves behind (a
       stale comment crediting the CLI with the stamp, and the slug fallback that
       must survive).
 - [ ] **Manual, blocking:** confirm the twelve seeded rows still have twelve
       DISTINCT `surface_point_name` values before relying on the stamp. The column
       has no unique constraint and the slug drops the component kind, so a
       thirteenth row sharing a section would make `FindByNames` — and therefore the
-      stamp — pick arbitrarily. Tracked in `TODO.md`.
+      stamp — pick arbitrarily. Tracked in `docs.md`.
 
 ### BEX-290 — `app list` survives a UI app and names each app's type (2026-08-11)
 
@@ -2490,7 +2470,7 @@ each produces a *plausible* result rather than an error:
       `app scaffold` behaviour bullet), `README.md` command table, `CLAUDE.md`
       conventions, and the pending changeset.
 
-**Open question, tracked in `TODO.md`:** whether `POST /v3/app-store/apps` writes an
+**Open question, tracked in `docs.md`:** whether `POST /v3/app-store/apps` writes an
 `app_versions` row. If it does, the never-uploaded-UI-app refusal is close to
 unreachable; if it does not, users will meet it. The refusal is correct either way —
 this only changes how prominent it is.

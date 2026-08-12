@@ -207,28 +207,35 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - Services are tested against mocked API client responses.
 - Template tests verify variable substitution, not file I/O.
 
-## Working docs: RELEASE-CHECKLIST.md and TODO.md
+## Working docs: `RELEASE-CHECKLIST.md` and `docs.md`
 
-`RELEASE-CHECKLIST.md` (formerly `TESTING.md`) and `TODO.md` track in-flight work at the repo
-root. `TODO.md` is a running work tracker. `RELEASE-CHECKLIST.md` has **two sections that live
-by different rules** — read its header before editing it:
+Two durable docs at the repo root, with different jobs. Read this before editing either.
 
-- `## Before public-apps GA` — **durable.** Survives into `main` and stays there until public
-  app distribution ships. Do not delete it as part of branch cleanup.
-- `## Per-branch verification` — **scratch.** Same role the old `TESTING.md` had; exists only
-  for the lifetime of a branch/PR.
+- **`RELEASE-CHECKLIST.md` — the GA runbook.** Ordered, mechanical steps for the day a
+  feature ships. Its `## Before public-apps GA` and `## Before UI-apps GA` sections are
+  **durable**: they survive into `main` and stay until those features ship. Do not delete
+  them as branch cleanup. Its `## Per-branch verification` section is **scratch** — it
+  exists for the life of a branch and is cleared before merge.
+- **`docs.md` — the open-questions log**, for the two pre-GA features. Part 1 is release
+  copy held until GA; Part 2 is everything still unknown or undecided. Not in
+  `package.json` `files:`, so it never ships to npm.
+
+The split is *what to do on the day* versus *what is still unknown*. An item moves from
+`docs.md` to `RELEASE-CHECKLIST.md` when it turns into a release step, and is deleted from
+`docs.md` when it resolves.
 
 Working rules:
 
 - **Whenever you make a change that needs verification**, append an entry under
   `## Per-branch verification` (follow its template) covering what must hold true — new
   criteria, not a rewrite of old ones.
-- **Whenever you identify follow-up work that isn't done in the current change**, append an
-  item to `TODO.md` under `## Open` rather than letting it fall through silently.
-- **Before merging the branch into `main`, delete `TODO.md` and clear the
-  `## Per-branch verification` section of `RELEASE-CHECKLIST.md`** — per-branch working state
-  doesn't belong in `main`'s history. **Keep the file itself and its
-  `## Before public-apps GA` section.**
+- **Whenever you identify follow-up work that isn't done in the current change**, add it to
+  `docs.md` → *Part 2* rather than letting it fall through silently. (There was a
+  `TODO.md` here; it was folded into `docs.md` because its contents were entirely
+  public-app / UI-app follow-ups.)
+- **Before merging the branch into `main`, clear the `## Per-branch verification` section
+  of `RELEASE-CHECKLIST.md`** — per-branch working state doesn't belong in `main`'s
+  history. **Keep the file itself and both `## Before …GA` sections.**
 
 ## Adding a new command
 

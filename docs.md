@@ -329,16 +329,6 @@ Each is marked in a comment at its call site.
       with how `app scaffold` handles a UI-app project), or render a UI-app view the way
       `app list` does. The same call is needed for `--json`, which returns empty strings and
       arrays for all four fields.
-- [ ] **`app create` creates and `cd`s into the project directory before the app exists on
-      Brevo.** `resolveCreateDirectory()` runs one line before `createAppWithRetry()`, so any
-      hard create failure leaves a stray directory behind with the process `chdir`'d into it.
-      Nothing is deleted — the scaffold writes after the create — so this is a stray directory
-      and a moved cwd, not data loss. **The ordering is deliberate and the fix has a real
-      trade-off:** all local prompting finishes before the app is registered, so a Ctrl-C at
-      the directory prompt cannot orphan an app on the server. Don't simply move the create
-      call earlier. Split `resolveCreateDirectory` into *decide* (prompts, no writes) and
-      *apply* (`mkdirSync` + `chdir`), keeping the decision before the create and the mutation
-      after it.
 - [ ] **Whether the created-app box and the `app upload` diff should render a friendly
       placement label** (`Header "More" (•••) menu — menu entry`) instead of the raw
       `surface_point_name` slug they print today. Both print the authored value, and the
@@ -382,15 +372,11 @@ Each is marked in a comment at its call site.
 `QA-TESTCASES.md` is the manual plan for the whole branch. Its public-app and UI-app
 sections have drifted, and QA would file passes as failures:
 
-- [ ] **Section 12 has four wrong expectations.** TC-12.2c still describes the *single grouped
-      placement prompt* — the flow is N single-selects, one per page, and `CLAUDE.md` says
-      never restore the grouped one. TC-12.4 still expects a `Link target: _blank (added on
-      upload…)` row in the diff, deliberately removed in 29c9ef4. TC-12.10 still says
-      `brevo app remove` and `{"removed": false}`, now `rollback` / `rolledBack`. TC-12.2's
-      prompt list omits the **App logo URL** prompt the UI flow asks between *Redirect link*
-      and *Output directory*. The agent docs are already correct — only this file lags.
-- [ ] **The public-app and UI-app suites cannot run against a published build.** They need
-      `PREVIEW=1 yarn link:dev`. Say so at the top of each, or QA will file the gate as a bug.
+- [x] **The public-app and UI-app suites cannot run against a published build** — noted at
+      the top of the file and on suites 2 and 12. Every notice now says `PREVIEW=1 yarn
+      link:dev` and states explicitly that no account or env var unlocks a published
+      build; the earlier `@brevo.com` / `BREVO_ENABLE_PREVIEW=1` wording was left over
+      from the interim runtime gate.
 - [ ] **No suite covers the gate itself** — that a published build hides the commands, refuses
       `--distribution public`, and ignores `BREVO_ENABLE_PREVIEW`. Automated coverage exists
       (`src/__tests__/lib/preview.test.ts`, `preview-gate.test.ts`, plus the build's own output
