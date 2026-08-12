@@ -74,22 +74,38 @@ function formatRootHelp(description: string): string {
     `  brevo app delete            [--app-id <id>] [--force] [--json]`,
     `                                                        Delete an app`,
     ``,
-    ...gatedSection('account-install', [
-      `App-deployment commands (UI apps only):`,
-      `  brevo app deploy            [account-id] [--app-id <id>] [--force] [--json]`,
-      `                                                        Make an app available in an account`,
-      `  brevo app rollback          [account-id] [--app-id <id>] [--force] [--json]`,
-      `                                                        Roll back an app from an account`,
-      ``,
-    ]),
-    ...gatedSection('review-lifecycle', [
-      `App-review commands (public apps only):`,
-      `  brevo app submit            [--app-id <id>] [--json]  Submit a public app for review`,
-      `  brevo app status            [--app-id <id>] [--json]  Show an app's review status`,
-      `  brevo app withdraw          [--app-id <id>] [--force] [--json]`,
-      `                                                        Withdraw an app from submission`,
-      ``,
-    ]),
+    // ELIMINATION SITE — `__BREVO_PREVIEW__` wraps the call rather than living inside a
+    // helper, because an array passed as a function *argument* is still evaluated: a
+    // `previewOnlySection(feature, [...])` helper left every one of these lines in the
+    // published bundle as a readable string. Folding `false ? … : []` at the call site is
+    // what removes the array itself.
+    //
+    // **The build flag is therefore the outer authority for help text, above
+    // `FEATURE_STAGE`.** At GA that is a trap — flipping a row to `'ga'` is not enough,
+    // since a published build still has `__BREVO_PREVIEW__ === false` and would keep
+    // hiding the restored section. The wrapper must be removed by hand at the same time;
+    // `RELEASE-CHECKLIST.md` lists it, alongside the identical trap in
+    // `commands/preview-definitions.ts`.
+    ...(__BREVO_PREVIEW__
+      ? gatedSection('account-install', [
+          `App-deployment commands (UI apps only):`,
+          `  brevo app deploy            [account-id] [--app-id <id>] [--force] [--json]`,
+          `                                                        Make an app available in an account`,
+          `  brevo app rollback          [account-id] [--app-id <id>] [--force] [--json]`,
+          `                                                        Roll back an app from an account`,
+          ``,
+        ])
+      : []),
+    ...(__BREVO_PREVIEW__
+      ? gatedSection('review-lifecycle', [
+          `App-review commands (public apps only):`,
+          `  brevo app submit            [--app-id <id>] [--json]  Submit a public app for review`,
+          `  brevo app status            [--app-id <id>] [--json]  Show an app's review status`,
+          `  brevo app withdraw          [--app-id <id>] [--force] [--json]`,
+          `                                                        Withdraw an app from submission`,
+          ``,
+        ])
+      : []),
     `Skill commands:`,
     `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
     `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,

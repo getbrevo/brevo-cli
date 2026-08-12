@@ -2,17 +2,9 @@
 '@getbrevo/cli': minor
 ---
 
-> ### ⚠️ Breaking: `brevo app update` has been removed
->
-> It is replaced by **`brevo app upload`**, which has no edit flags — change
-> `app-config.json`, then upload. This ships in a **minor** release, so `^2.0.x`
-> consumers pick it up on their next install: any script, CI job or README calling
-> `brevo app update` (or its `--name` / `--redirect-uri` / `--scope` / `--logo-uri` /
-> `--app-id` flags) exits `1` with a message naming the replacement, **without
-> uploading anything**. Migration is the first section below — read it before upgrading.
-
-Also in this release: UI apps and the public-app review lifecycle, both shipped behind a
-pre-GA gate; `brevo <command> --help`; and `--json` output on failure paths.
+`brevo app update` is removed and replaced by `brevo app upload`. Also in this release:
+`brevo <command> --help` prints that command's own usage, and `--json` now produces output
+on failure paths.
 
 ## `brevo app update` is removed — use `brevo app upload` (BEX-250)
 

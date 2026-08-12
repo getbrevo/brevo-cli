@@ -226,8 +226,9 @@ into `main` — anything that must outlive the branch belongs in
 - [ ] `permittedUrls` is scaffolded empty and never validated or populated from
       `ui_app.redirect_link`. Harmless for action links (they open a new tab), but it
       becomes load-bearing for `iframeExtension` modals.
-- [ ] Consider whether `brevo app list` should show the app type. Right now an OAuth
-      app and a UI app are indistinguishable in the list output.
+- [x] **`brevo app list` shows the app type — DONE.** `list.ts` resolves the type
+      through the app-type registry (`resolveFromRecord`) and prints a `Type:` line
+      per app, so an OAuth app and a UI app are no longer indistinguishable.
 - [ ] Record context is an allow-list on the extension-point registry row and surfaces
       on the manifest as `app_configs.context`. The CLI can now author a *narrowing*
       `context` list (free text — the allow-list lives server-side, so an unknown name
@@ -264,13 +265,16 @@ into `main` — anything that must outlive the branch belongs in
 
 ### Pre-existing, unrelated
 
-- [ ] `dist/` in this working copy is owned by `root` (dated 27 Jul), so `yarn build`
-      fails with `EACCES`. `tsc --noEmit`, `yarn test`, and `yarn lint` are unaffected.
-      Fix locally with `sudo rm -rf dist` — not a repo issue, and deliberately left
-      alone here rather than running `sudo` unprompted.
-- [ ] `README.md`'s command table still omits `brevo app status` / `submit` /
-      `withdraw` / `available-scopes` (the stale `app update` row was fixed in this
-      branch).
+- [x] **`dist/` root ownership — STALE, nothing to do.** The directory is owned by
+      the working user again and `yarn build` succeeds. It was a local environment
+      artefact, never a repo issue.
+- [x] **`README.md`'s command table omits `status` / `submit` / `withdraw` — CORRECT
+      AS-IS, closing.** The premise changed under BEX-405: those three are now hidden
+      from every help screen and refused for anyone outside an internal account, so
+      listing them in the README would advertise commands the reader cannot run. They
+      go back in as part of the GA pass, which is already tracked in
+      `RELEASE-CHECKLIST.md` → *Before public-apps GA*. `available-scopes` is not
+      gated and is genuinely missing — folded into the README fix below.
 
 ### Wire-contract follow-ups (merged from `features_set_public_cli`)
 
@@ -283,15 +287,28 @@ into `main` — anything that must outlive the branch belongs in
       `User-Agent` header (`brevo-cli/...`), same resolution as `cli_version`. **Still needs
       BEX-355 sign-off that an absent `source` is contract-valid** — see the per-branch
       entry in `RELEASE-CHECKLIST.md` for what to confirm against staging.
-- [ ] **Give `--distribution public` a real local failure** (`src/commands/app/create.ts`).
-      Today the flag is accepted, the scaffold directory is created and entered, and the
-      run dies on the server's raw `400` string. Whether that guard survives with `source`
-      gone is unconfirmed (see above) — but if the platform refuses CLI-created public apps
-      pre-GA, the CLI should say so before doing any filesystem work, and the `--distribution`
-      examples in `src/commands/definitions.ts` and the `README.md` table should stop
-      advertising a path that can't complete. Note the existing runtime-guard item under
-      `RELEASE-CHECKLIST.md` → *Before public-apps GA*: any guard needs the same
-      internal-Brevo-account escape hatch.
+- [x] **Give `--distribution public` a real local failure — DONE by BEX-405.**
+      `resolveDistribution()` now calls `assertFeatureAvailable('public-distribution')`
+      immediately after `validateEnum`, so the run is refused before any filesystem
+      work rather than dying on the server's raw `400` — which is exactly what this
+      item asked for. It carries the internal-Brevo-account escape hatch the item
+      required (`@brevo.com` / `@sendinblue.com`, plus `BREVO_ENABLE_PREVIEW=1`), and
+      the `--distribution public` example in `src/commands/definitions.ts` is filtered
+      out of `--help` from the same `FEATURE_STAGE` table the refusal reads. The
+      `validateEnum` call is deliberately kept ahead of the gate so a genuine typo
+      still gets "invalid value" rather than "not released".
+
+      Note the guard now supersedes the runtime-guard item under
+      `RELEASE-CHECKLIST.md` → *Before public-apps GA*; that entry should be reworded
+      to "remove the gate" during the GA pass. **The `README.md` half is not done** —
+      line 108 still tells the reader `app create` "still accepts `--distribution
+      public`", which is no longer true for an external account. Tracked below.
+- [ ] **`README.md` contradicts the BEX-405 gate.** Line 108 reads "`brevo app create`
+      still accepts `--distribution public`" — it does not, for any account outside
+      `@brevo.com` / `@sendinblue.com`; the flag is refused before the request. Reword
+      to say public distribution is gated off pre-GA. While in that table, add the
+      un-gated `brevo app available-scopes` row (the gated `status` / `submit` /
+      `withdraw` rows stay out until GA — see the closed item above).
 - [x] **Confirm the server does not *require* `cli_version` in the upload/create body.**
       Confirmed by the upload-service owners 2026-08-03: zero server-side references —
       upload (strict) 400s on it, PATCH/create silently ignore it, telemetry reads the

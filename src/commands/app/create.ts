@@ -102,7 +102,11 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
   // gating the feature means not asking at all rather than asking and refusing.
   // Skipping the prompt outright restores the exact pre-BEX-290 flow — one fewer
   // question, straight to an OAuth app — instead of showing a one-item list.
-  if (!interactive || !isFeatureAvailable('ui-app-type')) {
+  // ELIMINATION SITE — the raw global, not `isFeatureAvailable('ui-app-type')`. esbuild
+  // cannot fold a function call, so the helper alone would leave this branch live and
+  // keep the whole UI-authoring layer (registry reads, placement prompts, the summary
+  // box) in the published bundle. Checked first so the rest folds away with it.
+  if (!__BREVO_PREVIEW__ || !interactive || !isFeatureAvailable('ui-app-type')) {
     return 'oauth';
   }
   const answer = await inquirer.prompt([
@@ -476,7 +480,11 @@ export const createCommand = withCommandHandler(
     // collect placement + destination. Neither path runs the other's prompts.
     let redirectUris: string[] = [];
     let uiApp: UiApp | undefined;
-    if (appType === 'ui') {
+    // Same elimination site as `resolveAppType`: this is the only call to
+    // `resolveUiApp`, so guarding it on the build global is what lets the bundler drop
+    // `app-types/ui/authoring.ts`. In a public build `appType` can never be `'ui'`
+    // anyway — the prompt isn't asked — so this changes nothing at runtime.
+    if (__BREVO_PREVIEW__ && appType === 'ui') {
       uiApp = await resolveUiApp();
     } else {
       redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
@@ -520,8 +528,11 @@ export const createCommand = withCommandHandler(
       ...(result.version ? { version: result.version } : {}),
     };
 
+    // `uiApp` is always undefined in a public build, but an unguarded reference to
+    // `renderCreatedUiApp` still keeps its module in the bundle — hence the global here
+    // as well. Both call sites have to be guarded or neither elimination happens.
     const renderBox = (): void =>
-      uiApp
+      __BREVO_PREVIEW__ && uiApp
         ? renderCreatedUiApp(result, finalAppName, uiApp, logoUri)
         : renderCreatedApp(result, finalAppName, logoUri);
 

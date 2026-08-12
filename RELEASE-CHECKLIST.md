@@ -13,61 +13,90 @@ editing or deleting anything in it.
 
 ## Before public-apps GA
 
-Public app distribution is not live on the Brevo platform, so the agent-facing
-docs carry a **⚠️ Public apps are not available yet** notice telling agents never
-to create a public app or drive the review lifecycle (`app submit` / `app status`
-/ `app withdraw`). See `CLAUDE.md` → *Public app distribution is not GA* for why.
+Public app distribution is not live on the Brevo platform, so the published CLI is
+**built without it** (BEX-405): `--distribution public` is refused, the review-lifecycle
+commands (`app submit` / `app status` / `app withdraw`) are eliminated from the bundle,
+and the agent-facing docs describe only what a public build ships. See `CLAUDE.md` →
+*Public app distribution is not GA* for why.
 
-**When public apps go GA, remove the notice everywhere in one pass:**
+**When public apps go GA, restore them everywhere in one pass** — start with the gate,
+because the doc steps below describe surface that does not exist until it is open:
 
+- [ ] **Open the build-time gate (BEX-405).** In `src/lib/preview.ts`, flip
+      `FEATURE_STAGE['public-distribution']` and `FEATURE_STAGE['review-lifecycle']`
+      to `'ga'`. That one edit is the whole release: the root help, `brevo app --help`,
+      the `--distribution` value list, `app create --help`'s examples, the app-type
+      prompt and the refusal all read the same table. Do **not** hand-edit
+      `src/lib/help.ts` or `src/commands/definitions.ts` to restore the text — they
+      derive it.
+  - [ ] **Move the released entries out of `src/commands/preview-definitions.ts`** back
+        into `definitions.ts`. Flipping the table is *not* enough for these five: they
+        are referenced from behind `__BREVO_PREVIEW__`, which is a **build** flag, not a
+        stage lookup — a GA feature whose command still lives in that module would be
+        eliminated from the published bundle regardless of `FEATURE_STAGE`. Delete the
+        module (and its import + the `...(__BREVO_PREVIEW__ ? … : [])` spread) once it
+        empties.
+  - [ ] **Drop the freed names from `LEAK_MARKERS` in `scripts/build.mjs`.** The public
+        build asserts each one is *absent* and the preview build asserts each is
+        *present*, so a released command left in that list fails the build both ways.
+  - [ ] Update `src/__tests__/lib/preview.test.ts` → *lists every gated feature as
+        preview*, which asserts the table verbatim and is designed to fail here.
+  - [ ] Re-point the public-build cases in `preview-gate.test.ts` (`GATED`,
+        `GATED_HEADINGS`) and `create.test.ts` (*in a published (public) build*) at
+        whatever is still gated.
+  - [ ] **If nothing is gated any more**, remove the machinery in one pass:
+        `src/lib/preview.ts`, `src/globals.d.ts`, `src/commands/preview-definitions.ts`,
+        `jest.setup.js` + its `setupFiles` entry in `jest.config.js`, the `define` block
+        and both `LEAK_MARKERS` checks in `scripts/build.mjs`, the `build:preview`
+        script and `link:dev`'s use of it, the `previewFeatureOf` /
+        `assertFeatureAvailable` wiring in `src/lib/command-registry.ts`, the two
+        `isFeatureAvailable` calls in `src/commands/app/create.ts`, the `gatedSection` /
+        `distributionValues` / `createDescription` helpers in `src/lib/help.ts`, and
+        `messages.PREVIEW_FEATURE_UNAVAILABLE`.
+  - [ ] **Keep esbuild.** The bundler was adopted for the gate but is now the build
+        (`scripts/build.mjs`); reverting to `tsc` would change the published layout
+        again — `dist/bin/files`, the single-file entry, `sideEffects: false`. Only
+        `define` / `LEAK_MARKERS` are gate-specific.
+  - [ ] Restore the released commands to `agent-context/SKILL.md` and
+        `agent-context/AGENTS.md`, and to `README.md`'s command table. Their reference
+        text was **deleted, not hidden**, so recover it from git rather than rewriting
+        it — see the per-file steps below for the exact recipe. `CLAUDE.md` →
+        *Keep agent docs in sync* makes this part of the same PR, not a follow-up.
 - [ ] `agent-context/SKILL.md`
-  - [ ] Delete the `## ⚠️ Public apps are not available yet` section, including its
-        *Exception — internal Brevo accounts* clause.
-  - [ ] Decision tree — "Create an app": restore `--distribution <private|public>`
-        and the private-vs-public guidance ("`private` for apps used exclusively by
-        the user's own organisation, `public` for apps distributed to end users or
-        marketplace listings; default to `private` when the user hasn't said which").
-  - [ ] Decision tree — drop the **not available yet** prefix from "Check an app's
-        review status", "Submit a public app for review", and "Withdraw an app from
-        submission".
-  - [ ] Hard rules — delete rule 6 (*Don't create public apps for real use*).
+  - [ ] Restore the decision-tree entries for `app status`, `app submit` and
+        `app withdraw`. They were deleted rather than rewritten — recover the text rather than
+        writing it again: `git log --diff-filter=M -S'Commands you may not see' --
+        agent-context/SKILL.md` finds the commit that removed it, and
+        `git show <sha>^:agent-context/SKILL.md` prints the version that still had it.
+  - [ ] "Create an app": restore `--distribution <private|public>` and the
+        private-vs-public guidance ("`private` for apps used exclusively by the user's
+        own organisation, `public` for apps distributed to end users or marketplace
+        listings; default to `private` when the user hasn't said which"), replacing the
+        current "check `--help` for the values your account accepts" wording.
+  - [ ] Revisit the *`brevo --help` is the source of truth* section — delete it once
+        nothing is gated, or narrow it to whatever still is.
+  - [ ] Restore the `app withdraw` mentions in *Locating the linked app* and the
+        `app rollback` example under *JSON errors*.
 - [ ] `agent-context/AGENTS.md`
-  - [ ] Delete the `## ⚠️ Public apps are not available yet` section, including its
-        *Exception — internal Brevo accounts* clause.
-  - [ ] Common commands table — restore `--distribution <private|public>` plus the
-        private-vs-public guidance on the `brevo app create` row.
-  - [ ] Common commands table — drop the **⚠️ Not available yet** prefix from the
-        `brevo app status`, `brevo app submit`, and `brevo app withdraw` rows.
-  - [ ] Conventions — delete the *Public apps are not available yet* bullet.
+  - [ ] Restore the `brevo app status`, `brevo app submit` and `brevo app withdraw`
+        rows to the *Common commands* table. Recover them the same way:
+        `git log --diff-filter=M -S'Not available yet' -- agent-context/AGENTS.md`, then
+        `git show <sha>^:agent-context/AGENTS.md`.
+  - [ ] Restore `--distribution <private|public>` plus the private-vs-public guidance
+        on the `brevo app create` row.
+  - [ ] Restore the `app withdraw` / `app rollback` mentions in the `app-config.json`
+        convention bullet, the *JSON errors* section and *Command help*.
 - [ ] `CLAUDE.md` — delete the `## Public app distribution is not GA` section.
 - [ ] `AGENTS.md` (repo root) — delete the `## Public app distribution is not GA`
       section.
 - [ ] `README.md`
   - [ ] Restore `--distribution private\|public` on the `brevo app create` row.
-  - [ ] Delete the **⚠️ Public apps are not available yet** blockquote below the
-        commands table.
+  - [ ] Revisit the paragraph under the commands table stating that the table is the
+        complete surface of a published release.
 - [ ] `QA-TESTCASES.md` — delete the **⚠️ Public apps are not available to end users
       yet** blockquote (if the file still exists; it's per-branch scratch).
-- [ ] **Open the runtime gate (BEX-405).** In `src/lib/preview.ts`, flip
-      `FEATURE_STAGE['public-distribution']` and `FEATURE_STAGE['review-lifecycle']`
-      to `'ga'`. That one edit is the whole release: the root help, `brevo app --help`,
-      the `--distribution` value list, `app create --help`'s examples, the app-type
-      prompt and the runtime refusal all read the same table. Do **not** hand-edit
-      `src/lib/help.ts` or `src/commands/definitions.ts` to restore the text — they
-      derive it.
-  - [ ] Update `src/__tests__/lib/preview.test.ts` → *reports every gated feature as
-        preview*, which asserts the table verbatim and is designed to fail here.
-  - [ ] Re-point the locked-path cases in `preview-gate.test.ts` and `create.test.ts`
-        (*while public distribution and UI apps are pre-GA*) at whatever is still
-        gated. If nothing is, delete `src/lib/preview.ts`, `jest.setup.js`, its
-        `setupFiles` entry in `jest.config.js`, the `previewFeatureOf` /
-        `assertFeatureAvailable` wiring in `src/lib/command-registry.ts`, the two
-        `isFeatureAvailable` calls in `src/commands/app/create.ts`, the
-        `gatedSection` / `distributionValues` / `createDescription` helpers in
-        `src/lib/help.ts`, and `messages.PREVIEW_FEATURE_UNAVAILABLE`.
-  - [ ] Remove `BREVO_ENABLE_PREVIEW` from `CLAUDE.md` once nothing reads it.
 - [ ] Verify nothing was missed:
-      `grep -rn "Public apps are not available yet" --include="*.md" .`
+      `grep -rn "not been released\|source of truth" --include="*.md" .`
       (excluding `node_modules/`, `dist/`, `coverage/`) returns only this file.
 - [ ] Delete this whole `## Before public-apps GA` section — and if
       `## Per-branch verification` is empty, delete the file and drop the
@@ -101,31 +130,46 @@ to create a public app or drive the review lifecycle (`app submit` / `app status
 
 ## Before UI-apps GA
 
-UI apps (action links) are not live on the Brevo platform, so the agent-facing docs
-carry a **⚠️ UI apps are not available yet** notice telling agents never to create a
-UI app or drive the deploy lifecycle (`app deploy` / `app rollback`). This mirrors the
-public-apps notice above, including its *Exception — internal Brevo accounts* clause.
+UI apps (action links) are not live on the Brevo platform, so the published CLI is
+**built without them** (BEX-405): the *UI app* choice at `app create`'s app-type prompt
+and the `app deploy` / `app rollback` commands are eliminated from the bundle, and the
+agent-facing docs describe only what a public build ships.
 
-**When UI apps go GA, remove the notice everywhere in one pass:**
+**When UI apps go GA, restore them everywhere in one pass:**
 
+- [ ] **Open the gate.** In `src/lib/preview.ts` flip `FEATURE_STAGE['ui-app-type']`
+      and `FEATURE_STAGE['account-install']` to `'ga'` — then work the *same sub-steps
+      listed under `## Before public-apps GA`*, which are shared machinery: move
+      `deploy` / `rollback` out of `src/commands/preview-definitions.ts`, drop their
+      names (and `resolveDeploymentTarget`) from `LEAK_MARKERS` in `scripts/build.mjs`,
+      and re-point the public-build test cases. Do not do half of it — a feature flipped
+      to `'ga'` whose command still lives in `preview-definitions.ts` is still
+      eliminated from the published bundle.
 - [ ] `agent-context/SKILL.md`
-  - [ ] Delete the `## ⚠️ UI apps are not available yet` section.
-  - [ ] Decision tree — drop the **not available yet** prefix from "Create a UI app /
-        action link", "Make a UI app available in an account", and "Roll back a UI app
-        from an account".
-  - [ ] Hard rules — delete rule 7 (*Don't create UI apps for real use*). Keep rule 8
-        (*Never mix the two app types*) — that one is a correctness rule, not a
-        pre-GA restriction.
+  - [ ] Restore the decision-tree entries for creating a UI app, `app deploy` and
+        `app rollback`. They were deleted rather than rewritten — recover the text rather than
+        writing it again: `git log --diff-filter=M -S'Commands you may not see' --
+        agent-context/SKILL.md` finds the commit that removed it, and
+        `git show <sha>^:agent-context/SKILL.md` prints the version that still had it.
+  - [ ] Re-add UI apps to the *`brevo --help` is the source of truth* section's framing
+        if the surface is no longer partial, or delete that section entirely once
+        nothing is gated.
+  - [ ] Restore the *Two app types* detail to the hard rules. The surviving rule
+        (*Never mix the two app types in one `app-config.json`*) is a correctness rule
+        and stays either way.
 - [ ] `agent-context/AGENTS.md`
-  - [ ] Delete the `## ⚠️ UI apps are not available yet` section.
-  - [ ] Common commands table — drop the **⚠️ Not available yet** prefix from the
-        `brevo app deploy` and `brevo app rollback` rows.
-  - [ ] Conventions — delete the *UI apps are not available yet* bullet. Keep the
-        *Two app types, one command surface* and *The `ui_app` block* bullets.
-- [ ] `README.md` — delete the **⚠️ UI apps are not available yet** blockquote below
-      the commands table.
+  - [ ] Restore the `brevo app deploy` / `brevo app rollback` rows to the *Common
+        commands* table, and the UI-app half of the `brevo app create` row. Recover the
+        text: `git log --diff-filter=M -S'Not available yet' -- agent-context/AGENTS.md`
+        finds the commit that removed it, then `git show <sha>^:agent-context/AGENTS.md`.
+  - [ ] Restore the *Two app types, one command surface* convention bullet, which was
+        replaced by a narrower *`app-config.json` describes an OAuth app* bullet.
+  - [ ] Re-add the UI-app detail to the `brevo app list` row.
+- [ ] `README.md` — restore the `brevo app deploy` / `brevo app rollback` rows and the
+      app-type sentence on the `brevo app create` row; revisit the paragraph under the
+      table that says the table is the complete surface.
 - [ ] Verify nothing was missed:
-      `grep -rn "UI apps are not available yet" --include="*.md" .`
+      `grep -rn "preview\|not been released" --include="*.md" .`
       (excluding `node_modules/`, `dist/`, `coverage/`) returns only this file.
 - [ ] Delete this whole `## Before UI-apps GA` section.
 

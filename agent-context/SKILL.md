@@ -74,7 +74,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 
 ## Locating the linked app
 
-If `app-config.json` exists in the working directory, it pins the app — `brevo app upload`, `brevo app start`, and `brevo app withdraw` use it automatically. `brevo app start` and `brevo app withdraw` accept an `--app-id` override to target a different app; `upload` does **not** — it only ever reads cwd's `app-config.json`, hard-erroring if that file is missing, invalid, or lacks `appId`.
+If `app-config.json` exists in the working directory, it pins the app — `brevo app upload` and `brevo app start` use it automatically. `brevo app start` accepts an `--app-id` override to target a different app; `upload` does **not** — it only ever reads cwd's `app-config.json`, hard-erroring if that file is missing, invalid, or lacks `appId`.
 
 `app-config.json` carries an optional top-level `logoUri` string. When set, `brevo app upload` pushes it as `logo_uri`; when empty / absent, the field is left untouched on the API.
 
@@ -160,11 +160,11 @@ Under `--json`, a command that fails writes **one** JSON document to stdout desc
 { "error": { "name": "ApiError", "message": "App not found", "exitCode": 5, "code": "APP_NOT_FOUND", "statusCode": 404 } }
 ```
 
-Two things to rely on: stdout is always **exactly one** parseable document, and commands that describe their own failure keep doing so instead of emitting this envelope — `brevo whoami --json` still returns `{"authenticated": false, "reason": "no_key"}` (exit `1`), and `brevo app rollback --json` still returns `{"rolledBack": false, "reason": "NOT_DEPLOYED"}` (exit `0`). Check for `error` first, then fall back to the command's own shape.
+Two things to rely on: stdout is always **exactly one** parseable document, and commands that describe their own failure keep doing so instead of emitting this envelope — `brevo whoami --json` still returns `{"authenticated": false, "reason": "no_key"}` (exit `1`). Check for `error` first, then fall back to the command's own shape.
 
 ## Command help
 
-`brevo --help` prints the grouped overview of every command. `brevo <command> --help` prints that command's own usage line, arguments, flags, and examples — e.g. `brevo app deploy --help` documents the `[account-id]` argument and `--app-id` / `--force` / `--json`. When you need to confirm a flag exists on the version actually installed, read it from there rather than assuming from this file.
+`brevo --help` prints the grouped overview of every command. `brevo <command> --help` prints that command's own usage line, arguments, flags, and examples — e.g. `brevo app scaffold --help` documents `--app-id` / `--overwrite` / `--json`. When you need to confirm a flag exists on the version actually installed, read it from there rather than assuming from this file.
 
 ## Forced update
 

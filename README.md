@@ -93,21 +93,17 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`). Interactively it asks the app type first — an OAuth integration or a UI app; a UI app is prompt-only, so non-interactive runs always create an OAuth app |
+| `brevo app create` | Create an OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`) |
 | `brevo app list` | List apps in your account |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff (`--yes`) |
-| `brevo app deploy` | Make an app available in a Brevo account (`[account-id]`, `--app-id`, `--force`) |
-| `brevo app rollback` | Roll back an app from a Brevo account (`[account-id]`, `--app-id`, `--force`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Add a feature to the app in the current directory, or set an empty directory up for an app you already have — picked interactively, or named with `--app-id` (`--overwrite`, `--json`) |
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |
 
 Most commands require a successful `brevo login` first, except authentication/help flows (`brevo login`, `brevo logout`, `brevo app init`, `--help`). Every command accepts `--json` for machine-readable output.
 
-> **⚠️ Public apps are not available yet.** Public app distribution isn't live on the Brevo platform. `brevo app create` still accepts `--distribution public`, but create your apps with `--distribution private` — a public app can't be distributed or submitted for review today.
-
-> **⚠️ UI apps are not available yet.** UI apps — action links that render inside Brevo CRM records — aren't live on the Brevo platform. `brevo app create` offers one at its app-type prompt, and `brevo app deploy` / `brevo app rollback` ship, but there is no working path behind any of it today.
+The table above is the complete command surface of a published release. Features that aren't live on the Brevo platform yet aren't built into the package — `brevo --help` always lists everything the binary can do, so there is nothing hidden behind a flag or an environment variable.
 
 ### Browser login
 
