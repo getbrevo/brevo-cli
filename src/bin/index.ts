@@ -11,12 +11,7 @@ import { CliError, AbortError, AuthExpiredError } from '../lib/errors';
 import { messages } from '../lang/en';
 import { readHiddenInput } from '../lib/hidden-input';
 import { saveCredentials, clearCredentials, getAuthCred, updateOauthTokens } from '../lib/config';
-import {
-  ENDPOINTS,
-  OAUTH_PROXY_URL,
-  warnIfPathStripped,
-  BREVO_CLI_REFERENCE_URL,
-} from '../lib/constants';
+import { ENDPOINTS, OAUTH_PROXY_URL, warnIfPathStripped } from '../lib/constants';
 import { refreshAccessToken, RefreshError } from '../services/oauth-refresh';
 import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
@@ -30,6 +25,8 @@ import {
   shouldShowBannerBefore,
 } from '../lib/update-notifier';
 import { skillService } from '../services/skill';
+import { emitJsonError } from '../lib/json-output';
+import { createHelpFormatter } from '../lib/help';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
 const version: string = pkg.version;
@@ -53,73 +50,7 @@ program
   .description('Brevo Developer CLI — create, manage, and test OAuth integrations')
   .version(version)
   .option('--debug', 'Enable debug logging')
-  .configureHelp({
-    formatHelp: (_cmd, helper) => {
-      const version = helper.commandDescription(_cmd);
-      return [
-        `Usage: brevo [options] [command]`,
-        ``,
-        version,
-        ``,
-        `Options:`,
-        `  -V, --version    output the version number`,
-        `  -h, --help       display help for command`,
-        ``,
-        `Commands:`,
-        `  brevo login                 [--browser] [--json]      Authenticate with your Brevo account`,
-        `  brevo logout                [--json]                  Clear stored credentials`,
-        `  brevo whoami                [--json]                  Show current authenticated user`,
-        ``,
-        `App commands:`,
-        `  brevo app init                                        Quick setup — login, create app, and scaffold`,
-        `  brevo app create            [--name] [--distribution private|public]`,
-        `                              [--redirect-uri <url>...] [--logo-uri <url>] [--json]`,
-        `                                                        Create a new app (OAuth, or a UI app via the prompts)`,
-        `  brevo app list              [--json]                  List all apps in your account`,
-        `  brevo app credentials       [--app-id <id>] [--reveal-secret] [--json]`,
-        `                                                        Show an app's client ID and secret`,
-        `  brevo app scaffold          [--app-id <id>] [--json]  Add a feature (e.g. OAuth server) here`,
-        `  brevo app start             [feature] [--port <port>] Run a scaffolded feature locally`,
-        `  brevo app upload            [--yes] [--json]          Push app-config.json to Brevo`,
-        `  brevo app delete            [--app-id <id>] [--force] [--json]`,
-        `                                                        Delete an app`,
-        ``,
-        `App-deployment commands (UI apps only):`,
-        `  brevo app deploy            [account-id] [--app-id <id>] [--force] [--json]`,
-        `                                                        Make an app available in an account`,
-        `  brevo app rollback          [account-id] [--app-id <id>] [--force] [--json]`,
-        `                                                        Roll back an app from an account`,
-        ``,
-        `App-review commands (public apps only):`,
-        `  brevo app submit            [--app-id <id>] [--json]  Submit a public app for review`,
-        `  brevo app status            [--app-id <id>] [--json]  Show an app's review status`,
-        `  brevo app withdraw          [--app-id <id>] [--force] [--json]`,
-        `                                                        Withdraw an app from submission`,
-        ``,
-        `Skill commands:`,
-        `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
-        `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,
-        ``,
-        `Scope commands:`,
-        `  brevo app available-scopes  [--web] [--json]          List OAuth scopes supported by the IdP`,
-        `                                                        (--web opens the catalog in a browser)`,
-        ``,
-        `Run \`brevo <command> --help\` for details on a specific command.`,
-        ``,
-        `Examples:`,
-        `  $ brevo login                                   # authenticate interactively`,
-        `  $ brevo app init                                # guided setup`,
-        `  $ brevo app create --name "My App" --json       # create app, JSON output`,
-        `  $ brevo app list --json                         # list apps as JSON`,
-        `  $ brevo app scaffold --app-id APPID             # generate starter code`,
-        `  $ brevo app start oauth --port 3000             # start OAuth test server`,
-        `  $ brevo app available-scopes --web              # browse OAuth scope catalog`,
-        ``,
-        `Docs: ${BREVO_CLI_REFERENCE_URL}`,
-        ``,
-      ].join('\n');
-    },
-  })
+  .configureHelp({ formatHelp: createHelpFormatter(program) })
   .action((_options, cmd) => {
     const stray = cmd.args;
     if (stray.length === 0) {
@@ -240,6 +171,7 @@ forceGate
     process.exit(0);
   })
   .catch((err) => {
+    emitJsonError(err);
     if (err instanceof AbortError) {
       logInfo(`\n  ${messages.ABORTED}`);
       process.exit(EXIT_CODES.ABORTED);

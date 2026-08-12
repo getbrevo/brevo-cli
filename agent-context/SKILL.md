@@ -86,7 +86,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 
 ## Hard rules
 
-1. **Always pass `--json`** when you intend to parse output. Every command supports it.
+1. **Always pass `--json`** when you intend to parse output. Every command supports it, **on success and on failure alike** — a failing `--json` run writes a single `{"error": {...}}` document to stdout (see *JSON errors* below), so you can read the reason instead of only seeing a non-zero exit.
 2. **Never print, log, or commit** API keys (`xkeysib-…`), client secrets, refresh tokens, or contents of `~/.brevo/credentials.json` / `.env.local`. Redact before sharing diagnostics.
 3. **Don't use `--api-key`** — the flag was removed. Use the `BREVO_API_KEY` env var.
 4. **`brevo app create` refuses to run inside an already-linked directory** (`app-config.json` present) — `cd` elsewhere or use `brevo app scaffold` there instead. **`brevo app scaffold` requires an `app-config.json` in the current directory** (it adds a feature to an already-created project); with none present it errors, telling you to run `brevo app create` first or `cd` into an existing project. It reads the linked app from that config, diffs the config against the server, and if fields drifted it tells you and (on consent) rewrites `app-config.json` to match before writing the feature files. When any feature file already exists it prompts **Overwrite / Merge / Cancel** (default **Merge** — existing, e.g. hand-edited, files are kept; Cancel aborts). Pass `--overwrite` to force a full overwrite and skip that prompt (works interactively and under `--json`). **Under `--json` it never prompts**: a config diff comes back as `{ "cancelled": true, "reason": "...", "diffs": [...] }`; otherwise it scaffolds the feature (merging existing files unless `--overwrite` is passed) and returns `{ "scaffolded": <n>, "directory": "..." }`.
@@ -168,6 +168,26 @@ Writing `app-config.json` for an app whose remote scopes contain `'all'` never p
 ## Exit codes
 
 `0` success · `1` general error · `2` aborted · `3` auth failure · `4` network · `5` not found.
+
+## JSON errors
+
+Under `--json`, a command that fails writes **one** JSON document to stdout describing the failure, and the human-readable message still goes to stderr. The `error` key is the discriminator — no success payload has one:
+
+```json
+{ "error": { "name": "CliError", "message": "Not authenticated. Run: brevo login", "exitCode": 1 } }
+```
+
+`name` is the error class (`CliError`, `ApiError`, `AuthExpiredError`, `AbortError`), `message` is the same text printed to stderr, and `exitCode` matches the process exit code. An `ApiError` adds `statusCode` (the HTTP status) and, when the API classified the failure, `code` — one of `AUTH_INVALID`, `AUTH_EXPIRED`, `ACCESS_DENIED`, `APP_NOT_FOUND`, `REDIRECT_INVALID`, `PORT_IN_USE`, `NETWORK_ERROR`, `RATE_LIMITED`, `APP_LIMIT_REACHED`, `REGISTRY_ERROR`, `AUTH_GATEWAY`:
+
+```json
+{ "error": { "name": "ApiError", "message": "App not found", "exitCode": 5, "code": "APP_NOT_FOUND", "statusCode": 404 } }
+```
+
+Two things to rely on: stdout is always **exactly one** parseable document, and commands that describe their own failure keep doing so instead of emitting this envelope — `brevo whoami --json` still returns `{"authenticated": false, "reason": "no_key"}` (exit `1`), and `brevo app rollback --json` still returns `{"rolledBack": false, "reason": "NOT_DEPLOYED"}` (exit `0`). Check for `error` first, then fall back to the command's own shape.
+
+## Command help
+
+`brevo --help` prints the grouped overview of every command. `brevo <command> --help` prints that command's own usage line, arguments, flags, and examples — e.g. `brevo app deploy --help` documents the `[account-id]` argument and `--app-id` / `--force` / `--json`. When you need to confirm a flag exists on the version actually installed, read it from there rather than assuming from this file.
 
 ## Forced update
 

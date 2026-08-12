@@ -112,7 +112,7 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 
 ## Conventions
 
-- **Every command supports `--json`** — prefer this when parsing output programmatically.
+- **Every command supports `--json`** — prefer this when parsing output programmatically. It applies to failures too: a failing `--json` run writes a single `{"error": {...}}` document to stdout (see *JSON errors* below) while the human message goes to stderr.
 - **Public apps are not available yet.** Always create apps with `--distribution private`, never set `distribution_type` to `public` in `app-config.json`, and don't run `brevo app submit` / `brevo app status` / `brevo app withdraw` — unless `brevo whoami --json` shows an `@brevo.com` / `@sendinblue.com` account. See the notice at the top of this file, including its *Exception — internal Brevo accounts* clause.
 - **UI apps are not available yet.** Never choose **UI app** at `brevo app create`'s app-type prompt, never add a `ui_app` block to `app-config.json`, and don't run `brevo app deploy` / `brevo app rollback` — unless `brevo whoami --json` shows an `@brevo.com` / `@sendinblue.com` account. Same exception clause as above.
 - **Two app types, one command surface — but only one is scriptable.** `brevo app create` asks *"What type of app are you building?"* (after the name and distribution prompts), offering an OAuth integration or a UI app (action link). **There is no `--type` flag and no flags for any UI-app field**, so a UI app can only be authored from an interactive terminal: every non-interactive run (`--json` or piped stdin) creates an OAuth app. The two types differ in what's collected and stored: an OAuth app has `auth.scopes`/`auth.redirectUris` and no `ui_app`; a UI app has a `ui_app` block, exactly an empty `auth: {}` (no OAuth block at all — no scopes, no redirect URLs, and no `auth` block is sent at create time; instead the create request carries the `ui_app` block, which is what tells the endpoint the omission is deliberate rather than an OAuth app missing its callbacks. OAuth creates send `auth: { scopes, redirect_uris }` and no `ui_app` — the same two blocks, mutually exclusive, on both the create and `app upload` requests), and no scaffoldable feature. The UI path asks, in this order: **"Do you want to add a link or an iframe?"** (**Link** selectable, **Iframe** disabled "coming soon" — `iframeExtension` is not CLI-authorable), **which record pages** (multi-select), **where on each of those pages** (one single-select prompt PER picked page, listing that page's placements — e.g. *Header "More" (•••) menu — menu entry*, *Sidebar — card*; **exactly one spot per page**), **`label`**, optional **`more_info`**, and the **redirect link**. Between the page and placement prompts it **reads the available placements from the platform's extension-point registry (BEX-361)** — if that read fails, UI-app creation aborts with an actionable error (no offline fallback; OAuth creation is unaffected). It always authors an `actionLink`. There is no kind prompt (an `.action` slot renders a menu entry, a `.widget` slot a card — a property of the placement, not a question, and one app can mix both), no record-context prompt (each placement's `context` is seeded from the registry's default for that slot), and no link-target prompt (`app upload` injects `_blank`; the server refuses `_self` today). Each picked page contributes exactly one placement — single-select makes that structural, so a page can be neither skipped nor given two spots — while a picked page the registry offers nothing on is warned about and never asked about. One spot per page is the CLI's authoring model rather than a wire constraint: the upload endpoint rejects only a *duplicate* slot, so a hand-edited config with two spots on one page still uploads. The created-app box prints an example URL showing the seeded context as query parameters. The presence of `ui_app` in `app-config.json` is how the CLI tells the types apart — never add it to an OAuth project.
@@ -128,6 +128,28 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 - **Skip prompts:** `--force` for delete/logout/withdraw/deploy/remove; `--yes` for `app upload`.
 - **Forced update:** when the installed CLI is a full **major** version behind the latest npm release, every command except `--help`/`--version` prints a blocking update banner to stderr and exits `1` without running. Update with `npm install -g @getbrevo/cli` (or `yarn global add`). The gate honors the same opt-outs as the soft update notice (`BREVO_NO_UPDATE_NOTIFIER=1`, `--no-update-notifier`, CI, non-TTY), so it never fires in those contexts.
 - **Exit codes:** `0` success · `1` general error · `2` aborted · `3` auth · `4` network · `5` not found.
+
+## JSON errors
+
+Under `--json`, a failing command writes **one** JSON document to stdout describing the failure; the human-readable message still goes to stderr. The `error` key is the discriminator — no success payload has one:
+
+```json
+{ "error": { "name": "CliError", "message": "Not authenticated. Run: brevo login", "exitCode": 1 } }
+```
+
+| Field | Always present | Meaning |
+| --- | --- | --- |
+| `name` | yes | Error class — `CliError`, `ApiError`, `AuthExpiredError`, `AbortError` |
+| `message` | yes | Same text written to stderr |
+| `exitCode` | yes | Matches the process exit code |
+| `statusCode` | `ApiError` only | HTTP status behind the failure |
+| `code` | `ApiError`, when classified | `AUTH_INVALID`, `AUTH_EXPIRED`, `ACCESS_DENIED`, `APP_NOT_FOUND`, `REDIRECT_INVALID`, `PORT_IN_USE`, `NETWORK_ERROR`, `RATE_LIMITED`, `APP_LIMIT_REACHED`, `REGISTRY_ERROR`, `AUTH_GATEWAY` |
+
+Stdout is always **exactly one** parseable document. Commands that already describe their own failure keep their shape rather than emitting this envelope — `brevo whoami --json` returns `{"authenticated": false, "reason": "no_key"}` (exit `1`) and `brevo app rollback --json` returns `{"rolledBack": false, "reason": "NOT_DEPLOYED"}` (exit `0`). Check for `error` first, then fall back to the command's own shape.
+
+## Command help
+
+`brevo --help` prints the grouped overview of every command. `brevo <command> --help` prints that command's own usage line, arguments, flags, and examples — e.g. `brevo app deploy --help` documents the `[account-id]` argument and `--app-id` / `--force` / `--json`. Use it to confirm a flag exists on the installed version rather than assuming from this file.
 
 ## Scopes
 
