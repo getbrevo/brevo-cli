@@ -2230,3 +2230,75 @@ user-visible behaviour change intended and none observed.
       five hand-maintained "not available yet" notices can be generated at GA.
 - [ ] No changeset — pure refactor, no user-visible change. Agent docs untouched for the
       same reason.
+
+### `brevo app update` answers with a signpost instead of `unknown command` (2026-08-12)
+
+**Change:** removed commands are now registered rather than absent. New
+`src/lib/removed-commands.ts` holds the table (one entry: `app update` → BEX-250),
+`command-registry.ts` registers each as a hidden command whose action throws its
+message, and `auth-guard.ts` exempts them from the credential check. The message is
+`messages.APP_UPDATE_REMOVED`.
+
+**Why.** Commander's answer to a name it doesn't know is `unknown command 'update'`
+plus a `did you mean` guess drawn from string distance — which for `update` was
+`create`. So the CLI's reply to the single most likely stale invocation on the branch
+was wrong in the expensive direction: `create` makes a second app, `upload` was the
+answer. Registering the dead name costs one hidden command and lets the CLI name its
+own replacement.
+
+**Must hold true:**
+
+- [x] `yarn test` (1158), `yarn lint`, `yarn format:check`, `yarn build` all clean.
+- [x] Every old flag reaches the message rather than `unknown option '--name'` —
+      `allowUnknownOption` + `allowExcessArguments` + a variadic `[args...]`. Covered
+      by the `OLD_INVOCATIONS` table in `removed-commands.test.ts` (bare, `--name`,
+      `--redirect-uri`, `--scope`, `--logo-uri`, `--app-id`, `--yes`, `--json`,
+      combinations, and a stray operand).
+- [x] `brevo app update --help` gets the message, **not** a usage screen and **not**
+      exit `0` — `helpOption(false)` is what does it, and exit `0` is the one answer a
+      script must not get from a removed command. Covered by the `--help` / `-h` rows.
+- [x] `brevo app help update` too. It is the one route that reaches neither the action
+      nor the help option: `_dispatchHelpCommand` calls the target's `help()` directly
+      and does not skip hidden commands, so it printed `Usage: brevo app update
+      [args...]` and exited `0` — a removed command claiming to exist and to take
+      arguments. Fixed by replacing the instance's `help()`; `brevo app help create`
+      still works, so the group's help command itself is untouched. Both covered.
+- [x] Exits `1` with a `CliError`, so `--json` gets the standard
+      `{"error":{…,"exitCode":1}}` envelope via `emitJsonError`. Covered.
+- [x] Reachable logged out: the exemption in `commandRequiresAuth` is scoped to the
+      removed name, and `app upload` still demands credentials. Both covered.
+- [x] `update` appears in no help screen (`hidden`), including the hand-aligned root
+      one. Covered.
+- [x] Verified against the built CLI, not just the test tree: bare, with old flags,
+      `--help`, and `--json` all print the message and exit `1`; `brevo app --help`
+      has no `update` row.
+- [ ] Reviewer: the message names all five removed flags. That is deliberate (the
+      reason someone lands here is usually one of them) but it makes the message long
+      — say so if you'd rather it just pointed at the docs.
+- [ ] Reviewer: a table plus two consumers for one dead command is more structure than
+      a special case in the registry would need. The argument for it is that the
+      registry and the auth guard both need the same fact, and a special case would
+      duplicate it. Confirm that reading.
+- [x] `SKILL.md` and `AGENTS.md` both carry the migration note: `AGENTS.md` as a
+      *There is no `brevo app update`* bullet under **Conventions**, `SKILL.md` as the
+      tail of the *"Update app metadata"* decision-tree row (which already said the edit
+      flags don't exist). Both name `upload`, say nothing is uploaded, and say the `1`
+      means the command is gone rather than that an upload failed — that last part is
+      the bit an agent needs, since it will meet this as an exit code in someone's CI
+      log, not as a command it chose to run.
+- [ ] Reviewer: this reverses a first pass that left the agent docs alone on the
+      grounds that they didn't mention `app update` and `TC-11.6` asserted they
+      mustn't. That reading was too literal — the point of `TC-11.6` is that the
+      command must not be *advertised*, not that the string must be absent — so the
+      case was rewritten to require the note and forbid any row, example or
+      decision-tree entry that reads as an instruction to run it. `TC-11.4` was
+      loosened the same way. Check both readings.
+- [ ] Reviewer: the two docs say the same thing in different shapes (a Conventions
+      bullet vs. a sentence on an existing decision-tree row) because that is where
+      each file puts this kind of fact. `TC-11.7` asks for consistency of substance,
+      not of layout — confirm that is the right call here.
+- [x] Changeset: appended to `.changeset/app-upload-replaces-update.md` (already
+      `major`) rather than adding a file, so the CHANGELOG keeps one entry for the
+      whole `update` → `upload` migration.
+- [x] `QA-TESTCASES.md` TC-5.1 rewritten — it previously expected the
+      unknown-command error, which is exactly what this change replaces.

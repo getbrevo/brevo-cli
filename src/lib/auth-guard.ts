@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { isAuthenticated } from './config';
 import { CLI } from './constants';
 import { CliError } from './errors';
+import { isRemovedCommand } from './removed-commands';
 
 // `available-scopes` only fetches the public IdP scope catalog (no Brevo API
 // key involved), so it works before `brevo login`.
@@ -36,6 +37,14 @@ export function commandRequiresAuth(thisCommand: Command, actionCommand: Command
   // unknown commands surface as "unknown command" instead of being
   // intercepted by an auth-required check.
   if (actionCommand === thisCommand || commandName === thisCommand.name()) {
+    return false;
+  }
+
+  // A removed command (`app update`) exists only to point at its replacement — it
+  // touches nothing server-side. Guarding it would answer "Not authenticated" to a
+  // user whose actual problem is that the command is gone, sending them through
+  // `brevo login` to reach the same message.
+  if (isRemovedCommand(commandName, parentName)) {
     return false;
   }
 

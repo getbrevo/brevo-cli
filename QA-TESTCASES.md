@@ -221,10 +221,26 @@ brevo app create --name "QA Flags App" --distribution private \
 
 ## Suite 5 — `brevo app upload` (replaces `brevo app update`)
 
-### TC-5.1 — `brevo app update` is gone
+### TC-5.1 — `brevo app update` is gone, and says so
 **Priority:** High
-**Steps:** `brevo app update --help` and `brevo app update`.
-**Expected:** Unknown-command error (help lists no `update`). `brevo --help` shows `upload`, not `update`. Exit non-zero.
+**Steps:** Run each of:
+- `brevo app update`
+- `brevo app update --name "My App" --redirect-uri http://localhost:3009/auth/callback`
+- `brevo app update --app-id 42 --scope contacts:read --logo-uri https://example.com/logo.png`
+- `brevo app update --help`
+- `brevo app help update`
+- `brevo app update --json`
+- `brevo app update` while **logged out** (`brevo logout` first)
+
+**Expected:** Every one prints the same removal message — it names `brevo app upload`, states that `upload` takes only `--yes`/`--json`, and says to edit `app-config.json` instead of reaching for a flag. Exit `1` in all cases. Specifically:
+- **No** `unknown command 'update'` and **no** `(Did you mean create?)`.
+- **No** `unknown option '--name'` (or any other removed flag) — the flags are swallowed, the message is what comes back.
+- Neither `--help` nor `brevo app help update` prints a usage screen, and neither exits `0`. (`brevo app help create` must still print `create`'s help and exit `0` — the help command itself is untouched.)
+- `--json` writes the `{"error":{"name":"CliError",…,"exitCode":1}}` envelope to stdout.
+- Logged out, it still prints the removal message — **not** `Not authenticated`.
+- **Nothing is uploaded.** It is a signpost, not a forwarding shim; no API call is made.
+
+**Also:** `brevo --help` and `brevo app --help` list `upload` and mention no `update` at all (it is registered hidden).
 
 ### TC-5.2 — `upload` outside a usable project dir → hard error, no API call
 **Priority:** High
@@ -554,7 +570,7 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 ### TC-11.4 — Docs match behaviour
 **Priority:** Medium
 **Steps:** Skim `agent-context/AGENTS.md` and `agent-context/SKILL.md`.
-**Expected:** They describe `upload` (no `--app-id`, only `--yes`/`--json`), `status`, `withdraw`, `--distribution public`, the create/scaffold split, and the `version` field — and do **not** mention `brevo app update`.
+**Expected:** They describe `upload` (no `--app-id`, only `--yes`/`--json`), `status`, `withdraw`, `--distribution public`, the create/scaffold split, and the `version` field. `brevo app update` appears **only** as removed — the migration note pointing at `upload` — never as a command an agent could run.
 
 ### TC-11.5 — Agent docs cover the full current command surface (US-6)
 **Priority:** High
@@ -568,10 +584,12 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 
 **Expected:** Every item above is present in **both** files. Exit criteria is a documentation review, not a command run.
 
-### TC-11.6 — No stale `app update` reference in agent docs (US-6)
+### TC-11.6 — `app update` appears in agent docs only as removed (US-6)
 **Priority:** High
 **Steps:** `grep -n "app update" agent-context/AGENTS.md agent-context/SKILL.md`.
-**Expected:** **No matches** — the removed `brevo app update` command is not mentioned in either file.
+**Expected:** Matches **only** inside the migration note in each file — `AGENTS.md`'s *There is no `brevo app update`* bullet under **Conventions**, and the tail of `SKILL.md`'s *"Update app metadata"* decision-tree row. Both say it was removed, name `brevo app upload` as the replacement, and describe the `exit 1` / nothing-uploaded behaviour.
+
+> **Why this changed:** this case previously expected **no matches at all**. The command is now registered hidden purely to print a signpost, so an agent that meets a stale `brevo app update` in a user's script needs to recognise the `exit 1` and know the fix. What must stay absent is the command presented as *usable* — no command-table row, no example, no decision-tree entry recommending it. Grep hits are fine; a hit that reads like an instruction to run it is a fail.
 
 ### TC-11.7 — Agent docs stay consistent with each other (US-6)
 **Priority:** Medium

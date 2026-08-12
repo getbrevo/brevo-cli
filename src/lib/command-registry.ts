@@ -1,7 +1,10 @@
 import { Command } from 'commander';
 import type { Capability } from '../app-types/capabilities';
+import { CliError } from './errors';
 import { FEATURE_STAGE, assertFeatureAvailable, isFeatureAvailable } from './preview';
 import type { PreviewFeature } from './preview';
+import { removedCommandsIn } from './removed-commands';
+import type { RemovedCommand } from './removed-commands';
 
 export interface CommandOption {
   flags: string;
@@ -117,12 +120,54 @@ function registerCommand(parent: Command, def: CommandDefinition): void {
 }
 
 /**
+ * Register a command that no longer exists, purely so it can say so.
+ *
+ * See `lib/removed-commands.ts` for why a removed name is worth registering at all.
+ * Four settings make the message reachable however the old invocation was typed, and
+ * each one is load-bearing:
+ *
+ * - `hidden` keeps it out of `brevo app --help`. It is not a command on offer; it is a
+ *   forwarding address.
+ * - `allowUnknownOption` plus a variadic argument swallow the flags the command used to
+ *   take, so `brevo app update --name X` gets the migration message instead of
+ *   Commander's `unknown option '--name'` — which would bury the one thing the user
+ *   needs to know behind a complaint about a flag that is gone either way.
+ * - `allowExcessArguments` does the same for stray operands.
+ * - `helpOption(false)` sends `brevo app update --help` to the message too. Left on,
+ *   Commander would print a usage screen for a command that isn't there and exit `0`,
+ *   which is the one answer a script must not get.
+ */
+function registerRemovedCommand(parent: Command, removed: RemovedCommand): void {
+  const cmd = parent
+    .command(removed.name, { hidden: true })
+    .allowUnknownOption(true)
+    .allowExcessArguments(true)
+    .helpOption(false)
+    .argument('[args...]')
+    .action(() => {
+      throw new CliError(removed.message);
+    });
+
+  // `brevo app help update` is the one route that reaches neither the action nor the
+  // help option: Commander's help command calls the target's `help()` directly
+  // (`_dispatchHelpCommand`, which does not skip hidden commands), printing a usage
+  // screen and exiting `0`. There is no hook in front of that, so the method itself is
+  // replaced — the same message, by the same route as every other invocation.
+  cmd.help = () => {
+    throw new CliError(removed.message);
+  };
+}
+
+/**
  * Register a group of subcommands (e.g. `app create`, `app list`).
  */
 function registerSubcommandGroup(parent: Command, group: SubcommandGroupDefinition): void {
   const groupCmd = parent.command(group.name).description(group.description);
   for (const def of group.commands) {
     registerCommand(groupCmd, def);
+  }
+  for (const removed of removedCommandsIn(group.name)) {
+    registerRemovedCommand(groupCmd, removed);
   }
 }
 
@@ -136,6 +181,9 @@ export function registerAll(
 ): void {
   for (const cmd of commands) {
     registerCommand(program, cmd);
+  }
+  for (const removed of removedCommandsIn()) {
+    registerRemovedCommand(program, removed);
   }
   for (const group of groups) {
     registerSubcommandGroup(program, group);

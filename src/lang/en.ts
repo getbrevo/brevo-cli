@@ -208,6 +208,15 @@ export const messages = {
   APP_CREDENTIALS_CONFIG_BACKFILLED: (fields: string[]) =>
     `Backfilled ${fields.join(', ')} into app-config.json.`,
 
+  // App update — removed (BEX-250), kept only as a signpost to `app upload`.
+  //
+  // Names every flag `update` used to take, because the reason a script or a
+  // half-remembered habit lands here is usually one of them, and the answer is the
+  // same for all of them: there is no flag any more, edit the file. `distribution_type`
+  // is deliberately not offered as editable — it is immutable after `app create`, and
+  // `APP_UPLOAD_DISTRIBUTION_IMMUTABLE` is what says so if anyone tries.
+  APP_UPDATE_REMOVED: `\`brevo app update\` has been removed — use \`${CLI.APP_UPLOAD}\` instead.\n\n  \`${CLI.APP_UPLOAD}\` pushes the whole of app-config.json and takes only --yes and --json.\n  There are no edit flags (--name, --redirect-uri, --scope, --logo-uri, --app-id): change\n  the app's name, redirect URLs, scopes or logo by editing app-config.json, then run:\n\n    ${CLI.APP_UPLOAD}\n\n  Docs: ${BREVO_CLI_REFERENCE_URL}`,
+
   // App upload
   APP_UPLOAD_NO_CONFIG: `No app-config.json found in this directory. Run \`${CLI.APP_UPLOAD}\` from the project directory that has your app's app-config.json, or run \`${CLI.APP_CREATE}\` / \`${CLI.APP_SCAFFOLD}\` to set one up.`,
   APP_UPLOAD_INVALID_JSON: `app-config.json contains invalid JSON. Fix the file, or run \`${CLI.APP_SCAFFOLD}\` to regenerate it.`,
