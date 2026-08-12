@@ -8,7 +8,7 @@ import { messages } from '../../lang/en';
 import { ApiError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { validateEnum, validateAppName } from '../../lib/validators';
+import { validateEnum, validateAppName, validateYesNo } from '../../lib/validators';
 import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 import { printBox, createSpinner } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
@@ -24,6 +24,9 @@ import {
   reportScaffoldSuccess,
   computeCdHint,
 } from './scaffold';
+// Not from './scaffold': that module is mocked wholesale in this command's tests,
+// and the confirm's own behaviour (default yes, decline) is covered there.
+import { promptScaffoldFeature } from './scaffold-prompts';
 import { appService } from '../../container';
 import { FeatureType } from '../../templates';
 import { CreateAppResponse, OAuthApp, UiApp } from '../../types';
@@ -164,14 +167,6 @@ async function resolveDistribution(distributionFlag: string | undefined): Promis
   return answer.distribution;
 }
 
-const validateYesNo = (input: string): true | string => {
-  const val = String(input).toLowerCase().trim();
-  if (val === 'y' || val === 'yes' || val === 'n' || val === 'no' || val === '') {
-    return true;
-  }
-  return 'Please enter y or n';
-};
-
 async function promptAddAnotherRedirect(): Promise<boolean> {
   const { anotherRaw } = await inquirer.prompt([
     {
@@ -183,22 +178,6 @@ async function promptAddAnotherRedirect(): Promise<boolean> {
     },
   ]);
   return String(anotherRaw).toLowerCase().trim().startsWith('y');
-}
-
-// Whether to scaffold a feature after creating the app. Defaults to yes —
-// pressing Enter opts in.
-async function promptScaffoldFeature(): Promise<boolean> {
-  const { scaffoldRaw } = await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'scaffoldRaw',
-      message: messages.APP_CREATE_SCAFFOLD_FEATURE_PROMPT + ' (Y/n)',
-      default: 'y',
-      validate: validateYesNo,
-    },
-  ]);
-  const val = String(scaffoldRaw).toLowerCase().trim();
-  return val === '' || val.startsWith('y');
 }
 
 async function promptRedirectUrls(quiet: boolean): Promise<string[]> {

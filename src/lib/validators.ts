@@ -27,6 +27,22 @@ export function validateAppName(name: string): true | string {
 }
 
 /**
+ * Validate a free-text y/n answer, empty meaning "take the default".
+ *
+ * Shared rather than local to one command because two commands ask this shape of
+ * question in two files (`app create`'s "add another redirect URL?" and the
+ * scaffold-a-feature confirm both `app create` and `app scaffold` use), and they
+ * must accept exactly the same spellings.
+ */
+export function validateYesNo(input: string): true | string {
+  const val = String(input).toLowerCase().trim();
+  if (val === 'y' || val === 'yes' || val === 'n' || val === 'no' || val === '') {
+    return true;
+  }
+  return 'Please enter y or n';
+}
+
+/**
  * Validate that a value is one of the allowed options.
  * Throws CliError with a user-friendly message if invalid.
  */

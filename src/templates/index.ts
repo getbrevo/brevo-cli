@@ -147,6 +147,19 @@ export const FEATURE_TEMPLATE_MANIFESTS: Record<'oauth', TemplateFile[]> = {
 export type FeatureType = keyof typeof FEATURE_TEMPLATE_MANIFESTS;
 
 /**
+ * How each feature is named on screen — in the picker `app scaffold` shows once
+ * there is more than one to choose from, and in the confirm that names the single
+ * one while there isn't.
+ *
+ * Kept beside the manifest, and typed against it, so a new feature cannot be added
+ * without a label: the record above is the registry the prompts are derived from,
+ * which is what lets the CLI stop asking a question that has only one answer.
+ */
+export const FEATURE_LABELS: Record<FeatureType, string> = {
+  oauth: 'Test OAuth App',
+};
+
+/**
  * Derive the conditional flag set from the template vars.
  *
  * Distribution: public apps get a PKCE (RFC 7636) OAuth flow with no client

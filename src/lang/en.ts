@@ -109,7 +109,12 @@ const coreMessages = {
   APP_CREATE_BOX_TITLE: 'App created',
   APP_CREATE_BOX_SCOPES_LABEL: 'Default scopes:',
   APP_CREATE_BOX_SCOPE_HINT: `You can add more scopes later by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
-  APP_CREATE_SCAFFOLD_FEATURE_PROMPT: 'Do you want to scaffold a feature?',
+  // Names the feature while there is only one of them, because the picker that used
+  // to name it is no longer asked (a list of one is not a question). With a second
+  // feature in the manifest the label goes away and the picker returns — see
+  // `promptFeatureType`.
+  APP_SCAFFOLD_FEATURE_CONFIRM: (label?: string) =>
+    label ? `Scaffold the ${label}?` : 'Do you want to scaffold a feature?',
   APP_CREATE_BASE_SUCCESS: (count: number) => `Project structure created (${count} files)`,
   APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] => [
     ...(cdDir ? [`1. cd ${cdDir}`] : []),
@@ -234,18 +239,22 @@ const coreMessages = {
   // summarise what would be lost.
   APP_SCAFFOLD_APP_ID_MISMATCH: (localAppId: string, requestedAppId: string) =>
     `This directory is already linked to app ${localAppId}, so it can't be set up for app ${requestedAppId}.\n\n  Run \`${CLI.APP_SCAFFOLD}\` (no --app-id) to work on app ${localAppId}, or cd into an empty directory and run \`${CLI.APP_SCAFFOLD_APP_ID(requestedAppId)}\` there.`,
-  APP_SCAFFOLD_BOOTSTRAP_INTRO: (appId: string) => `Setting this directory up for app ${appId}...`,
+  // Deliberately doesn't say *which* directory: interactively the next prompt is
+  // "Output directory:", so naming one here would promise a location the user is
+  // about to be asked to choose. Under --json/non-TTY there is no prompt and the
+  // answer is the current directory, but that run prints no messages either.
+  APP_SCAFFOLD_BOOTSTRAP_INTRO: (appId: string) => `Setting up a project for app ${appId}...`,
   // Said before the confirm, not merged into it: the picker that follows lists the
   // account's apps, and a user who typed `scaffold` in the wrong directory needs to
   // know why they are suddenly being shown that list. The confirm is what makes the
   // list opt-in rather than something the command drops them into.
   APP_SCAFFOLD_BOOTSTRAP_OFFER:
     'No app-config.json in this directory, so there is no app to add a feature to.',
-  APP_SCAFFOLD_BOOTSTRAP_CONFIRM: 'Set this directory up for an app you already have?',
+  APP_SCAFFOLD_BOOTSTRAP_CONFIRM: 'Set up a project for an app you already have?',
   // Declining is a normal answer, not a failure — but the user still has an empty
   // directory, so the two remaining routes go on screen instead of exiting silently.
   APP_SCAFFOLD_BOOTSTRAP_DECLINED: `Nothing to do here yet.\n\n  - run \`${CLI.APP_CREATE}\` to create a new app in this directory, or\n  - cd into an existing project folder and run \`${CLI.APP_SCAFFOLD}\` there.`,
-  APP_SCAFFOLD_SELECT: 'Which app should this directory be set up for?',
+  APP_SCAFFOLD_SELECT: 'Which app do you want to set a project up for?',
   // Refuses rather than bootstrapping a nested project. `readProjectConfig` reads cwd and
   // does not walk up, so this is the only thing standing between a mistyped `cd` and a
   // second app-config.json inside an existing project — after which `app upload` from that
@@ -290,6 +299,9 @@ const coreMessages = {
   APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_DEPLOY()}\`.`,
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
   APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
+  // The directory was already there and the user has just said how to handle it —
+  // reporting "Creating" then would contradict the prompt they answered one line up.
+  APP_SCAFFOLD_USING_EXISTING_DIR: (dir: string) => `Moving into ${dir}...`,
   APP_SCAFFOLD_NEXT_STEPS_TITLE: 'Next steps',
   // `cdDir` is the path (relative to the shell the user actually typed the
   // command in) they need to `cd` into. It's undefined when scaffolding

@@ -27,6 +27,10 @@ import {
 import { resolveFromRecord } from '../../app-types';
 import { stripUiAppWireOnlyKeys } from '../../app-types/wire';
 import { promptAppSelection } from './select-app';
+// Re-exported below as well: `app create` imports `promptFeatureType` from this
+// module and its tests mock this module, so the name has to keep resolving here.
+import { promptFeatureType, promptScaffoldFeature } from './scaffold-prompts';
+export { promptFeatureType, promptScaffoldFeature, soleFeatureLabel } from './scaffold-prompts';
 import { OAuthApp, UiApp } from '../../types';
 
 interface TreeNode {
@@ -260,23 +264,12 @@ export function applyProjectDirectory(
     if (targetDir === process.cwd()) {
       logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
     } else {
-      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
+      // Not "Creating": the user answered "Directory already exists…" one line up,
+      // so claiming to create it contradicts the question they were just asked.
+      logInfo(messages.APP_SCAFFOLD_USING_EXISTING_DIR(path.relative(process.cwd(), targetDir)));
     }
   }
   process.chdir(targetDir);
-}
-
-export async function promptFeatureType(interactive: boolean): Promise<FeatureType> {
-  if (!interactive) return 'oauth';
-  const { featureType } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'featureType',
-      message: messages.APP_SCAFFOLD_FEATURE_TYPE_PROMPT,
-      choices: [{ name: 'Test OAuth App', value: 'oauth' }],
-    },
-  ]);
-  return featureType;
 }
 
 interface ConfigDiff {
@@ -710,6 +703,48 @@ async function resolveBootstrapAppId(
   return appId;
 }
 
+/**
+ * Where should a bootstrap write?
+ *
+ * The feature-add path has no question to answer — its directory is the project it
+ * was run in. A bootstrap does: it is the one `scaffold` entry point that can be
+ * invoked from a directory the user never meant to fill, and the most likely such
+ * directory is the folder they keep their apps *in*. Writing eleven files
+ * (`app-config.json`, `README.md`, `CLAUDE.md`, `AGENTS.md`, `.gitignore`, the
+ * OAuth server) straight into that folder is silent and tedious to undo, so the
+ * command asks the same question `app create` asks, with the same default —
+ * `./<slug of the app's name>` — and the same escape: type `.` to stay put.
+ *
+ * Interactive only. Under `--json` or off a TTY the answer stays the current
+ * directory, because `scaffold --app-id <id>` is the scripted migration path off
+ * `app update --app-id` and a pipeline that already `mkdir`s and `cd`s must not
+ * start finding its config one level deeper. `resolveProjectDirectory` would not
+ * prompt in that mode anyway — it would take the default, which is exactly the
+ * relocation we must not do.
+ */
+async function resolveBootstrapDirectory(
+  ctx: AppContext,
+  jsonMode: boolean,
+): Promise<{ targetDir: string; mergeOnly: boolean } | undefined> {
+  if (jsonMode || !process.stdin.isTTY) return undefined;
+
+  const defaultDir = `./${computeSlug(ctx.appDetails?.name)}`;
+  let dir = await resolveProjectDirectory(defaultDir);
+  while (!dir.unresolved && dir.chooseAgain) {
+    dir = await resolveProjectDirectory(defaultDir);
+  }
+  if (dir.unresolved) {
+    // Unreachable: `unresolved` is only ever returned with jsonMode=true, which
+    // returned above. Fail loudly rather than guess if that ever changes.
+    throw new CliError(messages.APP_CREATE_DIR_UNRESOLVED);
+  }
+  // Safe to create and move into it immediately: unlike `app create`, nothing has
+  // been registered on the server that a later failure could orphan — the app
+  // already exists and this command only writes files.
+  applyProjectDirectory(dir);
+  return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly };
+}
+
 export const scaffoldCommand = withCommandHandler(
   async (options: { json?: boolean; overwrite?: boolean; appId?: string }): Promise<void> => {
     const jsonMode = !!options.json;
@@ -769,7 +804,22 @@ export const scaffoldCommand = withCommandHandler(
     }
 
     const { appId, ctx, refreshBase } = plan;
-    const targetDir = process.cwd();
+
+    // Captured before `resolveBootstrapDirectory` may chdir: the `cd` hint has to
+    // be relative to the shell the user typed the command in, not to the directory
+    // the CLI has since moved its own process into.
+    const originalCwd = process.cwd();
+    const bootstrapDir = localConfig ? undefined : await resolveBootstrapDirectory(ctx, jsonMode);
+    const targetDir = bootstrapDir?.targetDir ?? process.cwd();
+    // `cd` is only worth printing when the files did not land where the user is
+    // standing; `computeCdHint` returns undefined for the directory they're in.
+    const cdDir = bootstrapDir ? computeCdHint(originalCwd, targetDir) : undefined;
+    // Merging the *base* files is the directory decision's call, not the feature
+    // prompt's — it answers "this directory already had files in it", which only a
+    // bootstrap that was pointed at a non-empty directory can hit. The feature-add
+    // path keeps its full overwrite: a consented refresh means "make it match the
+    // server", which a merge would quietly not do.
+    const baseMergeOnly = bootstrapDir?.mergeOnly ?? false;
 
     // UI apps have no scaffoldable features — there is no local server to run for
     // an action link. `app scaffold` degrades to a base-config refresh so the
@@ -781,7 +831,7 @@ export const scaffoldCommand = withCommandHandler(
     // where `ctx.uiApp` is the local block by construction.
     const isUiApp = localConfig ? isUiAppConfig(localConfig) : Boolean(ctx.uiApp);
     if (isUiApp) {
-      const base = refreshBase ? runBaseScaffold(appId, ctx, targetDir, false) : null;
+      const base = refreshBase ? runBaseScaffold(appId, ctx, targetDir, baseMergeOnly) : null;
       if (jsonMode) {
         jsonOutput({
           scaffolded: base?.written ?? 0,
@@ -796,7 +846,33 @@ export const scaffoldCommand = withCommandHandler(
         logInfo(formatFileTree(base.files.map((f) => f.name)));
       }
       logInfo(messages.APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP);
+      // A bootstrap that made its own directory has to say which one, and for a UI
+      // app upload → deploy is the whole of what comes next.
+      if (cdDir)
+        printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_UI_NEXT(cdDir));
       return;
+    }
+
+    // A bootstrap writes and reports the project *before* asking about the feature:
+    // the project is what the command was asked for, so it should exist whatever the
+    // answer is, and the user can see what they got before deciding on the extra.
+    // (The feature-add mode never asks — there, the feature *is* the request — and
+    // `--json` never prompts, so both keep writing the base further down.)
+    // Gated on a TTY, not just on `--json`, for the same reason the directory
+    // question is: it is a new blocking prompt, and a piped run must keep finishing
+    // on its own. Off a TTY the base is written further down and the feature always
+    // follows, exactly as before.
+    const bootstrapInteractive = !localConfig && !jsonMode && !!process.stdin.isTTY;
+    const bootstrapBase = bootstrapInteractive
+      ? runBaseScaffold(appId, ctx, targetDir, baseMergeOnly)
+      : null;
+    if (bootstrapBase) {
+      reportBaseScaffoldSuccess(bootstrapBase);
+      if (!(await promptScaffoldFeature())) {
+        logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
+        printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_BASE_ONLY_NEXT(cdDir));
+        return;
+      }
     }
 
     const feature = await promptFeatureType(!jsonMode);
@@ -819,12 +895,17 @@ export const scaffoldCommand = withCommandHandler(
     let baseFiles: Array<{ name: string; content: string }> = [];
     let legacyAllSubstituted = false;
     let scopes: string[] = [];
-    if (refreshBase) {
-      const base = runBaseScaffold(appId, ctx, targetDir, false);
+    if (refreshBase && !bootstrapBase) {
+      const base = runBaseScaffold(appId, ctx, targetDir, baseMergeOnly);
       baseWritten = base.written;
       baseFiles = base.files;
       legacyAllSubstituted = base.legacyAllSubstituted;
       scopes = base.scopes;
+    } else if (bootstrapBase) {
+      // Written and reported above, so only the scope list is carried forward — the
+      // count and the file tree would otherwise be printed a second time, and the
+      // legacy-'all' notice repeated. Same split `app create` uses.
+      scopes = bootstrapBase.scopes;
     }
 
     // Feature files merge by default (never clobber hand-edited code); the user
@@ -839,13 +920,16 @@ export const scaffoldCommand = withCommandHandler(
       return;
     }
 
-    // scaffold always runs in the project directory, so no `cd` hint is needed.
+    // `cdDir` is set only when a bootstrap made (or was pointed at) a directory
+    // other than the one the command was typed in; the feature-add path always
+    // writes into the project directory, so it stays undefined there.
     reportScaffoldSuccess({
       written,
       legacyAllSubstituted,
       scopes,
       files,
       targetDir,
+      cdDir,
     });
   },
 );

@@ -54,6 +54,11 @@ jest.mock('../../../templates', () => ({
     { name: 'src/oauth/.env.local', content: `CLIENT_ID=${vars['{{CLIENT_ID}}'] || ''}` },
     { name: 'src/oauth/package.json', content: '{}' },
   ]),
+  // The feature registry, mirrored rather than stubbed away: the prompts derive
+  // from it — one entry means no "which feature?" picker — so a mock without it
+  // would test a shape the real module never has.
+  FEATURE_TEMPLATE_MANIFESTS: { oauth: [] },
+  FEATURE_LABELS: { oauth: 'Test OAuth App' },
 }));
 
 jest.mock('node:fs');
@@ -181,7 +186,8 @@ describe('app/scaffold', () => {
           mockPrompt
             .mockResolvedValueOnce({ useExisting: true })
             .mockResolvedValueOnce({ selectedApp: '1' })
-            .mockResolvedValueOnce({ featureType: 'oauth' });
+            .mockResolvedValueOnce({ outputDir: tmpPath('picked-app') })
+            .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
           await scaffoldCommand({});
 
@@ -191,6 +197,97 @@ describe('app/scaffold', () => {
           });
           const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
           expect(written.some((p: string) => p.endsWith('app-config.json'))).toBe(true);
+        });
+
+        // The picker is reachable from any directory, and the likeliest one is the
+        // folder the user keeps their app folders *in*. Emptying eleven files into
+        // it is silent and tedious to undo, so a bootstrap asks the question
+        // `app create` asks, with the same default: the app's name as a slug.
+        it('offers a directory named after the app and creates it', async () => {
+          (readProjectConfig as jest.Mock).mockReturnValue(null);
+          (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+            { app_id: '1', name: 'Test App', client_id: 'cli-123' },
+          ]);
+          mockPrompt
+            .mockResolvedValueOnce({ useExisting: true })
+            .mockResolvedValueOnce({ selectedApp: '1' })
+            .mockResolvedValueOnce({ outputDir: './test-app' })
+            .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+          await scaffoldCommand({});
+
+          expect(mockPrompt).toHaveBeenCalledWith([
+            expect.objectContaining({ name: 'outputDir', default: './test-app' }),
+          ]);
+          const target = path.resolve('./test-app');
+          expect(fs.mkdirSync).toHaveBeenCalledWith(target, { recursive: true });
+          expect(chdirSpy).toHaveBeenCalledWith(target);
+          // Everything lands under the new directory, not the one the user is in.
+          const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
+          expect(written.every((p: string) => p.startsWith(target))).toBe(true);
+          // process.chdir() moves the CLI, never the user's shell — so the step
+          // that gets them there has to be on screen.
+          const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+          expect(output).toContain('cd test-app');
+        });
+
+        // `.` is the escape hatch for someone who already made the folder. The
+        // `cd` step must not appear then: it would send them somewhere else.
+        it('stays in the current directory when the user answers `.`, with no cd step', async () => {
+          (readProjectConfig as jest.Mock).mockReturnValue(null);
+          (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+            { app_id: '1', name: 'Test App', client_id: 'cli-123' },
+          ]);
+          // Only cwd exists: the directory prompt hits its overwrite/merge branch
+          // (as it always does for `.`), while the feature files still look fresh.
+          (fs.existsSync as jest.Mock).mockImplementation((p: string) => p === process.cwd());
+          mockPrompt
+            .mockResolvedValueOnce({ useExisting: true })
+            .mockResolvedValueOnce({ selectedApp: '1' })
+            .mockResolvedValueOnce({ outputDir: '.' })
+            .mockResolvedValueOnce({ action: 'merge' })
+            .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+          await scaffoldCommand({});
+
+          const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+          expect(output).toContain('Scaffolding into the current directory.');
+          expect(output).not.toContain('cd .');
+          expect(output).toContain('1. yarn --cwd src/oauth');
+        });
+
+        // The project is what the command was asked for; the OAuth test server is an
+        // extra. So it is written and shown *before* the question, and a "no" still
+        // leaves a usable project rather than an empty directory.
+        it('writes and reports the project before asking about the feature', async () => {
+          (readProjectConfig as jest.Mock).mockReturnValue(null);
+          (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+            { app_id: '1', name: 'Test App', client_id: 'cli-123' },
+          ]);
+          mockPrompt
+            .mockResolvedValueOnce({ useExisting: true })
+            .mockResolvedValueOnce({ selectedApp: '1' })
+            .mockResolvedValueOnce({ outputDir: './test-app' })
+            .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+
+          await scaffoldCommand({});
+
+          // app-config.json is on disk even though the feature was declined...
+          const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
+          expect(written.some((p: string) => p.endsWith('app-config.json'))).toBe(true);
+          // ...and none of the OAuth server's files are.
+          expect(written.some((p: string) => p.includes('src/oauth'))).toBe(false);
+          // The confirm names the single feature, since the picker that used to name
+          // it is no longer asked.
+          expect(mockPrompt).toHaveBeenCalledWith([
+            expect.objectContaining({
+              name: 'scaffoldRaw',
+              message: expect.stringContaining('Test OAuth App'),
+            }),
+          ]);
+          // Declining is a normal outcome: next steps point at adding it later.
+          const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+          expect(output).toContain('brevo app scaffold');
         });
 
         it('cancels without fetching or writing when the offer is declined', async () => {
@@ -243,7 +340,6 @@ describe('app/scaffold', () => {
 
       it('fetches the app and writes app-config.json when the directory has no config', async () => {
         (readProjectConfig as jest.Mock).mockReturnValue(null);
-        mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
         await scaffoldCommand({ appId: '1' });
 
@@ -257,6 +353,14 @@ describe('app/scaffold', () => {
         expect(loadBaseTemplates).toHaveBeenCalled();
         const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
         expect(written.some((p: string) => p.endsWith('app-config.json'))).toBe(true);
+        // Off a TTY (as here) the directory question is never asked and the answer
+        // stays cwd: `scaffold --app-id` is the scripted migration path off
+        // `app update --app-id`, and a pipeline that already cd'd into its own
+        // directory must not start finding app-config.json one level deeper.
+        expect(mockPrompt).not.toHaveBeenCalledWith([
+          expect.objectContaining({ name: 'outputDir' }),
+        ]);
+        expect(written.every((p: string) => p.startsWith(process.cwd()))).toBe(true);
       });
 
       it('refuses to clobber a directory already linked to a different app', async () => {
@@ -270,7 +374,6 @@ describe('app/scaffold', () => {
 
       it('is a no-op flag when it names the app the directory is already linked to', async () => {
         (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
-        mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
         await scaffoldCommand({ appId: '1' });
 
@@ -395,7 +498,6 @@ describe('app/scaffold', () => {
       // out inside another project is unusual but legal.
       it('does not fire for an ordinary in-project run', async () => {
         (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
-        mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
         await expect(scaffoldCommand({})).resolves.toBeUndefined();
       });
@@ -497,7 +599,6 @@ describe('app/scaffold', () => {
 
     it('reads the app id from app-config.json (no picker) and scaffolds the feature merge-only', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
-      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
       await scaffoldCommand({});
 
@@ -522,7 +623,6 @@ describe('app/scaffold', () => {
 
     it('does not write the base config when there is no drift (feature-only, merge)', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
-      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
       await scaffoldCommand({});
 
@@ -535,9 +635,7 @@ describe('app/scaffold', () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
       // Every feature file already exists → conflict prompt, then merge skips them all.
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      mockPrompt
-        .mockResolvedValueOnce({ featureType: 'oauth' })
-        .mockResolvedValueOnce({ action: 'merge' });
+      mockPrompt.mockResolvedValueOnce({ action: 'merge' });
 
       await scaffoldCommand({});
 
@@ -550,9 +648,7 @@ describe('app/scaffold', () => {
     it('overwrites existing feature files when the user chooses overwrite', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      mockPrompt
-        .mockResolvedValueOnce({ featureType: 'oauth' })
-        .mockResolvedValueOnce({ action: 'overwrite' });
+      mockPrompt.mockResolvedValueOnce({ action: 'overwrite' });
 
       await scaffoldCommand({});
 
@@ -563,9 +659,7 @@ describe('app/scaffold', () => {
     it('cancels without writing when the user chooses cancel on the conflict prompt', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      mockPrompt
-        .mockResolvedValueOnce({ featureType: 'oauth' })
-        .mockResolvedValueOnce({ action: 'cancel' });
+      mockPrompt.mockResolvedValueOnce({ action: 'cancel' });
 
       await scaffoldCommand({});
 
@@ -577,7 +671,6 @@ describe('app/scaffold', () => {
     it('does not prompt for conflicts when no feature files exist', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
       // existsSync defaults to false in beforeEach → no conflict.
-      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
       await scaffoldCommand({});
 
@@ -590,7 +683,6 @@ describe('app/scaffold', () => {
     it('overwrites existing feature files without prompting when --overwrite is passed', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
       await scaffoldCommand({ overwrite: true });
 
@@ -606,9 +698,7 @@ describe('app/scaffold', () => {
         ...matchingLocalConfig,
         auth: { scopes: ['contacts:read'], redirectUris: ['http://old-host/cb'] },
       });
-      mockPrompt
-        .mockResolvedValueOnce({ confirmed: true })
-        .mockResolvedValueOnce({ featureType: 'oauth' });
+      mockPrompt.mockResolvedValueOnce({ confirmed: true });
 
       await scaffoldCommand({});
 
@@ -641,9 +731,7 @@ describe('app/scaffold', () => {
       'shows a diff and asks consent when %s differs from the server',
       async (_label, override, expectedFieldLabel) => {
         (readProjectConfig as jest.Mock).mockReturnValue({ ...matchingLocalConfig, ...override });
-        mockPrompt
-          .mockResolvedValueOnce({ confirmed: true })
-          .mockResolvedValueOnce({ featureType: 'oauth' });
+        mockPrompt.mockResolvedValueOnce({ confirmed: true });
 
         await scaffoldCommand({});
 
@@ -674,7 +762,6 @@ describe('app/scaffold', () => {
         diffs: [],
         app: { ...serverApp, client_id: 'api-client', client_secret: 'api-secret' },
       });
-      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
       await scaffoldCommand({});
 
@@ -685,7 +772,6 @@ describe('app/scaffold', () => {
 
     it('never prints a "cd" step (scaffold always runs in the project directory)', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
-      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
       await scaffoldCommand({});
 
@@ -1040,14 +1126,48 @@ describe('app/scaffold', () => {
   });
 
   describe('promptFeatureType', () => {
-    it('prompts and returns the selected type when interactive', async () => {
+    // A list with one entry is a keystroke that can only produce one answer, put to
+    // someone who already chose the app type. With a second feature in the manifest
+    // the picker comes back on its own — the choices are derived from it, so this
+    // assertion is what keeps a hard-coded one-item list from being reintroduced.
+    it('does not ask which feature while the manifest holds only one', async () => {
       const { promptFeatureType } = require('../../../commands/app/scaffold');
-      mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
 
       const result = await promptFeatureType(true);
 
-      expect(mockPrompt).toHaveBeenCalledWith([expect.objectContaining({ name: 'featureType' })]);
+      expect(mockPrompt).not.toHaveBeenCalled();
       expect(result).toBe('oauth');
+    });
+
+    it('asks, and offers every manifest entry, once there is more than one', async () => {
+      // Re-required through an isolated registry so the prompt module reads a
+      // two-entry manifest instead of the suite-wide one-entry mock.
+      const { promptFeatureType } = require('../../../commands/app/scaffold');
+      const { FEATURE_TEMPLATE_MANIFESTS, FEATURE_LABELS } = require('../../../templates');
+      // Added to the mocked registry rather than through a re-imported module: the
+      // count is read per call (`Object.keys`), which is exactly the property under
+      // test — a second feature restores the picker without touching this code.
+      FEATURE_TEMPLATE_MANIFESTS.webhook = [];
+      FEATURE_LABELS.webhook = 'Webhook receiver';
+      mockPrompt.mockResolvedValueOnce({ featureType: 'webhook' });
+
+      try {
+        const result = await promptFeatureType(true);
+
+        expect(mockPrompt).toHaveBeenCalledWith([
+          expect.objectContaining({
+            name: 'featureType',
+            choices: [
+              { name: 'Test OAuth App', value: 'oauth' },
+              { name: 'Webhook receiver', value: 'webhook' },
+            ],
+          }),
+        ]);
+        expect(result).toBe('webhook');
+      } finally {
+        delete FEATURE_TEMPLATE_MANIFESTS.webhook;
+        delete FEATURE_LABELS.webhook;
+      }
     });
 
     it('returns oauth without prompting when not interactive', async () => {
@@ -1143,9 +1263,7 @@ describe('app/scaffold', () => {
         ...matchingLocalConfig,
         appName: 'Renamed Locally', // force the base refresh
       });
-      mockPrompt
-        .mockResolvedValueOnce({ confirmed: true })
-        .mockResolvedValueOnce({ featureType: 'oauth' });
+      mockPrompt.mockResolvedValueOnce({ confirmed: true });
 
       await scaffoldCommand({});
 

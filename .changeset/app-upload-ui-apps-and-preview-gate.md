@@ -45,12 +45,24 @@ successor to `brevo app update --app-id`.
 
 `--app-id <id>` names the app; it fetches the app, writes `app-config.json` plus the base
 files, then continues into the usual feature flow. Run interactively with no config and no
-flag, the command explains there is no app here, asks "Set this directory up for an app you
+flag, the command explains there is no app here, asks "Set up a project for an app you
 already have?" (default yes) and shows the same app picker `app delete` uses — recovering a
 project no longer requires knowing the app's ID, which is the common case after a fresh
 clone or a new machine. Declining exits `0`. The offer is interactive-only: under `--json`
 or off a TTY the command raises the same no-config error as before, so scripts and CI are
 unaffected and `--app-id` remains the non-interactive entry point.
+
+A bootstrap also asks *where* to put the project, the way `brevo app create` does:
+`Output directory:` defaulted to `./<the app's name as a slug>`, with the same
+overwrite / merge / choose-a-different-path follow-up when that directory already exists.
+It creates the directory and reports `cd <dir>` as the first of the next steps. Answer `.`
+to keep the current directory. Without this, running `brevo app scaffold` from the folder
+where you keep your app folders wrote eleven files straight into it. The question is
+interactive-only — under `--json` or off a TTY the project is written to the current
+directory exactly as before, so scripted `scaffold --app-id <id>` runs are unchanged.
+
+In that flow the project is written and shown *before* the feature question, so declining
+leaves a usable project rather than an empty directory.
 
 Bootstrapping refuses two cases before any network call, each of which previously produced
 a silently wrong project:
@@ -70,6 +82,19 @@ Fixed: `brevo app scaffold --json` could block on an interactive prompt (target-
 conflict, a config diff against the server, or a directory linked to a different app),
 hanging CI. `--json` now never prompts — each case is treated as declined and reported via
 `{ "cancelled": true, "reason": "...", "diffs": [...] }`.
+
+## Fewer questions with only one answer
+
+`brevo app create` and `brevo app scaffold` no longer ask *"What feature do you want to
+scaffold?"* — the CLI ships one feature, so that list had a single entry and could only be
+answered one way, and the app type was already chosen. `create`'s confirm names it instead
+(*"Scaffold the Test OAuth App?"*, default yes), and `scaffold` goes straight to writing it.
+The picker returns by itself if a second feature is ever added: both prompts are derived
+from the feature manifest rather than a hard-coded list.
+
+Also: choosing **Overwrite** or **Merge** on *"Directory already exists"* used to be
+followed by `Creating <dir> and moving into it...`, contradicting the question just
+answered. It now says `Moving into <dir>...`.
 
 ## `brevo app create`
 

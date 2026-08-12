@@ -176,6 +176,18 @@ brevo app create --name "QA Flags App" --distribution private \
 **Steps:** `brevo app scaffold`
 **Expected:** Friendly `CliError` (not a raw stack); **no server fetch**; exit `1`.
 
+### TC-3.2b — bootstrap asks where to put the project
+**Priority:** High
+**Preconditions:** A TTY, logged in, at least one app on the account. `cd` into a directory with **no** `app-config.json` — ideally one that already holds other folders, e.g. the folder you keep your app projects in.
+**Steps:** `brevo app scaffold`; accept the offer; pick an app; accept the default at `Output directory:`. Then repeat, answering `.` instead. Then repeat with `brevo app scaffold --app-id <id> --json`.
+**Expected:** No *"What feature do you want to scaffold?"* list appears at any point — the CLI ships one feature, so it is named in a confirm (*"Scaffold the Test OAuth App? (Y/n)"*) that comes **after** the project is written and listed. Answering `n` leaves `app-config.json` and the base files on disk, writes no `src/oauth/*`, and exits `0`. The default is `./<the app's name, slugified>`. Accepting it creates that directory, writes **nothing** into the directory you started in, and the *Next steps* box opens with `cd <dir>` — verify your shell is still in the original directory afterwards, and that `cd <dir> && brevo app upload` works. Answering `.` writes into the current directory (an "already exists" prompt appears first — Merge keeps existing files) and the *Next steps* box has **no** `cd` step, starting at `1. yarn --cwd src/oauth`. The `--json` run asks **nothing** and writes into the current directory, with `directory` in its output pointing there — this is the scripted contract and must not move.
+
+### TC-3.2c — an existing directory isn't reported as "Creating"
+**Priority:** Medium
+**Preconditions:** A directory that already exists next to your cwd, e.g. `mkdir test-app`.
+**Steps:** `brevo app create` (or a bootstrap per TC-3.2b) and answer `./test-app` at `Output directory:`; choose **Overwrite** at *"Directory already exists. What would you like to do?"*.
+**Expected:** The next line is `Moving into test-app...`, not `Creating test-app and moving into it...` — the old wording contradicted the prompt just answered. Choosing **Merge** prints the same line and keeps existing files.
+
 ### TC-3.3 — `scaffold` adds the feature into a created project (same app, no drift)
 **Priority:** High
 **Preconditions:** In a project dir created via TC-3.1 (base only), `app-config.json` matches the server.

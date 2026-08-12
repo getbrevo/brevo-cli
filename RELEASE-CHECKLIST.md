@@ -2597,3 +2597,106 @@ build doesn't have.
 - [x] The two doc references to the old coupling are corrected: *Before public-apps GA*
       no longer tells a future reader to unpick `link:dev`'s use of `build:preview`, and
       the BEX-405 entry above now says `PREVIEW=1 yarn link:dev`.
+
+### `app scaffold`'s bootstrap picks a directory instead of filling cwd (2026-08-12)
+
+**Change:** the bootstrap branch of `brevo app scaffold` now resolves a project
+directory the way `app create` does — `resolveProjectDirectory('./<computeSlug(app
+name)>')` + `applyProjectDirectory()` — instead of hardcoding `process.cwd()`. The
+`cd` hint that already existed on the next-steps box (`computeCdHint`,
+`APP_SCAFFOLD_NEXT_STEPS_LINES`) is finally reachable from this command. Three
+prompts were reworded because they promised a directory the command no longer
+picks for you: `APP_SCAFFOLD_BOOTSTRAP_CONFIRM`, `APP_SCAFFOLD_SELECT`,
+`APP_SCAFFOLD_BOOTSTRAP_INTRO` (and the same phrase inside `APP_UPDATE_REMOVED`).
+This supersedes the prompt text quoted in the *bootstraps without an app ID* entry
+above.
+
+**Why it isn't cosmetic.** The bootstrap is the one `scaffold` entry point
+reachable from a directory the user never meant to fill, and the likeliest such
+directory is the folder they keep their app folders *in* — `findEnclosingProjectDir`
+only blocks nesting inside a project, not spilling into a container. Eleven files
+(`app-config.json`, `README.md`, `CLAUDE.md`, `AGENTS.md`, `.gitignore`, the OAuth
+server) went in with no question asked and no `cd` line to suggest anything had
+happened elsewhere.
+
+**Must hold true:**
+
+- [x] `--json` and non-TTY bootstraps are byte-for-byte unchanged: no directory
+      prompt, target stays `process.cwd()`. This is the scripted migration path off
+      `app update --app-id`, so a pipeline that already `mkdir`s and `cd`s must not
+      start finding its config one level deeper. Asserted in `scaffold.test.ts`
+      ("Off a TTY … the directory question is never asked").
+- [x] The feature-add path (a directory with `app-config.json`) never asks and never
+      moves — `bootstrapDir` is `undefined` whenever `localConfig` is set, so
+      `targetDir`, `cdDir` and `baseMergeOnly` all keep their previous values.
+- [x] `cdDir` is `undefined` when the user answers `.` (`computeCdHint` returns
+      undefined for a zero-length relative path), so the box starts at
+      `1. yarn --cwd src/oauth` with no dead `cd .` step.
+- [x] The directory decision's `mergeOnly` reaches `runBaseScaffold` — answering `.`
+      in a non-empty directory and choosing **Merge** must not overwrite an existing
+      `README.md`/`CLAUDE.md`. Previously bootstrap passed `false` unconditionally.
+- [x] A bootstrapped **UI app** (no feature to scaffold) still gets its directory and
+      a `cd` — its early return prints `APP_CREATE_UI_NEXT(cdDir)` when one is set.
+- [x] `yarn test` (56 suites / 1198 tests), `yarn lint`, `yarn format:check` green.
+- [x] Agent docs updated in the same PR — `SKILL.md` and `AGENTS.md` both describe the
+      prompt, the default, the `.` escape, the `cd` step, and the `--json`/non-TTY
+      exemption. `QA-TESTCASES.md` gains `TC-3.2b`.
+- [x] Changeset: appended to the existing
+      `.changeset/app-upload-ui-apps-and-preview-gate.md` (already `minor`) under the
+      bootstrap-mode section, per the one-changeset-per-branch rule.
+- [ ] Reviewer: the prompt fires on *every* interactive bootstrap, including
+      `scaffold --app-id <id>` typed at a terminal inside a directory the user just
+      made. That user answers `.` once. The alternative — prompting only when cwd is
+      non-empty — makes the behaviour depend on directory contents, which is harder
+      to document and to test. Confirm that trade is the right one.
+### The one-answer feature question is gone; bootstrap writes before it asks (2026-08-12)
+
+**Change:** three edits to the same complaint — the CLI asked things it already knew.
+
+1. **`promptFeatureType` no longer renders a one-item list.** The choices are derived
+   from `FEATURE_TEMPLATE_MANIFESTS` (labels from the new `FEATURE_LABELS`), and the
+   prompt is skipped entirely while that registry holds one entry — which it does.
+   `app create`'s confirm names the feature instead (`Scaffold the Test OAuth App?`),
+   and `app scaffold` goes straight to writing it. Adding a second feature restores
+   the picker with no further change.
+2. **A bootstrap writes and reports the project before asking about the feature**, and
+   a decline leaves that project in place (exit `0`, base-only next steps). The
+   feature-add mode still never asks — there the feature *is* the request.
+3. **`Creating <dir> and moving into it...` is no longer printed for a directory that
+   already existed** (`APP_SCAFFOLD_USING_EXISTING_DIR` → `Moving into <dir>...`). It
+   used to contradict the *"Directory already exists"* prompt one line above it.
+
+`promptFeatureType` / `promptScaffoldFeature` moved to `src/commands/app/scaffold-prompts.ts`
+— `app create` needs the confirm and already imports `./scaffold`, so hosting it there
+and importing back would close a cycle. `validateYesNo` moved to `src/lib/validators.ts`
+for the same reason (two files ask a y/n question and must accept the same spellings).
+`scaffold.ts` re-exports both names so `./scaffold` stays the import site `app create`
+and its test double already use.
+
+**Must hold true:**
+
+- [x] `--json` and non-TTY runs unchanged. The new confirm is gated on
+      `!localConfig && !jsonMode && process.stdin.isTTY`, so a piped
+      `scaffold --app-id <id>` still writes the base further down and always scaffolds
+      the feature. `create --json` still stays base-only.
+- [x] Declining in a bootstrap leaves `app-config.json` and the base files written and
+      **no** `src/oauth/*`, prints the base-only next steps, exits `0` — asserted in
+      `scaffold.test.ts` ("writes and reports the project before asking about the
+      feature").
+- [x] The base files are reported exactly once on that path: `reportScaffoldSuccess`
+      receives only the feature's files when `bootstrapBase` already reported them,
+      mirroring `app create`. No doubled file tree, no repeated legacy-'all' notice.
+- [x] The picker really is registry-derived, not deleted: adding a second manifest entry
+      at runtime brings the prompt back with both labels
+      (`promptFeatureType › asks, and offers every manifest entry, once there is more
+      than one`).
+- [x] `app create`'s confirm keeps its own coverage — it is imported from
+      `./scaffold-prompts`, which `create.test.ts` does not mock, so its default-yes and
+      decline tests still exercise the real prompt. create.test.ts needed no edits.
+- [x] `yarn test` (56 suites / 1200 tests), `yarn lint`, `yarn format:check` green.
+- [x] Agent docs + `QA-TESTCASES.md` updated in the same PR; changeset appended.
+- [ ] Reviewer: `FEATURE_LABELS` duplicates the string that used to live inline in the
+      prompt. It is typed `Record<FeatureType, string>` against the manifest so a new
+      feature cannot be added without a label. Confirm that is the right home for it
+      rather than `src/lang/en.ts` — it is a data label for a registry, not a sentence,
+      but it is still user-visible text outside `en.ts`.
