@@ -84,7 +84,18 @@ fs.cpSync(path.join(root, 'src/templates/files'), path.join(root, 'dist/bin/file
   recursive: true,
 });
 
-fs.chmodSync(outfile, 0o755);
+// Make the bundle executable — it carries a `#!/usr/bin/env node` shebang, is the
+// `bin` target, and is run directly through `yarn link:dev`.
+//
+// This is `chmod a+x`, not `chmod 755`: execute is added only where read is *already*
+// granted, by shifting the read bits (0o444) down two positions into the execute
+// positions (0o111). Under the usual umask 022 esbuild writes 0644, so this lands on
+// 0755 exactly as the hard-coded literal did — but a maintainer building under a
+// stricter umask (say 077 → 0600) now gets 0700 instead of having 0755 forced on them,
+// which is what writing the literal did. Nothing downstream depends on the wider bits
+// at build time: npm sets its own mode on `bin` targets when the package is installed.
+const builtMode = fs.statSync(outfile).mode;
+fs.chmodSync(outfile, builtMode | ((builtMode & 0o444) >> 2));
 
 // Fail the build rather than publish a gated package that still carries the surface.
 // The check is deliberately on the OUTPUT, not on the config: a define typo, a stray
