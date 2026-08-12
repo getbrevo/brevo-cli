@@ -354,9 +354,9 @@ agent-facing docs describe only what a public build ships.
       sending it (`toNumericIdentifier()` + `pick()`), which is safe in both directions:
       `client_id` falls back to the gateway-populated header, `deploy_client_id`
       defaults to the caller. Confirmed against staging — a working `DELETE
-      .../installs` carries no `client_id` at all. `BEX-290-deploy-account-resolution.md`
-      records `organization_id` as a UUID; if that holds, deploy/rollback still work,
-      they just lean on the header. Worth confirming the shape for the record, but it no
+      .../installs` carries no `client_id` at all. `organization_id` was observed as a
+      UUID during BEX-290; if that holds, deploy/rollback still work, they just lean on
+      the header. Worth confirming the shape for the record, but it no
       longer gates GA.
 - [ ] **Confirm the corporate discriminator — STILL OPEN, and not answerable from
       the app-store repos.** Account resolution branches on `type === 'corporate'`

@@ -1,6 +1,11 @@
-# Deferred release notes — public apps and UI apps
+# Public apps and UI apps — deferred release notes & outstanding work
 
 **Status: not released. Do not publish any of this as-is.**
+
+Two halves. **Part 1** is the release copy, held until GA. **Part 2** is everything still
+open on the two features — consolidated from `TODO.md`, `QA-TESTCASES.md`,
+`RELEASE-CHECKLIST.md` and the three `BEX-290-*.md` working notes, which were deleted once
+their durable content landed here.
 
 Everything below describes surface that exists in this repo but is **eliminated from the
 published build** by `scripts/build.mjs` (see `CLAUDE.md` → *Public app distribution is not
@@ -18,6 +23,8 @@ the feature on. Re-verify every claim first — the copy dates from this branch 
 platform has moved under it before.
 
 ---
+
+# Part 1 — release copy (hold until GA)
 
 ## New commands
 
@@ -213,3 +220,216 @@ There is deliberately **no runtime escape hatch**. An earlier iteration unlocked
 `@brevo.com` / `@sendinblue.com` account or `BREVO_ENABLE_PREVIEW=1`; both are gone, and
 `CLAUDE.md` says not to add one back — a compile-time guard a user can switch on is a runtime
 guard wearing a costume, and it has to ship the surface in order to reveal it.
+
+---
+
+# Part 2 — outstanding work
+
+Nothing below blocks *this* release — the build-time gate is what makes that true. It
+blocks GA.
+
+**This half is the open-questions log; `RELEASE-CHECKLIST.md` is the GA runbook.** Keep
+them apart: this answers *what is still unknown*, that answers *what to do on the day*.
+When an item here resolves, delete it; when it becomes a release step, move it there.
+
+## Blocking — settle before either feature ships
+
+- [ ] **The unified create/upload payload needs the matching server-side change.** The CLI
+      sends create with OAuth fields nested under `auth`, and upload with `version` rather
+      than `app_version`. `POST /v3/app-store/apps` is live in production, so the endpoint
+      must accept the nested block before the gate is opened. Tracked on BEX-355.
+- [ ] **BEX-350 requires a coordinated release.** The UI kit, the reseeded extension-point
+      registry and the backend must land together. A CLI authoring `.widget` / `.action`
+      names against a `.region`-era registry produces extensions that render nothing, with
+      no error anywhere.
+- [ ] **UI-app creation is unusable until BEX-361 ships.** The placement prompts read the
+      live registry and abort with an actionable error if that read fails. The gate hides
+      this from end users rather than fixing it.
+
+## Platform-side asks — raised, not CLI fixes
+
+- [ ] **Echo `ui_app` on `GET /v3/app-store/apps`.** Confirmed by code and observed live
+      (2026-08-11): the list response carries no `ui_app` — `applyIdentityFields` sets only
+      `app_id`, `name`, `distribution_type`, `version`, `display_version`. So `app list` can
+      identify a UI app but not show what it does; every UI-app row stops at `Version:`. Two
+      consequences: the detail rows in `printUiApp` (`src/commands/app/list.ts`) are
+      unit-tested only, and type detection falls back to a heuristic (`isUiAppRecord` in
+      `src/lib/config.ts` — no `client_id`, no callbacks). Both the fallback and its comment
+      go once the block is echoed. The alternative if the platform declines is an N+1
+      per-app read, which is worse.
+- [ ] **File the create→read-back 404, then remove the fallback.** `POST /v3/app-store/apps`
+      returns an app ID that `GET /v3/app-store/apps/{id}` answers
+      `{"error":"id not found","code":"not_found"}` for, under a second later — observed on
+      staging 2026-08-07 for a UI app. `app create` tolerates it by scaffolding from the
+      create response (`fetchAppContext`'s `fallbackApp`), which is a workaround: the read is
+      still the only source of `scopes`, and any later command reading that app by ID hits
+      the same wall. **Confirm the shape first** — GET a known UI app and a known OAuth app
+      in the same account. If only the UI app 404s, the read path likely excludes an app with
+      no `auth` block (scoping on `FindIDByUUID(uuid, client_id)`, or a join a UI app has no
+      row for) and it belongs on app-store-backend. Once the read resolves, the fallback and
+      `resolveAppCredentials`'s `tolerateMissing` both come out.
+- [ ] **`surface_point_name` has no unique constraint, and the stamp inherits that.**
+      app-store-backend's own comment (`http_get_apps_extensibility.go`, `slotName`) states
+      it: a slug is `<page>-<section>` with the component KIND dropped, and the column has no
+      unique constraint, so two kinds on one section resolve to whichever row the lookup
+      reaches first. bo-be's `FindByNames` returns a map keyed by slug, so a duplicate
+      collapses and `stampExtensionPointNames` stamps an arbitrary one. **Latent, not live** —
+      the twelve seeded rows have twelve distinct slugs today. Fix with a unique constraint,
+      or by making the authored identity carry the kind. Do one before a thirteenth row is
+      seeded.
+- [ ] **Confirm whether `POST /v3/app-store/apps` writes an `app_versions` row**, and whether
+      it branches on the `ui_app` block at all. The CLI sends the block on create so the
+      record is created as the right type, but whether the endpoint reads it is unconfirmed.
+
+## Wire contracts still assumed
+
+Each is marked in a comment at its call site.
+
+- [ ] **HTTP 422 for deploy's "not uploaded" does not exist.** Verified against
+      app-store-backend `origin/main` (prod image 1.5.0): the installs handler
+      (`http_create_integration_details.go`) resolves the app by UUID, checks the plan and
+      inserts — no configured/uploaded check on the path, so deploying a never-uploaded app
+      answers `201` and renders nothing. `assertUploadedBeforeDeploy()` is therefore the
+      **only** gate and must hold for every resolution path. The `422` branch in `deploy.ts`
+      is dead-but-deliberate defence and is commented as such — don't delete it as dead code,
+      and don't weaken the local check on the belief the server will catch it.
+- [ ] **The `type === 'corporate'` discriminator on `/v3/account/info`.** Account resolution
+      branches on it. It lives on the account API, not in either app-store repo, so reading
+      app-store code cannot settle it. Typed optional; an absent or unknown value degrades to
+      the plain branch (deterministic, no prompt), so a wrong guess surfaces as a master
+      account deploying into itself.
+- [ ] **Whether the install `POST` response carries an ID worth surfacing.** It returns
+      `{brevo_integration_id, installation_id}` (same value twice); the CLI discards both,
+      fine while rollback addresses the install by account rather than by ID.
+- [ ] **Confirm `?location=` is honoured** on `GET /v3/app-store/surface-points`, and that an
+      unknown value 400s rather than being silently ignored. Until then
+      `fetchSurfacePointsForPages` keeps an unfiltered retry: the narrowed read is the only
+      row read in the flow, so an early build that 400s on the filter — or honours only the
+      first CSV value — would abort or silently drop pages after the partner has already
+      answered the page prompt.
+- [ ] **Confirm the locations endpoint's response shape** (`{ locations, count }`) and whether
+      it takes a filter of its own. `fetchSurfacePointLocations` tolerates a bare array
+      alongside the wrapped shape; that tolerance goes once confirmed.
+- [ ] **Drop the pre-BEX-361 row-name aliases** in `appService.fetchSurfacePoints`
+      (`extension_point`, `location`, `place`, `kind`, `supported_extension_types`) once the
+      real shape is confirmed. They exist only because keying strictly on either candidate
+      naming would fail closed against the other — every row dropped, and the partner told
+      the registry "has not been seeded".
+- [ ] **BEX-355 sign-off that an absent `source` is contract-valid.** The CLI stopped sending
+      `source: 'cli'` after the platform started reading it as policy (`400
+      invalid_parameter`, *public apps cannot be created with source "cli"*). The backend
+      derives the caller from the `User-Agent` header instead.
+
+## UX decisions — open, and each a choice rather than a bug
+
+- [ ] **What `brevo app credentials` should do for a UI app.** It no longer crashes, but
+      prints `Client ID: ` (blank), `Client secret: [hidden — …]`, `Scopes: (none)`,
+      `Redirect URLs: (none)` — a credential form with nothing in it, because a UI app has no
+      OAuth credentials. Options: refuse with a typed message naming the app type (consistent
+      with how `app scaffold` handles a UI-app project), or render a UI-app view the way
+      `app list` does. The same call is needed for `--json`, which returns empty strings and
+      arrays for all four fields.
+- [ ] **`app create` creates and `cd`s into the project directory before the app exists on
+      Brevo.** `resolveCreateDirectory()` runs one line before `createAppWithRetry()`, so any
+      hard create failure leaves a stray directory behind with the process `chdir`'d into it.
+      Nothing is deleted — the scaffold writes after the create — so this is a stray directory
+      and a moved cwd, not data loss. **The ordering is deliberate and the fix has a real
+      trade-off:** all local prompting finishes before the app is registered, so a Ctrl-C at
+      the directory prompt cannot orphan an app on the server. Don't simply move the create
+      call earlier. Split `resolveCreateDirectory` into *decide* (prompts, no writes) and
+      *apply* (`mkdirSync` + `chdir`), keeping the decision before the create and the mutation
+      after it.
+- [ ] **Whether the created-app box and the `app upload` diff should render a friendly
+      placement label** (`Header "More" (•••) menu — menu entry`) instead of the raw
+      `surface_point_name` slug they print today. Both print the authored value, and the
+      authored value became the slug when `surface_point_list` moved off the dotted name.
+      Neither call site holds the registry row at print time, so this needs a lookup, not a
+      formatting change.
+- [ ] **Whether `url_pattern` from the BEX-361 rows should surface in the placement prompt**
+      (e.g. as a choice hint) so partners see where in the product a slot renders before
+      picking it.
+- [ ] **`promptAppSelection` is an unpaginated `rawlist` over every app on the account.** Fine
+      at today's counts; it degrades past a screenful.
+
+## Deliberately parked — don't "fix" without revisiting the decision
+
+- [ ] **`iframeExtension` prompt authoring** — parked 2026-08-03. The CLI stays
+      actionLink-only until the iframe-embed RFC (trust handshake, JWT, postMessage) lands;
+      the delivery-path prompt was removed. A hand-edited `iframeExtension` block still
+      validates and uploads, and the platform still accepts it. When the RFC lands, restore
+      the prompt plus `permittedUrls.iframe` handling — the postMessage origin allowlist is
+      what makes the modal secure.
+- [ ] **`permittedUrls` is scaffolded empty** and never validated or populated from
+      `ui_app.redirect_link`. Harmless for action links (they open a new tab); load-bearing
+      for `iframeExtension` modals.
+- [ ] **No local dev story for a UI app.** `brevo app start` has no UI-app equivalent, so a
+      partner cannot preview an action link without deploying to a real account. Worth a
+      local harness that renders the action menu and forwards context params to the external
+      URL.
+- [ ] **Per-placement `label` / `more_info` / `redirect_link`.** One set is shared across every
+      chosen placement, so an app cannot say *menu entry → link X* alongside *sidebar card →
+      link Y*. The nested `surface_point_list` makes this cheap to add later — per-entry text
+      would be new fields on an existing object rather than a reshape.
+- [ ] **Per-entry context narrowing is structural only.** Every registry row carries the same
+      default today, so every authored entry gets an identical list, and the upload endpoint
+      does not yet validate context per entry. The shape is forward-compatible; nothing
+      enforces narrowing anywhere yet.
+- [ ] **Surface the per-slot context allow-list read-only** (e.g. in the create summary) so a
+      partner knows which params their URL will receive without a failed upload.
+
+## QA gaps
+
+`QA-TESTCASES.md` is the manual plan for the whole branch. Its public-app and UI-app
+sections have drifted, and QA would file passes as failures:
+
+- [ ] **Section 12 has four wrong expectations.** TC-12.2c still describes the *single grouped
+      placement prompt* — the flow is N single-selects, one per page, and `CLAUDE.md` says
+      never restore the grouped one. TC-12.4 still expects a `Link target: _blank (added on
+      upload…)` row in the diff, deliberately removed in 29c9ef4. TC-12.10 still says
+      `brevo app remove` and `{"removed": false}`, now `rollback` / `rolledBack`. TC-12.2's
+      prompt list omits the **App logo URL** prompt the UI flow asks between *Redirect link*
+      and *Output directory*. The agent docs are already correct — only this file lags.
+- [ ] **The public-app and UI-app suites cannot run against a published build.** They need
+      `PREVIEW=1 yarn link:dev`. Say so at the top of each, or QA will file the gate as a bug.
+- [ ] **No suite covers the gate itself** — that a published build hides the commands, refuses
+      `--distribution public`, and ignores `BREVO_ENABLE_PREVIEW`. Automated coverage exists
+      (`src/__tests__/lib/preview.test.ts`, `preview-gate.test.ts`, plus the build's own output
+      assertions), so this is a nice-to-have.
+
+## Known limit of the build gate
+
+- [ ] **Object-literal properties survive elimination.** esbuild cannot prune a property from
+      an object literal, so anything reached as `OBJECT.KEY` stays at zero references. In a
+      public build that leaves `CLI.APP_DEPLOY` / `APP_ROLLBACK` / `APP_SUBMIT` /
+      `APP_WITHDRAW`, the `/withdraw` and `/installs` entries in `ENDPOINTS` (both
+      `src/lib/constants.ts`), and `appService`'s `deployApp` / `rollbackApp` / `withdrawApp`
+      (`src/services/app.ts`). All inert — no command reaches them, no help lists them.
+      `src/lang/preview-messages.ts` is the pattern that fixes this class if the residue ever
+      matters.
+
+## Resolved — kept for the reasoning
+
+Decisions that look re-openable but aren't.
+
+- **Deploy/rollback transport — settled 2026-08-06.** One resource, not two routes:
+  `POST /v3/app-store/apps/{id}/installs` to install, `DELETE` on the same path to remove
+  (app-store-backend PR #717, BEX-362 / BEX-364). Same body on both. The commands are named
+  for the partner-facing verb; the resource is an install.
+- **The account identifier — settled.** Both body identifiers are Go `int64` and the handler
+  decodes the body *before* reading `X-Sib-Client-Id`, so a UUID in either field is a decode
+  failure (400) that kills a request the header would have resolved. `toNumericIdentifier()`
+  yields `undefined` for anything non-numeric and `pick()` drops the key; the server resolves
+  `client_id` from the header and defaults `deploy_client_id` to the caller. Do not "tidy"
+  this into `Number()` (NaN → null → also a decode failure), and do not send a UUID as a
+  string "to let the server decide" — it cannot, it 400s first.
+- **`owner_user_id: 0` on UI-app records — not a bug.** The field is OAuth-service-owned;
+  bo-be populates it from the OAuth response body, and an app with no linked OAuth credentials
+  has no such body. A UI app has no OAuth record by construction, so `0` correctly reads as
+  "there is no OAuth owner here".
+- **Slot-name validation belongs to the server.** The local `EXTENSION_POINTS` mirror was
+  deleted rather than kept in sync: a copy can only lag the registry, and it failed in both
+  directions. `validateSurfacePoint` is shape-only, and `validators.test.ts` asserts an
+  unregistered name passes it — that test exists to fail if someone adds an allow-list back.
+- **Labelling the header-menu entry from `label` is a Brevo-side rendering change.** Until it
+  ships a partner can author a `label` the menu does not yet show. The CLI is the producer and
+  is ready; nothing is blocked on it.
