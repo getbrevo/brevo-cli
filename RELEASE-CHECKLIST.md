@@ -2700,3 +2700,39 @@ and its test double already use.
       feature cannot be added without a label. Confirm that is the right home for it
       rather than `src/lang/en.ts` — it is a data label for a registry, not a sentence,
       but it is still user-visible text outside `en.ts`.
+### `APP_UPDATE_REMOVED` is re-laid-out (2026-08-12)
+
+**Change:** presentation only — same facts, same commands, same exit code. The body is
+indented 4 and the runnable commands 6, so the block hangs under the headline instead of
+dangling two columns left of it (`logError` prints `  ✗ ` in front of the first line, and
+the message's own 2-space continuation ignored that). The dead flags moved out of the
+middle of a sentence onto their own line, and the "there are no edit flags" clause now
+leads its paragraph instead of trailing the `--yes`/`--json` one. Written a line per line
+in `src/lang/en.ts` (the `APP_CREATE_PUBLIC_REJECTED` style) rather than one long escaped
+literal, so the wrapping is visible in the source.
+
+**Must hold true:**
+
+- [x] All 22 `removed-commands.test.ts` cases still pass, including the substring
+      assertions the layout could have broken: `brevo app upload` present, `brevo app
+      create` absent, `app-config.json` present, and all five old flags present.
+- [x] Exit code, JSON envelope and the set of reachable invocations are untouched — no
+      code outside the string changed.
+- [x] `yarn lint`, `yarn format:check`, `npx tsc --noEmit` green, and every suite except
+      the two the in-flight `scaffold`/`create` work has red at the time of writing
+      (`scaffold.test.ts`, `create.test.ts` — `FEATURE_TEMPLATE_MANIFESTS` undefined).
+      Neither failure touches this string; the whole suite was green on this change
+      before that work landed in the tree.
+- [x] No agent-doc edit needed: `SKILL.md` and `AGENTS.md` describe *that* the message
+      names `upload` and exits `1`, and neither quotes its text. Both still accurate.
+- [x] No changeset line added — `.changeset/app-upload-ui-apps-and-preview-gate.md`
+      already announces the message; its layout is not a separate release note.
+- [ ] Reviewer: the 4-space body indent is a deliberate deviation from the 2-space
+      continuation every other message in `en.ts` uses. It is justified here by length
+      (19 lines vs. one or two) and confined to this string. Confirm that is the right
+      call, or say so and it reverts to 2.
+- [x] The re-layout preserved the scaffold change's copy edit inside this string —
+      *"Set up a project for an app you already have"*, not the old *"Set this
+      directory up…"*. The two changes landed on the same lines; the entry above is
+      what explains why the phrase changed, and this one only re-wraps it.
+

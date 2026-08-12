@@ -164,7 +164,28 @@ const coreMessages = {
   // `scaffold --app-id` was restored: `upload` reads the linked project only, so a
   // user who drove `update` by ID from any directory would otherwise read "edit
   // app-config.json" while having no such file and no way to get one.
-  APP_UPDATE_REMOVED: `\`brevo app update\` has been removed — use \`${CLI.APP_UPLOAD}\` instead.\n\n  \`${CLI.APP_UPLOAD}\` pushes the whole of app-config.json and takes only --yes and --json.\n  There are no edit flags (--name, --redirect-uri, --scope, --logo-uri, --app-id): change\n  the app's name, redirect URLs, scopes or logo by editing app-config.json, then run:\n\n    ${CLI.APP_UPLOAD}\n\n  No app-config.json here? Set this directory up for an app you already have\n  (\`${CLI.APP_LIST}\` shows their IDs), then edit and upload:\n\n    ${CLI.APP_SCAFFOLD_APP_ID()}\n    ${CLI.APP_UPLOAD}\n\n  Docs: ${BREVO_CLI_REFERENCE_URL}`,
+  //
+  // Layout: `logError` prints `  ✗ ` in front of the first line, so the body is
+  // indented 4 and the runnable commands 6 — the block hangs under the headline
+  // instead of dangling two columns left of it, which is what a 2-space body does
+  // to a message this long. The dead flags get their own line rather than sitting
+  // mid-sentence: someone who arrived here by typing one is scanning for it, not
+  // reading. Written a line per line (like `APP_CREATE_PUBLIC_REJECTED`) so the
+  // wrapping is visible in the source — this is the longest message in the file
+  // and the one where a stray long line is most likely to go unnoticed.
+  APP_UPDATE_REMOVED:
+    `\`brevo app update\` has been removed — use \`${CLI.APP_UPLOAD}\` instead.\n\n` +
+    `    \`${CLI.APP_UPLOAD}\` pushes the whole of app-config.json and takes only\n` +
+    '    --yes and --json. None of the old edit flags exist any more:\n\n' +
+    '      --name   --redirect-uri   --scope   --logo-uri   --app-id\n\n' +
+    "    To change the app's name, redirect URLs, scopes or logo, edit\n" +
+    '    app-config.json, then run:\n\n' +
+    `      ${CLI.APP_UPLOAD}\n\n` +
+    '    No app-config.json here? Set up a project for an app you already\n' +
+    `    have (\`${CLI.APP_LIST}\` shows their IDs), then edit and upload:\n\n` +
+    `      ${CLI.APP_SCAFFOLD_APP_ID()}\n` +
+    `      ${CLI.APP_UPLOAD}\n\n` +
+    `    Docs: ${BREVO_CLI_REFERENCE_URL}`,
 
   // App upload
   APP_UPLOAD_NO_CONFIG: `No app-config.json found in this directory. Run \`${CLI.APP_UPLOAD}\` from the project directory that has your app's app-config.json, or run \`${CLI.APP_CREATE}\` / \`${CLI.APP_SCAFFOLD}\` to set one up.`,
