@@ -4,6 +4,7 @@ jest.mock('../../../container', () => ({
   appService: {
     deployApp: jest.fn(),
     fetchAppsList: jest.fn(),
+    fetchApp: jest.fn(),
   },
   accountService: {
     getAccount: jest.fn(),
@@ -191,6 +192,50 @@ describe('app/deploy', () => {
       /brevo app upload/i,
     );
     expect(appService.deployApp).not.toHaveBeenCalled();
+  });
+
+  // The gate used to stop at the linked-project check, on the belief that the
+  // server refused an unconfigured app with a 422. It does not — the installs
+  // handler has no configured/uploaded check — so `--app-id` and the picker have
+  // to be gated on the app's server-side version or nothing gates them at all.
+  describe('the upload gate outside a linked project', () => {
+    beforeEach(() => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+    });
+
+    it('refuses an --app-id app the server has no version for', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '' });
+
+      await expect(
+        deployCommand({ accountId: '99999', appId: 'app-1', force: true }),
+      ).rejects.toThrow(/brevo app upload/i);
+      expect(appService.deployApp).not.toHaveBeenCalled();
+    });
+
+    it('deploys an --app-id app that has been uploaded', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '3' });
+
+      await deployCommand({ accountId: '99999', appId: 'app-1', force: true });
+      expect(appService.deployApp).toHaveBeenCalledWith('app-1', '99999', 'app-1');
+    });
+
+    // Guarding against a silent no-op must not itself become a new way to fail:
+    // an unavailable read leaves the deploy to proceed.
+    it('still deploys when the version read fails', async () => {
+      (appService.fetchApp as jest.Mock).mockRejectedValue(new ApiError('boom', 500, undefined));
+
+      await deployCommand({ accountId: '99999', appId: 'app-1', force: true });
+      expect(appService.deployApp).toHaveBeenCalled();
+    });
+
+    // A linked project is still answered locally — the whole point of keeping the
+    // local branch is that the common path costs no round trip.
+    it('does not read the app when a linked project answers the question', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(UPLOADED_CONFIG);
+
+      await deployCommand({ accountId: '99999', force: true });
+      expect(appService.fetchApp).not.toHaveBeenCalled();
+    });
   });
 
   it('maps the server 422 to the same upload-first message', async () => {

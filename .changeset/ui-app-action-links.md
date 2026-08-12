@@ -156,3 +156,53 @@ both. The list endpoint does not echo `ui_app` today, so a UI app's row currentl
 the type; app-type detection falls back to the absence of every piece of OAuth material,
 and a record with a client_id but no callbacks stays an OAuth app (a half-configured one),
 not a UI app.
+
+**`brevo app create` reads the credentials off the create response again.** Moving the
+create request's OAuth fields inside `auth` (above) made the platform echo that nesting
+back, and every read site still expected them at the top level. Because the response type
+declared them required, nothing failed to compile and nothing threw — the values were
+simply `undefined`. So `brevo app create` printed `Client ID: undefined` and dropped its
+`Redirect URL n:` lines entirely, and `brevo app create --json` silently omitted
+`clientId` and `redirectUri` (`JSON.stringify` drops an undefined value), which breaks any
+pipeline reading either field. The response is now flattened in one place, tolerating both
+the nested and the flat shape, so no call site had to change. Two things that were built on
+the same wrong assumption are fixed with it: the UI-app summary box no longer renders
+`Client ID` / `Client secret` rows for an app type that has neither, and credentials are
+only cached when there is actually a pair to cache.
+
+**`brevo app deploy` refuses an app that was never uploaded, whichever way you name it.**
+The gate has always been documented, but outside a linked project directory it was not
+enforced anywhere. It was written as a local pre-flight on top of what was believed to be
+the platform's own rejection; that rejection does not exist — the install endpoint resolves
+the app, checks the plan, and installs, with no notion of whether the app's configuration
+was ever validated. So `brevo app deploy --app-id <uuid>`, and the interactive picker, both
+happily installed an app that had never been through `brevo app upload`: HTTP 201, and an
+action link that renders nothing. Those two paths now read the app's version from the
+platform and refuse the same way a linked project does, pointing at `brevo app upload`. A
+linked project is still answered from `app-config.json` with no extra request, and a
+version read that fails does not block the deploy — guarding against a silent no-op should
+not become a new way to fail.
+
+**Settled since the paragraphs above were written** — where they disagree, this is current:
+
+- The **server-side unified-payload change is deployed**, so *"Requires the matching
+  server-side payload change — do not release ahead of it"* no longer applies. Create
+  accepts the nested `auth` block and uses the presence of `auth` or `ui_app` to select the
+  contract (a body with neither still routes to the old flat shape, so older CLI builds keep
+  working); upload accepts `version`, with `app_version` kept as a fallback. Sending both
+  version spellings with different values is rejected — the CLI sends `version` alone.
+- **Deploy has no server-side "not uploaded" rejection**, so *"mapped from the server's own
+  rejection"* in the `brevo app deploy` paragraph above is wrong. The CLI's own check is the
+  only one, which is why it was extended as described above.
+- **`brevo app rollback`'s 404 handling is confirmed correct**, and *"What remains assumed
+  is only the rejection codes"* is resolved: uninstall answers 404 for both an unknown app
+  and an absent install, exactly as the fifth round assumed.
+- **The extension-point registry is seeded** with all twelve slots in the current grammar,
+  each carrying both its dotted name and its slug — so *"a stale `.region`-era name"* is a
+  historical concern rather than a live one. Confirm your target environment before relying
+  on it.
+- **`--distribution public`** still fails for an ordinary account with `source` gone, so the
+  open question in *"This changes what the platform does with `--distribution public`"* is
+  answered: nothing changed. The restriction is per-account and lives on the platform, and
+  the CLI now translates the refusal into an explanation rather than surfacing the raw
+  error.

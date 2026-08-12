@@ -106,7 +106,13 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       consumers — the manifest read path and the extensibility UI kit
       (BEX-308 / BEX-350). The block is the stored app snapshot verbatim:
       `extension_type`, `surface_point_list` (a list of
-      `{ surface_point, context? }` objects), `label`, `more_info`, `redirect_link`.
+      `{ surface_point_name, context? }` objects), `label`, `more_info`,
+      `redirect_link`. The entry key is `surface_point_name` — it names the registry
+      column it is matched against, and it is the slug, not the dotted slot name.
+      This line said `surface_point` until 2026-08-12; that spelling is used nowhere
+      and authoring it is exactly the bug bo-be's own `surfacePoint` doc comment
+      records ("a CLI duly authored this value and every upload failed as an
+      unregistered extension point").
       `heading`/`subheading` were the pre-BEX-290 names for `label`/`more_info`, and
       `link_target` is no longer authored into the file at all — `app upload` injects
       `_blank`. The UIApp Support Spec's `properties`/`trigger` vocabulary is not read
@@ -115,19 +121,21 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       header-menu item and `more_info` renders as its second line; until the frontend
       does that, a partner authors a `label` the menu never shows. This is a sequencing
       requirement, not a CLI change — the CLI is the producer and is ready.
-- [ ] **Coordinate the BEX-350 registry reseed.** The twelve-point
-      extension-point registry (three record pages x three widget places + one
-      action place, `.widget`/`.action` kinds) has to be seeded before a
-      CLI-authored slot name resolves. An unregistered name is dropped silently, so
-      a CLI release ahead of the reseed produces action links that render nothing.
-      The CLI's local registry copy lives in `src/lib/constants.ts`
-      (`EXTENSION_POINTS`) and must be updated in lockstep if the registry changes.
-      `EXTENSION_PLACE_LABELS` in the same file is **CLI-owned display text and
-      stays** — an earlier version of this line claimed it mirrors the registry's
-      `surface_point_name` column, which is false: that column holds kebab-case slugs
-      (`contact-details-header-menu`), not partner-facing labels. The registry exposes
-      no display-name column, so either the CLI keeps this map or the platform adds
-      one. `EXTENSION_POINTS` goes away once upload also reads the registry over HTTP.
+- [x] **Coordinate the BEX-350 registry reseed — SEEDED (verified 2026-08-12).**
+      bo-be `origin/main`'s `specs/database.sql` carries all twelve rows in the
+      BEX-350 grammar, each with both identities: the dotted `extension_point_name`
+      (`contactDetails.headerMenu.action`) and the kebab `surface_point_name`
+      (`contact-details-header-menu`), across the three record pages x three widget
+      places + one action place. The three pre-BEX-350 `<page>.left.card` rows are
+      still present alongside them. **What is verified is the schema spec, not any
+      particular environment's data** — confirm the target environment is on it
+      before releasing, since an unregistered name is still dropped silently.
+      **There is no longer a local registry copy to keep in lockstep.** An earlier
+      version of this line pointed at `EXTENSION_POINTS` in `src/lib/constants.ts`;
+      that mirror was deleted on this branch precisely so a copy could not lag the
+      registry. `EXTENSION_PLACE_LABELS` in the same file is **CLI-owned display
+      text and stays** — the registry exposes no display-name column, so either the
+      CLI keeps this map or the platform adds one.
 - [ ] **Confirm the per-slot context columns are seeded.** There is no context prompt
       any more: `brevo app create` seeds each `surface_point_list` entry's `context`
       from that registry row's own default, and the upload endpoint validates each
@@ -144,41 +152,45 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       (`src/types.ts` `UploadAppPayload` and `upload.ts`). "snapshot" on the
       platform means the whole stored app config; this block is only its UI
       subset, hence the key.
-- [ ] **Ship BEX-361 and confirm its /v3 mapping.** `brevo app create`'s UI-app path
-      reads the extension-point registry live — fetch-only, no local fallback — so
-      **UI-app creation is unusable until the endpoint ships**. It makes TWO reads per
-      run, asking different questions: `GET /v3/app-store/surface-points/locations`
-      for the record-page prompt (distinct location names, no rows), then
-      `GET /v3/app-store/surface-points?location=<comma-separated>` for the placements
-      on the pages that were picked. There is deliberately no extension-type filter on
-      either; the CLI checks each row's own `extension_type_list` and `status` instead,
-      since both extension types render on both kinds and a server-side type filter
-      would hide authorable placements.
-      Confirm on the real endpoint:
-      - [ ] `/surface-points/locations` answers `{ locations: [...], count: n }` with
-            the registry's distinct `location_name` values. The CLI also tolerates a
-            bare array; drop that once the shape is confirmed (see TODO.md). A page it
-            lists is offered to the partner **before** any row is read, so a location
-            with no active row that can host the chosen extension type is offered and
-            then skipped with a warning — acceptable, but confirm the endpoint doesn't
-            list locations with no active rows at all.
-      - [ ] The response rows carry `extension_point_name`, `location_name`, `section_name`,
-            `component_type`, `default_context_field`, `allowed_context_field`,
-            `extension_type_list`, `status`. The CLI ALSO tolerates the pre-BEX-361
-            spellings (`extension_point`, `location`, `place`, `kind`,
-            `supported_extension_types`) on read, because keying strictly on either
-            naming would fail closed against the other — every row dropped, and the
-            partner told the registry "has not been seeded". Drop the alias branch in
-            `appService.fetchSurfacePoints` once the real shape is confirmed.
-      - [ ] `?location=` is honoured, and an unknown value 400s rather than being
-            silently dropped. Not fatal either way: the row read is retried
-            UNFILTERED and narrowed client-side when it fails or comes back covering
-            fewer of the picked pages than were asked for. Confirming this lets that
-            retry go (see TODO.md).
-      - [ ] Row order is deterministic. The CLI writes placements in registry order,
-            and the upload diff sorts before comparing, so churn here is contained —
-            but the prompt order is the partner's mental model of the page.
-      Once upload also reads the registry, the local mirror goes away (see TODO.md).
+- [x] **Ship BEX-361 and confirm its /v3 mapping — SHIPPED, and every sub-item below
+      is now answered from the deployed handlers** (bo-be `origin/main`, prod image
+      1.7.0; `http_cli_get_surface_points.go` and
+      `http_cli_get_surface_point_locations.go`). UI-app creation is no longer
+      blocked on an unshipped endpoint. The CLI still makes TWO reads per run, asking
+      different questions: `GET /v3/app-store/surface-points/locations` for the
+      record-page prompt (distinct location names, no rows), then
+      `GET /v3/app-store/surface-points?location=<comma-separated>` for the
+      placements on the pages that were picked.
+      - [x] `/surface-points/locations` answers `{ locations: []string, count: int }`.
+            Confirmed — the response struct is exactly those two fields. The CLI's
+            bare-array tolerance is now provably unnecessary (see TODO.md); it is
+            being kept deliberately, not pending.
+      - [x] The response rows carry `extension_point_name`, `location_name`,
+            `section_name`, `component_type`, `surface_point_name`,
+            `default_context_field`, `allowed_context_field`. Confirmed — and note
+            what is **absent**: the projection publishes no `extension_type_list` and
+            no `status`, and neither is even a column in `extensionPointColumns`. The
+            pre-BEX-361 spellings (`extension_point`, `location`, `place`, `kind`,
+            `supported_extension_types`) are confirmed dead; bo-be's own comment says
+            `place` and `kind` "are not column names and must not appear on the wire".
+      - [x] **Consequence of that absence: `rowSupportsExtensionType` can never
+            filter anything.** It is written to treat a missing `extension_type_list`
+            /`status` as permissive, so the behaviour is correct rather than broken —
+            but the "page whose every placement is un-hostable" warning path it feeds
+            is unreachable against today's registry. Do not delete the path (the
+            columns may yet arrive); do not rely on it either.
+      - [x] `?location=` is honoured and an unknown value 400s listing the valid
+            locations (`parseLocationFilter`), rather than being silently dropped.
+            There is also an explicit `all` sentinel for "no filter". Confirmed, so
+            the unfiltered retry can go (see TODO.md) — again, kept deliberately.
+      - [x] Row order is deterministic: `buildSurfacePoints` sorts by
+            (`location_name`, `section_name`, `component_type`) with
+            `extension_point_name` as the tiebreaker, and bo-be documents the
+            ordering as part of the contract for exactly the reason this line gives.
+      - [ ] Remaining, and it is a data question rather than a contract one: confirm
+            the target environment's registry is actually seeded, and that
+            `location_name` is populated on every row — a row missing it is served
+            (and logged) rather than hidden, and cannot match a location filter.
 - [x] **Confirm the no-auth wire contract for UI apps — ANSWERED live (2026-08-12,
       production).** Both requests are tolerated with the whole `auth` block omitted:
       `POST /v3/app-store/apps` created the UI app and `POST .../upload` accepted it
@@ -232,11 +244,36 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       `app rollback` maps any 404 to its informational not-deployed path (exit 0) and
       `rollbackApp()` deliberately skips `rethrowNotFound`. The body also carries
       `client_id` (the caller's `organization_id`), without which the endpoint 400s.
-- [ ] **Still unconfirmed on that endpoint:** deploy's rejection code. It assumes
-      HTTP 422 for "not yet uploaded" — PR #717 is uninstall-only, so nothing confirms
-      the install side. Confirm with the app-store backend team, along with whether
-      `name` is required or advisory, and whether the POST response carries an
-      install/integration ID the CLI should surface or persist.
+- [x] **Deploy's rejection code — ANSWERED, and the answer is that there isn't one
+      (verified 2026-08-12 against app-store-backend `origin/main`, prod image
+      1.5.0).** The assumed `422` for "not yet uploaded" does not exist:
+      `http_create_integration_details.go` resolves the app by UUID (404 when the
+      lookup fails), checks the plan, and inserts. Nothing on the path asks whether
+      the app was ever configured — `IsAppConfigured` has no caller in the repo — so
+      **deploying a never-uploaded app answers `201` and renders nothing.**
+      Two consequences, both actioned:
+      - `assertUploadedBeforeDeploy()` is the *only* gate and now covers every
+        resolution path, not just the linked-project one it was written for: a linked
+        project is answered from `app-config.json` (no round trip), `--app-id` and the
+        picker read the app's server-side `version`. A read failure is non-fatal by
+        design.
+      - The `422` branch in `deploy.ts` is dead but kept, and its comment now says so
+        rather than claiming the server is the authority.
+      - [x] `name` — **required**, not advisory: `validateRequestBody` rejects an empty
+            or blank name (and one over 200 chars) with a missing/invalid-parameter
+            error. The CLI always sends the app name, so this is satisfied.
+      - [x] The POST response carries `{brevo_integration_id, installation_id}` (both
+            the same value). The CLI discards it, which stays fine while rollback
+            addresses the install by account rather than by ID.
+      - [x] **The body's `client_id` is ignored when the gateway sets the header.**
+            `extractClientID` reads `X-Sib-Client-Id` **first** and only falls back to
+            the body. This is what makes the CLI's omit-a-non-numeric-identifier
+            strategy correct rather than merely lucky.
+      - [ ] Still open: whether a repeated deploy to the same account is an idempotent
+            upsert. `findExistingInstallation` does key a developer install on
+            client_id + app_id + is_developer, which reads as an upsert — the CLI
+            relies on it, since it never checks for an existing install — but confirm
+            it rather than inferring it from the lookup.
 - [x] **`organization_id` shape — DEFUSED, no longer blocking.** Both body identifiers
       are Go `int64` and the handler decodes the body *before* reading
       `X-Sib-Client-Id`, so a UUID in either field would 400 a request the header
@@ -248,24 +285,42 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       records `organization_id` as a UUID; if that holds, deploy/rollback still work,
       they just lean on the header. Worth confirming the shape for the record, but it no
       longer gates GA.
-- [ ] **Confirm the corporate discriminator.** Account resolution branches on
-      `type === 'corporate'` from `/v3/account/info` — an **assumed** field name and
-      value (`AccountResponse.type` in `src/types.ts` carries the ⚠️ marker). It is
-      typed optional and an absent/unknown value degrades to the plain-account branch,
-      which resolves deterministically and never prompts; the cost of being wrong is
-      that a master account must pass `[account-id]` explicitly. Confirm the field, and
-      confirm that `GET /v3/corporate/subAccount` is reachable with both an api-key and
-      an OAuth bearer token (the CLI sends whichever the user logged in with).
-- [ ] Confirm whether `GET /v3/app-store/apps/{id}` returns the `ui_app` block. The
-      upload diff and the scaffold-refresh path both read `ui_app` opportunistically
-      and degrade safely when absent (the block reads as new / is carried forward
-      locally), but the diff is only fully accurate once the server echoes it. When it
-      does, two normalizations must keep working: the write-back strips the
-      server-defaulted `link_target` so it never lands back in app-config.json, and the
-      diff ignores `link_target`/`version` and sorts `surface_point_list` so a server
-      echo is never reported as local drift.
-      Server-side echo fix is planned in app-store-bo-be's `/cli/apps/{id}` handler
-      (the latest app_versions.snapshot row already carries the block).
+- [ ] **Confirm the corporate discriminator — STILL OPEN, and not answerable from
+      the app-store repos.** Account resolution branches on `type === 'corporate'`
+      from `/v3/account/info`, an **assumed** field name and value
+      (`AccountResponse.type` in `src/types.ts` carries the ⚠️ marker). That endpoint
+      belongs to the account API, so the 2026-08-12 sweep of app-store-bo-be and
+      app-store-backend could not settle it — it needs the account API's owners or a
+      corporate account to test with. It is typed optional and an absent/unknown value
+      degrades to the plain-account branch, which resolves deterministically and never
+      prompts; the cost of being wrong is that a master account must pass
+      `[account-id]` explicitly. Confirm the field, and confirm that
+      `GET /v3/corporate/subAccount` is reachable with both an api-key and an OAuth
+      bearer token (the CLI sends whichever the user logged in with).
+- [x] **`GET /v3/app-store/apps/{id}` returns the `ui_app` block — CONFIRMED
+      (2026-08-12, bo-be `origin/main`).** The echo is already shipped, not planned:
+      `applyLatestVersionFields` reads the latest `app_versions` row and sets
+      `resp.UIApp = uiAppResponseFromSnapshot(snap.UIApp)`, and `cliOAuthAppResponse`
+      declares `UIApp *uiAppResponse` with `omitempty` so OAuth-only apps and
+      pre-snapshot versions see the response they always did. It is the same wire
+      shape upload binds, which is what makes the diff reconcilable. The response type
+      is `uiAppResponse`, so **`link_target` is never echoed** — the CLI's write-back
+      strip is therefore belt-and-braces on this path rather than load-bearing, but
+      keep it: upload's own echo is where the field showed up. The two normalizations
+      must keep working — the diff ignores `link_target`/`version` and sorts
+      `surface_point_list` so a server echo is never reported as local drift.
+- [x] **`GET /v3/app-store/apps` (list) does NOT echo `ui_app` — CONFIRMED by code,
+      matching the live 2026-08-11 observation.** `applyIdentityFields` sets only
+      `app_id`, `name`, `distribution_type`, `version`, `display_version`; there is no
+      snapshot read on the list path. So `brevo app list`'s UI-app detection must keep
+      its heuristic (`isUiAppRecord` — no `client_id`, no callbacks) and the detail
+      rows in `printUiApp` stay unit-tested only. This is a platform ask, not a CLI
+      fix — see TODO.md.
+- [x] **`owner_user_id: 0` on UI-app records — EXPLAINED, and it is not a bug to
+      raise.** The field is OAuth-service-owned. An app with no linked OAuth
+      credentials has no OAuth body to source it from, so `buildAppStoreOnlyResponse`
+      leaves it at the zero value. Nothing in the CLI reads it. The TODO.md item that
+      called this a create-path failure to stamp the owner was wrong.
 - [ ] Decide whether the CLI should guard the UI-app path at runtime, the same open
       question as `--distribution public` above. There is no `--type ui` flag to guard —
       a UI app can only be chosen at the interactive app-type prompt, which is itself a
@@ -278,6 +333,52 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 
 Append an entry per change that needs verifying. Clear this section (keep the
 heading) before merging into `main`.
+
+### The deploy upload-gate covers every resolution path (2026-08-12)
+
+**Change:** `assertUploadedBeforeDeploy()` takes the resolved app ID and became
+async. A linked project is still answered locally from `app-config.json`'s
+`version`; outside one (`--app-id`, or the interactive picker) it reads the app and
+checks the server-side `version`. `CreateAppResponse.created_at`/`updated_at` and
+`OAuthApp.created_at`/`updated_at` became optional in the same pass.
+
+**Why this stopped being optional.** The gate was written as a pre-flight, with the
+server's `422` as the real authority — the comment said so. Reading the deployed
+handler shows there is no such authority: app-store-backend's
+`http_create_integration_details.go` (`origin/main`, prod image 1.5.0) resolves the
+app by UUID, checks the plan, and inserts. No configured/uploaded check exists
+anywhere on the path. So for `--app-id` and the picker there was **no gate on either
+side**, and deploying a never-uploaded app answered `201` and rendered nothing —
+exactly the silent no-op the gate exists to prevent.
+
+The timestamp fields are the same class of defect as BEX-405 and were found looking
+for more of it: no deployed handler sends them (`cliOAuthAppResponse` and
+`cliCreatePublicResponse` both declare no timestamp), nothing in `src/` reads them,
+and declaring them required is what lets a call site read `undefined` with the
+compiler silent.
+
+**Must hold true:**
+
+- [x] `yarn tsc --noEmit` clean; `deploy.test.ts` / `rollback.test.ts` green.
+- [x] `--app-id` on an app with no server-side `version` refuses with the
+      `brevo app upload` message and never calls `deployApp`. Covered by
+      `refuses an --app-id app the server has no version for`.
+- [x] `--app-id` on an uploaded app still deploys. Covered by `deploys an --app-id
+      app that has been uploaded`.
+- [x] A failed version read does **not** block the deploy — guarding a silent no-op
+      must not become a new way to fail. Covered by `still deploys when the version
+      read fails`.
+- [x] A linked project costs no extra round trip. Covered by `does not read the app
+      when a linked project answers the question`.
+- [ ] **Manual:** `brevo app deploy --app-id <uuid>` against an app created but never
+      uploaded — confirm the CLI refuses rather than answering `201`. This is the
+      case that was silently broken.
+- [ ] Reviewer: the `422` branch in `deploy.ts` is now documented as dead-but-kept.
+      Confirm that is preferable to deleting it — the argument for keeping it is that
+      it costs nothing and still reads correctly if the check is ever added.
+- [ ] Reviewer: no user-visible flag, command or output changed (a refusal that
+      should always have happened is not new surface), so no `SKILL.md` / `AGENTS.md`
+      edit. Confirm that reading.
 
 ### BEX-405 — `app create` reads the nested `auth` block off the create response (2026-08-12)
 

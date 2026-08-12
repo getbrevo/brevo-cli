@@ -36,6 +36,16 @@ into `main` — anything that must outlive the branch belongs in
       heuristic (`isUiAppRecord` in `src/lib/config.ts` — no `client_id` and no
       callbacks). Both the fallback and its comment can go once the block is echoed.
       Alternative if the platform declines: an N+1 per-app read, which is worse.
+
+      **Confirmed in code (2026-08-12), so this is a real ask and not a misread.**
+      bo-be's list path builds each row through `applyIdentityFields`, which sets only
+      `app_id`, `name`, `distribution_type`, `version` and `display_version` — there is
+      no snapshot read on the list path at all. Contrast `GET /cli/apps/{id}`, which
+      *does* echo the block via `applyLatestVersionFields`. The ask is therefore
+      narrow: reuse the same `findLatestVersions` result the list already fetches (it
+      is already loading the version rows the snapshot lives on) and set `UIApp`
+      alongside `Version`. Worth saying that in the ticket — it makes the change small
+      enough to argue for.
 - [ ] **Decide what `brevo app credentials` should do for a UI app.** It no longer
       crashes, but it prints `Client ID: ` (blank), `Client secret: [hidden — …]`,
       `Scopes: (none)`, `Redirect URLs: (none)` — a form with nothing in it, because a
@@ -44,12 +54,14 @@ into `main` — anything that must outlive the branch belongs in
       or render a UI-app view like `app list` now does. Same call needed for the `--json`
       shape, which currently returns empty strings/arrays for all four fields. Not fixed
       with the crash because it is a UX decision, not a bug.
-- [ ] **Raise `owner_user_id: 0` on UI-app records with the platform.** Every UI app
-      created through `brevo app create` on this branch comes back from the list endpoint
-      with `owner_user_id: 0`, while OAuth apps carry a real user ID — suggesting the
-      create path does not stamp the owner for the UI branch. The CLI does not read the
-      field, so nothing depends on it, but an unowned app record is likely to matter to
-      the platform (permissions, listing scope). Server-side, not a CLI fix.
+- [x] **`owner_user_id: 0` on UI-app records — EXPLAINED, nothing to raise
+      (2026-08-12).** Not a create-path failure to stamp the owner. The field is
+      OAuth-service-owned: bo-be populates it from the OAuth response body, and an app
+      with no linked OAuth credentials has no such body, so `buildAppStoreOnlyResponse`
+      leaves it at Go's zero value. A UI app has no OAuth record by construction, so `0`
+      is the correct read of "there is no OAuth owner here", not an unowned app record.
+      The CLI does not read the field. This item's premise — that OAuth apps carry a real
+      ID *and therefore* UI apps should too — was the wrong inference.
 
 - [x] **Slot-name validation moved to the server — DONE.** Resolved by deleting the
       local check rather than by fetching the registry at upload time: the upload
@@ -64,28 +76,34 @@ into `main` — anything that must outlive the branch belongs in
       and the registry has no display-name column (`surface_point_name` holds kebab
       slugs like `contact-details-header-menu`). `EXTENSION_PLACES_BY_KIND` did not
       exist; that name was stale.
-- [ ] **File the create→read-back 404 against the platform, then remove the
-      fallback.** `POST /v3/app-store/apps` returns an app ID that
-      `GET /v3/app-store/apps/{id}` answers `{"error":"id not found","code":
-      "not_found"}` for, under a second later — observed on staging 2026-08-07 for a
-      UI app. `app create` now tolerates it by scaffolding from the create response
-      (`fetchAppContext`'s `fallbackApp`), which is a workaround, not a fix: the read
-      is still the only way to get `scopes`, and any later command reading that app by
-      ID hits the same wall. **Confirm the shape first** — GET a known UI app and a
-      known OAuth app in the same account. If only the UI app 404s, the read path
-      likely excludes an app with no `auth` block (scoping on
-      `FindIDByUUID(uuid, client_id)`, or a join a UI app has no row for) and it
-      belongs on app-store-backend. Once the read resolves, the fallback and
-      `resolveAppCredentials`'s `tolerateMissing` can both come out.
+- [x] **The create→read-back 404 was FIXED server-side by BEX-379 — no ticket to file
+      (2026-08-12).** The diagnosis in the original item was right: the read path
+      excluded an app with no `auth` block. bo-be `e05adbc` (*support CLI apps without
+      linked OAuth credentials*, BEX-379, merged 2026-08-10, in prod image 1.7.0) makes
+      an OAuth-less app first-class across the CLI endpoints — its changelog literally
+      reads "`GET /cli/apps/{id}`: return App-Store data with empty OAuth fields instead
+      of 404". The 404 observed on 2026-08-07 predates that release.
+      **The fallback is not removed, deliberately.** `fetchAppContext`'s `fallbackApp`
+      and `resolveAppCredentials`'s `tolerateMissing` now cost nothing on a current
+      server and are the only thing standing between an older deployment and a failed
+      create, so they stay until the CLI stops supporting pre-1.7.0 environments. Revisit
+      then, not now — and if they are removed, remove both together.
 - [ ] **Consider surfacing `url_pattern` from the BEX-361 rows** in the placement
       prompt (e.g. as a choice hint) so partners see where in the product a slot
       renders before picking it.
-- [ ] **Drop the pre-BEX-361 row-name aliases** in `appService.fetchSurfacePoints`
-      (`extension_point`, `location`, `place`, `kind`,
-      `supported_extension_types`) once the real endpoint's response shape is
-      confirmed. They exist only because keying strictly on either candidate naming
-      would fail closed against the other — every row dropped, and the partner told
-      the registry "has not been seeded".
+- [x] **The pre-BEX-361 row-name aliases are confirmed dead — kept anyway, on purpose
+      (2026-08-12).** The shipped projection is
+      `{extension_point_name, location_name, section_name, component_type,
+      surface_point_name, default_context_field, allowed_context_field}`, and bo-be's
+      own comment says `place` and `kind` "are not column names and must not appear on
+      the wire". So the alias branch in `appService.fetchSurfacePoints`
+      (`extension_point`, `location`, `place`, `kind`, `supported_extension_types`) can
+      never match a current server.
+      **Not deleted**, for the same reason as the create-404 fallback: it is a
+      few lines that cost nothing against a current server and are the difference
+      between "works" and "the registry has not been seeded" against an older one.
+      Delete it in the same pass that drops pre-1.7.0 support, together with the
+      bare-array tolerance and the unfiltered retry below — one decision, three sites.
 - [x] **Reconsider the second registry call — DONE (2026-08-06).** Resolved by making
       the two reads ask *different* questions rather than by dropping one. The pages
       now come from `GET /v3/app-store/surface-points/locations` (location names, no
@@ -93,18 +111,25 @@ into `main` — anything that must outlive the branch belongs in
       old pair fetched the whole registry and then a strict subset of it, so the
       second call bought freshness and nothing else; the page prompt also no longer
       waits on a full registry read to offer three choices.
-- [ ] **Drop the unfiltered retry in `fetchSurfacePointsForPages`** once
-      `?location=` is confirmed honoured on the real endpoint (and confirmed to 400
-      rather than silently ignore an unknown value). It exists because the narrowed
-      read is the only row read in the flow: without it, an early build that 400s on
-      the filter — or honours only the first CSV value — would abort or silently drop
-      pages after the partner has already answered the page prompt.
-- [ ] **Confirm the locations endpoint's response shape** (`{ locations, count }`)
-      and whether it takes any filter of its own. The CLI tolerates a bare array
-      alongside the wrapped shape in `appService.fetchSurfacePointLocations`; that
-      tolerance can go once the shape is confirmed. Note the CLI does not ask it for
-      an extension-type-aware page list — see the warning path for a page with no
-      hostable placement.
+- [x] **`?location=` is confirmed honoured — unfiltered retry kept (2026-08-12).**
+      `parseLocationFilter` reads the comma-separated parameter, validates every token
+      against the registry's own location values, and **400s listing the valid ones**
+      on an unknown value rather than silently dropping it. There is also an explicit
+      `all` sentinel meaning "no filter", for a caller building the query string
+      programmatically. So the retry in `fetchSurfacePointsForPages` is unreachable
+      against a current server; see the entry above for why it stays.
+- [x] **Locations endpoint shape confirmed: `{ locations: []string, count: int }`
+      (2026-08-12)** — the response struct is exactly those two fields, and it takes no
+      filter of its own. The bare-array tolerance in
+      `appService.fetchSurfacePointLocations` is unnecessary against a current server;
+      kept for the same reason as the two entries above.
+      **One thing this confirms rather than resolves:** the CLI cannot ask for an
+      extension-type-aware page list, because a location list carries no type
+      information — so the warning path for a page with no hostable placement stays
+      load-bearing in principle. In practice it cannot fire today either, since the
+      row projection publishes no `extension_type_list`/`status` for
+      `rowSupportsExtensionType` to filter on (see RELEASE-CHECKLIST). Keep the path;
+      don't rely on it.
 - [ ] **Per-placement `label` / `more_info` / `redirect_link`.** One set is shared
       across every chosen placement today, so an app cannot say *menu entry → link
       X* alongside *sidebar card → link Y*. The nested `surface_point_list` makes
@@ -114,12 +139,24 @@ into `main` — anything that must outlive the branch belongs in
       currently carries the same default, so every authored entry gets an identical
       list, and the upload endpoint does not yet validate context per entry. The
       shape is forward-compatible; nothing enforces narrowing anywhere yet.
-- [ ] **Blocking before release: server-side unified-payload change.** The CLI now
-      sends the create payload with OAuth fields nested under `auth` (same block as
-      upload) and the upload payload with `version` instead of `app_version`.
-      `POST /apps` is live in production, so the create endpoint must accept the
-      nested `auth` block (and upload the `version` key) before this CLI ships — see
-      the per-branch entry in RELEASE-CHECKLIST.md.
+- [x] **UNBLOCKED — the server-side unified-payload change is deployed (verified
+      2026-08-12).** This was the item gating the whole branch. bo-be `origin/main`
+      (prod image 1.7.0) accepts both halves:
+      - **Create takes the nested `auth` block.** `cliCreatePublicRequest` binds
+        `auth: {scopes, redirect_uris}` and `ui_app`, and `isPublicAppsRequestBody`
+        uses the presence of either as the contract selector — a body with neither
+        routes to the legacy flat-OAuth flow, so older CLI builds keep working. The
+        two are mutually exclusive in practice via `validatePublicAppsBlocks`, which
+        requires at least one.
+      - **Upload takes `version`.** Both spellings are bound; `version` is canonical
+        and `app_version` is the kept-for-older-builds fallback. Sending *both* with
+        different values is a 400 (`version and app_version disagree: send version
+        only`) — the CLI sends `version` alone, so this is satisfied.
+      - **Top-level `distribution_type` on upload** is bound and 422s when it differs
+        from the stored app, exactly as the reversed 2026-08-04 decision assumed.
+      The one thing this change cost is BEX-405: the create response echoes the
+      nesting back, and every read site was reading the flat shape. Fixed in
+      `flattenCreateAuth`.
 
 - [x] **`ui_app` field names — resolved.** Aligned with the platform's manifest read path and its
       extensibility UI kit (BEX-308 / BEX-350). The block is the stored app snapshot
@@ -161,10 +198,17 @@ into `main` — anything that must outlive the branch belongs in
       gone.** This item described the maintenance burden that justified deleting it: a
       hardcoded copy silently rejects a legitimate name the moment the platform adds a
       location or a second action place. There is nothing left to keep in lockstep.
-- [ ] **BEX-350 requires a coordinated release.** The kit, the reseeded registry and
-      the backend have to land together; a CLI authoring `.widget`/`.action` names
-      against a `.region`-era registry produces extensions that render nothing, with no
-      error anywhere.
+- [x] **BEX-350's registry side has landed (verified 2026-08-12).** bo-be
+      `origin/main`'s `specs/database.sql` seeds all twelve rows in the `.widget` /
+      `.action` grammar, each carrying both identities (dotted `extension_point_name`
+      + kebab `surface_point_name`), with the three pre-BEX-350 `<page>.left.card`
+      rows still alongside. The coordination risk this item describes is therefore
+      retired for the registry and the backend.
+      **What remains is the kit, and it is tracked separately** — see
+      `RELEASE-CHECKLIST.md` → *Ship the UI-kit rendering change before or with this
+      CLI*. Also note the seed is verified in the **schema spec**, not in any
+      particular environment's data: confirm the target environment before releasing,
+      because an unregistered name is still dropped silently.
 - [ ] `iframeExtension` prompt authoring — **deliberately parked (decision
       2026-08-03):** the CLI stays actionLink-only until the iframe-embed RFC (trust
       handshake, JWT, postMessage) lands; the delivery-path prompt was removed. A
@@ -332,11 +376,10 @@ into `main` — anything that must outlive the branch belongs in
       `Redirect link` and `Output directory`. The agent docs are already correct — only
       this file lags.
 
-- [ ] **`RELEASE-CHECKLIST.md` → *Before UI-apps GA* cites two things that no longer
-      exist.** The *Coordinate the BEX-350 registry reseed* item says the CLI's local
-      registry copy "lives in `src/lib/constants.ts` (`EXTENSION_POINTS`)" — that mirror
-      was removed on this branch (only `EXTENSION_PLACE_LABELS` remains at
-      `constants.ts:219`), which is the whole point of 0ae75c0. The *`ui_app` field
-      names* item still spells entries as `{ surface_point, context? }`; the key is
-      `surface_point_name`. Both sit in the **durable** GA section, so they will mislead
-      whoever works the GA pass.
+- [x] **FIXED (2026-08-12) — the two stale citations in `RELEASE-CHECKLIST.md` →
+      *Before UI-apps GA*.** The *Coordinate the BEX-350 registry reseed* item no
+      longer points at `EXTENSION_POINTS` in `src/lib/constants.ts` (that mirror was
+      removed on this branch — the whole point of 0ae75c0; only
+      `EXTENSION_PLACE_LABELS` remains), and the *`ui_app` field names* item now spells
+      entries `{ surface_point_name, context? }`. Both sat in the **durable** GA
+      section, so they would have misled whoever works the GA pass.

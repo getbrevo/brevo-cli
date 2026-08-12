@@ -35,7 +35,7 @@ export const deployCommand = withCommandHandler(async (options: DeployOptions): 
     messages.APP_DEPLOY_SELECT,
   );
 
-  assertUploadedBeforeDeploy();
+  await assertUploadedBeforeDeploy(appId);
 
   const proceed = await confirmDeployment(
     messages.APP_DEPLOY_CONFIRM(appLabel, appId, accountId),
@@ -52,9 +52,14 @@ export const deployCommand = withCommandHandler(async (options: DeployOptions): 
     await appService.deployApp(appId, accountId, appLabel);
   } catch (err) {
     spinner.stop();
-    // The server is the authority on whether the config was validated. 422 is
-    // its "not uploaded yet" rejection — surface the same actionable message
-    // the local pre-flight uses rather than a raw API error.
+    // Defensive, not load-bearing. This branch was written believing the server
+    // rejected an unconfigured app with a 422 and was therefore the authority on
+    // the upload gate. It is not: the installs handler has no configured/uploaded
+    // check at all (verified against app-store-backend `origin/main`), so this can
+    // never fire today — `assertUploadedBeforeDeploy` above is the real gate.
+    // Kept so that if the check is ever added server-side with the status the
+    // design specified, its rejection still reads as the actionable message rather
+    // than a raw API error.
     if (err instanceof ApiError && err.statusCode === 422) {
       throw new CliError(messages.APP_DEPLOY_NOT_UPLOADED, err.exitCode);
     }
