@@ -915,22 +915,26 @@ describe('app/scaffold', () => {
   });
 
   describe('resolveProjectDirectory', () => {
-    it('creates and chdirs into a fresh directory', async () => {
+    // Resolve decides; it must not touch the filesystem. `app create` runs it before
+    // the app is registered, so a write here is a stray directory whenever the create
+    // that follows fails.
+    it('decides a fresh directory without creating or entering it', async () => {
       const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
       mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('fresh-dir') });
 
       const result = await resolveProjectDirectory('./default-slug');
 
-      expect(fs.mkdirSync).toHaveBeenCalledWith(tmpPath('fresh-dir'), { recursive: true });
-      expect(chdirSpy).toHaveBeenCalledWith(tmpPath('fresh-dir'));
+      expect(fs.mkdirSync).not.toHaveBeenCalled();
+      expect(chdirSpy).not.toHaveBeenCalled();
       expect(result).toEqual({
         targetDir: tmpPath('fresh-dir'),
         mergeOnly: false,
         chooseAgain: false,
+        existed: false,
       });
     });
 
-    it('chdirs (without re-mkdir) when overwriting an existing directory', async () => {
+    it('records that an existing directory was already there, without entering it', async () => {
       const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
       (fs.existsSync as jest.Mock).mockReturnValue(true);
       mockPrompt
@@ -939,8 +943,11 @@ describe('app/scaffold', () => {
 
       const result = await resolveProjectDirectory('./default-slug');
 
-      expect(chdirSpy).toHaveBeenCalledWith(tmpPath('existing-dir'));
+      expect(chdirSpy).not.toHaveBeenCalled();
       expect(result.chooseAgain).toBe(false);
+      // `existed` is carried rather than re-derived: by the time apply runs, an
+      // `existsSync` would answer "yes, because we just made it".
+      expect(result.existed).toBe(true);
     });
 
     it('does not chdir when the user chooses a different path', async () => {
@@ -964,6 +971,66 @@ describe('app/scaffold', () => {
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       expect(output).not.toContain('Creating');
       expect(mockPrompt).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('applyProjectDirectory', () => {
+    it('creates and enters a directory that was not there', () => {
+      const { applyProjectDirectory } = require('../../../commands/app/scaffold');
+
+      applyProjectDirectory({
+        targetDir: tmpPath('fresh-dir'),
+        mergeOnly: false,
+        chooseAgain: false,
+        existed: false,
+      });
+
+      expect(fs.mkdirSync).toHaveBeenCalledWith(tmpPath('fresh-dir'), { recursive: true });
+      expect(chdirSpy).toHaveBeenCalledWith(tmpPath('fresh-dir'));
+    });
+
+    it('enters an existing directory without re-creating it', () => {
+      const { applyProjectDirectory } = require('../../../commands/app/scaffold');
+
+      applyProjectDirectory({
+        targetDir: tmpPath('existing-dir'),
+        mergeOnly: true,
+        chooseAgain: false,
+        existed: true,
+      });
+
+      expect(fs.mkdirSync).not.toHaveBeenCalled();
+      expect(chdirSpy).toHaveBeenCalledWith(tmpPath('existing-dir'));
+    });
+
+    // Both describe "no directory to apply": the caller is being asked to loop, or
+    // could not resolve one at all under --json.
+    it('is a no-op for chooseAgain and for an unresolved decision', () => {
+      const { applyProjectDirectory } = require('../../../commands/app/scaffold');
+
+      applyProjectDirectory({
+        targetDir: tmpPath('a'),
+        mergeOnly: false,
+        chooseAgain: true,
+        existed: true,
+      });
+      applyProjectDirectory({ targetDir: tmpPath('b'), unresolved: true });
+
+      expect(fs.mkdirSync).not.toHaveBeenCalled();
+      expect(chdirSpy).not.toHaveBeenCalled();
+    });
+
+    it('suppresses the directory notice under --json', () => {
+      const { applyProjectDirectory } = require('../../../commands/app/scaffold');
+
+      applyProjectDirectory(
+        { targetDir: tmpPath('json-dir'), mergeOnly: false, chooseAgain: false, existed: false },
+        true,
+      );
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).not.toContain('Creating');
+      expect(chdirSpy).toHaveBeenCalledWith(tmpPath('json-dir'));
     });
   });
 

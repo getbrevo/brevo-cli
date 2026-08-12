@@ -163,7 +163,19 @@ export async function fetchAppContext(
 // callers/tests that compare against `{ targetDir, mergeOnly, chooseAgain }`
 // via `toEqual` keep working unmodified (`toEqual` ignores undefined keys).
 export type ResolveProjectDirectoryResult =
-  | { targetDir: string; mergeOnly: boolean; chooseAgain: boolean; unresolved?: false }
+  | {
+      targetDir: string;
+      mergeOnly: boolean;
+      chooseAgain: boolean;
+      /**
+       * Whether `targetDir` was already on disk when the decision was taken.
+       * `applyProjectDirectory` needs it to know whether to `mkdir`, and it cannot
+       * re-test with `existsSync` because by then the answer may be "yes, because
+       * we just made it".
+       */
+      existed: boolean;
+      unresolved?: false;
+    }
   | { targetDir: string; unresolved: true };
 
 export async function resolveProjectDirectory(
@@ -185,14 +197,10 @@ export async function resolveProjectDirectory(
         ])
       ).outputDir as string);
   const targetDir = path.resolve(outputDir);
+  const existed = fs.existsSync(targetDir);
 
-  if (!fs.existsSync(targetDir)) {
-    if (!jsonMode) {
-      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
-    }
-    fs.mkdirSync(targetDir, { recursive: true });
-    process.chdir(targetDir);
-    return { targetDir, mergeOnly: false, chooseAgain: false };
+  if (!existed) {
+    return { targetDir, mergeOnly: false, chooseAgain: false, existed: false };
   }
 
   // --json can't ask "Overwrite / Merge / Choose a different path" either —
@@ -214,15 +222,48 @@ export async function resolveProjectDirectory(
     },
   ]);
   if (action === 'new') {
-    return { targetDir, mergeOnly: false, chooseAgain: true };
+    return { targetDir, mergeOnly: false, chooseAgain: true, existed: true };
   }
-  if (targetDir === process.cwd()) {
-    logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
-  } else {
-    logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
+  return { targetDir, mergeOnly: action === 'merge', chooseAgain: false, existed: true };
+}
+
+/**
+ * Perform the directory decision taken by `resolveProjectDirectory` — create it if
+ * needed, announce it, and move into it.
+ *
+ * Split out from the resolve step because the two halves have opposite ordering
+ * constraints in `app create`. The *decision* has to happen before the app is
+ * registered, so that abandoning a prompt (Ctrl-C at "Output directory:") cannot
+ * leave an app stranded on the server with no project. The *mutation* has to happen
+ * after, because until the create returns there may be no app to build a project
+ * for — and a create can fail for reasons no amount of local validation predicts (a
+ * plan quota `403`, a dropped connection, an unmapped `400`). Doing both up front
+ * meant every one of those failures left a directory behind and the process `chdir`'d
+ * into it, so the user's next command ran somewhere they had not chosen.
+ *
+ * A no-op for the two results that describe no directory to apply: an unresolved
+ * `--json` conflict, and `chooseAgain`, which is the caller being asked to loop.
+ */
+export function applyProjectDirectory(
+  decision: ResolveProjectDirectoryResult,
+  jsonMode = false,
+): void {
+  if (decision.unresolved || decision.chooseAgain) return;
+
+  const { targetDir, existed } = decision;
+  if (!existed) {
+    if (!jsonMode) {
+      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
+    }
+    fs.mkdirSync(targetDir, { recursive: true });
+  } else if (!jsonMode) {
+    if (targetDir === process.cwd()) {
+      logInfo(messages.APP_SCAFFOLD_TARGET_IS_CWD);
+    } else {
+      logInfo(messages.APP_SCAFFOLD_CREATING_DIR(path.relative(process.cwd(), targetDir)));
+    }
   }
   process.chdir(targetDir);
-  return { targetDir, mergeOnly: action === 'merge', chooseAgain: false };
 }
 
 export async function promptFeatureType(interactive: boolean): Promise<FeatureType> {

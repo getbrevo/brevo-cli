@@ -161,3 +161,5 @@ renamed `app_version` → `version`. The CLI no longer sends `cli_version` or `s
 either body: both were top-level keys outside the declared contract, the upload endpoint binds
 strictly and rejects unknown keys with a `400`, and the caller already reaches the backend on
 every request as a structured `User-Agent` (`brevo-cli/<version> (<os>; auth=<method>)`).
+
+`brevo app create` no longer leaves a stray project directory behind when the create fails. The target directory was resolved — created, and `chdir`'d into — one line *before* the app was registered, so any hard failure (a plan quota `403`, a dropped connection, an unmapped `400`) left an empty directory on disk and moved the shell's working directory into it. The directory *decision* still happens before the create, deliberately: it is what stops an abandoned prompt from orphaning an app on the server. Only the filesystem mutation moved to after the create returns, so nothing is written until there is provably an app to write it for. The `409` name clash is unaffected — it retries in place and never reached the failure path.

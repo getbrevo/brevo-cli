@@ -54,6 +54,7 @@ jest.mock('../../../commands/app/scaffold', () => ({
   runBaseScaffold: jest.fn(),
   runFeatureScaffold: jest.fn(),
   resolveProjectDirectory: jest.fn(),
+  applyProjectDirectory: jest.fn(),
   promptFeatureType: jest.fn(),
   reportBaseScaffoldSuccess: jest.fn(),
   reportScaffoldSuccess: jest.fn(),
@@ -78,6 +79,7 @@ import {
   runBaseScaffold,
   runFeatureScaffold,
   resolveProjectDirectory,
+  applyProjectDirectory,
   promptFeatureType,
   reportBaseScaffoldSuccess,
   reportScaffoldSuccess,
@@ -449,6 +451,69 @@ describe('app/create', () => {
       );
     });
 
+    // The directory decision (prompts) must stay BEFORE the create so a Ctrl-C at
+    // the prompt cannot orphan an app on the server. The directory *mutation* must
+    // land AFTER it, so a failed create leaves no stray directory and no moved cwd.
+    // The two halves pull in opposite directions, which is why they are separate
+    // calls rather than one.
+    it('applies the directory only after the create succeeds', async () => {
+      const order: string[] = [];
+      (resolveProjectDirectory as jest.Mock).mockImplementation(async () => {
+        order.push('decide');
+        return {
+          targetDir: '/cwd/ordered-app',
+          mergeOnly: false,
+          chooseAgain: false,
+          existed: false,
+        };
+      });
+      (appService.createApp as jest.Mock).mockImplementation(async () => {
+        order.push('create');
+        return {
+          app_id: 21,
+          name: 'Ordered App',
+          client_id: 'cli-ord',
+          client_secret: 'secret-ord',
+          redirect_uris: ['http://localhost:3009/auth/callback'],
+        };
+      });
+      (applyProjectDirectory as jest.Mock).mockImplementation(() => {
+        order.push('apply');
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+      await createCommand({ name: 'Ordered App', distribution: 'private' });
+
+      expect(order).toEqual(['decide', 'create', 'apply']);
+    });
+
+    it('leaves no directory behind when the create fails', async () => {
+      (resolveProjectDirectory as jest.Mock).mockResolvedValue({
+        targetDir: '/cwd/doomed-app',
+        mergeOnly: false,
+        chooseAgain: false,
+        existed: false,
+      });
+      (appService.createApp as jest.Mock).mockRejectedValue(new Error('quota exceeded'));
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await expect(createCommand({ name: 'Doomed App', distribution: 'private' })).rejects.toThrow(
+        /quota exceeded/,
+      );
+
+      // The whole point: nothing was created and the process never moved.
+      expect(applyProjectDirectory).not.toHaveBeenCalled();
+    });
+
     it('computes the cd hint from the cwd at command start and forwards it to reportScaffoldSuccess', async () => {
       const originalCwd = process.cwd();
       (resolveProjectDirectory as jest.Mock).mockResolvedValue({
@@ -496,7 +561,12 @@ describe('app/create', () => {
       });
 
       expect(resolveProjectDirectory).not.toHaveBeenCalled();
-      expect(chdirSpy).toHaveBeenCalled();
+      // The non-interactive path skips the prompt but still lands in the directory —
+      // asserted on the apply call, since that is what now owns the mkdir/chdir.
+      expect(applyProjectDirectory).toHaveBeenCalledWith(
+        expect.objectContaining({ existed: false }),
+        true,
+      );
     });
 
     it('shows the feature-type prompt after app creation, not before', async () => {

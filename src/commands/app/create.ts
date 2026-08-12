@@ -18,6 +18,7 @@ import {
   runBaseScaffold,
   runFeatureScaffold,
   resolveProjectDirectory,
+  applyProjectDirectory,
   promptFeatureType,
   reportBaseScaffoldSuccess,
   reportScaffoldSuccess,
@@ -279,9 +280,17 @@ async function resolveLogoUri(
 }
 
 type CreateDirectoryResult =
-  | { targetDir: string; mergeOnly: boolean; skipped: false }
+  | { targetDir: string; mergeOnly: boolean; skipped: false; existed: boolean }
   | { targetDir: string; skipped: true };
 
+/**
+ * Decide where the project goes — prompts only, no filesystem writes.
+ *
+ * Deliberately free of side effects so it can run *before* the app is created
+ * (abandoning a prompt must not orphan an app on the server) while the directory
+ * itself is only touched *after* the create succeeds. `applyCreateDirectory` is the
+ * other half; see `applyProjectDirectory` in `./scaffold` for the full reasoning.
+ */
 async function resolveCreateDirectory(
   appName: string,
   interactive: boolean,
@@ -293,9 +302,7 @@ async function resolveCreateDirectory(
     if (fs.existsSync(targetDir)) {
       return { targetDir, skipped: true };
     }
-    fs.mkdirSync(targetDir, { recursive: true });
-    process.chdir(targetDir);
-    return { targetDir, mergeOnly: false, skipped: false };
+    return { targetDir, mergeOnly: false, skipped: false, existed: false };
   }
 
   let dir = await resolveProjectDirectory(`./${slug}`);
@@ -310,7 +317,26 @@ async function resolveCreateDirectory(
     // changes.
     throw new CliError(messages.APP_CREATE_DIR_UNRESOLVED);
   }
-  return { targetDir: dir.targetDir, mergeOnly: dir.mergeOnly, skipped: false };
+  return {
+    targetDir: dir.targetDir,
+    mergeOnly: dir.mergeOnly,
+    skipped: false,
+    existed: dir.existed,
+  };
+}
+
+/** Apply a decision from `resolveCreateDirectory`. Call only after the app exists. */
+function applyCreateDirectory(dir: CreateDirectoryResult, jsonMode: boolean): void {
+  if (dir.skipped) return;
+  applyProjectDirectory(
+    {
+      targetDir: dir.targetDir,
+      mergeOnly: dir.mergeOnly,
+      chooseAgain: false,
+      existed: dir.existed,
+    },
+    jsonMode,
+  );
 }
 
 interface CreateAppInputs {
@@ -496,6 +522,10 @@ export const createCommand = withCommandHandler(
 
     const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri, uiApp };
     const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
+
+    // The app now provably exists, so it is safe to touch the filesystem. Before
+    // this line a failed create left a stray directory and a moved cwd behind.
+    applyCreateDirectory(dir, jsonMode);
 
     // Store app credentials locally — client_secret may not be retrievable again.
     // Guarded because a UI app has no OAuth credentials to cache: writing the pair
