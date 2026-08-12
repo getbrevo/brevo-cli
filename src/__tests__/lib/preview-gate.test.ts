@@ -9,7 +9,6 @@
  * subcommand screen) and the parser, and that it reaches nothing else.
  */
 import { Command } from 'commander';
-import { messages } from '../../lang/en';
 
 type Tree = {
   program: Command;

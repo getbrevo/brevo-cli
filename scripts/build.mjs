@@ -43,7 +43,7 @@ const outfile = path.join(root, 'dist/bin/index.js');
 
 fs.rmSync(path.join(root, 'dist'), { recursive: true, force: true });
 
-const result = await esbuild.build({
+await esbuild.build({
   entryPoints: [path.join(root, 'src/bin/index.ts')],
   outfile,
   bundle: true,
@@ -53,8 +53,10 @@ const result = await esbuild.build({
   packages: 'external',
   sourcemap: true,
   legalComments: 'none',
+  // No `metafile`: nothing reads one. `logLevel: 'info'` is what prints the per-output
+  // sizes this build reports, and the gate's assertions below read the emitted file
+  // rather than esbuild's own accounting — deliberately, see the comment there.
   logLevel: 'info',
-  metafile: true,
   // `minifySyntax` is what actually performs the elimination: without it esbuild
   // substitutes the define but leaves `...false ? previewAppCommands : []` standing,
   // which is still a live reference and keeps every gated module in the bundle.
