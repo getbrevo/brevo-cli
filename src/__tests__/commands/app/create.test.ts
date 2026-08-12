@@ -743,10 +743,11 @@ describe('app/create', () => {
       );
     });
 
-    // Guard against the CLI growing a local mirror of the platform's rule: a
-    // private create must reach the server untouched, and the day the platform
-    // lifts the restriction a public create must start succeeding with no CLI
-    // change. Both are the same assertion — the CLI never refuses locally.
+    // Guard against the CLI growing a local mirror of the platform's rule. This is
+    // not a hypothetical: the server lifts the restriction per account (Unleash flag
+    // `app-store-bo-be-public-apps`, BEX-333), so an allow-listed account creates a
+    // public app successfully today. A local refusal would break that account rather
+    // than merely lag the platform — the create must always reach the server.
     it('does not pre-empt the server — a public create is still attempted', async () => {
       (appService.createApp as jest.Mock).mockResolvedValue({
         app_id: 42,

@@ -362,16 +362,22 @@ async function retryCreateWithNewName(inputs: CreateAppInputs): Promise<CreatedA
  * that pairs a CLI caller with `distribution_type: "public"`. This is the API-side
  * pre-GA guard `CLAUDE.md` says belongs on the server.
  *
- * The rule is keyed on the caller, which the platform derives from the structured
- * `User-Agent` now that `createApp` no longer sends `source` (`src/lib/telemetry.ts`),
- * so **no change to the request body can satisfy it** — the CLI can only explain it.
+ * **No change to the request body can satisfy it, and the mechanism is not the
+ * `User-Agent`.** The handler assigns `payload.Source = SourceCLI` before validating
+ * — app-store-bo-be `http_cli_create_app.go`, and identically in
+ * `http_cli_create_app_public.go` for the nested `auth`/`ui_app` contract the CLI
+ * sends — deliberately *overwriting* any client-supplied value so the gate cannot be
+ * bypassed by sending some other source. Dropping `source` from the body on BEX-355
+ * therefore had no effect on this gate: the server puts it back.
  *
- * Deliberately a translation and not a local guard. `CLAUDE.md`'s standing rule for
- * this codebase is that the CLI must not mirror platform policy locally — a copy can
- * only lag, and it fails in both directions. Forwarding the attempt means the day the
- * platform lifts the restriction this path stops being reached with no CLI change,
- * and no internal-account escape hatch is needed here because the server applies the
- * rule to every caller regardless of account.
+ * Deliberately a translation and not a local guard, for two reasons. First,
+ * `CLAUDE.md`'s standing rule that the CLI must not mirror platform policy locally —
+ * a copy can only lag. Second, and concretely: **the restriction is per-account, so
+ * a local guard would be wrong rather than merely stale.** The server's `allowPublic`
+ * comes from the Unleash flag `app-store-bo-be-public-apps` resolved for the calling
+ * client (BEX-333) and lifts the rule for the `cli` source only, failing closed on a
+ * lookup error. An account with that flag enabled creates public apps from the CLI
+ * successfully, and never reaches this path.
  *
  * Narrowed to the rejection that names `distribution_type`, so an unrelated 400 on a
  * public create (a bad `logo_uri`, say) keeps the server's own text rather than being

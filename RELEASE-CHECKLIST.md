@@ -289,10 +289,18 @@ backend still identifies the caller from the structured `User-Agent`
 
       **Answered (2026-08-12): still `400`, same copy** — *public apps cannot be
       created with source "cli"; use distribution_type "private"* — with `source`
-      absent from the body. So the guard keys on the caller the platform derives
-      from the `User-Agent`, not on the body key, and the `source` removal changed
-      nothing about it. No pre-GA regression: the restriction still holds without
-      the CLI asserting the field. The message is now mapped, see the entry below.
+      absent from the body. No pre-GA regression: the restriction holds without the
+      CLI asserting the field. The message is now mapped, see the entry below.
+
+      **Why, confirmed by reading app-store-bo-be — and it is not the `User-Agent`.**
+      `POST /cli/apps` assigns `payload.Source = SourceCLI` before validating
+      (`http_cli_create_app.go`, and identically `http_cli_create_app_public.go` for
+      the nested `auth`/`ui_app` contract the CLI sends). Its comment says the
+      overwrite is deliberate — "so the public-app gate cannot be bypassed by sending
+      a different source". So the body key was never what the gate read, and the
+      BEX-355 removal could not have affected it either way. An earlier revision of
+      this entry credited the `User-Agent`; that was wrong. `User-Agent` carries
+      *attribution*, and the sign-off item below is still the one that covers it.
 - [ ] **BEX-355 sign-off, blocking:** confirm with the create endpoint's owners that
       an absent `source` is contract-valid and that dropping it does not change how
       an app is attributed, rate-limited, or gated. The key was undeclared, so its
@@ -321,13 +329,28 @@ distribution isn't available yet, names `--distribution private`, notes that
 **Deliberately not a local guard.** The CLI still sends `distribution_type: "public"`
 and lets the platform refuse it, per `CLAUDE.md`'s standing rule that the CLI must not
 mirror platform policy locally (the same reasoning that removed the local
-extension-point list). Two consequences worth keeping: the day the platform lifts the
-restriction, no CLI change is needed, and the *internal-account escape hatch does not
-apply here* — the server keys the rule on the CLI as caller, not on the account, so a
-`@brevo.com` account is refused identically. `CLAUDE.md` says a runtime guard "needs
-the same internal-account escape hatch"; that condition is moot for a translation of a
-refusal the server already applies to everyone, and an escape hatch would only let an
-internal user through to the same `400`. Both agent docs now state this explicitly.
+extension-point list). Confirmed against app-store-bo-be, that is not merely tidier —
+**a local guard would be incorrect**, because the restriction is per-account:
+
+- `allowPublic` is the Unleash flag `app-store-bo-be-public-apps` resolved for the
+  calling client (`http_cli_create_app.go`), failing closed on a lookup error.
+- It lifts the rule for the `cli` source only — `oauth` never gets it — and was added
+  by app-store-bo-be `cf3d19a`, *"allow public app creation for internal accounts on
+  POST /cli/apps [BEX-333]"*.
+- So the **server already implements the internal-account escape hatch** `CLAUDE.md`
+  requires of any guard. An account with the flag enabled creates public apps from the
+  CLI successfully and never reaches this translation. A hard-coded local refusal would
+  break exactly that account — the dogfooding case the clause exists to protect.
+
+An earlier revision of this entry, and of the notice in both agent docs, claimed the
+server refused *every* caller including `@brevo.com`. That was wrong and is corrected;
+the docs now say the allowance is per-account and tell an agent not to infer from a
+failure that the account isn't internal.
+
+One detail the CLI cannot currently trip: the same check rejects an **empty**
+`distribution_type` too (it defaults to public downstream), even when `allowPublic` is
+set. `resolveDistribution()` always sends an explicit value, so this only matters if a
+future change makes the field optional on the wire.
 
 **Must hold true:**
 
