@@ -100,7 +100,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo app deploy` | Make an app available in a Brevo account (`[account-id]`, `--app-id`, `--force`) |
 | `brevo app rollback` | Roll back an app from a Brevo account (`[account-id]`, `--app-id`, `--force`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
-| `brevo app scaffold` | Add a feature to the app in the current directory (`--overwrite`) |
+| `brevo app scaffold` | Add a feature to the app in the current directory, or set an empty directory up for an app you already have — picked interactively, or named with `--app-id` (`--overwrite`, `--json`) |
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |
 
 Most commands require a successful `brevo login` first, except authentication/help flows (`brevo login`, `brevo logout`, `brevo app init`, `--help`). Every command accepts `--json` for machine-readable output.

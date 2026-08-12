@@ -34,6 +34,7 @@ jest.mock('../../../lib/config', () => ({
   getAppCredentials: jest.fn(),
   saveAppCredentials: jest.fn(),
   readProjectConfig: jest.fn().mockReturnValue(null),
+  findEnclosingProjectDir: jest.fn().mockReturnValue(null),
   isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
 
@@ -69,7 +70,7 @@ jest.mock('node:path', () => {
 
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
-import { readProjectConfig } from '../../../lib/config';
+import { readProjectConfig, findEnclosingProjectDir } from '../../../lib/config';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
@@ -103,11 +104,20 @@ describe('app/scaffold', () => {
     stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
     chdirSpy = jest.spyOn(process, 'chdir').mockImplementation(() => undefined);
     jest.clearAllMocks();
+    // clearAllMocks clears calls but NOT a queued mockResolvedValueOnce chain, so a
+    // test whose command threw before consuming its queued prompts would otherwise
+    // hand them to the next test. Reset the queue outright to keep tests independent
+    // of execution order.
+    mockPrompt.mockReset();
     (fs.existsSync as jest.Mock).mockReturnValue(false);
     (fs.mkdirSync as jest.Mock).mockReturnValue(undefined);
     (fs.writeFileSync as jest.Mock).mockReturnValue(undefined);
     (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify({ version: '9.9.9' }));
     (readProjectConfig as jest.Mock).mockReturnValue(null);
+    // jest.clearAllMocks() does not reset a persistent mockReturnValue, so re-assert
+    // the mock factory's default here — a test that stubs an enclosing project must
+    // not leak that into the next one.
+    (findEnclosingProjectDir as jest.Mock).mockReturnValue(null);
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
       diffs: [],
       app: serverApp,
@@ -127,6 +137,357 @@ describe('app/scaffold', () => {
 
       expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
       expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    // `--app-id` bootstraps a project directory for an app that already exists on
+    // the platform (BEX-250 follow-up). It is the only migration path off
+    // `brevo app update --app-id <id>`, which could target any app without a local
+    // project — `app upload` reads the linked project only, so without this a user
+    // holding an app ID and an empty directory has nowhere to go.
+    //
+    // An interactive run with no `--app-id` reaches the same bootstrap through the
+    // app picker instead (see `bootstrap via the app picker` below); the flag stays
+    // the non-interactive entry point, because a picker cannot prompt under --json.
+    describe('--app-id bootstrap', () => {
+      it('names --app-id in the no-config error so the migration path is discoverable', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+
+        await expect(scaffoldCommand({ json: true })).rejects.toThrow(/--app-id/);
+      });
+
+      // An empty directory is the one case where the user may not know the ID —
+      // and it is also the case where the CLI can just ask. `--app-id` stays the
+      // scriptable form; this is the same thing for someone at a terminal.
+      describe('interactive fallback when neither a config nor --app-id is present', () => {
+        // Jest runs with no TTY, so the prompt path is unreachable unless it is
+        // faked — the two tests that assert the *non*-interactive behaviour set it
+        // back to falsy themselves.
+        let originalIsTTY: boolean | undefined;
+        beforeEach(() => {
+          const stdin = process.stdin as unknown as { isTTY?: boolean };
+          originalIsTTY = stdin.isTTY;
+          stdin.isTTY = true;
+        });
+        afterEach(() => {
+          (process.stdin as unknown as { isTTY?: boolean }).isTTY = originalIsTTY;
+        });
+
+        it('offers to set the directory up for an existing app, then bootstraps the picked one', async () => {
+          (readProjectConfig as jest.Mock).mockReturnValue(null);
+          (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+            { app_id: '1', name: 'Test App', client_id: 'cli-123' },
+            { app_id: '2', name: 'Other App', client_id: 'cli-456' },
+          ]);
+          mockPrompt
+            .mockResolvedValueOnce({ useExisting: true })
+            .mockResolvedValueOnce({ selectedApp: '1' })
+            .mockResolvedValueOnce({ featureType: 'oauth' });
+
+          await scaffoldCommand({});
+
+          expect(appService.fetchAppsList).toHaveBeenCalled();
+          expect(appService.resolveAppCredentials).toHaveBeenCalledWith('1', {
+            tolerateMissing: false,
+          });
+          const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
+          expect(written.some((p: string) => p.endsWith('app-config.json'))).toBe(true);
+        });
+
+        it('cancels without fetching or writing when the offer is declined', async () => {
+          (readProjectConfig as jest.Mock).mockReturnValue(null);
+          mockPrompt.mockResolvedValueOnce({ useExisting: false });
+
+          await scaffoldCommand({});
+
+          expect(appService.fetchAppsList).not.toHaveBeenCalled();
+          expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
+          expect(fs.writeFileSync).not.toHaveBeenCalled();
+          // Declining is a choice, not a failure — but the user still has nothing
+          // here, so the way to get an app must be on screen.
+          const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+          expect(output).toContain('brevo app create');
+        });
+
+        it('errors instead of prompting under --json', async () => {
+          (readProjectConfig as jest.Mock).mockReturnValue(null);
+
+          await expect(scaffoldCommand({ json: true })).rejects.toThrow(/app-config\.json/i);
+
+          expect(mockPrompt).not.toHaveBeenCalled();
+          expect(appService.fetchAppsList).not.toHaveBeenCalled();
+        });
+
+        it('errors instead of prompting when stdin is not a TTY', async () => {
+          (readProjectConfig as jest.Mock).mockReturnValue(null);
+          const stdin = process.stdin as unknown as { isTTY?: boolean };
+          const original = stdin.isTTY;
+          stdin.isTTY = false;
+          try {
+            await expect(scaffoldCommand({})).rejects.toThrow(/app-config\.json/i);
+            expect(mockPrompt).not.toHaveBeenCalled();
+          } finally {
+            stdin.isTTY = original;
+          }
+        });
+
+        it('sends a user with no apps to `app create` rather than an empty picker', async () => {
+          (readProjectConfig as jest.Mock).mockReturnValue(null);
+          (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
+          mockPrompt.mockResolvedValueOnce({ useExisting: true });
+
+          await expect(scaffoldCommand({})).rejects.toThrow(/No apps found/i);
+
+          expect(fs.writeFileSync).not.toHaveBeenCalled();
+        });
+      });
+
+      it('fetches the app and writes app-config.json when the directory has no config', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
+
+        await scaffoldCommand({ appId: '1' });
+
+        // A 404 stays fatal: the ID came from the user, not from a read-back.
+        expect(appService.resolveAppCredentials).toHaveBeenCalledWith('1', {
+          tolerateMissing: false,
+        });
+        // Base templates carry app-config.json — bootstrapping must write them,
+        // unlike the linked-project path which only refreshes them on drift.
+        const { loadBaseTemplates } = require('../../../templates');
+        expect(loadBaseTemplates).toHaveBeenCalled();
+        const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
+        expect(written.some((p: string) => p.endsWith('app-config.json'))).toBe(true);
+      });
+
+      it('refuses to clobber a directory already linked to a different app', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig); // appId '1'
+
+        await expect(scaffoldCommand({ appId: '2' })).rejects.toThrow(/already linked/i);
+
+        expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
+
+      it('is a no-op flag when it names the app the directory is already linked to', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+        mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
+
+        await scaffoldCommand({ appId: '1' });
+
+        // Same as the bare `scaffold` path: no drift → base config left alone.
+        const { loadBaseTemplates } = require('../../../templates');
+        expect(loadBaseTemplates).not.toHaveBeenCalled();
+      });
+
+      it('bootstraps under --json without prompting', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+
+        await scaffoldCommand({ appId: '1', json: true });
+
+        expect(mockPrompt).not.toHaveBeenCalled();
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(JSON.parse(output)).toEqual(
+          expect.objectContaining({ scaffolded: expect.any(Number) }),
+        );
+      });
+
+      it('takes the app type from the server when there is no local config to read it from', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+          diffs: [],
+          app: { ...serverApp, ui_app: { surface_point_list: [] } },
+        });
+
+        await scaffoldCommand({ appId: '1', json: true });
+
+        // A UI app has no scaffoldable feature — bootstrapping one must still write
+        // the config, then say so, rather than offering an OAuth test server.
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(JSON.parse(output)).toEqual(
+          expect.objectContaining({ features: [], reason: expect.any(String) }),
+        );
+      });
+    });
+
+    // The picker's own edge case. The happy path, the decline, the --json refusal and
+    // the non-TTY refusal all live in `interactive fallback…` above; this covers only
+    // what that block does not — accepting the offer when there is nothing to pick.
+    describe('bootstrap via the app picker', () => {
+      const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+
+      beforeEach(() => {
+        Object.defineProperty(process.stdin, 'isTTY', {
+          configurable: true,
+          writable: true,
+          value: true,
+        });
+      });
+
+      afterEach(() => {
+        if (originalIsTTYDescriptor) {
+          Object.defineProperty(process.stdin, 'isTTY', originalIsTTYDescriptor);
+        } else {
+          Reflect.deleteProperty(process.stdin, 'isTTY');
+        }
+      });
+
+      // Accepting the offer on an account with no apps must reach the shared
+      // empty-list error rather than an empty prompt the user cannot escape.
+      it('surfaces the empty-list message when the account has no apps', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
+        mockPrompt.mockResolvedValueOnce({ useExisting: true });
+
+        await expect(scaffoldCommand({})).rejects.toThrow();
+
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
+    });
+
+    // `readProjectConfig` reads cwd and deliberately does not walk up, so a directory
+    // one level inside a project is indistinguishable from an empty one outside it.
+    // Without this guard the bootstrap would offer to write a SECOND app-config.json
+    // nested in the first, and the next `app upload` from there would push the wrong
+    // app with no warning.
+    describe('nested-project guard', () => {
+      const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+
+      beforeEach(() => {
+        Object.defineProperty(process.stdin, 'isTTY', {
+          configurable: true,
+          writable: true,
+          value: true,
+        });
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (findEnclosingProjectDir as jest.Mock).mockReturnValue('/work/my-app');
+      });
+
+      afterEach(() => {
+        if (originalIsTTYDescriptor) {
+          Object.defineProperty(process.stdin, 'isTTY', originalIsTTYDescriptor);
+        } else {
+          Reflect.deleteProperty(process.stdin, 'isTTY');
+        }
+      });
+
+      it('refuses the picker path and names the enclosing project directory', async () => {
+        await expect(scaffoldCommand({})).rejects.toThrow(/my-app/);
+
+        expect(appService.fetchAppsList).not.toHaveBeenCalled();
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
+
+      it('refuses the --app-id path too', async () => {
+        await expect(scaffoldCommand({ appId: '1' })).rejects.toThrow(/my-app/);
+
+        expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
+
+      it('refuses under --json as well', async () => {
+        await expect(scaffoldCommand({ appId: '1', json: true })).rejects.toThrow(/my-app/);
+
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
+
+      // The guard is only about bootstrapping. A normal in-project run has its own
+      // config in cwd and must not care what any ancestor holds — a project checked
+      // out inside another project is unusual but legal.
+      it('does not fire for an ordinary in-project run', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+        mockPrompt.mockResolvedValueOnce({ featureType: 'oauth' });
+
+        await expect(scaffoldCommand({})).resolves.toBeUndefined();
+      });
+    });
+
+    // A UI app's configuration IS its `ui_app` block, and the read endpoint sources
+    // that block from the latest upload snapshot. An app created but never uploaded
+    // therefore comes back without one, and there is nothing to recover.
+    //
+    // This must refuse rather than write a partial config: `ui_app`'s presence is the
+    // app-type discriminator, so a config missing it does not read as an incomplete
+    // UI app — it reads as a valid OAuth one, and the next `app upload` would push an
+    // `auth` block where `ui_app` belonged.
+    describe('unrecoverable UI app', () => {
+      const neverUploadedUiApp = {
+        app_id: '7',
+        name: 'Never Uploaded',
+        client_id: '',
+        client_secret: '',
+        redirect_uris: null,
+        distribution_type: 'private' as const,
+        logo_uri: '',
+        version: '',
+      };
+
+      it('refuses to bootstrap a UI app whose ui_app block the server has no snapshot of', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+          diffs: [],
+          app: neverUploadedUiApp,
+        });
+
+        await expect(scaffoldCommand({ appId: '7', json: true })).rejects.toThrow(
+          /never been uploaded|no configuration/i,
+        );
+
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
+
+      // A half-configured OAuth app — client_id issued, callbacks not set yet — must
+      // still bootstrap. Only BOTH being empty means "no OAuth material at all".
+      it('still bootstraps an OAuth app that has a client_id but no callbacks', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+          diffs: [],
+          app: { ...neverUploadedUiApp, client_id: 'cli-789' },
+        });
+
+        await scaffoldCommand({ appId: '7', json: true });
+
+        const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
+        expect(written.some((p: string) => p.endsWith('app-config.json'))).toBe(true);
+      });
+    });
+
+    // The server's `ui_app` echo carries keys the platform owns — it injects
+    // `link_target`, manages the snapshot `version`, and stamps the dotted
+    // `extension_point_name` onto each entry. None is authored, and writing one into
+    // app-config.json puts a value in the file that the very next upload rejects.
+    it('strips server-owned keys from the ui_app block it bootstraps into the config', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+        diffs: [],
+        app: {
+          ...serverApp,
+          client_id: '',
+          redirect_uris: null,
+          ui_app: {
+            extension_type: 'actionLink',
+            label: 'Open in MyApp',
+            link_target: '_blank',
+            version: '4',
+            surface_point_list: [
+              {
+                surface_point_name: 'contact-details-header-menu',
+                extension_point_name: 'contactDetails.headerMenu.action',
+              },
+            ],
+          },
+        },
+      });
+
+      await scaffoldCommand({ appId: '1', json: true });
+
+      const { loadBaseTemplates } = require('../../../templates');
+      const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
+      const uiAppJson = vars['{{UI_APP_JSON}}'] as string;
+      expect(uiAppJson).toContain('surface_point_name');
+      expect(uiAppJson).toContain('Open in MyApp');
+      expect(uiAppJson).not.toContain('link_target');
+      expect(uiAppJson).not.toContain('extension_point_name');
+      expect(uiAppJson).not.toContain('"version"');
     });
 
     it('reads the app id from app-config.json (no picker) and scaffolds the feature merge-only', async () => {

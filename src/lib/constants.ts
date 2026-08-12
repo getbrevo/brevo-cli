@@ -128,6 +128,11 @@ export const CLI = {
   APP_LIST: 'brevo app list',
   APP_STATUS: 'brevo app status',
   APP_SCAFFOLD: 'brevo app scaffold',
+  // The bootstrap form, kept separate from the bare `APP_SCAFFOLD` above rather than
+  // folding both into one function: the bare string is quoted in a dozen messages that
+  // mean "run it here", and only the migration copy means "link that app into here".
+  APP_SCAFFOLD_APP_ID: (appId?: string) =>
+    appId ? `brevo app scaffold --app-id ${appId}` : 'brevo app scaffold --app-id <id>',
   APP_CREDENTIALS: (appId?: string) =>
     appId ? `brevo app credentials --app-id ${appId}` : 'brevo app credentials --app-id <id>',
   APP_CREDENTIALS_REVEAL: (appId?: string) =>

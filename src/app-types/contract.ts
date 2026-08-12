@@ -78,6 +78,29 @@ export interface AppTypeModule {
   detectRecord(app: AppRecordLike | null | undefined): boolean;
 
   /**
+   * Can a complete `app-config.json` be rebuilt from this server record alone?
+   *
+   * Asked by `brevo app scaffold`'s no-config branch, which materializes a project folder
+   * for an app that already exists on the server, before it writes anything.
+   *
+   * The answer is type-dependent and the difference is invisible from the command's side.
+   * An OAuth app's configuration IS the app record — callbacks and scopes come back on the
+   * read — so it is always recoverable. A UI app's configuration is its `ui_app` block,
+   * which the read endpoint sources from the latest `app_versions` snapshot, so an app that
+   * was created but never uploaded answers with no block and there is nothing to write.
+   *
+   * A type that answers false must be refused loudly. It cannot be papered over with a
+   * partial write: `ui_app`'s presence is the app-type discriminator, so a config missing
+   * the block does not read as an incomplete UI app — it reads as a valid OAuth one, and
+   * the next `app upload` pushes an `auth` block where `ui_app` belonged.
+   *
+   * Lives on the descriptor rather than as an `!app.ui_app` check in the command for the
+   * reason the whole registry exists: a third type gets asked the same question instead of
+   * needing someone to find this branch by hand.
+   */
+  recoverableFromRecord(app: AppRecordLike | null | undefined): boolean;
+
+  /**
    * Local pre-flight on the config's shape, before any request. Throws `CliError`.
    * A no-op for a type with nothing local to check.
    *

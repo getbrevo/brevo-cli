@@ -293,13 +293,25 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'scaffold',
-      description: 'Add a feature (e.g. the OAuth test server) to the app in this directory',
+      // Two modes, selected by whether cwd holds an app-config.json: inside a project it
+      // adds a feature to the linked app; in a directory with none it sets that directory
+      // up for an app that already exists — picked interactively, or named by --app-id
+      // when there is no terminal to prompt on.
+      description:
+        'Add a feature to the app in this directory, or set an empty directory up for an existing app',
       examples: [
         'brevo app scaffold',
+        'brevo app scaffold --app-id 42',
         'brevo app scaffold --overwrite',
         'brevo app scaffold --json',
+        'brevo app scaffold --app-id 42 --json',
       ],
       options: [
+        {
+          flags: '--app-id <id>',
+          description: 'Set an empty directory up for an app you already have',
+          parser: (v) => parseAppId(v),
+        },
         {
           flags: '--overwrite',
           description: 'Overwrite existing feature files instead of merging (skips the prompt)',
@@ -307,7 +319,11 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
-        scaffoldCommand({ json: Boolean(opts.json), overwrite: Boolean(opts.overwrite) }),
+        scaffoldCommand({
+          appId: opts.appId as string | undefined,
+          json: Boolean(opts.json),
+          overwrite: Boolean(opts.overwrite),
+        }),
     },
     {
       name: 'available-scopes',

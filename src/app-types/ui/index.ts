@@ -44,6 +44,15 @@ export const uiAppType: AppTypeModule = {
   detectConfig: isUiAppConfigShape,
   detectRecord: isUiAppRecordShape,
 
+  // Recoverable only when the server actually echoed the block. The read endpoint sources
+  // `ui_app` from the latest `app_versions` snapshot, so a UI app created but never uploaded
+  // has no snapshot and comes back without it — and the block is not a detail of the config,
+  // it IS the config (and the app-type discriminator). Note this is deliberately NOT
+  // `isUiAppRecordShape`: that predicate's fallback classifies a blockless record as a UI app
+  // on the absence of OAuth material, which is right for labelling a row and wrong for
+  // deciding there is something to write.
+  recoverableFromRecord: (app) => !!app?.ui_app,
+
   validateConfig: (config) => {
     // Shape only, and only ever about the FILE — a missing label, a bare-string placement, a
     // pre-BEX-290 field name. Whether a slot is registered is the upload endpoint's call; the

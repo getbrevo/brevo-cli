@@ -215,7 +215,11 @@ export const messages = {
   // same for all of them: there is no flag any more, edit the file. `distribution_type`
   // is deliberately not offered as editable — it is immutable after `app create`, and
   // `APP_UPLOAD_DISTRIBUTION_IMMUTABLE` is what says so if anyone tries.
-  APP_UPDATE_REMOVED: `\`brevo app update\` has been removed — use \`${CLI.APP_UPLOAD}\` instead.\n\n  \`${CLI.APP_UPLOAD}\` pushes the whole of app-config.json and takes only --yes and --json.\n  There are no edit flags (--name, --redirect-uri, --scope, --logo-uri, --app-id): change\n  the app's name, redirect URLs, scopes or logo by editing app-config.json, then run:\n\n    ${CLI.APP_UPLOAD}\n\n  Docs: ${BREVO_CLI_REFERENCE_URL}`,
+  // The second paragraph covers `update --app-id`, which had no successor until
+  // `scaffold --app-id` was restored: `upload` reads the linked project only, so a
+  // user who drove `update` by ID from any directory would otherwise read "edit
+  // app-config.json" while having no such file and no way to get one.
+  APP_UPDATE_REMOVED: `\`brevo app update\` has been removed — use \`${CLI.APP_UPLOAD}\` instead.\n\n  \`${CLI.APP_UPLOAD}\` pushes the whole of app-config.json and takes only --yes and --json.\n  There are no edit flags (--name, --redirect-uri, --scope, --logo-uri, --app-id): change\n  the app's name, redirect URLs, scopes or logo by editing app-config.json, then run:\n\n    ${CLI.APP_UPLOAD}\n\n  No app-config.json here? Set this directory up for an app you already have\n  (\`${CLI.APP_LIST}\` shows their IDs), then edit and upload:\n\n    ${CLI.APP_SCAFFOLD_APP_ID()}\n    ${CLI.APP_UPLOAD}\n\n  Docs: ${BREVO_CLI_REFERENCE_URL}`,
 
   // App upload
   APP_UPLOAD_NO_CONFIG: `No app-config.json found in this directory. Run \`${CLI.APP_UPLOAD}\` from the project directory that has your app's app-config.json, or run \`${CLI.APP_CREATE}\` / \`${CLI.APP_SCAFFOLD}\` to set one up.`,
@@ -372,7 +376,44 @@ export const messages = {
   APP_SCAFFOLD_FEATURE_EXISTS_OVERWRITE: 'Overwrite existing files',
   APP_SCAFFOLD_FEATURE_EXISTS_MERGE: 'Merge (keep existing, add missing)',
   APP_SCAFFOLD_FEATURE_EXISTS_CANCEL: 'Cancel',
-  APP_SCAFFOLD_NO_CONFIG: `No app-config.json found in this directory, so there is no app to scaffold a feature into. Run \`${CLI.APP_CREATE}\` to create an app here first, or cd into an existing project folder and try again.`,
+  // Three ways out, in the order they're likely to apply: the user is in the wrong
+  // directory, the user has an app but no project for it, or the user has no app.
+  // The middle one is the migration path off `brevo app update --app-id` and is the
+  // reason `--app-id` exists on this command at all — leaving it out of this message
+  // strands exactly the users who need it, since it appears in no help screen they
+  // would think to read.
+  APP_SCAFFOLD_NO_CONFIG: `No app-config.json found in this directory, so there is no app to scaffold a feature into.\n\n  - cd into an existing project folder and try again, or\n  - run \`${CLI.APP_SCAFFOLD_APP_ID()}\` to set this directory up for an app you already have (\`${CLI.APP_LIST}\` shows their IDs), or\n  - run \`${CLI.APP_CREATE}\` to create a new app here.`,
+  // Refuses rather than prompting: the two configs describe different apps, and every
+  // resolution (overwrite, merge, pick another directory) is a decision the user is
+  // better placed to make in their own shell than through a prompt that has to
+  // summarise what would be lost.
+  APP_SCAFFOLD_APP_ID_MISMATCH: (localAppId: string, requestedAppId: string) =>
+    `This directory is already linked to app ${localAppId}, so it can't be set up for app ${requestedAppId}.\n\n  Run \`${CLI.APP_SCAFFOLD}\` (no --app-id) to work on app ${localAppId}, or cd into an empty directory and run \`${CLI.APP_SCAFFOLD_APP_ID(requestedAppId)}\` there.`,
+  APP_SCAFFOLD_BOOTSTRAP_INTRO: (appId: string) => `Setting this directory up for app ${appId}...`,
+  // Said before the confirm, not merged into it: the picker that follows lists the
+  // account's apps, and a user who typed `scaffold` in the wrong directory needs to
+  // know why they are suddenly being shown that list. The confirm is what makes the
+  // list opt-in rather than something the command drops them into.
+  APP_SCAFFOLD_BOOTSTRAP_OFFER:
+    'No app-config.json in this directory, so there is no app to add a feature to.',
+  APP_SCAFFOLD_BOOTSTRAP_CONFIRM: 'Set this directory up for an app you already have?',
+  // Declining is a normal answer, not a failure — but the user still has an empty
+  // directory, so the two remaining routes go on screen instead of exiting silently.
+  APP_SCAFFOLD_BOOTSTRAP_DECLINED: `Nothing to do here yet.\n\n  - run \`${CLI.APP_CREATE}\` to create a new app in this directory, or\n  - cd into an existing project folder and run \`${CLI.APP_SCAFFOLD}\` there.`,
+  APP_SCAFFOLD_SELECT: 'Which app should this directory be set up for?',
+  // Refuses rather than bootstrapping a nested project. `readProjectConfig` reads cwd and
+  // does not walk up, so this is the only thing standing between a mistyped `cd` and a
+  // second app-config.json inside an existing project — after which `app upload` from that
+  // directory pushes the wrong app and says nothing.
+  APP_SCAFFOLD_INSIDE_PROJECT: (projectDir: string) =>
+    `This directory is inside the Brevo app project at ${projectDir}, so setting it up as a second project would nest one inside the other.\n\n  - cd ${projectDir} and run \`${CLI.APP_SCAFFOLD}\` there to work on that app, or\n  - cd to a directory outside it to set up a different app.`,
+  // A UI app's whole configuration is its `ui_app` block, and the platform stores that
+  // block only from an upload snapshot — so an app created but never uploaded has nothing
+  // to recover. Says so explicitly rather than writing a config without the block: that
+  // config would read as a valid OAuth app (the block's presence is the type
+  // discriminator), and the next upload would push `auth` where `ui_app` belonged.
+  APP_SCAFFOLD_BOOTSTRAP_UNRECOVERABLE: (appId: string) =>
+    `App ${appId} is a UI app that has never been uploaded, so the platform holds no configuration to set this directory up from.\n\n  A UI app's configuration lives in the \`ui_app\` block of app-config.json, which the platform only stores once you run \`${CLI.APP_UPLOAD}\`.\n\n  - If you still have this app's project folder, cd into it and run \`${CLI.APP_UPLOAD}\` from there, or\n  - run \`${CLI.APP_CREATE}\` and choose "UI app" to author the configuration again.`,
   APP_SCAFFOLD_DIFF_INTRO: (name: string) =>
     `App "${name}" is linked here, but its local config differs from the server:`,
   APP_SCAFFOLD_DIFF_LINE: (field: string, local: string, server: string) =>

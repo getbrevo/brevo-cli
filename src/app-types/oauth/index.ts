@@ -18,6 +18,12 @@ export const oauthAppType: AppTypeModule = {
   detectConfig: (config) => !isUiAppConfigShape(config),
   detectRecord: (app) => !isUiAppRecordShape(app),
 
+  // Always recoverable: an OAuth app's entire configuration lives on the app record itself
+  // (callbacks and scopes come back on the read), not in an upload snapshot. A record with
+  // neither yet still recovers — the scaffold fills in its own defaults, which is exactly
+  // what `app create` wrote in the first place. Only the record's existence is required.
+  recoverableFromRecord: (app) => !!app,
+
   // Nothing type-specific to check locally. The OAuth checks `app upload` runs — at least
   // one redirect URL, and scope validation — are capability-driven rather than type-driven
   // (see `capabilities.ts`), so they stay in the command where their messages and exit codes

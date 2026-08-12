@@ -383,3 +383,25 @@ into `main` — anything that must outlive the branch belongs in
       `EXTENSION_PLACE_LABELS` remains), and the *`ui_app` field names* item now spells
       entries `{ surface_point_name, context? }`. Both sat in the **durable** GA
       section, so they would have misled whoever works the GA pass.
+
+- [ ] **Confirm whether `POST /v3/app-store/apps` writes an `app_versions` row.**
+      Decides how reachable the never-uploaded-UI-app refusal in
+      `resolveBootstrapPlan` actually is. The create response carries a `version`,
+      which hints a row may exist; if it does, a UI app is recoverable straight after
+      `app create` and the refusal is close to unreachable. If it does not, every user
+      who bootstraps a UI app before their first `app upload` meets it.
+
+      Nothing in this repo settles it — `ui_app` on `GET /v3/app-store/apps/{id}` is
+      sourced from the *latest snapshot*, and whether create seeds one is a bo-be /
+      app-store-backend question. The refusal is correct under either answer (writing a
+      config with no `ui_app` block silently reclassifies the app as OAuth), so this is
+      about message prominence and QA coverage, not correctness.
+
+      If create *does* seed a snapshot, consider whether the message should say "not
+      uploaded yet" at all, or something narrower.
+
+- [ ] **`promptAppSelection` is an unpaginated `rawlist` over every app on the
+      account.** Fine for `app delete` / `app withdraw`, and now reached by
+      `app scaffold`'s bootstrap offer too — but an account with many apps gets a long
+      numbered list with no search. Worth revisiting as a searchable prompt
+      (`inquirer-autocomplete`-style) once someone hits it; not worth pre-empting.

@@ -20,6 +20,7 @@ import {
   writeProjectConfig,
   backfillProjectConfigFromServer,
   hasLocalApp,
+  findEnclosingProjectDir,
 } from '../../lib/config';
 
 function writeRawCredentials(data: object): void {
@@ -815,6 +816,87 @@ describe('config', () => {
   describe('hasLocalApp', () => {
     it('should return false when no project config exists', () => {
       expect(hasLocalApp()).toBe(false);
+    });
+  });
+
+  // The guard behind `brevo app scaffold`'s no-config branch. `readProjectConfig`
+  // deliberately does not walk up, so without this a scaffold run one directory
+  // below a real project would silently offer to create a SECOND project nested
+  // inside it — and the next `app upload` from there would push the wrong app.
+  describe('findEnclosingProjectDir', () => {
+    const originalCwd = process.cwd();
+    let projectDir: string;
+
+    beforeEach(() => {
+      projectDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-enclosing-')));
+    });
+
+    afterEach(() => {
+      process.chdir(originalCwd);
+      if (fs.existsSync(projectDir)) {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+    function writeConfigAt(dir: string, config: object): void {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(config));
+    }
+
+    it('returns null when no ancestor holds an app-config.json', () => {
+      const nested = path.join(projectDir, 'src', 'oauth');
+      fs.mkdirSync(nested, { recursive: true });
+      process.chdir(nested);
+      expect(findEnclosingProjectDir()).toBeNull();
+    });
+
+    it('returns the ancestor directory that holds the project config', () => {
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      const nested = path.join(projectDir, 'src', 'oauth');
+      fs.mkdirSync(nested, { recursive: true });
+      process.chdir(nested);
+      expect(findEnclosingProjectDir()).toBe(projectDir);
+    });
+
+    it('finds the nearest ancestor when several are nested', () => {
+      const inner = path.join(projectDir, 'inner');
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      writeConfigAt(inner, { appId: '99', auth: { scopes: [] } });
+      const nested = path.join(inner, 'src');
+      fs.mkdirSync(nested, { recursive: true });
+      process.chdir(nested);
+      expect(findEnclosingProjectDir()).toBe(inner);
+    });
+
+    // cwd is the caller's own case: it only asks this question once it already
+    // knows cwd has no usable config. Counting cwd would make every ordinary
+    // in-project run look like a nested one.
+    it('ignores a config in the current directory', () => {
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      process.chdir(projectDir);
+      expect(findEnclosingProjectDir()).toBeNull();
+    });
+
+    // An ancestor file that readProjectConfig would reject (no appId, or
+    // unparseable) is not a project — walking must continue past it rather
+    // than refuse on a file nothing else in the CLI would honour.
+    it('walks past an ancestor config that carries no appId', () => {
+      const inner = path.join(projectDir, 'inner');
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      writeConfigAt(inner, { auth: { scopes: [] } });
+      const nested = path.join(inner, 'src');
+      fs.mkdirSync(nested, { recursive: true });
+      process.chdir(nested);
+      expect(findEnclosingProjectDir()).toBe(projectDir);
+    });
+
+    it('walks past an ancestor config that is not valid JSON', () => {
+      const inner = path.join(projectDir, 'inner');
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      fs.mkdirSync(inner, { recursive: true });
+      fs.writeFileSync(path.join(inner, 'app-config.json'), '{ not json');
+      process.chdir(inner);
+      expect(findEnclosingProjectDir()).toBe(projectDir);
     });
   });
 });

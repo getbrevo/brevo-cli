@@ -48,6 +48,24 @@ to create a public app or drive the review lifecycle (`app submit` / `app status
         commands table.
 - [ ] `QA-TESTCASES.md` — delete the **⚠️ Public apps are not available to end users
       yet** blockquote (if the file still exists; it's per-branch scratch).
+- [ ] **Open the runtime gate (BEX-405).** In `src/lib/preview.ts`, flip
+      `FEATURE_STAGE['public-distribution']` and `FEATURE_STAGE['review-lifecycle']`
+      to `'ga'`. That one edit is the whole release: the root help, `brevo app --help`,
+      the `--distribution` value list, `app create --help`'s examples, the app-type
+      prompt and the runtime refusal all read the same table. Do **not** hand-edit
+      `src/lib/help.ts` or `src/commands/definitions.ts` to restore the text — they
+      derive it.
+  - [ ] Update `src/__tests__/lib/preview.test.ts` → *reports every gated feature as
+        preview*, which asserts the table verbatim and is designed to fail here.
+  - [ ] Re-point the locked-path cases in `preview-gate.test.ts` and `create.test.ts`
+        (*while public distribution and UI apps are pre-GA*) at whatever is still
+        gated. If nothing is, delete `src/lib/preview.ts`, `jest.setup.js`, its
+        `setupFiles` entry in `jest.config.js`, the `previewFeatureOf` /
+        `assertFeatureAvailable` wiring in `src/lib/command-registry.ts`, the two
+        `isFeatureAvailable` calls in `src/commands/app/create.ts`, the
+        `gatedSection` / `distributionValues` / `createDescription` helpers in
+        `src/lib/help.ts`, and `messages.PREVIEW_FEATURE_UNAVAILABLE`.
+  - [ ] Remove `BREVO_ENABLE_PREVIEW` from `CLAUDE.md` once nothing reads it.
 - [ ] Verify nothing was missed:
       `grep -rn "Public apps are not available yet" --include="*.md" .`
       (excluding `node_modules/`, `dist/`, `coverage/`) returns only this file.
@@ -57,12 +75,23 @@ to create a public app or drive the review lifecycle (`app submit` / `app status
 
 **Related follow-ups (not blockers for GA removal):**
 
-- [ ] Decide whether the CLI should guard `--distribution public` at runtime
-      (refuse, or warn) instead of relying on documentation alone. Today the flag
-      is accepted silently — deliberately, since this notice is doc-level only. A
-      runtime guard would need the same internal-account escape hatch, and note the
-      domain check is a guardrail, not a security boundary: real enforcement belongs
-      on the API. If a guard lands before GA, add its removal to the list above.
+- [x] **Decided and shipped (BEX-405): the CLI refuses, it does not warn.** The
+      question was whether to guard `--distribution public` at runtime or keep relying
+      on documentation. Documentation alone was never enforcement — it worked exactly
+      as far as the reading agent's cooperation went — so the gate is real: the value
+      is hidden from every help screen and refused with a typed `CliError` (exit 1)
+      before any filesystem work. *Warn* was rejected because a warning still creates
+      the app, which is the outcome the notice existed to prevent.
+
+      The escape hatch is the same one the docs already used — an `@brevo.com` /
+      `@sendinblue.com` account — plus `BREVO_ENABLE_PREVIEW=1` for CI and for QA on a
+      non-Brevo test account. It reads the *cached* credential, not `whoami`, so help
+      renders while logged out and a slow API cannot change the gate. Logged out is
+      locked. Per `CLAUDE.md` this remains a guardrail, not a security boundary:
+      client-side, bypassable by building from source, and real enforcement still
+      belongs on the API.
+
+      **Removal is now a GA step — see the item added to the list above.**
 - [x] `README.md`'s command table drift — the stale `brevo app update` row (replaced
       by `brevo app upload`) was fixed in the BEX-290 branch. Still omits
       `brevo app status` / `submit` / `withdraw` / `available-scopes`; worth a
@@ -321,11 +350,20 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
       credentials has no OAuth body to source it from, so `buildAppStoreOnlyResponse`
       leaves it at the zero value. Nothing in the CLI reads it. The TODO.md item that
       called this a create-path failure to stamp the owner was wrong.
-- [ ] Decide whether the CLI should guard the UI-app path at runtime, the same open
-      question as `--distribution public` above. There is no `--type ui` flag to guard —
-      a UI app can only be chosen at the interactive app-type prompt, which is itself a
-      soft limit on reaching it accidentally — but the prompt choice is offered without
-      a warning.
+- [x] **Decided and shipped (BEX-405): the CLI gates the UI-app path too.** Same
+      decision as `--distribution public` — refuse, don't warn — and the same escape
+      hatch. The shape differs because there is no flag to refuse: a UI app is only
+      reachable from the interactive app-type prompt, so the gate *withholds the
+      choice* rather than rejecting an answer. A locked run doesn't ask at all, which
+      restores the exact pre-BEX-290 flow instead of showing a one-item list. The
+      prompt being interactive-only was a soft limit on reaching it accidentally; it
+      was never a limit on reaching it deliberately, which is what the gate adds.
+
+      `app deploy` / `app rollback` are gated as commands (capability
+      `account-install`), hidden from help and refused when invoked.
+
+      **Removal is a GA step — see the item added to the list at the top of this
+      section.**
 
 ---
 
@@ -2302,3 +2340,68 @@ own replacement.
       whole `update` → `upload` migration.
 - [x] `QA-TESTCASES.md` TC-5.1 rewritten — it previously expected the
       unknown-command error, which is exactly what this change replaces.
+
+### `app scaffold` bootstraps without an app ID, and refuses the two silent failures (2026-08-12)
+
+**Change:** the config-less branch of `brevo app scaffold` no longer requires
+`--app-id`. On a TTY it offers ("Set this directory up for an app you already
+have?", default yes) and then shows `promptAppSelection`; declining exits `0` with
+the remaining routes printed. `--json`/non-TTY is unchanged — the offer is skipped
+and `APP_SCAFFOLD_NO_CONFIG` is raised — so no script behaviour moved.
+
+Three supporting pieces landed with it: `findEnclosingProjectDir()` in
+`src/lib/config.ts` (parent walk, cwd excluded), `recoverableFromRecord` on the
+app-type registry, and `stripUiAppWireOnlyKeys` extracted to
+`src/app-types/wire.ts`.
+
+**Why the two refusals are not polish.** Both failures they prevent are silent, and
+each produces a *plausible* result rather than an error:
+
+- Bootstrapping one directory inside a project wrote a second `app-config.json`
+  nested in the first. Nothing complained; the next `brevo app upload` from that
+  directory pushed the wrong app. `readProjectConfig` reads cwd and never walks up
+  (correctly — every other command depends on that), so nothing else could catch it.
+- Bootstrapping a UI app that was never uploaded wrote a config with no `ui_app`
+  block, because the read endpoint sources that block from the latest
+  `app_versions` snapshot. Since the block's presence *is* the app-type
+  discriminator, the result did not read as an incomplete UI app but as a valid
+  OAuth one — and its next upload would push `auth` where `ui_app` belonged.
+
+**Must hold true:**
+
+- [x] `yarn test` green (1201 tests, 56 suites); `yarn lint` and `yarn build` clean.
+- [x] Interactive bootstrap: offer → picker → picked app's config written. Covered
+      by `offers to set the directory up for an existing app, then bootstraps the
+      picked one`.
+- [x] Declining exits `0`, fetches nothing, writes nothing, and prints
+      `brevo app create`. Covered by `cancels without fetching or writing when the
+      offer is declined`.
+- [x] `--json` and non-TTY never prompt and still raise the no-config error. Covered
+      by `errors instead of prompting under --json` and `errors instead of prompting
+      when stdin is not a TTY`.
+- [x] Accepting the offer on an account with no apps reaches the shared empty-list
+      error rather than an empty prompt. Covered by `surfaces the empty-list message
+      when the account has no apps`.
+- [x] The nesting guard fires for the picker path, the `--app-id` path and `--json`,
+      always before any fetch or write, and does **not** fire for an ordinary
+      in-project run. Covered by the four `nested-project guard` tests, and verified
+      against the built CLI in a scratch project (the in-project run reaches the API
+      call, proving it passes every local check).
+- [x] A never-uploaded UI app is refused; a half-configured OAuth app (client ID, no
+      callbacks) still bootstraps. Covered by the two `unrecoverable UI app` tests
+      plus `recoverable.test.ts`, whose `composed with resolveFromRecord` cases pin
+      the type resolution and the recoverability answer together.
+- [x] The bootstrapped `ui_app` block carries no `link_target`, no snapshot
+      `version` and no `extension_point_name`. Covered by `strips server-owned keys
+      from the ui_app block it bootstraps into the config` and `wire.test.ts`.
+- [x] The `stripUiAppWireOnlyKeys` extraction is behaviour-preserving for `upload` —
+      its 93-test suite passed unchanged.
+- [x] Docs updated in the same pass: `agent-context/SKILL.md` (decision tree entry +
+      hard rule 4), `agent-context/AGENTS.md` (command table + the
+      `app scaffold` behaviour bullet), `README.md` command table, `CLAUDE.md`
+      conventions, and the pending changeset.
+
+**Open question, tracked in `TODO.md`:** whether `POST /v3/app-store/apps` writes an
+`app_versions` row. If it does, the never-uploaded-UI-app refusal is close to
+unreachable; if it does not, users will meet it. The refusal is correct either way —
+this only changes how prominent it is.
