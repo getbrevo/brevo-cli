@@ -701,6 +701,95 @@ describe('app/create', () => {
     );
   });
 
+  describe("the platform's refusal to create a public app from the CLI", () => {
+    // The server keys this on the caller it derives from the User-Agent, so the
+    // CLI cannot satisfy it by changing the body — it can only explain it. See
+    // the comment on this branch in `createAppWithRetry`.
+    const rejection = (): ApiError =>
+      new ApiError(
+        'public apps cannot be created with source "cli"; use distribution_type "private"',
+        400,
+        undefined,
+        'invalid_parameter',
+      );
+
+    it('explains the refusal and names --distribution private', async () => {
+      jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      (appService.createApp as jest.Mock).mockRejectedValue(rejection());
+
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
+        /public app distribution is not available yet/i,
+      );
+    });
+
+    it("quotes the server's own sentence so a different 400 cannot hide behind it", async () => {
+      jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      (appService.createApp as jest.Mock).mockRejectedValue(rejection());
+
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
+        /use distribution_type "private"/,
+      );
+    });
+
+    // Guard against the CLI growing a local mirror of the platform's rule: a
+    // private create must reach the server untouched, and the day the platform
+    // lifts the restriction a public create must start succeeding with no CLI
+    // change. Both are the same assertion — the CLI never refuses locally.
+    it('does not pre-empt the server — a public create is still attempted', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 42,
+        name: 'Test',
+        client_id: 'cli-public',
+        client_secret: 'secret-public',
+        redirect_uris: ['https://example.com/cb'],
+      });
+
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+
+      await createCommand({ name: 'Test', distribution: 'public' });
+
+      expect(appService.createApp).toHaveBeenCalledWith(
+        expect.objectContaining({ distribution_type: 'public' }),
+      );
+    });
+
+    // A 400 that is not the distribution rule keeps the server's text and does
+    // not get relabelled as the pre-GA restriction.
+    it('leaves an unrelated 400 on a public create alone', async () => {
+      jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      (appService.createApp as jest.Mock).mockRejectedValue(
+        new ApiError('logo_uri must be a valid https URL', 400, undefined, 'invalid_parameter'),
+      );
+
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
+        'logo_uri must be a valid https URL',
+      );
+    });
+  });
+
   it('should handle 409 conflict and retry with new name', async () => {
     (appService.createApp as jest.Mock)
       .mockRejectedValueOnce(new ApiError('Conflict', 409))

@@ -64,6 +64,12 @@ export const messages = {
   APP_CREATE_APP_TYPE_UI: 'UI app     (Render inside Brevo — opens your app from a record)',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
+  // The platform refuses a public-app create from the CLI (BEX-355). Deliberately
+  // quotes the server's own sentence: the CLI recognises this rejection by the
+  // field the server names, and if that copy ever changes the raw text still
+  // reaches the user instead of a confidently wrong explanation.
+  APP_CREATE_PUBLIC_REJECTED: (serverMessage: string): string =>
+    `Brevo refused to create a public app from the CLI — public app distribution is not available yet.\n  Re-run \`${CLI.APP_CREATE}\` with \`--distribution private\`. Note that \`distribution_type\` is fixed at creation time and cannot be changed later with \`${CLI.APP_UPLOAD}\`.\n  Brevo's response: ${serverMessage}`,
   APP_CREATE_REDIRECT_PROMPT:
     'OAuth callback URL — where users are sent after authorizing your app:',
   APP_CREATE_REDIRECT_HINT: (cmd: string) =>

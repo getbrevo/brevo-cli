@@ -6,6 +6,26 @@ into `main` — anything that must outlive the branch belongs in
 
 ## Open
 
+- [ ] **`app create` creates and `cd`s into the project directory before the app
+      exists on Brevo.** `resolveCreateDirectory()` runs at `create.ts:427`, one line
+      before `createAppWithRetry()` — so any hard create failure leaves a stray
+      directory behind and the process `chdir`'d into it. Seen with
+      `--distribution public` (`Creating test-public and moving into it...` then the
+      server's refusal), but it is general: a quota `403`, a network drop, or any
+      unmapped `400` does the same. The `409` name clash is the only failure that
+      recovers, because it retries in place. Nothing is *deleted* — the scaffold
+      writes files at `create.ts:490`, after the create — so this is a stray
+      directory and a moved cwd, not data loss.
+
+      **The ordering is deliberate and the fix has a real trade-off:** all local
+      prompting finishes before the app is registered, so a Ctrl-C at the directory
+      prompt can't orphan an app on the server (the same concern documented at
+      `create.ts:481-486`). Don't simply move the create call earlier. The fix is to
+      split `resolveCreateDirectory` into *decide* (prompts, no filesystem writes)
+      and *apply* (`mkdirSync` + `chdir`), keeping the decision before the create and
+      moving the mutation after it. That preserves the prompt order and the
+      no-orphan property while leaving the filesystem untouched on failure.
+
 ### BEX-290 follow-ups
 
 - [ ] **Ask the platform to echo `ui_app` on `GET /v3/app-store/apps`.** Confirmed live

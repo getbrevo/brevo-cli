@@ -279,13 +279,20 @@ backend still identifies the caller from the structured `User-Agent`
       key gone, run `brevo app create --distribution private` against staging and
       confirm it still succeeds and the app is attributed to the CLI (the platform
       reads `User-Agent`; confirm it actually does for *create*, not just upload).
-- [ ] **Manual, blocking:** run `brevo app create --distribution public` against
+- [x] **Manual, blocking:** run `brevo app create --distribution public` against
       staging and record what the platform now does with an absent `source`. Three
       outcomes, and they need different follow-ups: still `400` (guard keys on
       something else — fine, nothing more to do), succeeds (the CLI can now create
       a public app that no notice or guard prevents — that is a pre-GA regression,
       raise it on BEX-355 before release), or a different error (map it in
       `src/lang/en.ts`).
+
+      **Answered (2026-08-12): still `400`, same copy** — *public apps cannot be
+      created with source "cli"; use distribution_type "private"* — with `source`
+      absent from the body. So the guard keys on the caller the platform derives
+      from the `User-Agent`, not on the body key, and the `source` removal changed
+      nothing about it. No pre-GA regression: the restriction still holds without
+      the CLI asserting the field. The message is now mapped, see the entry below.
 - [ ] **BEX-355 sign-off, blocking:** confirm with the create endpoint's owners that
       an absent `source` is contract-valid and that dropping it does not change how
       an app is attributed, rate-limited, or gated. The key was undeclared, so its
@@ -293,10 +300,52 @@ backend still identifies the caller from the structured `User-Agent`
 - [ ] Reviewer: nothing else in `src/` references `source` on a request body —
       `src/services/skill.ts`'s `source: 'brevo-cli'` is the local skill-install
       marker written to disk, unrelated.
-- [ ] Reviewer: decide whether `--distribution public` should now fail locally with
+- [x] Reviewer: decide whether `--distribution public` should now fail locally with
       a real message instead of surfacing the raw server `400` after the scaffold
       directory has already been created and entered. Tracked in `TODO.md`; see also
       the runtime-guard item under *Before public-apps GA*.
+
+      **Decided (2026-08-12): translate the server's refusal, do not guard locally.**
+      See the entry below. The stray-directory half of this item is not fixed and is
+      now tracked separately in `TODO.md` — it affects every hard create failure, not
+      just this one, and fixing it trades against orphan-app risk.
+
+### `app create` explains the platform's public-app refusal (2026-08-12)
+
+**Change:** a `400` on a public-app create whose message names `distribution_type` is
+translated into `APP_CREATE_PUBLIC_REJECTED` — a `CliError` that says public
+distribution isn't available yet, names `--distribution private`, notes that
+`distribution_type` is fixed at creation, and quotes the server's own sentence.
+`isPublicDistributionRefusal()` in `src/commands/app/create.ts` does the matching.
+
+**Deliberately not a local guard.** The CLI still sends `distribution_type: "public"`
+and lets the platform refuse it, per `CLAUDE.md`'s standing rule that the CLI must not
+mirror platform policy locally (the same reasoning that removed the local
+extension-point list). Two consequences worth keeping: the day the platform lifts the
+restriction, no CLI change is needed, and the *internal-account escape hatch does not
+apply here* — the server keys the rule on the CLI as caller, not on the account, so a
+`@brevo.com` account is refused identically. `CLAUDE.md` says a runtime guard "needs
+the same internal-account escape hatch"; that condition is moot for a translation of a
+refusal the server already applies to everyone, and an escape hatch would only let an
+internal user through to the same `400`. Both agent docs now state this explicitly.
+
+**Must hold true:**
+
+- [x] Four tests in `src/__tests__/commands/app/create.test.ts` under *the platform's
+      refusal to create a public app from the CLI*: the explanation fires, the server's
+      sentence is quoted, a public create is still **attempted** (the anti-local-guard
+      assertion), and an unrelated `400` on a public create keeps its own text.
+- [x] `yarn lint && yarn format:check && yarn tsc --noEmit && yarn test` green.
+- [ ] **Manual:** `brevo app create --distribution public` against staging now prints
+      the mapped message and the quoted server text, and still exits non-zero.
+- [ ] **Manual:** `brevo app create --distribution public --json` writes the mapped
+      message inside the single `{"error": {...}}` document on stdout (the global
+      `emitJsonError` path — this branch deliberately doesn't call `jsonOutput` itself,
+      unlike the older `APP_LIMIT_REACHED` branch beside it).
+- [ ] Reviewer: confirm the `/distribution_type/i` match is the right narrowing. It is
+      what stops an unrelated `400` being relabelled; if the platform rewords its
+      sentence the match stops firing and the raw message surfaces again, which is the
+      pre-change behaviour rather than a new failure mode.
 
 ### `app create` sends the `ui_app` block for UI apps (2026-08-07)
 

@@ -355,6 +355,39 @@ async function retryCreateWithNewName(inputs: CreateAppInputs): Promise<CreatedA
   }
 }
 
+/**
+ * Recognise the platform's refusal to create a public app from the CLI (BEX-355):
+ * `POST /v3/app-store/apps` answers `400 invalid_parameter` — *public apps cannot
+ * be created with source "cli"; use distribution_type "private"* — for any create
+ * that pairs a CLI caller with `distribution_type: "public"`. This is the API-side
+ * pre-GA guard `CLAUDE.md` says belongs on the server.
+ *
+ * The rule is keyed on the caller, which the platform derives from the structured
+ * `User-Agent` now that `createApp` no longer sends `source` (`src/lib/telemetry.ts`),
+ * so **no change to the request body can satisfy it** — the CLI can only explain it.
+ *
+ * Deliberately a translation and not a local guard. `CLAUDE.md`'s standing rule for
+ * this codebase is that the CLI must not mirror platform policy locally — a copy can
+ * only lag, and it fails in both directions. Forwarding the attempt means the day the
+ * platform lifts the restriction this path stops being reached with no CLI change,
+ * and no internal-account escape hatch is needed here because the server applies the
+ * rule to every caller regardless of account.
+ *
+ * Narrowed to the rejection that names `distribution_type`, so an unrelated 400 on a
+ * public create (a bad `logo_uri`, say) keeps the server's own text rather than being
+ * relabelled as the pre-GA restriction. If the server ever rewords the sentence this
+ * stops matching and the raw message surfaces again — the previous behaviour, not a
+ * new failure mode.
+ */
+function isPublicDistributionRefusal(err: unknown, distribution: string): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    err.statusCode === 400 &&
+    distribution === 'public' &&
+    /distribution_type/i.test(err.message)
+  );
+}
+
 // 5. Create the app
 async function createAppWithRetry(inputs: CreateAppInputs, jsonMode: boolean): Promise<CreatedApp> {
   const spinner = createSpinner('Creating app...', { silent: jsonMode });
@@ -369,6 +402,9 @@ async function createAppWithRetry(inputs: CreateAppInputs, jsonMode: boolean): P
         jsonOutput({ error: 'APP_LIMIT_REACHED', message: messages.APP_CREATE_LIMIT_REACHED });
       }
       throw new CliError(messages.APP_CREATE_LIMIT_REACHED);
+    }
+    if (isPublicDistributionRefusal(err, inputs.distribution)) {
+      throw new CliError(messages.APP_CREATE_PUBLIC_REJECTED(err.message));
     }
     if (err instanceof ApiError && err.statusCode === 409) {
       return retryCreateWithNewName(inputs);
