@@ -713,7 +713,7 @@ describe('app/create', () => {
         'invalid_parameter',
       );
 
-    it('explains the refusal and names --distribution private', async () => {
+    it('explains the refusal and names the --distribution private fix', async () => {
       jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
       (appService.createApp as jest.Mock).mockRejectedValue(rejection());
 
@@ -723,9 +723,16 @@ describe('app/create', () => {
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' });
 
-      await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
-        /public app distribution is not available yet/i,
+      // One invocation, both assertions — a second call would exhaust the
+      // `mockResolvedValueOnce` prompt chain above and fail before the API call.
+      const err: Error = await createCommand({ name: 'Test', distribution: 'public' }).then(
+        () => {
+          throw new Error('expected the create to be refused');
+        },
+        (e: Error) => e,
       );
+      expect(err.message).toMatch(/public apps can't be created from the CLI yet/i);
+      expect(err.message).toMatch(/--distribution private/);
     });
 
     it("quotes the server's own sentence so a different 400 cannot hide behind it", async () => {

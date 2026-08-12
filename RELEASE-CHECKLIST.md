@@ -179,14 +179,44 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
             and the upload diff sorts before comparing, so churn here is contained —
             but the prompt order is the partner's mental model of the page.
       Once upload also reads the registry, the local mirror goes away (see TODO.md).
-- [ ] **Confirm the no-auth wire contract for UI apps.** A UI app's config now
-      carries an empty `auth: {}` (no scopes, no redirect URIs, no jwtSecret —
-      nothing OAuth is issued for it). The CLI therefore omits the whole `auth`
-      block from both `POST /apps` and the upload payload for UI apps. Both are
-      ASSUMED to be tolerated server-side (marked in `create.ts` / `upload.ts` /
-      `types.ts`); confirm with the app-store backend team, including what the
-      server does with the OAuth credentials it still issues at create time for
-      UI apps.
+- [x] **Confirm the no-auth wire contract for UI apps — ANSWERED live (2026-08-12,
+      production).** Both requests are tolerated with the whole `auth` block omitted:
+      `POST /v3/app-store/apps` created the UI app and `POST .../upload` accepted it
+      (`200`, version bump), neither carrying an `auth` key. On the credentials
+      question: the server does **not** issue usable OAuth credentials for a UI app —
+      `GET /v3/app-store/apps/{id}` answers `client_id: ""` with `grant_types: null`,
+      `redirect_uris: null`, `scopes: null`. So `auth: {}` in the file is accurate.
+      (Related bug found in the same run: the create response nests credentials under
+      `auth` and the CLI reads them flat — see `TODO.md`.)
+- [x] **Create actually branches on `ui_app` — ANSWERED live (2026-08-12, production).**
+      The open question in `CLAUDE.md` ("whether the create endpoint actually branches on
+      it is not yet confirmed") is settled: it does more than branch, it **persists the
+      block**. A create carrying `ui_app` and no `auth` returned `version: 0.0.1`, and
+      the immediately-following `GET /v3/app-store/apps/{id}` echoed the full block back
+      — `extension_type`, all `surface_point_list` entries with their `context`, `label`,
+      `more_info`, `redirect_link` — including the 3-placement multi-page case. Hence the
+      first `app upload` after a create correctly reports **"Already up to date"** rather
+      than showing the whole block as new.
+- [x] **The installs POST response carries an install ID — ANSWERED (2026-08-12).** It
+      returns `{"brevo_integration_id": <n>, "installation_id": <n>}` (both the same
+      value). The CLI currently discards it. Nothing depends on it — the developer
+      uninstall route resolves the install from the body, which is why `DELETE` needs no
+      ID — so surfacing it is optional, but it is available if a future `app status`-style
+      view for deployments wants it.
+- [x] **`/v3/account/info` `type` discriminator — partially answered (2026-08-12).** A
+      plain internal account answers `type: "standard"` (with `enterprise: false`), and
+      `resolveDeploymentTarget()` took the deploy-into-itself path with no prompt, so
+      `--json`/CI is safe there. The `type === "corporate"` branch and its
+      `GET /v3/corporate/subAccount` listing are **still unverified** — they need a
+      corporate account.
+- [x] **A non-numeric `organization_id` really is omitted, and the server copes —
+      CONFIRMED live (2026-08-12).** The test account's `organization_id` is the hex
+      string `60af7557…`, so `toNumericIdentifier()` returned `undefined` and `pick()`
+      dropped both identifiers: the install body went out as exactly
+      `{"name": "...", "is_developer": true}` with **no `client_id` and no
+      `deploy_client_id`**. `POST` answered `201` and `DELETE` `204`, so the gateway
+      header resolution and the caller-defaulting both work as designed. This is the
+      case `CLAUDE.md` predicts ("a plain account deploying into itself").
 - [x] **Deploy/rollback route and body — resolved (2026-08-06).** Confirmed against the
       staging endpoint: it is one resource, `/v3/app-store/apps/{id}/installs`, with
       `POST` to install and `DELETE` to remove, both carrying the same body —
@@ -369,6 +399,56 @@ future change makes the field optional on the wire.
       what stops an unrelated `400` being relabelled; if the platform rewords its
       sentence the match stops firing and the raw message surfaces again, which is the
       pre-change behaviour rather than a new failure mode.
+
+### `ui_app_not_enabled` reads as a sentence, not a wire key (2026-08-12)
+
+**Change:** `ERR_UI_APP_NOT_ENABLED` replaces the platform's `ui_app is not enabled for
+this account`. Registered in `apiCodeMessages` (`src/api/client.ts`) under the API code
+`ui_app_not_enabled`, not in a command.
+
+**Why centrally, and why this one doesn't quote the server.** app-store-bo-be's
+`gateUIApp` answers `403` / `ui_app_not_enabled` when the calling account lacks the
+public-apps flag and the request authors a `ui_app` block. It guards **two** commands —
+`app create` (`http_cli_create_app.go:214`) and `app upload`
+(`http_cli_upload_app.go:547`, `:591`) — so a per-command branch would need writing
+twice. Unlike the public-app refusal, this one is identified by a *stable code* rather
+than by copy, so there is no rewording risk to leave an escape valve for and the raw
+sentence is not appended.
+
+**It is the same allowance as public apps** (`app-store-bo-be-public-apps`), so an
+account that can create public apps can author `ui_app` blocks too, and an enabled
+account never sees either message. Both agent docs now say so under the UI-apps notice.
+
+**Must hold true:**
+
+- [x] `replaces the raw ui_app_not_enabled copy with actionable text` in
+      `src/__tests__/api/client.test.ts` — asserts the mapped text, that the wire key
+      `ui_app is not enabled` does *not* reach the user, and that `apiCode` /
+      `statusCode` survive for scripts.
+- [x] `yarn lint && yarn format:check && yarn tsc --noEmit && yarn test` green.
+- [ ] **Manual:** on an account without the flag, `brevo app create` → *UI app* and
+      `brevo app upload` of a `ui_app` config both print the new message and exit
+      non-zero. Note the server sends the text under `error`, not `message`.
+- [ ] **Manual, blocking before UI-apps GA:** confirm on an account *with* the flag
+      that neither command sees this message — i.e. the mapping is inert rather than
+      swallowing a real failure.
+- [ ] Reviewer: `mapErrorCode` still classifies this as `ACCESS_DENIED` (403). Confirm
+      that is the right exit-code bucket for a per-account feature gate, or whether it
+      deserves its own `ErrorCode`.
+
+### The public-app refusal message was reworded for readability (2026-08-12)
+
+**Change:** `APP_CREATE_PUBLIC_REJECTED` went from one long paragraph to a lead line
+plus three aligned labelled lines (`Do this:` / `Note:` / `Brevo said:`). No logic
+change — `isPublicDistributionRefusal` is untouched.
+
+**Must hold true:**
+
+- [x] The create test asserts the new lead line and `--distribution private` on a
+      single invocation (a second call would exhaust the `mockResolvedValueOnce`
+      prompt chain and fail before the API call).
+- [ ] Reviewer: both agent docs quote this message; they were updated with it. If it is
+      reworded again, re-grep `agent-context/` for the old text.
 
 ### `app create` sends the `ui_app` block for UI apps (2026-08-07)
 

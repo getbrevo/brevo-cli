@@ -275,3 +275,53 @@ into `main` — anything that must outlive the branch belongs in
       the authored value became the slug when `surface_point_list` moved off the dotted
       slot name. Neither call site holds the registry row at print time, so this needs a
       lookup, not a formatting change.
+
+- [ ] **BLOCKER — `app create` reads the create response at the wrong nesting level, so
+      every caller loses `client_id` / `redirect_uris` (found by E2E, 2026-08-12).**
+      The unified payload work made create send OAuth fields inside `auth`, and the
+      platform's nested-contract handler (`http_cli_create_app_public.go`) **echoes that
+      nesting back**: the live response is
+      `{app_id, name, version, distribution_type, auth:{client_id, client_secret, scopes,
+      redirect_uris}}`. All six read sites still read the flat shape —
+      `create.ts:426,428,476,477,492,495` and `app-types/ui/authoring.ts:569` — and
+      `CreateAppResponse` (`src/types.ts:347-358`) still declares them top-level, so
+      nothing type-errors. Confirmed against production with `--debug`, and confirmed as
+      a **branch regression** by running the `main` build (`0ad977c`) side by side: main
+      sends the flat request, gets a flat response, and prints/emits both fields.
+      User-visible today:
+      - `brevo app create` (OAuth, human) prints `Client ID: undefined` and **drops the
+        `Redirect URL n:` lines entirely** — QA-TESTCASES TC-1.1 expects both.
+      - `brevo app create --json` silently omits `clientId` and `redirectUri`
+        (`JSON.stringify` drops `undefined`), breaking the documented TC-4.2 contract
+        and any pipeline reading `.clientId`.
+      - The UI-app box prints `Client ID: undefined` too, plus a `Client secret` row and
+        a `brevo app credentials` hint that never apply to a UI app.
+      - `saveAppCredentials()` caches `{clientId: undefined, clientSecret: undefined}`.
+        Not permanent loss — `brevo app credentials` re-fetches and heals the cache — but
+        the create-time write is dead.
+      **Fix in one place:** `createApp()` already post-processes via
+      `normalizeAppId(raw)` (`src/services/app.ts:361`) — lift `auth.client_id`,
+      `auth.client_secret` and `auth.redirect_uris` to the top level there (tolerating
+      both shapes so the flat handler keeps working) and correct `CreateAppResponse`.
+      That leaves all six call sites untouched. Separately, omit the Client ID/secret
+      rows from the UI-app box rather than rendering empties.
+
+- [ ] **`QA-TESTCASES.md` section 12 has drifted from the implemented flow.** Four
+      expectations now contradict the code and `CLAUDE.md`, so QA would file passes as
+      failures: TC-12.2c still describes the **single grouped placement prompt** (the
+      flow is N single-selects, one per page — `CLAUDE.md` says never restore the
+      grouped one); TC-12.4 still expects a `Link target: _blank (added on upload…)` row
+      in the diff (deliberately removed in 29c9ef4); TC-12.10 still says `brevo app
+      remove` and `{"removed": false}` (now `rollback` / `rolledBack`); and TC-12.2's
+      prompt list omits the **`App logo URL`** prompt the UI flow actually asks between
+      `Redirect link` and `Output directory`. The agent docs are already correct — only
+      this file lags.
+
+- [ ] **`RELEASE-CHECKLIST.md` → *Before UI-apps GA* cites two things that no longer
+      exist.** The *Coordinate the BEX-350 registry reseed* item says the CLI's local
+      registry copy "lives in `src/lib/constants.ts` (`EXTENSION_POINTS`)" — that mirror
+      was removed on this branch (only `EXTENSION_PLACE_LABELS` remains at
+      `constants.ts:219`), which is the whole point of 0ae75c0. The *`ui_app` field
+      names* item still spells entries as `{ surface_point, context? }`; the key is
+      `surface_point_name`. Both sit in the **durable** GA section, so they will mislead
+      whoever works the GA pass.

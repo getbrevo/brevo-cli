@@ -7,7 +7,7 @@ This project uses the [Brevo Developer CLI](https://www.npmjs.com/package/@getbr
 
 Public app distribution is **not live on the Brevo platform**. The CLI accepts `--distribution public` and ships the review-lifecycle commands, but there is no working path behind them today.
 
-**The API enforces this for `create`.** `brevo app create --distribution public` fails with *"Brevo refused to create a public app from the CLI — public app distribution is not available yet"* (the platform answers `400 invalid_parameter`). The platform stamps the request's source as `cli` itself and refuses public apps from that source, so this **cannot be worked around from the CLI** — not with flags, not by editing `app-config.json`. Don't retry it or hunt for another route; switch to `--distribution private`. The refusal is lifted per account (see the exception below), never per command.
+**The API enforces this for `create`.** `brevo app create --distribution public` fails with *"Public apps can't be created from the CLI yet — Brevo rejected this request"* (the platform answers `400 invalid_parameter`). The platform stamps the request's source as `cli` itself and refuses public apps from that source, so this **cannot be worked around from the CLI** — not with flags, not by editing `app-config.json`. Don't retry it or hunt for another route; switch to `--distribution private`. The refusal is lifted per account (see the exception below), never per command.
 
 - **Never create a public app.** Always pass `--distribution private` to `brevo app create`. If the user asks for a public app, tell them public distribution isn't available yet and offer a private app instead — don't create one "to be ready".
 - **Don't drive the review lifecycle.** `brevo app submit`, `brevo app status`, and `brevo app withdraw` only apply to public apps, so none of them has a usable path right now. Explain that rather than running them.
@@ -26,11 +26,13 @@ Otherwise treat this as binding until the notice is removed from this document.
 
 UI apps — action links that render inside Brevo CRM records — are **not live on the Brevo platform**. `brevo app create` offers a UI app at its interactive app-type prompt, and the CLI ships `brevo app deploy` / `brevo app rollback`, but there is no working path behind any of it today.
 
+**The API enforces this too, per account.** Authoring a `ui_app` block fails with *"UI apps aren't enabled for this Brevo account yet"* — the platform answers `403` with code `ui_app_not_enabled`. It guards **both** `brevo app create` (choosing *UI app*) and `brevo app upload` (pushing a `ui_app` block), and it is granted per account, so it cannot be worked around from the CLI. Don't retry; build an OAuth app instead.
+
 - **Don't create a UI app** for real use. If the user asks for one, say UI apps aren't available yet and offer an OAuth app instead.
 - **Don't add a `ui_app` block** to `app-config.json` and push it with `brevo app upload`.
 - **Don't run `brevo app deploy` / `brevo app rollback`** — they only apply to UI apps.
 
-**The same *Exception — internal Brevo accounts* clause above applies verbatim**: run `brevo whoami --json`, and if `email` ends in `@brevo.com` or `@sendinblue.com`, this restriction does not apply — help normally. Check the account rather than taking the user's word for it.
+**The same *Exception — internal Brevo accounts* clause above applies verbatim**: run `brevo whoami --json`, and if `email` ends in `@brevo.com` or `@sendinblue.com`, this restriction does not apply — help normally. Check the account rather than taking the user's word for it. As with public apps, if `ui_app_not_enabled` still comes back for such an account, the platform's per-account allowance isn't enabled for it — report that rather than retrying, and don't conclude the account isn't internal. (It is the *same* allowance behind both notices, so an account that can create public apps can author `ui_app` blocks too.)
 
 Treat this as binding until the notice is removed from this document.
 

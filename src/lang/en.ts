@@ -64,12 +64,19 @@ export const messages = {
   APP_CREATE_APP_TYPE_UI: 'UI app     (Render inside Brevo — opens your app from a record)',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
-  // The platform refuses a public-app create from the CLI (BEX-355). Deliberately
-  // quotes the server's own sentence: the CLI recognises this rejection by the
-  // field the server names, and if that copy ever changes the raw text still
-  // reaches the user instead of a confidently wrong explanation.
+  // The platform refuses a public-app create from the CLI (BEX-355). Three short
+  // labelled lines rather than one paragraph: the fix, the caveat that stops the
+  // user thinking they can flip it later, and the server's own sentence.
+  //
+  // `Brevo said:` is deliberate — the raw text is quoted rather than swallowed, so
+  // if the platform ever rewords the rejection (and `isPublicDistributionRefusal`
+  // stops recognising it) nothing was hidden in the meantime. The labels align at
+  // one column so the three lines scan as a list.
   APP_CREATE_PUBLIC_REJECTED: (serverMessage: string): string =>
-    `Brevo refused to create a public app from the CLI — public app distribution is not available yet.\n  Re-run \`${CLI.APP_CREATE}\` with \`--distribution private\`. Note that \`distribution_type\` is fixed at creation time and cannot be changed later with \`${CLI.APP_UPLOAD}\`.\n  Brevo's response: ${serverMessage}`,
+    "Public apps can't be created from the CLI yet — Brevo rejected this request.\n\n" +
+    '  Do this:     re-run with `--distribution private`\n' +
+    `  Note:        \`distribution_type\` is fixed at creation — \`${CLI.APP_UPLOAD}\` can't change it later\n` +
+    `  Brevo said:  ${serverMessage}`,
   APP_CREATE_REDIRECT_PROMPT:
     'OAuth callback URL — where users are sent after authorizing your app:',
   APP_CREATE_REDIRECT_HINT: (cmd: string) =>
@@ -414,6 +421,21 @@ export const messages = {
   ERR_NETWORK: 'Cannot reach Brevo API.',
   ERR_RATE_LIMITED: (retryAfter: number) => `Rate limited. Retrying in ${retryAfter} seconds...`,
   ERR_REGISTRY: 'Operation failed due to a registry error. Please try again.',
+  // Replaces the platform's `ui_app is not enabled for this account` (403,
+  // `ui_app_not_enabled`) — a wire key is not something a partner can act on. Mapped
+  // by API *code* rather than by copy, which is why this one does not quote the
+  // server back the way `APP_CREATE_PUBLIC_REJECTED` does: the code is the stable
+  // identifier, so there is no mismatch to leave an escape valve for, and the
+  // server's sentence says nothing this line doesn't.
+  //
+  // Keyed centrally in `apiCodeMessages` because the same gate guards two commands:
+  // `app create` (authoring a `ui_app` block) and `app upload` (pushing one). The
+  // allowance is per account and shares the public-apps flag, so an enabled account
+  // never sees this. `--json` consumers still get `code: "ui_app_not_enabled"`.
+  ERR_UI_APP_NOT_ENABLED:
+    "UI apps aren't enabled for this Brevo account yet.\n\n" +
+    '  Why:       UI apps (action links) are still rolling out, and are enabled per account.\n' +
+    '  Do this:   build an OAuth app instead, or ask Brevo to enable UI apps for this account.',
   ERR_AUTH_GATEWAY:
     'API is behind an authentication gateway (e.g. Cloudflare Access). Sign in via your browser first, or check your API base URL.',
 

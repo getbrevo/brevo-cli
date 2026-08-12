@@ -26,6 +26,11 @@ const MAX_RETRY_AFTER_SECONDS = 300;
 const apiCodeMessages: Record<string, string> = {
   APP_LIMIT_REACHED: messages.APP_CREATE_LIMIT_REACHED,
   REGISTRY_ERROR: messages.ERR_REGISTRY,
+  // app-store-bo-be's `gateUIApp` answers 403 `ui_app_not_enabled` when the calling
+  // account lacks the public-apps flag and the request authors a `ui_app` block. It
+  // guards both `app create` and `app upload`, so it is mapped here rather than in
+  // either command — the code is stable, unlike the copy.
+  ui_app_not_enabled: messages.ERR_UI_APP_NOT_ENABLED,
 };
 
 function resolveErrorMessage(apiCode: string | undefined, fallback: string): string {

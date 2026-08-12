@@ -137,6 +137,40 @@ describe('api client', () => {
       );
     });
 
+    // app-store-bo-be's `gateUIApp` answers 403 `ui_app_not_enabled` for an account
+    // without the public-apps flag, on both `app create` and `app upload`. Its own
+    // copy — `ui_app is not enabled for this account` — names a wire key, so it is
+    // replaced here rather than in either command. Note the server sends the text
+    // under `error`, not `message`.
+    it('replaces the raw ui_app_not_enabled copy with actionable text', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 403,
+        headers: new Map(),
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              code: 'ui_app_not_enabled',
+              error: 'ui_app is not enabled for this account',
+            }),
+          ),
+      });
+
+      const err: Error = await client
+        .post('/v3/app-store/apps', {})
+        .then(() => {
+          throw new Error('expected the request to be refused');
+        })
+        .catch((e: Error) => e);
+
+      expect(err.message).toBe(messages.ERR_UI_APP_NOT_ENABLED);
+      expect(err.message).toMatch(/UI apps aren't enabled for this Brevo account yet/);
+      // The wire key must not reach the user.
+      expect(err.message).not.toMatch(/ui_app is not enabled/);
+      // Scripts keep a stable identifier even though the prose changed.
+      expect(err).toMatchObject({ apiCode: 'ui_app_not_enabled', statusCode: 403 });
+    });
+
     it('should surface the `error` field when the API omits `message`', async () => {
       mockFetch.mockResolvedValue({
         ok: false,
