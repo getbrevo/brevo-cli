@@ -6,6 +6,8 @@ import { loginCommand } from './login';
 import { logoutCommand } from './logout';
 import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
+import { deployCommand } from './app/deploy';
+import { rollbackCommand } from './app/rollback';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
 import { statusCommand } from './app/status';
@@ -63,7 +65,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'create',
-      description: 'Create a new OAuth app',
+      description: 'Create a new app (OAuth integration or UI app)',
       examples: [
         'brevo app create',
         'brevo app create --name "My App" --distribution private',
@@ -72,12 +74,16 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
       ],
+      // A UI app is authored entirely through the interactive prompts (BEX-290) —
+      // there is deliberately no `--type` or per-field flag. Every flag below
+      // applies to an OAuth app, which is what a non-interactive run always
+      // creates.
       options: [
         { flags: '--name <name>', description: 'App name' },
         { flags: '--distribution <type>', description: 'Distribution type (private|public)' },
         {
           flags: '--redirect-uri <url>',
-          description: 'Redirect URI (repeatable)',
+          description: 'Redirect URI (repeatable, OAuth apps only)',
           parser: collectUrls,
         },
         {
@@ -108,6 +114,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'status',
+      requires: 'review-lifecycle',
       description: "Show an app's review status",
       examples: [
         'brevo app status',
@@ -163,6 +170,72 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         }),
     },
     {
+      name: 'deploy',
+      requires: 'account-install',
+      description: 'Make an app available in a Brevo account',
+      arguments: [
+        {
+          name: '[account-id]',
+          description: 'Brevo account (tenant) ID (defaults to your own account)',
+        },
+      ],
+      examples: [
+        'brevo app deploy',
+        'brevo app deploy 99999',
+        'brevo app deploy 99999 --app-id 42',
+        'brevo app deploy 99999 --force --json',
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts, accountId) =>
+        deployCommand({
+          accountId: accountId as string | undefined,
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'rollback',
+      requires: 'account-install',
+      description: 'Roll back an app from a Brevo account',
+      arguments: [
+        {
+          name: '[account-id]',
+          description: 'Brevo account (tenant) ID (defaults to your own account)',
+        },
+      ],
+      examples: [
+        'brevo app rollback',
+        'brevo app rollback 99999',
+        'brevo app rollback 99999 --app-id 42',
+        'brevo app rollback 99999 --force --json',
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts, accountId) =>
+        rollbackCommand({
+          accountId: accountId as string | undefined,
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
       name: 'delete',
       description: 'Delete an app',
       examples: ['brevo app delete --app-id 42', 'brevo app delete --app-id 42 --force'],
@@ -184,6 +257,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'withdraw',
+      requires: 'review-lifecycle',
       description: 'Withdraw an app from submission',
       examples: [
         'brevo app withdraw --app-id 42',
@@ -258,6 +332,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'submit',
+      requires: 'review-lifecycle',
       description: 'Submit a public app for review',
       examples: [
         'brevo app submit',

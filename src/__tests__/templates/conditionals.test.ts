@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { applyConditionals, applyVars, Distribution } from '../../templates';
+import { applyConditionals, applyVars, Distribution, TemplateFlag } from '../../templates';
 
 const TEMPLATES_DIR = path.resolve(__dirname, '../../templates/files');
 function loadTemplate(relativePath: string): string {
@@ -95,5 +95,101 @@ describe('.env template branching', () => {
     const pub = render('src/oauth/.env.example.tmpl', 'public');
     expect(pub).not.toContain('CLIENT_SECRET');
     expect(pub).toContain('PKCE');
+  });
+});
+
+// ──────────────── App-type flags (BEX-290) ────────────────
+describe('app-type conditionals', () => {
+  it('accepts a flag set alongside the legacy Distribution argument', () => {
+    const tmpl = [
+      '{{#if oauth}}',
+      'oauth-only',
+      '{{/if}}',
+      '{{#if ui_app}}',
+      'ui-only',
+      '{{/if}}',
+    ].join('\n');
+
+    expect(applyConditionals(tmpl, new Set<TemplateFlag>(['private', 'oauth']))).toBe('oauth-only');
+    expect(applyConditionals(tmpl, new Set<TemplateFlag>(['private', 'ui_app']))).toBe('ui-only');
+    // A bare Distribution still works and matches neither app-type branch.
+    expect(applyConditionals(tmpl, 'private')).toBe('');
+  });
+
+  it('combines distribution and app-type flags independently', () => {
+    const tmpl = ['{{#if ui_app}}', 'ui', '{{#if public}}', 'ui-public', '{{/if}}', '{{/if}}'].join(
+      '\n',
+    );
+
+    expect(applyConditionals(tmpl, new Set<TemplateFlag>(['public', 'ui_app']))).toBe(
+      'ui\nui-public',
+    );
+    expect(applyConditionals(tmpl, new Set<TemplateFlag>(['private', 'ui_app']))).toBe('ui');
+  });
+});
+
+describe('app-config.json template branching', () => {
+  const BASE_VARS = {
+    '{{APP_ID}}': '42',
+    '{{APP_NAME}}': 'Invoice Manager',
+    '{{APP_VERSION}}': '1.0.0',
+    '{{LOGO_URI}}': '',
+    '{{DISTRIBUTION}}': 'private',
+    '{{SCOPES_JSON}}': '["contacts:read","contacts:write"]',
+    '{{REDIRECT_URLS_JSON}}': '["http://localhost:3009/auth/callback"]',
+  };
+
+  const renderConfig = (extraVars: Record<string, string>, flags: Set<TemplateFlag>): string =>
+    applyVars(applyConditionals(loadTemplate('app-config.json.tmpl'), flags), {
+      ...BASE_VARS,
+      ...extraVars,
+    });
+
+  it('renders valid JSON with redirectUris and no ui_app for an OAuth app', () => {
+    const out = renderConfig(
+      { '{{UI_APP_JSON}}': '' },
+      new Set<TemplateFlag>(['private', 'oauth']),
+    );
+    const parsed = JSON.parse(out);
+
+    expect(parsed.auth.redirectUris).toEqual(['http://localhost:3009/auth/callback']);
+    expect(parsed).not.toHaveProperty('ui_app');
+  });
+
+  it('renders valid JSON with ui_app and no redirectUris for a UI app', () => {
+    // The platform's app-snapshot shape — nested one level deep, which is
+    // what the template's indent handling has to survive.
+    const uiApp = {
+      extension_type: 'actionLink',
+      surface_point_list: [
+        { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+        { surface_point_name: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
+      ],
+      label: 'View in CRM',
+      more_info: 'Open this contact in your connected CRM.',
+      redirect_link: 'https://example.com/brevo',
+    };
+    const out = renderConfig(
+      { '{{UI_APP_JSON}}': JSON.stringify(uiApp, null, 2).split('\n').join('\n  ') },
+      new Set<TemplateFlag>(['private', 'ui_app']),
+    );
+    const parsed = JSON.parse(out);
+
+    expect(parsed.ui_app).toEqual(uiApp);
+    // A UI app has no OAuth block: auth is exactly the empty object.
+    expect(parsed.auth).toEqual({});
+  });
+
+  // Dropped from the scaffolded config (nothing ever read them) — their
+  // reappearance would mean the template regressed.
+  it('renders neither permittedUrls nor support for either app type', () => {
+    for (const flags of [
+      new Set<TemplateFlag>(['private', 'oauth']),
+      new Set<TemplateFlag>(['private', 'ui_app']),
+    ]) {
+      const parsed = JSON.parse(renderConfig({ '{{UI_APP_JSON}}': '{}' }, flags));
+      expect(parsed).not.toHaveProperty('permittedUrls');
+      expect(parsed).not.toHaveProperty('support');
+    }
   });
 });

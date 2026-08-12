@@ -27,6 +27,9 @@ jest.mock('../../../lib/config', () => ({
   readProjectConfig: jest.fn().mockReturnValue(null),
   writeProjectConfig: jest.fn(),
   saveAppName: jest.fn(),
+  // Pure predicate over the config object — use the real logic rather than a
+  // jest.fn() so every test doesn't have to stub the app-type branch.
+  isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
 
 jest.mock('../../../container', () => ({

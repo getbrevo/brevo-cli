@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { scaffoldCommand } from '../../../commands/app/scaffold';
+import { scaffoldCommand, fetchAppContext } from '../../../commands/app/scaffold';
 
 // fs is fully mocked below, so these paths are never written. We deliberately
 // avoid os.tmpdir() to keep tests off any shared, world-writable directory
@@ -34,6 +34,7 @@ jest.mock('../../../lib/config', () => ({
   getAppCredentials: jest.fn(),
   saveAppCredentials: jest.fn(),
   readProjectConfig: jest.fn().mockReturnValue(null),
+  isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
 
 jest.mock('../../../templates', () => ({
@@ -135,7 +136,11 @@ describe('app/scaffold', () => {
       await scaffoldCommand({});
 
       expect(appService.pickApp).not.toHaveBeenCalled();
-      expect(appService.resolveAppCredentials).toHaveBeenCalledWith('1');
+      // `tolerateMissing: false` — `app scaffold` reads an ID the user supplied, so
+      // a 404 must stay fatal here. Only `app create`'s read-back opts out.
+      expect(appService.resolveAppCredentials).toHaveBeenCalledWith('1', {
+        tolerateMissing: false,
+      });
       // No diff → no confirm prompt.
       expect(mockPrompt).not.toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ name: 'confirmed' })]),
@@ -619,6 +624,195 @@ describe('app/scaffold', () => {
 
       expect(mockPrompt).not.toHaveBeenCalled();
       expect(result).toBe('oauth');
+    });
+  });
+
+  // ──────────────── UI apps (BEX-290) ────────────────
+  describe('UI apps', () => {
+    const uiApp = {
+      extension_type: 'actionLink' as const,
+      surface_point_list: [
+        { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+      ],
+      label: 'View in CRM',
+      // A value the server does not know about — the whole point of the
+      // preservation test below.
+      more_info: 'Hand-edited more_info',
+      redirect_link: 'https://example.com/brevo',
+    };
+
+    // Drifts from serverApp on appName so the refresh path (a full overwrite of
+    // app-config.json) is exercised.
+    const driftedUiConfig = {
+      appId: '1',
+      appName: 'Renamed Locally',
+      distribution_type: 'private' as const,
+      logoUri: '',
+      version: '1.0.0',
+      auth: { scopes: ['contacts:read'] },
+      ui_app: uiApp,
+    };
+
+    // This is the regression that matters: on detected drift the command
+    // rewrites app-config.json wholesale from server values, and the server does
+    // not return `ui_app`. Without the local block being carried into the
+    // template vars, a partner's hand-edited action-link config is destroyed.
+    it('preserves the local ui_app block through a confirmed config refresh', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(driftedUiConfig);
+      mockPrompt.mockResolvedValueOnce({ confirmed: true });
+
+      await scaffoldCommand({});
+
+      const { loadBaseTemplates } = require('../../../templates');
+      expect(loadBaseTemplates).toHaveBeenCalled();
+      const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{UI_APP_JSON}}']).toContain('Hand-edited more_info');
+      expect(JSON.parse(vars['{{UI_APP_JSON}}'].replaceAll('\n  ', '\n'))).toEqual(uiApp);
+    });
+
+    it('does not report phantom redirect-URL drift for a UI app', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...driftedUiConfig,
+        appName: 'Test App', // matches the server, so ONLY redirectUrls could differ
+      });
+
+      await scaffoldCommand({ json: true });
+
+      // No drift detected → no cancellation, and the base refresh is skipped.
+      const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
+      expect(parsed.cancelled).toBeUndefined();
+    });
+
+    it('offers no features and never scaffolds the OAuth server', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...driftedUiConfig,
+        appName: 'Test App',
+      });
+
+      await scaffoldCommand({});
+
+      const { loadFeatureTemplates } = require('../../../templates');
+      expect(loadFeatureTemplates).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toMatch(/no features to scaffold/i);
+    });
+
+    // The app type is decided locally, never by server data. If the server
+    // returned a `ui_app` for an app the local config says is OAuth, honouring it
+    // would silently reclassify the project and write a UI config over an OAuth
+    // one — so `fetchAppContext` takes the block from the caller only.
+    it('ignores a server-returned ui_app block for a project whose local config is OAuth', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+        diffs: [],
+        app: { ...serverApp, ui_app: uiApp },
+      });
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...matchingLocalConfig,
+        appName: 'Renamed Locally', // force the base refresh
+      });
+      mockPrompt
+        .mockResolvedValueOnce({ confirmed: true })
+        .mockResolvedValueOnce({ featureType: 'oauth' });
+
+      await scaffoldCommand({});
+
+      const { loadBaseTemplates, loadFeatureTemplates } = require('../../../templates');
+      const vars = (loadBaseTemplates as jest.Mock).mock.calls[0][0];
+      expect(vars['{{UI_APP_JSON}}']).toBe('');
+      // Still treated as an OAuth project: the feature scaffold runs.
+      expect(loadFeatureTemplates).toHaveBeenCalled();
+    });
+
+    it('reports an empty feature list under --json', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...driftedUiConfig,
+        appName: 'Test App',
+      });
+
+      await scaffoldCommand({ json: true });
+
+      const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
+      expect(parsed.features).toEqual([]);
+    });
+  });
+
+  // `fallbackApp` exists for exactly one caller: `app create`'s read-back of the
+  // app it just created. The platform can answer `id not found` for an ID it
+  // issued moments earlier (BEX-290), and before this the throw took the whole
+  // create with it — app on the server, no project on disk.
+  describe('fetchAppContext read-back fallback', () => {
+    // The create response: no `scopes`, and a name/version distinct from
+    // `serverApp` so a test can tell which object the context was built from.
+    const createResponse = {
+      app_id: '1',
+      name: 'Freshly Created',
+      client_id: 'cli-new',
+      client_secret: 'secret-new',
+      redirect_uris: ['http://localhost:4000/callback'],
+      distribution_type: 'private' as const,
+      logo_uri: 'https://example.com/logo.png',
+      version: '0.1.0',
+      created_at: '',
+      updated_at: '',
+    };
+
+    it('reads normally and ignores the fallback when the server answers', async () => {
+      const ctx = await fetchAppContext('1', false, undefined, createResponse);
+
+      expect(ctx.appDetails).toEqual(serverApp);
+      expect(ctx.clientId).toBe('cli-123');
+      const warned = stdoutSpy.mock.calls.some((c) => String(c[0]).includes('could not be read'));
+      expect(warned).toBe(false);
+    });
+
+    it('builds the context from the fallback when the server returns no app', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(null);
+
+      const ctx = await fetchAppContext('1', false, undefined, createResponse);
+
+      expect(ctx.appDetails).toEqual(createResponse);
+      expect(ctx.clientId).toBe('cli-new');
+      expect(ctx.clientSecret).toBe('secret-new');
+      expect(ctx.redirectUris).toEqual(['http://localhost:4000/callback']);
+    });
+
+    it('asks the service to tolerate a 404 only when a fallback is available', async () => {
+      await fetchAppContext('1', false, undefined, createResponse);
+      expect(appService.resolveAppCredentials).toHaveBeenLastCalledWith('1', {
+        tolerateMissing: true,
+      });
+
+      await fetchAppContext('1');
+      expect(appService.resolveAppCredentials).toHaveBeenLastCalledWith('1', {
+        tolerateMissing: false,
+      });
+    });
+
+    it('warns on the fallback path so the user knows the config came from create', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(null);
+
+      await fetchAppContext('1', false, undefined, createResponse);
+
+      const warned = stdoutSpy.mock.calls.some((c) => String(c[0]).includes('could not be read'));
+      expect(warned).toBe(true);
+    });
+
+    // logWarn writes to stdout, which under --json is the single JSON blob.
+    it('stays silent on the fallback path under --json', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(null);
+
+      await fetchAppContext('1', true, undefined, createResponse);
+
+      expect(stdoutSpy).not.toHaveBeenCalled();
+    });
+
+    // No fallback (every caller but create) → not-found still aborts.
+    it('propagates the service error when no fallback was supplied', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockRejectedValue(
+        new Error('App 1 not found.'),
+      );
+
+      await expect(fetchAppContext('1')).rejects.toThrow('App 1 not found.');
     });
   });
 });

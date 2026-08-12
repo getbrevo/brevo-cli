@@ -24,7 +24,11 @@ import {
 } from './scaffold';
 import { appService } from '../../container';
 import { FeatureType } from '../../templates';
-import { CreateAppResponse } from '../../types';
+import { CreateAppResponse, UiApp } from '../../types';
+// The UI-app half of this flow (registry reads, placement prompts, the summary box) lives
+// beside its app type — see `src/app-types/contract.ts` for why authoring hangs off the
+// module folder rather than off the type descriptor. Only these two entry points are public.
+import { resolveUiApp, renderCreatedUiApp } from '../../app-types/ui/authoring';
 
 function validateHttpUrl(trimmed: string, invalidMessage: string): true | string {
   try {
@@ -77,6 +81,37 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
     },
   ]);
   return answer.name;
+}
+
+// 3. App type — OAuth integration vs UI app (BEX-290).
+//    Asked after distribution: name and distribution describe the app record
+//    itself, so they come first; the type then decides which of the two
+//    remaining prompt paths runs (OAuth callback URLs vs UI-app placement).
+//
+//    Prompt-only, deliberately: there is no `--type` flag, so a UI app can only
+//    be authored from an interactive terminal. UI apps aren't live on the
+//    platform yet, and a scriptable create surface would invite pipelines to pin
+//    to a shape that can still change. Any non-interactive run — piped stdin or
+//    `--json` — creates an OAuth app, exactly as it did before BEX-290, so
+//    existing scripted `app create` calls are unaffected.
+export type AppType = 'oauth' | 'ui';
+
+async function resolveAppType(interactive: boolean): Promise<AppType> {
+  if (!interactive) {
+    return 'oauth';
+  }
+  const answer = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'appType',
+      message: messages.APP_CREATE_APP_TYPE_PROMPT,
+      choices: [
+        { name: messages.APP_CREATE_APP_TYPE_OAUTH, value: 'oauth' },
+        { name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' },
+      ],
+    },
+  ]);
+  return answer.appType as AppType;
 }
 
 // 2. Distribution type
@@ -261,6 +296,8 @@ interface CreateAppInputs {
   distribution: string;
   redirectUris: string[];
   logoUri?: string;
+  /** Present for UI apps only; drives scope defaults and omits redirect URIs. */
+  uiApp?: UiApp;
 }
 
 interface CreatedApp {
@@ -269,11 +306,27 @@ interface CreatedApp {
 }
 
 function buildCreatePayload(inputs: CreateAppInputs) {
+  const isUiApp = !!inputs.uiApp;
   return {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
-    redirect_uris: inputs.redirectUris,
-    scopes: [...DEFAULT_SCOPES],
+    // OAuth fields travel inside the `auth` block, same as the upload payload
+    // (unified structure). A UI app has no OAuth block at all (`auth: {}` in
+    // its config) — the key is omitted entirely, not sent empty. Sending empty
+    // arrays (or worse, the default localhost URI) would register OAuth state
+    // the app type never uses.
+    //
+    // `ui_app` is what tells create the omission is deliberate. It is the
+    // app-type discriminator on the wire exactly as it is in app-config.json
+    // (`isUiAppConfig`), so create can apply the same branch the CLI does:
+    // without it the endpoint reads a UI app as an OAuth app missing its
+    // callbacks and answers `redirect_uris is required and must not be empty`.
+    // `app upload` still sends the block and remains the platform's validation
+    // authority for it — this is the same block under the same key, sent early
+    // enough that the record is created with the right app type.
+    ...(isUiApp
+      ? { ui_app: inputs.uiApp }
+      : { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } }),
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
 }
@@ -302,6 +355,45 @@ async function retryCreateWithNewName(inputs: CreateAppInputs): Promise<CreatedA
   }
 }
 
+/**
+ * Recognise the platform's refusal to create a public app from the CLI (BEX-355):
+ * `POST /v3/app-store/apps` answers `400 invalid_parameter` — *public apps cannot
+ * be created with source "cli"; use distribution_type "private"* — for any create
+ * that pairs a CLI caller with `distribution_type: "public"`. This is the API-side
+ * pre-GA guard `CLAUDE.md` says belongs on the server.
+ *
+ * **No change to the request body can satisfy it, and the mechanism is not the
+ * `User-Agent`.** The handler assigns `payload.Source = SourceCLI` before validating
+ * — app-store-bo-be `http_cli_create_app.go`, and identically in
+ * `http_cli_create_app_public.go` for the nested `auth`/`ui_app` contract the CLI
+ * sends — deliberately *overwriting* any client-supplied value so the gate cannot be
+ * bypassed by sending some other source. Dropping `source` from the body on BEX-355
+ * therefore had no effect on this gate: the server puts it back.
+ *
+ * Deliberately a translation and not a local guard, for two reasons. First,
+ * `CLAUDE.md`'s standing rule that the CLI must not mirror platform policy locally —
+ * a copy can only lag. Second, and concretely: **the restriction is per-account, so
+ * a local guard would be wrong rather than merely stale.** The server's `allowPublic`
+ * comes from the Unleash flag `app-store-bo-be-public-apps` resolved for the calling
+ * client (BEX-333) and lifts the rule for the `cli` source only, failing closed on a
+ * lookup error. An account with that flag enabled creates public apps from the CLI
+ * successfully, and never reaches this path.
+ *
+ * Narrowed to the rejection that names `distribution_type`, so an unrelated 400 on a
+ * public create (a bad `logo_uri`, say) keeps the server's own text rather than being
+ * relabelled as the pre-GA restriction. If the server ever rewords the sentence this
+ * stops matching and the raw message surfaces again — the previous behaviour, not a
+ * new failure mode.
+ */
+function isPublicDistributionRefusal(err: unknown, distribution: string): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    err.statusCode === 400 &&
+    distribution === 'public' &&
+    /distribution_type/i.test(err.message)
+  );
+}
+
 // 5. Create the app
 async function createAppWithRetry(inputs: CreateAppInputs, jsonMode: boolean): Promise<CreatedApp> {
   const spinner = createSpinner('Creating app...', { silent: jsonMode });
@@ -317,6 +409,9 @@ async function createAppWithRetry(inputs: CreateAppInputs, jsonMode: boolean): P
       }
       throw new CliError(messages.APP_CREATE_LIMIT_REACHED);
     }
+    if (isPublicDistributionRefusal(err, inputs.distribution)) {
+      throw new CliError(messages.APP_CREATE_PUBLIC_REJECTED(err.message));
+    }
     if (err instanceof ApiError && err.statusCode === 409) {
       return retryCreateWithNewName(inputs);
     }
@@ -330,7 +425,7 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
     `App ID:         ${result.app_id}`,
     `Client ID:      ${result.client_id}`,
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
-    ...result.redirect_uris.map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
+    ...(result.redirect_uris ?? []).map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
     ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
     `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_SCOPES].join(', ')}`,
@@ -353,15 +448,27 @@ export const createCommand = withCommandHandler(
 
     guardAgainstLinkedApp();
 
+    const interactive = !jsonMode && !!process.stdin.isTTY;
+
     const appName = await resolveAppName(options.name);
     const distribution = await resolveDistribution(options.distribution);
-    const redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
+    const appType = await resolveAppType(interactive);
+
+    // The two app types diverge here: OAuth apps collect callback URLs, UI apps
+    // collect placement + destination. Neither path runs the other's prompts.
+    let redirectUris: string[] = [];
+    let uiApp: UiApp | undefined;
+    if (appType === 'ui') {
+      uiApp = await resolveUiApp();
+    } else {
+      redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
+    }
+
     const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
 
-    const interactive = !jsonMode && !!process.stdin.isTTY;
     const dir = await resolveCreateDirectory(appName, interactive);
 
-    const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri };
+    const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri, uiApp };
     const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
 
     // Store app credentials locally — client_secret may not be retrievable again
@@ -371,27 +478,55 @@ export const createCommand = withCommandHandler(
     });
     if (finalAppName) saveAppName(result.app_id, finalAppName);
 
+    // Shared JSON shape for both exits below. `redirectUri` is omitted for UI
+    // apps rather than emitted as an empty array, so a consumer can distinguish
+    // "no callbacks by design" from "callbacks not returned".
+    //
+    // `--json` implies non-interactive, which implies OAuth, so `appType` is
+    // always `oauth` here today and the `uiApp` branch is unreachable. Both are
+    // kept so the field stays meaningful to a consumer, and so this shape doesn't
+    // have to be rediscovered if UI apps ever gain a non-interactive path.
+    const jsonBase = {
+      appId: result.app_id,
+      appName: finalAppName,
+      clientId: result.client_id,
+      clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
+      appType,
+      ...(uiApp ? { uiApp } : { redirectUri: result.redirect_uris }),
+      ...(logoUri ? { logoUri } : {}),
+      ...(result.version ? { version: result.version } : {}),
+    };
+
+    const renderBox = (): void =>
+      uiApp
+        ? renderCreatedUiApp(result, finalAppName, uiApp, logoUri)
+        : renderCreatedApp(result, finalAppName, logoUri);
+
     if (dir.skipped) {
       if (jsonMode) {
         jsonOutput({
-          appId: result.app_id,
-          appName: finalAppName,
-          clientId: result.client_id,
-          clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
-          redirectUri: result.redirect_uris,
-          ...(logoUri ? { logoUri } : {}),
-          ...(result.version ? { version: result.version } : {}),
+          ...jsonBase,
           directory: dir.targetDir,
           scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(dir.targetDir),
         });
         return;
       }
-      renderCreatedApp(result, finalAppName, logoUri);
+      renderBox();
       logInfo(messages.APP_CREATE_DIR_EXISTS_SKIPPED(dir.targetDir));
       return;
     }
 
-    const ctx = await fetchAppContext(result.app_id, jsonMode);
+    // Pass the freshly collected `ui_app` block explicitly: the server doesn't
+    // have it yet (it only learns about it on `app upload`), so the scaffold
+    // can't read it back from `fetchAppContext`'s server response.
+    //
+    // `result` is passed as the fallback so a read-back that 404s can't destroy a
+    // successful create: the app is already on the server at this point, and the
+    // create response carries every field the scaffold reads off `appDetails`
+    // (name, distribution_type, logo_uri, version) plus the credentials. Without
+    // it, `GET /v3/app-store/apps/{id}` answering `id not found` for an ID the
+    // create just issued aborted the command and left an orphan app behind.
+    const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp, result);
 
     // Always write the basic project structure (app-config.json + meta files).
     const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);
@@ -399,13 +534,7 @@ export const createCommand = withCommandHandler(
     // --json never scaffolds a feature — emit the base result as a single blob.
     if (jsonMode) {
       jsonOutput({
-        appId: result.app_id,
-        appName: finalAppName,
-        clientId: result.client_id,
-        clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
-        redirectUri: result.redirect_uris,
-        ...(logoUri ? { logoUri } : {}),
-        ...(result.version ? { version: result.version } : {}),
+        ...jsonBase,
         directory: dir.targetDir,
         scaffolded: base.written,
       });
@@ -414,10 +543,18 @@ export const createCommand = withCommandHandler(
 
     // Show the created-app box and the base files that were just written,
     // before asking about features.
-    renderCreatedApp(result, finalAppName, logoUri);
+    renderBox();
     reportBaseScaffoldSuccess(base);
 
     const cdDir = computeCdHint(originalCwd, dir.targetDir);
+
+    // UI apps have no scaffoldable feature — an action link runs on the partner's
+    // own infrastructure, so there is no local server to generate. Point at the
+    // upload → deploy path instead of offering the OAuth test server.
+    if (uiApp) {
+      printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_UI_NEXT(cdDir));
+      return;
+    }
 
     // Then offer to scaffold a feature (default yes → pick a type). Only the
     // interactive prompt triggers it; a piped (non-TTY) run stays base-only.

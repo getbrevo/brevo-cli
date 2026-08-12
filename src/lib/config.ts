@@ -2,6 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { splitScopes } from './validators';
+import { OAuthApp, UiApp } from '../types';
+import { isUiAppConfigShape, isUiAppRecordShape } from '../app-types/ui/detect';
 
 // ──────────────── Directory ────────────────
 
@@ -408,23 +410,32 @@ export interface ProjectConfig {
   updatedAt?: string;
   /** Distribution type of the app: 'private' or 'public' */
   distribution_type: 'private' | 'public';
+  /**
+   * OAuth apps carry `{ scopes, redirectUris }`. UI apps carry exactly the
+   * empty object `{}` — no scopes, no redirect URIs, no jwtSecret (nothing is
+   * issued for them today). Enforced in `app upload` (see validateAuthShape),
+   * not here, so unrelated commands that merely read config keep working on a
+   * half-edited file.
+   *
+   * Caution: an `auth.type` key existed twice historically — briefly as an
+   * *interim distribution* carrier ('private' | 'public'), then as the UI-app
+   * marker `'none'`. The read path folds distribution values into
+   * `distribution_type` and drops every `type`, so dev-era configs migrate to
+   * the empty shape on their next write.
+   */
   auth: {
-    scopes: string[];
+    scopes?: string[];
+    // Absent for UI apps: an action link has no OAuth callback to register.
+    // OAuth apps still require at least one (enforced in `app upload`).
     redirectUris?: string[];
   };
-  permittedUrls: {
-    fetch: string[];
-    img: string[];
-    iframe: string[];
-    js: string[];
-    css: string[];
-  };
-  support: {
-    supportEmail: string;
-    documentationUrl: string;
-    supportUrl: string;
-    supportPhone: string;
-  };
+  /**
+   * Present only for UI apps (BEX-290). Its presence is the discriminator
+   * between the two app types — there is no separate `appType` key, matching
+   * the UIApp Support Spec's config examples. Use {@link isUiAppConfig}
+   * rather than testing for the key directly.
+   */
+  ui_app?: UiApp;
 }
 
 const PROJECT_CONFIG_FILE = 'app-config.json';
@@ -490,15 +501,23 @@ export function readProjectConfig(): ProjectConfig | null {
     let distributionType: 'private' | 'public' | undefined;
     if (typeof newDistributionType === 'string' && newDistributionType.trim()) {
       distributionType = newDistributionType.trim() as 'private' | 'public';
-    } else if (typeof legacyAuthType === 'string' && legacyAuthType.trim()) {
+    } else if (
+      typeof legacyAuthType === 'string' &&
+      legacyAuthType.trim() &&
+      legacyAuthType !== 'none' // 'none' is the UI-app auth marker, not a distribution
+    ) {
       distributionType = legacyAuthType.trim() as 'private' | 'public';
     } else if (typeof legacyDistribution === 'string' && legacyDistribution.trim()) {
       distributionType = legacyDistribution.trim() as 'private' | 'public';
     } else {
       distributionType = 'private';
     }
-    // Legacy auth.type is folded into distributionType above and dropped here
-    // so it doesn't leak into authOverride.
+    // Legacy auth.type is always dropped: the interim distribution carrier
+    // ('private'/'public') is folded into distributionType above, and the
+    // dev-era UI-app marker 'none' is obsolete — a UI app's auth is now the
+    // empty object `{}` (the `ui_app` block alone discriminates the app type).
+    // Callers that write the config back to disk migrate old files on their
+    // next write.
     if (authOverride && 'type' in authOverride) {
       delete authOverride.type;
     } else if (rawAuth && typeof rawAuth === 'object' && 'type' in rawAuth) {
@@ -506,11 +525,28 @@ export function readProjectConfig(): ProjectConfig | null {
       delete (authOverride as Record<string, unknown>).type;
     }
     // Drop the legacy top-level `distribution` key from the returned config —
-    // it's already folded into distribution_type above. Callers that write
-    // this object back to disk (upload.ts, start.ts) then naturally migrate
-    // old projects to the new shape on their next write, instead of
-    // round-tripping the stray key forever.
-    const { distribution: _legacyDistribution, ...rawWithoutLegacyDistribution } = rawRecord;
+    // it's already folded into distribution_type above. `permittedUrls` and
+    // `support` were scaffolded into every config but never read by anything;
+    // they're dropped the same way. Callers that write this object back to
+    // disk (upload.ts, start.ts) then naturally migrate old projects to the
+    // new shape on their next write, instead of round-tripping stray keys
+    // forever.
+    const {
+      distribution: _legacyDistribution,
+      permittedUrls: _permittedUrls,
+      support: _support,
+      ...rawWithoutLegacyDistribution
+    } = rawRecord;
+    // `ui_app` (BEX-290) is passed through structurally intact — the spread
+    // above already carries it — but a non-object value is dropped so callers
+    // can trust `config.ui_app` is an object whenever it is present. Field-level
+    // validation is deliberately *not* done here: unrelated commands that merely
+    // read the config must not fail because the block is half-written. `app
+    // upload` is the enforcement point (see validateUiApp).
+    const rawUiApp = rawWithoutLegacyDistribution.ui_app;
+    if ('ui_app' in rawWithoutLegacyDistribution && (!rawUiApp || typeof rawUiApp !== 'object')) {
+      delete rawWithoutLegacyDistribution.ui_app;
+    }
     return {
       ...rawWithoutLegacyDistribution,
       appId,
@@ -525,6 +561,29 @@ export function readProjectConfig(): ProjectConfig | null {
 export function hasLocalApp(): boolean {
   const cfg = readProjectConfig();
   return cfg?.appId != null && cfg.appId !== '';
+}
+
+/**
+ * Whether a project config describes a UI app rather than an OAuth app.
+ *
+ * Thin re-export: the predicate itself lives in `src/app-types/ui/detect.ts`, beside the app
+ * type it describes, so the registry and every command agree by construction. Kept exported
+ * here because a good number of call sites (and their test mocks) already import it from this
+ * module. See that file for why the logic must not live behind this one.
+ */
+export function isUiAppConfig(config: Pick<ProjectConfig, 'ui_app'> | null | undefined): boolean {
+  return isUiAppConfigShape(config);
+}
+
+/**
+ * Whether a *server* app record describes a UI app. The record counterpart to
+ * {@link isUiAppConfig}, and the same thin re-export — see `app-types/ui/detect.ts` for the
+ * fallback it applies and why it requires both an empty client_id and no callbacks.
+ */
+export function isUiAppRecord(
+  app: Pick<OAuthApp, 'ui_app' | 'client_id' | 'redirect_uris'> | null | undefined,
+): boolean {
+  return isUiAppRecordShape(app);
 }
 
 export function writeProjectConfig(config: ProjectConfig): void {
@@ -589,7 +648,9 @@ export function backfillProjectConfigFromServer(
   const hasDistribution =
     isNonEmptyString(rawRecord.distribution_type) ||
     isNonEmptyString(rawRecord.distribution) ||
-    isNonEmptyString(legacyAuthType);
+    // auth.type carried the distribution only in its interim shape — 'none'
+    // was the dev-era UI-app auth marker and says nothing about distribution.
+    (isNonEmptyString(legacyAuthType) && legacyAuthType !== 'none');
   if (!hasDistribution) {
     next.distribution_type = server.distribution_type ?? normalized.distribution_type;
     backfilled.push('distribution_type');

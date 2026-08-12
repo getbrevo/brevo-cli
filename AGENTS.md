@@ -20,6 +20,18 @@ Because that surface is shipped and unguarded, `agent-context/SKILL.md` and `age
 - **This is documentation-level only.** The CLI itself still accepts `--distribution public` without a warning or a guard, by design — a runtime guard is tracked separately (see `RELEASE-CHECKLIST.md`). If one is ever added, it needs the same internal-account escape hatch.
 - **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* to remove the notice everywhere in one pass.
 
+## UI apps are not GA either — same deal (BEX-290)
+
+UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The CLI ships the surface — the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app deploy <account-id>`, `brevo app remove <account-id>` — and `agent-context/SKILL.md` / `agent-context/AGENTS.md` each carry a **⚠️ UI apps are not available yet** notice reusing the same *Exception — internal Brevo accounts* clause. `README.md` mirrors it.
+
+A UI app is **prompt-only**: there is no `--type` flag and no per-field flags, so non-interactive runs always create an OAuth app. `extension_type` values are camelCase (`actionLink`, `iframeExtension`, `legacyComponent`) and the old snake_case spellings are rejected. See `CLAUDE.md` for why.
+
+**Every clause of the public-apps section above applies verbatim**, including that it does **not** restrict work in this repo — building, testing, and QA-ing the UI-app code paths is expected and unblocked. Never refuse or hedge on a UI-app task here.
+
+The `ui_app` block's **field names are confirmed** against both of the platform's consumers, the manifest read path and the extensibility UI kit (BEX-308 / BEX-350) — it is the stored app snapshot verbatim. What remains **assumed is the transport**: nothing on the platform writes that snapshot yet. See `CLAUDE.md` → *UI apps are not GA either* and `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+
+- **When UI apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+
 ## Public repository
 
 Repo (`github.com/getbrevo/brevo-cli`) and package (`@getbrevo/cli` on the public npm registry) are **public**. Every commit, PR, and issue is world-readable.

@@ -26,6 +26,11 @@ const MAX_RETRY_AFTER_SECONDS = 300;
 const apiCodeMessages: Record<string, string> = {
   APP_LIMIT_REACHED: messages.APP_CREATE_LIMIT_REACHED,
   REGISTRY_ERROR: messages.ERR_REGISTRY,
+  // app-store-bo-be's `gateUIApp` answers 403 `ui_app_not_enabled` when the calling
+  // account lacks the public-apps flag and the request authors a `ui_app` block. It
+  // guards both `app create` and `app upload`, so it is mapped here rather than in
+  // either command — the code is stable, unlike the copy.
+  ui_app_not_enabled: messages.ERR_UI_APP_NOT_ENABLED,
 };
 
 function resolveErrorMessage(apiCode: string | undefined, fallback: string): string {
@@ -151,8 +156,10 @@ export class ApiClient {
     return this.request<T>({ method: 'PUT', path, body });
   }
 
-  delete<T>(path: string): Promise<T> {
-    return this.request<T>({ method: 'DELETE', path });
+  // A body on DELETE is unusual but not disallowed, and the app-store installs
+  // resource requires one (it identifies the install by account, not by path).
+  delete<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>({ method: 'DELETE', path, body });
   }
 
   getWithKey<T>(path: string, apiKey: string): Promise<T> {
@@ -210,6 +217,13 @@ export class ApiClient {
     const headers = this.buildHeaders(opts);
 
     logHttp(opts.method, opts.path);
+    // The request body, symmetric with the response log below and redacted by the
+    // same rules. Logged before the fetch so the payload is visible even when the
+    // request never comes back (timeout, network error). A bodyless method logs
+    // nothing rather than a bare `undefined`.
+    if (opts.body !== undefined) {
+      logDebug(`request ${opts.method} ${opts.path}`, opts.body);
+    }
     const response = await this.performFetch(url, opts, headers);
     logHttpResponse(response.status, opts.path);
 
@@ -239,7 +253,7 @@ export class ApiClient {
     const text = await response.text();
     const data = parseResponseData(text, response.status);
 
-    logDebug(`response ${opts.path}`, data);
+    logDebug(`response ${opts.method} ${opts.path}`, data);
 
     if (!response.ok) {
       throwResponseError(data, response.status);

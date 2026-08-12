@@ -3,6 +3,16 @@ import { ApiError, ErrorCode } from '../../../lib/errors';
 
 jest.mock('inquirer', () => ({
   prompt: jest.fn(),
+  // The grouped placement prompt puts one separator above each page's placements.
+  // Mirrors inquirer 8's own Separator, which carries `type: 'separator'` and the
+  // rendered `line` — the tests read both to assert the grouping.
+  Separator: class {
+    type = 'separator';
+    line: string;
+    constructor(line: string) {
+      this.line = line;
+    }
+  },
 }));
 
 jest.mock('../../../lib/config', () => ({
@@ -11,12 +21,15 @@ jest.mock('../../../lib/config', () => ({
   saveAppName: jest.fn(),
   hasLocalApp: jest.fn().mockReturnValue(false),
   readProjectConfig: jest.fn().mockReturnValue(null),
+  isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
 
 jest.mock('../../../container', () => ({
   appService: {
     fetchAppsList: jest.fn(),
     fetchApp: jest.fn(),
+    fetchSurfacePoints: jest.fn(),
+    fetchSurfacePointLocations: jest.fn(),
     pickApp: jest.fn(),
     createApp: jest.fn(),
     updateApp: jest.fn(),
@@ -142,6 +155,7 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
       .mockResolvedValueOnce({ logoUrl: '' }) // logo
@@ -152,8 +166,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Test App',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
     expect(saveAppCredentials).toHaveBeenCalledWith(1, {
       clientId: 'cli-123',
@@ -169,6 +185,33 @@ describe('app/create', () => {
     );
   });
 
+  // The create response is handed to `fetchAppContext` as its read-back fallback so
+  // a server that can't resolve the ID it just issued (observed on UI apps, BEX-290)
+  // can no longer abort a create that already succeeded, leaving an orphan app.
+  it('passes the create response to fetchAppContext as the read-back fallback', async () => {
+    const created = {
+      app_id: 1,
+      name: 'Test App',
+      client_id: 'cli-123',
+      client_secret: 'secret-456',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    (appService.createApp as jest.Mock).mockResolvedValue(created);
+
+    mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' })
+      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+      .mockResolvedValueOnce({ another: false })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+
+    await createCommand({ name: 'Test App', distribution: 'private' });
+
+    expect(fetchAppContext).toHaveBeenCalledWith(1, false, undefined, created);
+  });
+
   describe('feature scaffolding', () => {
     it('prompts to scaffold a feature (default yes) and scaffolds oauth when accepted', async () => {
       (appService.createApp as jest.Mock).mockResolvedValue({
@@ -179,6 +222,7 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
@@ -213,6 +257,7 @@ describe('app/create', () => {
         version: '0.0.1',
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
@@ -241,6 +286,7 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
@@ -383,6 +429,7 @@ describe('app/create', () => {
         };
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
@@ -417,6 +464,7 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
@@ -467,6 +515,7 @@ describe('app/create', () => {
         return 'oauth';
       });
       mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
         .mockResolvedValueOnce({ logoUrl: '' })
@@ -512,6 +561,7 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
@@ -576,6 +626,7 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
@@ -618,7 +669,10 @@ describe('app/create', () => {
       redirect_uris: ['https://example.com/cb'],
     });
 
-    mockPrompt.mockResolvedValueOnce({ logoUrl: '' }).mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({
       name: 'Flag App',
@@ -637,6 +691,7 @@ describe('app/create', () => {
     );
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' });
@@ -644,6 +699,103 @@ describe('app/create', () => {
     await expect(createCommand({ name: 'Test', distribution: 'private' })).rejects.toThrow(
       'maximum number of OAuth apps',
     );
+  });
+
+  describe("the platform's refusal to create a public app from the CLI", () => {
+    // The server keys this on the caller it derives from the User-Agent, so the
+    // CLI cannot satisfy it by changing the body — it can only explain it. See
+    // the comment on this branch in `createAppWithRetry`.
+    const rejection = (): ApiError =>
+      new ApiError(
+        'public apps cannot be created with source "cli"; use distribution_type "private"',
+        400,
+        undefined,
+        'invalid_parameter',
+      );
+
+    it('explains the refusal and names the --distribution private fix', async () => {
+      jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      (appService.createApp as jest.Mock).mockRejectedValue(rejection());
+
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      // One invocation, both assertions — a second call would exhaust the
+      // `mockResolvedValueOnce` prompt chain above and fail before the API call.
+      const err: Error = await createCommand({ name: 'Test', distribution: 'public' }).then(
+        () => {
+          throw new Error('expected the create to be refused');
+        },
+        (e: Error) => e,
+      );
+      expect(err.message).toMatch(/public apps can't be created from the CLI yet/i);
+      expect(err.message).toMatch(/--distribution private/);
+    });
+
+    it("quotes the server's own sentence so a different 400 cannot hide behind it", async () => {
+      jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      (appService.createApp as jest.Mock).mockRejectedValue(rejection());
+
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
+        /use distribution_type "private"/,
+      );
+    });
+
+    // Guard against the CLI growing a local mirror of the platform's rule. This is
+    // not a hypothetical: the server lifts the restriction per account (Unleash flag
+    // `app-store-bo-be-public-apps`, BEX-333), so an allow-listed account creates a
+    // public app successfully today. A local refusal would break that account rather
+    // than merely lag the platform — the create must always reach the server.
+    it('does not pre-empt the server — a public create is still attempted', async () => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 42,
+        name: 'Test',
+        client_id: 'cli-public',
+        client_secret: 'secret-public',
+        redirect_uris: ['https://example.com/cb'],
+      });
+
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+
+      await createCommand({ name: 'Test', distribution: 'public' });
+
+      expect(appService.createApp).toHaveBeenCalledWith(
+        expect.objectContaining({ distribution_type: 'public' }),
+      );
+    });
+
+    // A 400 that is not the distribution rule keeps the server's text and does
+    // not get relabelled as the pre-GA restriction.
+    it('leaves an unrelated 400 on a public create alone', async () => {
+      jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      (appService.createApp as jest.Mock).mockRejectedValue(
+        new ApiError('logo_uri must be a valid https URL', 400, undefined, 'invalid_parameter'),
+      );
+
+      mockPrompt
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
+        .mockResolvedValueOnce({ another: false })
+        .mockResolvedValueOnce({ logoUrl: '' });
+
+      await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
+        'logo_uri must be a valid https URL',
+      );
+    });
   });
 
   it('should handle 409 conflict and retry with new name', async () => {
@@ -658,6 +810,7 @@ describe('app/create', () => {
       });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
       .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
@@ -670,8 +823,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenLastCalledWith({
       name: 'New Name',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
     // Cache must use the retried name, not the original (rejected) one
     expect(saveAppName).toHaveBeenCalledWith(3, 'New Name');
@@ -708,6 +863,7 @@ describe('app/create', () => {
     mockPrompt
       .mockResolvedValueOnce({ name: 'Prompted App' }) // name prompt
       .mockResolvedValueOnce({ distribution: 'private' }) // distribution prompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
       .mockResolvedValueOnce({ logoUrl: '' })
@@ -726,12 +882,17 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Prompted App',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
   });
 
   it('should throw on invalid distribution', async () => {
+    // Distribution is resolved (and its flag validated) before the app-type
+    // prompt, so no prompt answers are needed — queueing one here would leak
+    // an unconsumed value into the next test.
     await expect(createCommand({ name: 'Test', distribution: 'invalid' })).rejects.toThrow(
       'Invalid --distribution',
     );
@@ -747,6 +908,7 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
@@ -757,8 +919,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Public App',
       distribution_type: 'public',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
   });
 
@@ -791,6 +955,7 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: '' })
@@ -801,8 +966,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Café Résumé',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      },
     });
   });
 
@@ -816,6 +983,7 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // first URL
       .mockResolvedValueOnce({ anotherRaw: 'y' }) // add another
       .mockResolvedValueOnce({ nextUrl: 'https://myapp.com/callback' }) // second URL
@@ -828,8 +996,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Multi URL App',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3009/auth/callback', 'https://myapp.com/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3009/auth/callback', 'https://myapp.com/callback'],
+      },
     });
   });
 
@@ -842,7 +1012,10 @@ describe('app/create', () => {
       redirect_uris: ['https://myapp.com/callback'],
     });
 
-    mockPrompt.mockResolvedValueOnce({ logoUrl: '' }).mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' })
+      .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({
       name: 'Flag App',
@@ -853,11 +1026,13 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Flag App',
       distribution_type: 'private',
-      redirect_uris: ['https://myapp.com/callback'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['https://myapp.com/callback'],
+      },
     });
-    // Only the logo prompt and the scaffold-feature prompt — no redirect URL prompts.
-    expect(mockPrompt).toHaveBeenCalledTimes(2);
+    // Only the app-type, logo and scaffold-feature prompts — no redirect URL prompts.
+    expect(mockPrompt).toHaveBeenCalledTimes(3);
   });
 
   it('should pass multiple --redirect-uri flags to the API', async () => {
@@ -879,8 +1054,10 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Multi Flag App',
       distribution_type: 'private',
-      redirect_uris: ['http://localhost:3000/cb', 'https://prod.example.com/cb'],
-      scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+      auth: {
+        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        redirect_uris: ['http://localhost:3000/cb', 'https://prod.example.com/cb'],
+      },
     });
     // No prompts at all in JSON mode with all flags provided
     expect(mockPrompt).not.toHaveBeenCalled();
@@ -940,6 +1117,7 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
       .mockResolvedValueOnce({ logoUrl: 'https://example.com/prompted.png' })
@@ -986,6 +1164,7 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ anotherRaw: 'n' })
       .mockResolvedValueOnce({ logoUrl: '' })
@@ -995,7 +1174,9 @@ describe('app/create', () => {
 
     expect(appService.createApp).toHaveBeenCalledWith(
       expect.objectContaining({
-        scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        auth: expect.objectContaining({
+          scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
+        }),
       }),
     );
   });
@@ -1009,6 +1190,7 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
     mockPrompt
+      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ anotherRaw: 'n' })
       .mockResolvedValueOnce({ logoUrl: '' })
@@ -1040,5 +1222,903 @@ describe('app/create', () => {
 
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(stdoutCalls).not.toContain('Default scopes');
+  });
+
+  // ──────────────── UI apps (BEX-290) ────────────────
+  // A UI app is authored entirely through the prompts — there is no `--type` or
+  // per-field flag — so every test here drives inquirer.
+  describe('UI apps', () => {
+    const CLI_OPTIONS = { name: 'Invoice Manager', distribution: 'private' };
+
+    /** Every question inquirer was asked, in order. */
+    let askedQuestions: Array<Record<string, unknown>>;
+
+    /**
+     * The location a placement slug belongs to, e.g. `contact-details-header-menu` →
+     * `contactDetails`. Every registry location is `<record>Details`, so the first two
+     * slug segments are the page — which is all the test harness needs to route a
+     * `placements` answer to its per-page question.
+     */
+    const locationOfSlug = (slug: string) => {
+      const [record, details] = slug.split('-');
+      return `${record}${(details ?? '').replace(/^./, (c) => c.toUpperCase())}`;
+    };
+
+    /** The question name the placement prompt for one page is asked under. */
+    const placementQuestion = (location: string) => `placement:${location}`;
+
+    /**
+     * Answer the create prompts by question *name* rather than by call order, so
+     * that adding or reordering a prompt can't silently shift an answer onto the
+     * wrong field.
+     *
+     * `placements` is a harness convenience, not a question: placements are asked ONE
+     * PAGE AT A TIME (`placement:contactDetails`, …), so the slugs listed here are
+     * spread onto their pages' questions. At most one per page — a second slug for the
+     * same page could not be answered by a single-select prompt. Answering a page
+     * question directly still works and takes precedence.
+     */
+    const answerPrompts = (overrides: Record<string, unknown> = {}) => {
+      const { placements, ...rest } = overrides as { placements?: string[] } & Record<
+        string,
+        unknown
+      >;
+      // Slugs, not dotted slot names: a placement is authored (and answered) by the
+      // row's `surface_point_name`. See REGISTRY_ROW.
+      const pickedPlacements = placements ?? ['contact-details-header-menu'];
+      const perPage: Record<string, unknown> = {};
+      for (const slug of pickedPlacements) {
+        perPage[placementQuestion(locationOfSlug(slug))] = slug;
+      }
+      const answers: Record<string, unknown> = {
+        distribution: 'private',
+        appType: 'ui',
+        // The flow asks the integration type FIRST, then the pages, then one placement
+        // prompt per picked page.
+        integrationType: 'actionLink',
+        surfaces: ['contact'],
+        ...perPage,
+        label: 'View in CRM',
+        more_info: '',
+        url: 'https://example.com/brevo',
+        logoUrl: '',
+        // Only reached when a test forces the OAuth path (non-TTY / --json), but
+        // kept here so those tests don't need their own mock wiring.
+        redirectUrl: 'http://localhost:3009/auth/callback',
+        another: false,
+        scaffoldRaw: 'n',
+        ...rest,
+      };
+      mockPrompt.mockImplementation((questions: Array<Record<string, unknown>>) => {
+        const question = questions[0] ?? {};
+        askedQuestions.push(question);
+        const name = String(question.name ?? '');
+        return Promise.resolve(name in answers ? { [name]: answers[name] } : {});
+      });
+    };
+
+    const questionNamed = (name: string) => askedQuestions.find((q) => q.name === name);
+    /** Every placement prompt asked, in the order the pages were prompted for. */
+    const placementQuestions = () =>
+      askedQuestions.filter((q) => String(q.name).startsWith('placement:'));
+
+    // The context field names the platform's registry actually allows. Nothing else is a
+    // real name, so nothing else appears in a fixture.
+    const DEFAULT_CONTEXT = ['recordId', 'recordName', 'accountId', 'locale'];
+
+    /** camelCase → kebab-case, mirroring how the registry's slugs are seeded. */
+    const kebab = (value: string) => value.replaceAll(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+
+    /**
+     * One registry row in the BEX-361 wire shape, using the registry's own column names.
+     * `default_context_field` is present by default because every seeded production row
+     * carries it — it is what each authored entry's `context` is seeded from.
+     *
+     * The two identities are deliberately DIFFERENT strings, as they are in the seeded
+     * registry: `extension_point_name` is the dotted `extension_point_name`
+     * (`contactDetails.headerMenu.action`), `surface_point_name` the kebab-case slug
+     * (`contact-details-header-menu`). Only the slug is authorable — a fixture that made
+     * them equal would pass whichever one the code picked.
+     *
+     * Note the row's slug column and the authored entry key are now the SAME word
+     * (`surface_point_name`), which is the point of that rename — but the row's OTHER
+     * field is still called `extension_point_name`, so the two spellings remain live here and
+     * an assertion that reads the wrong one still passes for the wrong reason.
+     */
+    const REGISTRY_ROW = (
+      location: string,
+      section: string,
+      component: string,
+      extra: Record<string, unknown> = {},
+    ) => ({
+      extension_point_name: `${location}.${section}.${component}`,
+      location_name: location,
+      section_name: section,
+      component_type: component,
+      surface_point_name: `${kebab(location)}-${kebab(section)}`,
+      extension_type_list: ['actionLink', 'iframeExtension'],
+      default_context_field: DEFAULT_CONTEXT,
+      allowed_context_field: [...DEFAULT_CONTEXT, 'userId'],
+      status: 'active',
+      ...extra,
+    });
+
+    const FULL_REGISTRY = ['contactDetails', 'companyDetails', 'dealDetails'].flatMap(
+      (location) => [
+        REGISTRY_ROW(location, 'headerMenu', 'action'),
+        REGISTRY_ROW(location, 'overviewMain', 'widget'),
+        REGISTRY_ROW(location, 'overviewSidebar', 'widget'),
+        REGISTRY_ROW(location, 'overviewAttributes', 'widget'),
+      ],
+    );
+
+    /**
+     * Point BOTH registry reads at one set of rows: the record pages come from
+     * `surface-points/locations` and the placements from `surface-points?location=<csv>`, so
+     * a test that stubbed only the rows would leave the page prompt with nothing to offer.
+     *
+     * `locations` is passed explicitly only where the rows can't imply it — a row with no
+     * `location_name` column (the backfill cases) still belongs to a page the real endpoint
+     * would have listed.
+     */
+    const registryHas = (
+      rows: Array<Record<string, unknown>>,
+      locations?: readonly string[],
+    ): void => {
+      (appService.fetchSurfacePoints as jest.Mock).mockResolvedValue(rows);
+      (appService.fetchSurfacePointLocations as jest.Mock).mockResolvedValue(
+        locations ?? [
+          ...new Set(rows.map((row) => String(row.location_name ?? '')).filter(Boolean)),
+        ],
+      );
+    };
+
+    beforeEach(() => {
+      askedQuestions = [];
+      registryHas(FULL_REGISTRY);
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 42,
+        name: 'Invoice Manager',
+        client_id: 'cli-123',
+        client_secret: 'secret-456',
+        redirect_uris: [],
+      });
+      answerPrompts();
+    });
+
+    const collectedUiApp = () => (fetchAppContext as jest.Mock).mock.calls[0][2];
+    /** Just the slot names of the collected block, for the placement assertions. */
+    const surfacePointNames = () =>
+      collectedUiApp().surface_point_list.map(
+        (entry: { surface_point_name: string }) => entry.surface_point_name,
+      );
+    /** Values of a checkbox/list question's choices, skipping inquirer Separators. */
+    const choiceValuesOf = (name: string) =>
+      ((questionNamed(name)?.choices ?? []) as Array<{ value?: string; type?: string }>)
+        .filter((choice) => choice.type !== 'separator' && choice.value !== undefined)
+        .map((choice) => choice.value);
+
+    // A UI app has no OAuth block (`auth: {}` in its config) — the whole
+    // auth key is omitted from the wire entirely, not sent empty.
+    it('omits the auth block from the create payload', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload).not.toHaveProperty('auth');
+    });
+
+    // The regression this guards: resolveRedirectUrls falls back to
+    // http://localhost:3009/auth/callback, which would silently register an OAuth
+    // redirect URL on an app that has no OAuth flow.
+    it('never prompts for or defaults a redirect URL', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(JSON.stringify(payload)).not.toContain('localhost:3009');
+      expect(questionNamed('redirectUrl')).toBeUndefined();
+    });
+
+    // The block travels on create as well as on upload, under the same `ui_app`
+    // key. It is what tells the create endpoint the absent `auth` block is
+    // deliberate — without it the endpoint reads a UI app as an OAuth app that
+    // forgot its callbacks and answers 400 `redirect_uris is required`.
+    it('sends the ui_app block to POST /apps, under the ui_app key', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      // Never the earlier `snapshot` spelling — the platform rejected that key.
+      expect(payload).not.toHaveProperty('snapshot');
+      expect(payload.ui_app).toEqual({
+        extension_type: 'actionLink',
+        surface_point_list: [
+          { surface_point_name: 'contact-details-header-menu', context: DEFAULT_CONTEXT },
+        ],
+        label: 'View in CRM',
+        redirect_link: 'https://example.com/brevo',
+      });
+    });
+
+    // The create body and the block written to app-config.json are the same
+    // object, so a partner's file can never disagree with what the app was
+    // registered as.
+    it('sends the same block it collected and writes to app-config.json', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.ui_app).toEqual(collectedUiApp());
+    });
+
+    // Field names and casing must match the platform's stored app snapshot exactly — keys
+    // are snake_case, `extension_type` VALUES stay camelCase per BEX-350 — and each
+    // placement carries its own seeded context.
+    it('builds the ui_app shape the platform consumes', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp()).toEqual({
+        extension_type: 'actionLink',
+        surface_point_list: [
+          { surface_point_name: 'contact-details-header-menu', context: DEFAULT_CONTEXT },
+        ],
+        label: 'View in CRM',
+        redirect_link: 'https://example.com/brevo',
+      });
+    });
+
+    // ──────── Prompt order (the BEX-290 reorder) ────────
+
+    it('asks the integration type first, before any placement prompt', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const order = askedQuestions.map((q) => String(q.name));
+      expect(order.indexOf('integrationType')).toBeLessThan(order.indexOf('surfaces'));
+      expect(order.indexOf('surfaces')).toBeLessThan(order.indexOf('placement:contactDetails'));
+      expect(order.indexOf('placement:contactDetails')).toBeLessThan(order.indexOf('label'));
+      expect(order.indexOf('label')).toBeLessThan(order.indexOf('more_info'));
+      expect(order.indexOf('more_info')).toBeLessThan(order.indexOf('url'));
+    });
+
+    // Kind is a property of a slot, not a question — a partner picking "Header menu" has
+    // already said they want a menu entry. Asking it up front also made cards and menu
+    // entries mutually exclusive within one app, which the platform does not require.
+    // Record context is seeded from the registry, so it is not asked either.
+    it.each([['kind'], ['places'], ['context']])('no longer asks the %s question', async (name) => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed(name)).toBeUndefined();
+    });
+
+    // Decision 2026-08-03, still current: only actionLink is authorable until the
+    // iframe-embed RFC lands, but the prompt exists — Iframe is shown as a DISABLED
+    // "coming soon" choice so partners see the roadmap where the decision is being made.
+    // (The platform still accepts a hand-edited iframeExtension block at upload.)
+    it('offers the integration-type prompt with Iframe disabled', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const question = questionNamed('integrationType');
+      expect(question).toBeDefined();
+      const choices = (question?.choices ?? []) as Array<{ value?: string; disabled?: unknown }>;
+      const link = choices.find((c) => c.value === 'actionLink');
+      const iframe = choices.find((c) => c.value === 'iframeExtension');
+      expect(link).toBeDefined();
+      expect(link?.disabled).toBeUndefined();
+      expect(iframe?.disabled).toBe('coming soon');
+      expect(collectedUiApp().extension_type).toBe('actionLink');
+    });
+
+    // ──────── The two registry reads ────────
+    // Different questions, not the same call twice: the pages come from the registry's own
+    // location list, so no run pulls every row just to learn that three pages exist.
+
+    it('reads the pages from the locations endpoint, then the picked pages by location', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contact-details-header-menu', 'deal-details-header-menu'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(appService.fetchSurfacePointLocations).toHaveBeenCalledTimes(1);
+      expect(appService.fetchSurfacePoints).toHaveBeenCalledTimes(1);
+      expect(appService.fetchSurfacePoints).toHaveBeenCalledWith(['contactDetails', 'dealDetails']);
+    });
+
+    // The page choices are the locations endpoint's answer, not a reduction of the rows:
+    // here the row fixture covers three pages and only the two listed ones are offered.
+    it('offers exactly the pages the locations endpoint lists', async () => {
+      (appService.fetchSurfacePointLocations as jest.Mock).mockResolvedValue([
+        'contactDetails',
+        'dealDetails',
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(choiceValuesOf('surfaces')).toEqual(['contact', 'deal']);
+    });
+
+    // The narrowed read is now the only row read, so a filter an early build doesn't
+    // implement must not be fatal: it is retried unfiltered and narrowed locally. Aborting
+    // would throw away the page answer the partner just gave and cannot be re-asked for.
+    it('retries unfiltered when the narrowed row read fails', async () => {
+      (appService.fetchSurfacePoints as jest.Mock)
+        .mockRejectedValueOnce(new ApiError('no location filter here', 400))
+        .mockResolvedValueOnce(FULL_REGISTRY);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(1, ['contactDetails']);
+      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(2, undefined);
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+    });
+
+    it('retries unfiltered when the narrowed row read comes back empty', async () => {
+      (appService.fetchSurfacePoints as jest.Mock)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(FULL_REGISTRY);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+    });
+
+    // A real early-build behaviour: the endpoint honours only the first CSV value. The
+    // unfiltered retry recovers the pages the filter dropped, so the partner gets the
+    // placements they asked for instead of a warning that a page they can see has nothing.
+    it('retries unfiltered when the narrowed read covers only some picked pages', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contact-details-header-menu', 'deal-details-header-menu'],
+      });
+      (appService.fetchSurfacePoints as jest.Mock)
+        .mockResolvedValueOnce([REGISTRY_ROW('contactDetails', 'headerMenu', 'action')])
+        .mockResolvedValueOnce(FULL_REGISTRY);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(appService.fetchSurfacePoints).toHaveBeenCalledTimes(2);
+      expect(surfacePointNames()).toEqual([
+        'contact-details-header-menu',
+        'deal-details-header-menu',
+      ]);
+    });
+
+    it('aborts when both the narrowed and the unfiltered row read fail', async () => {
+      (appService.fetchSurfacePoints as jest.Mock).mockRejectedValue(new ApiError('down', 500));
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+        /could not load the available placements/i,
+      );
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    // ──────── One placement prompt per page ────────
+
+    it('asks one placement prompt per picked page, each listing only that page', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contact-details-header-menu', 'deal-details-overview-main'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(placementQuestions().map((q) => q.name)).toEqual([
+        'placement:contactDetails',
+        'placement:dealDetails',
+      ]);
+      // Four placements per page, and no page's prompt offers another page's rows.
+      expect(choiceValuesOf('placement:contactDetails')).toEqual([
+        'contact-details-header-menu',
+        'contact-details-overview-main',
+        'contact-details-overview-sidebar',
+        'contact-details-overview-attributes',
+      ]);
+      expect(choiceValuesOf('placement:dealDetails')).toEqual([
+        'deal-details-header-menu',
+        'deal-details-overview-main',
+        'deal-details-overview-sidebar',
+        'deal-details-overview-attributes',
+      ]);
+    });
+
+    // One spot per page is the authoring model, and a single-select prompt is what makes
+    // it structural: there is no answer that puts two placements on one page.
+    it('offers the page placements as a single-select list', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const question = questionNamed('placement:contactDetails');
+      expect(question?.type).toBe('list');
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+    });
+
+    // An app can still put a menu entry on one page and a card on another — that is what
+    // the per-page prompt buys, and what the old kind-then-place pair made unauthorable.
+    it('mixes menu entries and cards across pages in one app', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contact-details-header-menu', 'deal-details-overview-sidebar'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual([
+        'contact-details-header-menu',
+        'deal-details-overview-sidebar',
+      ]);
+    });
+
+    // Registry order, not answer order, so a re-run that picked the same slots in a
+    // different page order doesn't churn the upload diff.
+    it('writes the placements in registry order regardless of answer order', async () => {
+      answerPrompts({
+        // Deal answered first; contact rows come first in the registry.
+        surfaces: ['deal', 'contact'],
+        placements: ['deal-details-overview-sidebar', 'contact-details-header-menu'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual([
+        'contact-details-header-menu',
+        'deal-details-overview-sidebar',
+      ]);
+    });
+
+    // A lone choice is still shown rather than picked silently: it is one keypress either
+    // way, and the partner sees where the app lands.
+    it('still asks on a page that offers only one placement', async () => {
+      registryHas([REGISTRY_ROW('contactDetails', 'headerMenu', 'action')]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(choiceValuesOf('placement:contactDetails')).toEqual(['contact-details-header-menu']);
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+    });
+
+    // Every picked page that offers a spot contributes exactly one, so a three-page app
+    // authors three placements — no page can be silently left out, and none can take two.
+    it('authors exactly one placement for each picked page', async () => {
+      answerPrompts({
+        surfaces: ['contact', 'company', 'deal'],
+        placements: [
+          'contact-details-header-menu',
+          'company-details-overview-main',
+          'deal-details-overview-sidebar',
+        ],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual([
+        'contact-details-header-menu',
+        'company-details-overview-main',
+        'deal-details-overview-sidebar',
+      ]);
+    });
+
+    // The regression these two guard: a picked page the registry offers nothing on used to
+    // be ENFORCED by the grouped prompt's validate, which no answer could satisfy — ticking
+    // the offered spot reported "nothing selected for: deal", ticking nothing reported "Pick
+    // at least one spot" — and Ctrl-C was the only way out, discarding the name,
+    // distribution and type answers already given. Per-page prompts make the lock
+    // impossible (a page with no rows is simply never asked about), so what is left to
+    // guard is that the page is still REPORTED and that the run continues.
+    //
+    // Reading the pages from the locations endpoint makes this MORE likely, not less: a page
+    // is offered because the registry lists it, with no way to know at that point whether
+    // any of its placements can host the chosen type.
+    describe('a picked page with no placement that can host the chosen type', () => {
+      beforeEach(() => {
+        answerPrompts({
+          surfaces: ['contact', 'deal'],
+          placements: ['contact-details-header-menu'],
+        });
+        // The deal page is listed and has a placement, but not one an actionLink can use —
+        // so an unfiltered retry would find nothing more. Genuinely empty, not a filter bug.
+        registryHas(
+          [
+            REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
+            REGISTRY_ROW('dealDetails', 'headerMenu', 'action', {
+              extension_type_list: ['legacyComponent'],
+            }),
+          ],
+          ['contactDetails', 'dealDetails'],
+        );
+      });
+
+      it('warns about a picked page the registry offers no placements on', async () => {
+        await createCommand(CLI_OPTIONS);
+
+        const stdout = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+        expect(stdout).toMatch(/No placements are available on: deal/);
+      });
+
+      it('asks about no placement on a page that offered none, and creates anyway', async () => {
+        await createCommand(CLI_OPTIONS);
+
+        // Only the page that has a hostable placement is asked about — there is no prompt
+        // for the deal page to get stuck on.
+        expect(placementQuestions().map((q) => q.name)).toEqual(['placement:contactDetails']);
+        expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+        expect(appService.createApp).toHaveBeenCalled();
+      });
+    });
+
+    // Labels are CLI-owned. `surface_point_name` on the registry is a kebab-case SLUG
+    // (`contactdetails-headermenu` in these fixtures), not display text, so it must never
+    // reach a partner.
+    it('labels placements from the local label map, never from surface_point_name', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const names = (
+        (questionNamed('placement:contactDetails')?.choices ?? []) as Array<{
+          name?: string;
+          value?: string;
+        }>
+      )
+        .filter((choice) => choice.value !== undefined)
+        .map((choice) => String(choice.name));
+      expect(names).toEqual([
+        'Header "More" (•••) menu — menu entry',
+        'Main column — card',
+        'Sidebar — card',
+        'Attributes panel — card',
+      ]);
+      expect(names.join(' ')).not.toContain('contactdetails-headermenu');
+    });
+
+    // ──────── Client-side filtering of un-hostable rows ────────
+    // The row read carries no extension-type filter, deliberately — a server-side one would
+    // hide authorable placements — so the CLI checks each row itself. Without this, a partner
+    // authors a slot that cannot serve their type, upload 200s, and the slot renders
+    // nothing: exactly the silent failure this flow exists to prevent.
+
+    it('hides rows whose extension_type_list cannot host the chosen type', async () => {
+      registryHas([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
+        REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', {
+          extension_type_list: ['legacyComponent'],
+        }),
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(choiceValuesOf('placement:contactDetails')).toEqual(['contact-details-header-menu']);
+    });
+
+    it('hides rows that are not active', async () => {
+      registryHas([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action'),
+        REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', { status: 'deprecated' }),
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(choiceValuesOf('placement:contactDetails')).toEqual(['contact-details-header-menu']);
+    });
+
+    // A registry seeded before either column existed must stay usable — treating a missing
+    // column as a rejection would empty the prompt against every older environment.
+    it('keeps rows that declare neither extension_type_list nor status', async () => {
+      registryHas([
+        {
+          extension_point_name: 'contactDetails.headerMenu.action',
+          surface_point_name: 'contact-details-header-menu',
+          location_name: 'contactDetails',
+          section_name: 'headerMenu',
+          component_type: 'action',
+        },
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+    });
+
+    // Distinct from the empty-registry case: the fix is a different integration type, not
+    // waiting for a seed, so the message says so. Raised after the page prompt now — the
+    // locations endpoint carries no extension type to check against.
+    it('aborts when no placement can host the chosen type', async () => {
+      registryHas([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          extension_type_list: ['legacyComponent'],
+        }),
+      ]);
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+        /none of the available placements can host a "actionLink"/i,
+      );
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    // ──────── Registry read path ────────
+
+    it('aborts with an actionable error when the locations fetch fails', async () => {
+      (appService.fetchSurfacePointLocations as jest.Mock).mockRejectedValue(
+        new ApiError('boom', 500),
+      );
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+        /could not load the available placements/i,
+      );
+      // Nothing is asked, and no row read is attempted, once the pages can't be listed.
+      expect(questionNamed('surfaces')).toBeUndefined();
+      expect(appService.fetchSurfacePoints).not.toHaveBeenCalled();
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    it('aborts when the registry lists no pages', async () => {
+      (appService.fetchSurfacePointLocations as jest.Mock).mockResolvedValue([]);
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/no available placements/i);
+      expect(questionNamed('surfaces')).toBeUndefined();
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    it('aborts when the registry has no usable rows on the picked pages', async () => {
+      registryHas(
+        [{ extension_point_name: 'not-a-slot' }], // no decomposed columns, name not 3 segments
+        ['contactDetails'],
+      );
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/no available placements/i);
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    it('offers an unknown location under a derived name and accepts it', async () => {
+      registryHas([REGISTRY_ROW('orderDetails', 'headerMenu', 'action')]);
+      answerPrompts({ surfaces: ['order'], placements: ['order-details-header-menu'] });
+
+      await createCommand(CLI_OPTIONS);
+
+      // The page is registry-only (no entry in the local surface-name map), so this also
+      // proves the prompt labels whatever the locations endpoint lists.
+      expect(surfacePointNames()).toEqual(['order-details-header-menu']);
+    });
+
+    it('backfills the slot segments from the name when the server omits them', async () => {
+      registryHas(
+        [
+          {
+            extension_point_name: 'contactDetails.headerMenu.action',
+            surface_point_name: 'contact-details-header-menu',
+          },
+        ],
+        ['contactDetails'],
+      );
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
+    });
+
+    // The regression this guards, and the reason every fixture keeps the two identities
+    // distinct: authoring the row's DOTTED name instead of its slug matches no registry row.
+    // The platform resolves an entry by `surface_point_name`, so `app upload` answers
+    // "contains unregistered extension point(s)" and the read path drops the slot silently.
+    it('authors the surface_point_name slug, never the dotted extension-point name', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const authored = surfacePointNames();
+      expect(authored).toEqual(['contact-details-header-menu']);
+      expect(authored).not.toContain('contactDetails.headerMenu.action');
+    });
+
+    // A nullable column server-side, and the platform's own lookup skips a NULL — so a row
+    // without it can only ever produce a placement its upload rejects. Offering it would
+    // reintroduce the silent-drop failure the registry read exists to prevent.
+    it('drops a row the registry gave no surface_point_name', async () => {
+      registryHas(
+        [
+          {
+            extension_point_name: 'contactDetails.headerMenu.action',
+            location_name: 'contactDetails',
+            section_name: 'headerMenu',
+            component_type: 'action',
+          },
+        ],
+        ['contactDetails'],
+      );
+
+      await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(/no available placements/i);
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    // ──────── Record context is seeded per placement, not prompted ────────
+
+    it('seeds each entry from that row own default_context_field', async () => {
+      registryHas([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          default_context_field: ['recordId'],
+        }),
+        REGISTRY_ROW('dealDetails', 'headerMenu', 'action', {
+          default_context_field: ['recordId', 'recordName'],
+        }),
+      ]);
+      answerPrompts({
+        surfaces: ['contact', 'deal'],
+        placements: ['contact-details-header-menu', 'deal-details-header-menu'],
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list).toEqual([
+        { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+        { surface_point_name: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
+      ]);
+    });
+
+    // No context key rather than an empty array: `[]` would read as "narrow to nothing"
+    // where absent means "no narrowing".
+    it('omits context for a row that declares no default', async () => {
+      registryHas([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          default_context_field: undefined,
+        }),
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list).toEqual([
+        { surface_point_name: 'contact-details-header-menu' },
+      ]);
+    });
+
+    // ──────── The rest of the block ────────
+
+    it('omits more_info when left blank rather than writing an empty string', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp()).not.toHaveProperty('more_info');
+    });
+
+    it('includes more_info when entered', async () => {
+      answerPrompts({ more_info: 'Review invoice history' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().more_info).toBe('Review invoice history');
+    });
+
+    // link_target is neither asked nor authored: `brevo app upload` injects `_blank`.
+    // The server refuses `_self`, so a field in the file would only invite a partner to
+    // edit it into a value that 400s.
+    it('never prompts for or writes a link target', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('link_target')).toBeUndefined();
+      expect(collectedUiApp()).not.toHaveProperty('link_target');
+    });
+
+    // The per-field flags are gone, so these prompt `validate` callbacks are now
+    // the only thing standing between a typo and a silently unrenderable action
+    // link. Assert they're still wired up.
+    it('validates the label, more_info and URL answers at the prompt', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const label = questionNamed('label');
+      expect(typeof label?.validate).toBe('function');
+      expect((label?.validate as (v: string) => unknown)('  ')).toMatch(/cannot be empty/i);
+      expect((label?.validate as (v: string) => unknown)('x'.repeat(49))).toMatch(/at most 48/);
+
+      const moreInfo = questionNamed('more_info');
+      expect((moreInfo?.validate as (v: string) => unknown)('')).toBe(true);
+      expect((moreInfo?.validate as (v: string) => unknown)('x'.repeat(256))).toMatch(
+        /at most 255/,
+      );
+
+      const url = questionNamed('url');
+      expect(typeof url?.validate).toBe('function');
+      expect((url?.validate as (v: string) => unknown)('http://example.com')).toMatch(
+        /must use https/i,
+      );
+    });
+
+    it('requires at least one record page', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const surfaces = questionNamed('surfaces');
+      expect((surfaces?.validate as (v: unknown[]) => unknown)([])).toMatch(/at least one/i);
+      expect((surfaces?.validate as (v: unknown[]) => unknown)(['contact'])).toBe(true);
+    });
+
+    it('never offers the OAuth feature scaffold', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(promptFeatureType).not.toHaveBeenCalled();
+      expect(runFeatureScaffold).not.toHaveBeenCalled();
+    });
+
+    it('renders the UI-app box with the placement, not redirect URLs', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).toContain('UI app created');
+      expect(output).toContain('contact-details-header-menu');
+      expect(output).toContain('https://example.com/brevo');
+      expect(output).not.toContain('Redirect URL');
+    });
+
+    // `label` labels the menu entry (BEX-290). The one piece of rendered text with no
+    // field is a CARD's title, which is the app name — so the box says that instead.
+    it('explains where the label renders and that a card title is the app name', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).toMatch(/the menu entry is labelled "View in CRM"/i);
+      expect(output).toMatch(/card's title is the app name \("Invoice Manager"\)/i);
+    });
+
+    // Record context reaches the partner's endpoint as query parameters and nothing else —
+    // no path templating — so the box prints the exact URL shape to build against.
+    it('prints an example URL carrying the seeded context as query parameters', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).toContain(
+        'https://example.com/brevo?recordId=RECORD_ID&recordName=RECORD_NAME&accountId=ACCOUNT_ID&locale=LOCALE',
+      );
+    });
+
+    // Built with URL semantics rather than string concatenation: redirect_link may
+    // already carry a query string and a fragment, and params must merge into the
+    // existing `?` and land BEFORE the `#`. A hand-rolled `url + '?' + params` gets
+    // both wrong, and a wrong example is worse than none.
+    it('merges the example params into an existing query string, before any fragment', async () => {
+      registryHas([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          default_context_field: ['recordId'],
+        }),
+      ]);
+      answerPrompts({ url: 'https://example.com/brevo?tenant=acme#section' });
+
+      await createCommand(CLI_OPTIONS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).toContain('https://example.com/brevo?tenant=acme&recordId=RECORD_ID#section');
+    });
+
+    it('prints no example URL when no placement declares a record context', async () => {
+      registryHas([
+        REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+          default_context_field: undefined,
+        }),
+      ]);
+
+      await createCommand(CLI_OPTIONS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).not.toContain('Brevo will open, for example');
+    });
+
+    // ──────── A UI app needs an interactive terminal ────────
+    // Both of these keep pre-BEX-290 behaviour for scripted callers: without the
+    // app-type prompt there is no way to ask for a UI app, so they get an OAuth
+    // app rather than an error.
+    it('creates an OAuth app in a non-TTY run, without prompting for the app type', async () => {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        configurable: true,
+        writable: true,
+        value: false,
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('appType')).toBeUndefined();
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload).toHaveProperty('auth.redirect_uris');
+      // The two keys are mutually exclusive: `ui_app` is the discriminator, so an
+      // OAuth create carrying it would register the wrong app type.
+      expect(payload).not.toHaveProperty('ui_app');
+      expect(collectedUiApp()).toBeUndefined();
+    });
+
+    it('creates an OAuth app under --json even on a TTY', async () => {
+      await createCommand({ ...CLI_OPTIONS, json: true });
+
+      expect(questionNamed('appType')).toBeUndefined();
+      const parsed = JSON.parse(stdoutSpy.mock.calls.map((c) => String(c[0])).join(''));
+      expect(parsed.appType).toBe('oauth');
+      expect(parsed).toHaveProperty('redirectUri');
+      expect(parsed).not.toHaveProperty('uiApp');
+    });
   });
 });

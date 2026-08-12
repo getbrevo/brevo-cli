@@ -4,21 +4,13 @@
   "version": "{{APP_VERSION}}",
   "logoUri": "{{LOGO_URI}}",
   "distribution_type": "{{DISTRIBUTION}}",
+{{#if ui_app}}
+  "ui_app": {{UI_APP_JSON}},
+{{/if}}
   "auth": {
+{{#if oauth}}
     "scopes": {{SCOPES_JSON}},
     "redirectUris": {{REDIRECT_URLS_JSON}}
-  },
-  "permittedUrls": {
-    "fetch": [],
-    "img": [],
-    "iframe": [],
-    "js": [],
-    "css": []
-  },
-  "support": {
-    "supportEmail": "",
-    "documentationUrl": "",
-    "supportUrl": "",
-    "supportPhone": ""
+{{/if}}
   }
 }

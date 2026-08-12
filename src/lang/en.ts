@@ -58,8 +58,25 @@ export const messages = {
   // App create
   APP_CREATE_NAME_PROMPT: 'App name:',
   APP_CREATE_TYPE_PROMPT: 'Distribution type?',
+  APP_CREATE_APP_TYPE_PROMPT: 'What type of app are you building?',
+  APP_CREATE_APP_TYPE_OAUTH:
+    'OAuth app  (Authorize against Brevo and call the API on a user’s behalf)',
+  APP_CREATE_APP_TYPE_UI: 'UI app     (Render inside Brevo — opens your app from a record)',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
+  // The platform refuses a public-app create from the CLI (BEX-355). Three short
+  // labelled lines rather than one paragraph: the fix, the caveat that stops the
+  // user thinking they can flip it later, and the server's own sentence.
+  //
+  // `Brevo said:` is deliberate — the raw text is quoted rather than swallowed, so
+  // if the platform ever rewords the rejection (and `isPublicDistributionRefusal`
+  // stops recognising it) nothing was hidden in the meantime. The labels align at
+  // one column so the three lines scan as a list.
+  APP_CREATE_PUBLIC_REJECTED: (serverMessage: string): string =>
+    "Public apps can't be created from the CLI yet — Brevo rejected this request.\n\n" +
+    '  Do this:     re-run with `--distribution private`\n' +
+    `  Note:        \`distribution_type\` is fixed at creation — \`${CLI.APP_UPLOAD}\` can't change it later\n` +
+    `  Brevo said:  ${serverMessage}`,
   APP_CREATE_REDIRECT_PROMPT:
     'OAuth callback URL — where users are sent after authorizing your app:',
   APP_CREATE_REDIRECT_HINT: (cmd: string) =>
@@ -94,9 +111,82 @@ export const messages = {
     `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD}\` here to add a feature to this project.`,
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
 
+  // App create — UI app (BEX-290)
+  // Placement choices are read from the platform's extension-point registry at prompt
+  // time (BEX-361) — fetch-only, no local fallback, so a partner can never author a slot
+  // the platform doesn't have. Two loads: the record pages, then the placements on the
+  // pages that were picked.
+  APP_CREATE_UI_PAGES_SPINNER: 'Loading record pages...',
+  APP_CREATE_UI_POINTS_SPINNER: 'Loading placements...',
+  APP_CREATE_UI_POINTS_FETCH_FAILED:
+    'Could not load the available placements from the Brevo API — the UI-app flow needs them to offer where your app can appear. Check your connection and try again. Creating an OAuth app does not need this and still works.',
+  APP_CREATE_UI_POINTS_EMPTY:
+    'The Brevo API returned no available placements for UI apps. This usually means the extension-point registry has not been seeded in this environment — try again later.',
+  // Raised when the registry has rows, but none of them can serve the chosen extension
+  // type. Distinct from the empty case: the fix is a different integration type, not
+  // waiting for a seed.
+  APP_CREATE_UI_POINTS_NONE_FOR_TYPE: (extensionType: string) =>
+    `None of the available placements can host a "${extensionType}" extension. This environment's extension-point registry may predate it — try again later.`,
+  APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
+  APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
+  // One single-select prompt PER picked page: an app takes exactly one spot on a page.
+  // Replaces the old kind-then-place pair (kind is a property of the slot, not a question
+  // — a partner picking "Header menu" has already said they want a menu entry) and the
+  // grouped multi-select that briefly followed it.
+  APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
+    `Where should it appear on the ${page} page?`,
+  // Printed BEFORE the prompt, as a warning, when the registry offers no spot on a page
+  // that was picked. It cannot be a prompt rule: no answer would satisfy one.
+  APP_CREATE_UI_PLACEMENT_PAGES_DROPPED: (pages: string[]) =>
+    `No placements are available on: ${pages.join(', ')}. Those pages are skipped — the registry offers no spot there for this integration type.`,
+  // Suffixes on each placement choice, so the shape a slot renders as is visible while
+  // choosing rather than a surprise afterwards.
+  APP_CREATE_UI_PLACEMENT_MENU_SUFFIX: 'menu entry',
+  APP_CREATE_UI_PLACEMENT_CARD_SUFFIX: 'card',
+  // Integration type — asked SECOND, before any placement, because it is the decision a
+  // partner arrives with. Only Link is selectable; Iframe is shown disabled so the
+  // roadmap is visible where the choice is being made rather than hidden.
+  APP_CREATE_UI_INTEGRATION_PROMPT: 'Do you want to add a link or an iframe?',
+  APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link            (Opens your URL in a new tab)',
+  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe          (Embeds your page in a modal)',
+  APP_CREATE_UI_INTEGRATION_COMING_SOON: 'coming soon',
+  // Each field says what it renders as, so a partner filling the form knows what
+  // they are writing. Both fields render in two places, and the prompt names both:
+  // `label` is the menu entry's text AND a card's CTA button, `more_info` is the
+  // menu entry's second line AND a card's description.
+  APP_CREATE_UI_LABEL_PROMPT: 'Label — the menu entry text, and the button text on a card:',
+  APP_CREATE_UI_MORE_INFO_PROMPT:
+    'More info — supporting text under the menu entry, and a card’s description (optional):',
+  APP_CREATE_UI_REDIRECT_LINK_PROMPT:
+    'Redirect link — the destination URL your app opens (record context arrives as query parameters):',
+  APP_CREATE_UI_BOX_TITLE: 'UI app created',
+  // `label` labels the menu entry (BEX-290). The one piece of rendered text that has
+  // no field is a CARD's title, which is the app name — worth saying, since it is now
+  // the only place a partner might hunt for a field that doesn't exist.
+  APP_CREATE_UI_BOX_LABEL_NOTE: (label: string, appName: string) =>
+    `The menu entry is labelled "${label}". On a card that text becomes the button, and the card's title is the app name ("${appName}").`,
+  // Record context reaches the partner's endpoint as query parameters only — there is
+  // no path templating — so the summary prints the exact URL shape to build against.
+  APP_CREATE_UI_BOX_EXAMPLE_URL_LABEL: 'Brevo will open, for example:',
+  APP_CREATE_UI_BOX_EXAMPLE_URL_NOTE:
+    'Values are placeholders. Read them as query parameters — the path is never templated.',
+  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this, then run \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_UI_NEXT: (cdDir?: string): string[] => [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    `${cdDir ? 2 : 1}. ${CLI.APP_UPLOAD}              (validate and save your configuration)`,
+    `${cdDir ? 3 : 2}. ${CLI.APP_DEPLOY()}   (make it available in an account)`,
+  ],
+
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
-  APP_LIST_HEADER: 'Your OAuth apps:',
+  // Not "Your OAuth apps" — the listing can contain UI apps too (BEX-290), and
+  // each row names its own type.
+  APP_LIST_HEADER: 'Your apps:',
+
+  // App type, as named on a rendered row. The presence of the `ui_app` block is
+  // the discriminator (see isUiAppRecord) — there is no app-type field.
+  APP_TYPE_OAUTH: 'OAuth app',
+  APP_TYPE_UI: 'UI app',
 
   // App credentials
   APP_CREDENTIALS_REVEAL_CONFIRM: 'Are you sure you want to reveal the client secret?',
@@ -121,6 +211,52 @@ export const messages = {
   APP_UPLOAD_CANCELLED: 'Upload cancelled.',
   APP_UPLOAD_SUCCESS: 'App uploaded.',
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
+  // UI apps have no OAuth callback, so the redirect-URL requirement is
+  // OAuth-only — this message names the app type to make that explicit.
+  APP_UPLOAD_NO_REDIRECT_URLS_OAUTH:
+    'app-config.json has no redirect URLs configured. OAuth apps need at least one — add it to `auth.redirectUris`.',
+  APP_UPLOAD_UI_APP_SUMMARY: 'UI app:',
+  // app-config.json does not carry link_target — upload injects it — so the diff row
+  // says where the value comes from rather than implying there is a field to edit.
+  APP_UPLOAD_UI_LINK_TARGET_NOTE: '(added on upload; not a field in app-config.json)',
+  // Auth-shape mismatches are hard errors, not silent ignores — the CLI is the
+  // only layer that will ever tell the partner (see validateAuthShape).
+  APP_UPLOAD_UI_APP_AUTH_EMPTY_REQUIRED:
+    'This is a UI app (app-config.json has a `ui_app` block), so it uses no OAuth — set `auth` to `{}`.',
+  APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS:
+    "UI apps don't use OAuth — remove `scopes` and `redirectUris` from `auth` and keep it empty (`{}`).",
+
+  // App deploy / rollback — per-account availability for UI apps (BEX-290)
+  APP_DEPLOY_SELECT: 'Select an app to deploy:',
+  APP_DEPLOY_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Deploy app "${name}" (${appId}) to account ${accountId}?`,
+  APP_DEPLOY_CANCELLED: 'Deploy cancelled.',
+  APP_DEPLOY_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} deployed to account ${accountId}.`,
+  // Sub-account resolution, shared by deploy and rollback. Only a master (corporate)
+  // account ever reaches these: a plain account resolves to itself with no prompt.
+  APP_DEPLOY_SELECT_ACCOUNT: 'Select the account to deploy to:',
+  APP_DEPLOY_ACCOUNT_ID_REQUIRED: `This is a corporate account, so the target account can't be resolved automatically.\n\n  Pass it explicitly: ${CLI.APP_DEPLOY('<account-id>')}\n  (Choosing one from a list requires an interactive terminal.)`,
+  APP_DEPLOY_NO_SUB_ACCOUNTS: `No active sub-accounts found on this corporate account.\n\n  Pass the target account explicitly: ${CLI.APP_DEPLOY('<account-id>')}`,
+  // The spec's installation flow requires deploy to refuse until the config has
+  // been validated by an upload. `version` is only ever written by a successful
+  // upload, so its absence is a reliable local signal.
+  APP_DEPLOY_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
+  APP_ROLLBACK_SELECT: 'Select an app to roll back:',
+  APP_ROLLBACK_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Roll back app "${name}" (${appId}) from account ${accountId}?`,
+  APP_ROLLBACK_CANCELLED: 'Rollback cancelled.',
+  APP_ROLLBACK_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} rolled back from account ${accountId}.`,
+  APP_ROLLBACK_NOT_DEPLOYED: (appId: string, accountId: string) =>
+    `App ${appId} is not deployed to account ${accountId}.`,
+  // Both verbs identify the calling account by its organization ID, which is only
+  // cached by a successful login. Numeric and UUID values are both forwarded as-is;
+  // only an absent or blank one lands here, meaning the credentials predate the field
+  // or were written by a partial login — re-authenticating rewrites them.
+  APP_DEPLOY_MISSING_CLIENT_ID: `Could not determine your Brevo account's organization ID.\n\n  Run \`${CLI.LOGIN}\` to re-authenticate.`,
+  APP_DEPLOY_NON_INTERACTIVE:
+    'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
   APP_UPLOAD_DISTRIBUTION_IMMUTABLE: (current: string, next: string) =>
     `distribution_type cannot be changed via upload — this app is "${current}" on Brevo, but app-config.json says "${next}".\n  Edit \`distribution_type\` in app-config.json back to "${current}", or create a new ${next} app with \`${CLI.APP_CREATE}\`.`,
 
@@ -226,7 +362,14 @@ export const messages = {
   APP_SCAFFOLD_CANCELLED: 'Scaffold cancelled.',
   APP_SCAFFOLD_JSON_DIFF_CANCELLED:
     'app-config.json differs from the server and --json cannot prompt for confirmation. Re-run without --json to review and confirm the update.',
+  // Shown when `app create`'s read-back of the app it just created comes back
+  // empty or 404. The app exists — the server issued its ID — so this is a
+  // read-path problem, not a missing app, and the create response has everything
+  // the scaffold needs except `scopes` (which falls back to the defaults).
+  APP_SCAFFOLD_SERVER_READBACK_FAILED: (appId: string) =>
+    `App ${appId} was created but could not be read back from the server. Scaffolding from the create response instead — run \`${CLI.APP_SCAFFOLD}\` later to refresh app-config.json from the server.`,
   APP_SCAFFOLD_SUCCESS: (count: number) => `Feature scaffolded (${count} files)`,
+  APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_DEPLOY()}\`.`,
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
   APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
   APP_SCAFFOLD_NEXT_STEPS_TITLE: 'Next steps',
@@ -278,6 +421,21 @@ export const messages = {
   ERR_NETWORK: 'Cannot reach Brevo API.',
   ERR_RATE_LIMITED: (retryAfter: number) => `Rate limited. Retrying in ${retryAfter} seconds...`,
   ERR_REGISTRY: 'Operation failed due to a registry error. Please try again.',
+  // Replaces the platform's `ui_app is not enabled for this account` (403,
+  // `ui_app_not_enabled`) — a wire key is not something a partner can act on. Mapped
+  // by API *code* rather than by copy, which is why this one does not quote the
+  // server back the way `APP_CREATE_PUBLIC_REJECTED` does: the code is the stable
+  // identifier, so there is no mismatch to leave an escape valve for, and the
+  // server's sentence says nothing this line doesn't.
+  //
+  // Keyed centrally in `apiCodeMessages` because the same gate guards two commands:
+  // `app create` (authoring a `ui_app` block) and `app upload` (pushing one). The
+  // allowance is per account and shares the public-apps flag, so an enabled account
+  // never sees this. `--json` consumers still get `code: "ui_app_not_enabled"`.
+  ERR_UI_APP_NOT_ENABLED:
+    "UI apps aren't enabled for this Brevo account yet.\n\n" +
+    '  Why:       UI apps (action links) are still rolling out, and are enabled per account.\n' +
+    '  Do this:   build an OAuth app instead, or ask Brevo to enable UI apps for this account.',
   ERR_AUTH_GATEWAY:
     'API is behind an authentication gateway (e.g. Cloudflare Access). Sign in via your browser first, or check your API base URL.',
 
@@ -291,7 +449,7 @@ export const messages = {
   INIT_VERIFY_UNAVAILABLE:
     "Couldn't verify your credentials right now — continuing with the stored session.",
   INIT_STEP_LOGIN: '  Step 1: Authenticate with your Brevo account',
-  INIT_STEP_CREATE: '  Step 2: Create your first OAuth app',
+  INIT_STEP_CREATE: '  Step 2: Create your first app',
   INIT_APPS_EXIST: (count: number) => `You have ${count} app${count === 1 ? '' : 's'} already.`,
   INIT_APP_LINKED: (name: string) => `App "${name}" is linked to this project (app-config.json).`,
   INIT_APP_ACTION: 'What would you like to do?',

@@ -52,8 +52,10 @@ function printCredentialsHuman(
   } else {
     logInfo(`  Scopes:        (none)`);
   }
-  if (app.redirect_uris.length > 0) {
-    app.redirect_uris.forEach((uri, i) => {
+  // Null, not [], on any app with no OAuth block — never iterate it directly.
+  const redirectUris = app.redirect_uris ?? [];
+  if (redirectUris.length > 0) {
+    redirectUris.forEach((uri, i) => {
       logInfo(`  Redirect URL ${i + 1}: ${uri}`);
     });
   } else {

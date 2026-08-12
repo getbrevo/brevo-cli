@@ -1,10 +1,11 @@
 import { ApiClient } from '../../api/client';
 import { createAppService } from '../../services/app';
 import { ApiError } from '../../lib/errors';
-import { getAppCredentials, saveAppCredentials } from '../../lib/config';
+import { getAppCredentials, getOrganizationId, saveAppCredentials } from '../../lib/config';
 
 jest.mock('../../lib/config', () => ({
   getAppCredentials: jest.fn(),
+  getOrganizationId: jest.fn(),
   saveAppCredentials: jest.fn(),
 }));
 
@@ -49,6 +50,158 @@ describe('services/app', () => {
       (mockClient.get as jest.Mock).mockResolvedValue(null);
       const result = await service.fetchAppsList();
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('fetchSurfacePoints', () => {
+    // The registry's own column names. `surface_point_name` is a kebab-case SLUG, not
+    // display text — the CLI never renders it (see EXTENSION_PLACE_LABELS).
+    const ROW = {
+      extension_point_name: 'contactDetails.headerMenu.action',
+      surface_point_name: 'contact-details-header-menu',
+      location_name: 'contactDetails',
+      section_name: 'headerMenu',
+      component_type: 'action',
+      allowed_context_field: ['recordId', 'recordName', 'userId', 'locale', 'accountId'],
+      default_context_field: ['recordId', 'recordName', 'accountId', 'locale'],
+      extension_type_list: ['actionLink', 'iframeExtension'],
+      status: 'active',
+    };
+
+    // No extensionType filter: both extension types render on both kinds, so filtering
+    // server-side would hide authorable placements. The create flow checks each row's
+    // own extension_type_list instead.
+    it('GETs the unfiltered endpoint when no locations are given', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [ROW], count: 1 });
+      const result = await service.fetchSurfacePoints();
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/surface-points');
+      expect(result).toEqual([ROW]);
+    });
+
+    it('passes selected locations as a comma-separated location filter', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [ROW] });
+      await service.fetchSurfacePoints(['contactDetails', 'dealDetails']);
+      expect(mockClient.get).toHaveBeenCalledWith(
+        '/v3/app-store/surface-points?location=contactDetails%2CdealDetails',
+      );
+    });
+
+    it('omits the filter for an empty or blank location list', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [] });
+      await service.fetchSurfacePoints([]);
+      await service.fetchSurfacePoints(['  ']);
+      expect(mockClient.get).toHaveBeenNthCalledWith(1, '/v3/app-store/surface-points');
+      expect(mockClient.get).toHaveBeenNthCalledWith(2, '/v3/app-store/surface-points');
+    });
+
+    it('tolerates a bare-array response', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue([ROW]);
+      expect(await service.fetchSurfacePoints()).toEqual([ROW]);
+    });
+
+    // The endpoint is specified but NOT BUILT, and two namings are in play: the registry's
+    // columns and the pre-BEX-361 draft's extension_point / location / place / kind. Keying
+    // strictly on either would fail CLOSED against the other — every row dropped, and the
+    // partner told the registry "has not been seeded", a data problem that doesn't exist.
+    it('normalizes the pre-BEX-361 field spellings onto the registry column names', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        surface_points: [
+          {
+            extension_point: 'dealDetails.overviewSidebar.widget',
+            location: 'dealDetails',
+            place: 'overviewSidebar',
+            kind: 'widget',
+            supported_extension_types: ['actionLink'],
+            default_context_field: ['recordId'],
+          },
+        ],
+      });
+
+      expect(await service.fetchSurfacePoints()).toEqual([
+        {
+          extension_point_name: 'dealDetails.overviewSidebar.widget',
+          location_name: 'dealDetails',
+          section_name: 'overviewSidebar',
+          component_type: 'widget',
+          extension_type_list: ['actionLink'],
+          default_context_field: ['recordId'],
+        },
+      ]);
+    });
+
+    it('prefers the registry column names when a row carries both spellings', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        surface_points: [{ ...ROW, extension_point: 'stale.value.here', location: 'stale' }],
+      });
+
+      expect(await service.fetchSurfacePoints()).toEqual([ROW]);
+    });
+
+    it('drops rows without a usable slot name and dedupes by name', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        surface_points: [
+          ROW,
+          { ...ROW, extension_point_name: '  contactDetails.headerMenu.action  ' }, // dupe after trim
+          { surface_point_name: 'nameless' },
+          { extension_point_name: '   ' },
+          null,
+        ],
+      });
+      expect(await service.fetchSurfacePoints()).toEqual([ROW]);
+    });
+
+    it('returns [] for a null response body', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue(null);
+      expect(await service.fetchSurfacePoints()).toEqual([]);
+    });
+
+    it('propagates ApiError unchanged (the command owns the actionable message)', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      await expect(service.fetchSurfacePoints()).rejects.toThrow(ApiError);
+    });
+  });
+
+  // The record pages come from the registry's own location list, not from reducing a full
+  // row read — `app create`'s page prompt asks the registry which pages exist rather than
+  // inferring it from whichever rows came back.
+  describe('fetchSurfacePointLocations', () => {
+    it('GETs the locations endpoint and returns the list in server order', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        locations: ['companyDetails', 'contactDetails', 'dealDetails'],
+        count: 3,
+      });
+
+      expect(await service.fetchSurfacePointLocations()).toEqual([
+        'companyDetails',
+        'contactDetails',
+        'dealDetails',
+      ]);
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/surface-points/locations');
+    });
+
+    it('tolerates a bare-array response', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue(['contactDetails']);
+      expect(await service.fetchSurfacePointLocations()).toEqual(['contactDetails']);
+    });
+
+    // Callers build prompt choices straight off these values, so a blank, a non-string or a
+    // duplicate would become an unpickable or repeated page choice.
+    it('drops blank, non-string and duplicate entries', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        locations: ['contactDetails', '  contactDetails  ', '   ', 42, null, 'dealDetails'],
+      });
+
+      expect(await service.fetchSurfacePointLocations()).toEqual(['contactDetails', 'dealDetails']);
+    });
+
+    it('returns [] for a null response body', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue(null);
+      expect(await service.fetchSurfacePointLocations()).toEqual([]);
+    });
+
+    it('propagates ApiError unchanged (the command owns the actionable message)', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      await expect(service.fetchSurfacePointLocations()).rejects.toThrow(ApiError);
     });
   });
 
@@ -100,7 +253,10 @@ describe('services/app', () => {
   });
 
   describe('createApp', () => {
-    it('should POST to app-store/apps with payload and normalize app_id', async () => {
+    // The body carries the payload and nothing else — no `source: 'cli'`, which
+    // was removed because it is a top-level key outside the declared create
+    // contract and the backend reads the caller from the User-Agent instead.
+    it('should POST to app-store/apps with the payload unchanged and normalize app_id', async () => {
       const response = {
         app_id: 1,
         client_id: 'cli-123',
@@ -116,7 +272,6 @@ describe('services/app', () => {
       expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps', {
         name: 'Test App',
         distribution_type: 'private',
-        source: 'cli',
       });
       expect(result).toEqual({ ...response, app_id: '1' });
     });
@@ -151,7 +306,7 @@ describe('services/app', () => {
         app_id: UUID,
         name: 'Test App',
         logo_uri: '',
-        app_version: '0.0.2',
+        version: '0.0.2',
         distribution_type: 'private',
         auth: {
           scopes: ['contacts:read'],
@@ -163,7 +318,7 @@ describe('services/app', () => {
         app_id: UUID,
         name: 'Test App',
         logo_uri: '',
-        app_version: '0.0.2',
+        version: '0.0.2',
         distribution_type: 'private',
         auth: {
           scopes: ['contacts:read'],
@@ -181,7 +336,7 @@ describe('services/app', () => {
           app_id: '42',
           name: 'X',
           logo_uri: '',
-          app_version: '0.0.1',
+          version: '0.0.1',
           distribution_type: 'private',
           auth: { scopes: [], redirect_uris: [] },
         }),
@@ -246,6 +401,29 @@ describe('services/app', () => {
       (mockClient.get as jest.Mock).mockResolvedValue(null);
       const result = await service.resolveAppCredentials('999');
       expect(result).toBeNull();
+    });
+
+    // A 404 stays fatal by default: every caller but one reads an ID the user
+    // supplied, where not-found means they typed the wrong app.
+    it('throws the friendly not-found error on a 404 by default', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      await expect(service.resolveAppCredentials(UUID)).rejects.toThrow(`App ${UUID} not found.`);
+    });
+
+    it('returns null instead of throwing on a 404 when tolerateMissing is set', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+      await expect(
+        service.resolveAppCredentials(UUID, { tolerateMissing: true }),
+      ).resolves.toBeNull();
+    });
+
+    // tolerateMissing is scoped to 404 alone — a 500 or an expired session must
+    // still surface rather than be silently scaffolded around.
+    it('still throws non-404 errors when tolerateMissing is set', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('boom', 500));
+      await expect(service.resolveAppCredentials(UUID, { tolerateMissing: true })).rejects.toThrow(
+        ApiError,
+      );
     });
   });
 
@@ -328,6 +506,137 @@ describe('services/app', () => {
     it('should propagate API errors', async () => {
       (mockClient.delete as jest.Mock).mockRejectedValue(new Error('Not found'));
       await expect(service.deleteApp('999')).rejects.toThrow('Not found');
+    });
+  });
+
+  describe('deployApp / rollbackApp', () => {
+    beforeEach(() => {
+      (getOrganizationId as jest.Mock).mockReturnValue('12345');
+    });
+
+    it('should POST an install with the account ID coerced to a number', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deployApp(UUID, '99999', 'Invoice Manager');
+
+      expect(mockClient.post).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
+        client_id: 12345,
+        deploy_client_id: 99999,
+        name: 'Invoice Manager',
+        is_developer: true,
+      });
+    });
+
+    it('should DELETE the same install resource with the same body', async () => {
+      (mockClient.delete as jest.Mock).mockResolvedValue(undefined);
+
+      await service.rollbackApp(UUID, '99999', 'Invoice Manager');
+
+      expect(mockClient.delete).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
+        client_id: 12345,
+        deploy_client_id: 99999,
+        name: 'Invoice Manager',
+        is_developer: true,
+      });
+    });
+
+    // `client_id` is the account that owns the app; `deploy_client_id` is the account
+    // it lands in. They differ for a corporate deploy into a sub-account, and the
+    // server resolves the app against the former — so they must not be collapsed.
+    it('should send the caller organization ID and the deploy target separately', async () => {
+      (getOrganizationId as jest.Mock).mockReturnValue('12345');
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deployApp(UUID, '67890', 'Invoice Manager');
+
+      expect(mockClient.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ client_id: 12345, deploy_client_id: 67890 }),
+      );
+    });
+
+    // Both body fields are Go int64 and the handler decodes the body BEFORE it reads
+    // the X-Sib-Client-Id header, so a UUID in either one is a decode failure — 400,
+    // whole request lost, including one the header would have resolved fine. Omit it
+    // instead and let the server fall back to the header / its caller default.
+    it.each([
+      ['a UUID', '550e8400-e29b-41d4-a716-446655440001'],
+      ['blank', '   '],
+      ['absent', undefined],
+    ])('should omit client_id when the organization ID is %s', async (_label, organizationId) => {
+      (getOrganizationId as jest.Mock).mockReturnValue(organizationId);
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deployApp(UUID, '99999', 'Invoice Manager');
+
+      const body = (mockClient.post as jest.Mock).mock.calls[0][1];
+      expect(body).not.toHaveProperty('client_id');
+      expect(body).toMatchObject({ deploy_client_id: 99999, is_developer: true });
+    });
+
+    // A non-numeric target only arises for a plain account deploying into itself, and
+    // the server defaults an absent deploy_client_id to the caller — the same account.
+    it('should omit deploy_client_id when the target is not numeric', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deployApp(UUID, '550e8400-e29b-41d4-a716-446655440002', 'Invoice Manager');
+
+      const body = (mockClient.post as jest.Mock).mock.calls[0][1];
+      expect(body).not.toHaveProperty('deploy_client_id');
+      expect(body).toMatchObject({ client_id: 12345 });
+    });
+
+    // NaN serialises to `null`, which is a decode failure too — an omitted key is the
+    // only safe representation of "the CLI has no number for this".
+    it('should never emit null or NaN for either identifier', async () => {
+      (getOrganizationId as jest.Mock).mockReturnValue('org-1');
+      (mockClient.post as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deployApp(UUID, 'acct-2', 'x');
+
+      const body = (mockClient.post as jest.Mock).mock.calls[0][1];
+      expect(JSON.stringify(body)).not.toContain('null');
+      expect(body).toEqual({ name: 'x', is_developer: true });
+    });
+
+    // Matches the confirmed staging curl exactly: no client_id, numeric
+    // deploy_client_id, name, is_developer.
+    it('should match the staging DELETE payload shape', async () => {
+      (mockClient.delete as jest.Mock).mockResolvedValue(undefined);
+
+      await service.rollbackApp(UUID, '12', 'My App Installation');
+
+      expect(mockClient.delete).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
+        client_id: 12345,
+        deploy_client_id: 12,
+        name: 'My App Installation',
+        is_developer: true,
+      });
+    });
+
+    it('should rethrow a 404 on deploy as a friendly not-found error', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+
+      await expect(service.deployApp('999', '1', 'x')).rejects.toThrow('App 999 not found.');
+    });
+
+    // Unlike every other verb, rollback must NOT collapse 404 into "app not found":
+    // the uninstall route answers 404 for a missing install too, and the command
+    // reports that as the informational not-deployed path.
+    it('should propagate a 404 on rollback unchanged', async () => {
+      (mockClient.delete as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
+
+      await expect(service.rollbackApp('999', '1', 'x')).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    // The command maps 422 itself — deploy to "upload first" — so the service
+    // must not swallow it.
+    it('should propagate a 422 ApiError unchanged', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('not configured', 422));
+
+      await expect(service.deployApp('42', '1', 'x')).rejects.toMatchObject({ statusCode: 422 });
     });
   });
 

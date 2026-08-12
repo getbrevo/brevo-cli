@@ -18,7 +18,8 @@ import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { loadBaseTemplates, loadFeatureTemplates, FeatureType } from '../../templates';
 import { containsLegacyAllScope } from '../../lib/validators';
-import { readProjectConfig, ProjectConfig } from '../../lib/config';
+import { readProjectConfig, ProjectConfig, isUiAppConfig } from '../../lib/config';
+import { OAuthApp, UiApp } from '../../types';
 
 interface TreeNode {
   [key: string]: TreeNode;
@@ -71,6 +72,14 @@ export interface AppContext {
   clientSecret: string;
   redirectUris: string[];
   redirectUri: string;
+  /**
+   * The UI-app block to write into app-config.json (BEX-290). Unlike every other
+   * field here it is not necessarily server-sourced: `app create` collects it
+   * from prompts before the server knows about it, and `app scaffold` carries the
+   * *local* block forward so a refresh never destroys hand-edited values.
+   * Absent for OAuth apps.
+   */
+  uiApp?: UiApp;
 }
 
 export function computeSlug(name: string | undefined): string {
@@ -82,11 +91,36 @@ export function computeSlug(name: string | undefined): string {
   );
 }
 
-export async function fetchAppContext(appId: string, silent?: boolean): Promise<AppContext> {
+export async function fetchAppContext(
+  appId: string,
+  silent?: boolean,
+  // The UI-app block to scaffold, supplied by the caller — deliberately NOT read
+  // from the server response. Both callers already know the app type locally
+  // (`app create` from the type it just prompted for, `app scaffold` from the
+  // local `app-config.json`), and falling back to `appDetails.ui_app` would let
+  // stale or unexpected server data reclassify an app the user explicitly created
+  // as OAuth. Absent here means "OAuth app", authoritatively.
+  uiApp?: UiApp,
+  // The app object to fall back on when the server can't return one. Supplied by
+  // `app create` only, and it is the create response itself: at that point the app
+  // provably exists (the server just issued its ID), so a 404 on the read-back is
+  // the server contradicting itself, not a missing app. Without this the read-back
+  // threw and took the whole create with it — the app stayed on the server while
+  // the user got `App <id> not found.` and no project directory (BEX-290).
+  fallbackApp?: OAuthApp,
+): Promise<AppContext> {
   const spinner = createSpinner('Fetching app details...', { silent });
-  const result = await appService.resolveAppCredentials(appId);
-  spinner.stop();
-  const appDetails = result?.app ?? null;
+  let result: Awaited<ReturnType<typeof appService.resolveAppCredentials>>;
+  try {
+    result = await appService.resolveAppCredentials(appId, {
+      tolerateMissing: Boolean(fallbackApp),
+    });
+  } finally {
+    // In `finally` so a propagating error stops the spinner too — otherwise the
+    // frame keeps printing over the error output.
+    spinner.stop();
+  }
+  let appDetails = result?.app ?? null;
   if (result) {
     if (result.diffs.length > 0) {
       logWarn(
@@ -94,6 +128,11 @@ export async function fetchAppContext(appId: string, silent?: boolean): Promise<
       );
     }
     appService.syncAppCredentials(appId, result.app);
+  } else if (fallbackApp) {
+    appDetails = fallbackApp;
+    // Suppressed under --json: logWarn writes to stdout, which would corrupt the
+    // single JSON blob the command emits.
+    if (!silent) logWarn(messages.APP_SCAFFOLD_SERVER_READBACK_FAILED(appId));
   }
   const serverRedirectUrls = appDetails?.redirect_uris ?? [];
   const redirectUris = serverRedirectUrls.length > 0 ? serverRedirectUrls : [DEFAULT_REDIRECT_URI];
@@ -106,6 +145,7 @@ export async function fetchAppContext(appId: string, silent?: boolean): Promise<
     clientSecret: appDetails?.client_secret || 'YOUR_CLIENT_SECRET',
     redirectUris,
     redirectUri: localhostUri || DEFAULT_REDIRECT_URI,
+    ...(uiApp ? { uiApp } : {}),
   };
 }
 
@@ -213,28 +253,38 @@ function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDif
     });
   }
 
-  const localRedirects = [...(localConfig.auth?.redirectUris ?? [])].sort((a, b) =>
-    a.localeCompare(b),
-  );
-  const serverRedirects = [...ctx.redirectUris].sort((a, b) => a.localeCompare(b));
-  if (JSON.stringify(localRedirects) !== JSON.stringify(serverRedirects)) {
-    diffs.push({
-      field: 'redirectUris',
-      local: localRedirects.join(', ') || '(none)',
-      server: serverRedirects.join(', ') || '(none)',
-    });
+  // UI apps have no OAuth callback, and `ctx.redirectUris` falls back to the
+  // default localhost URI when the server returns none — comparing the two would
+  // report a permanent phantom diff on every UI-app scaffold. Skip it entirely.
+  if (!isUiAppConfig(localConfig)) {
+    const localRedirects = [...(localConfig.auth?.redirectUris ?? [])].sort((a, b) =>
+      a.localeCompare(b),
+    );
+    const serverRedirects = [...ctx.redirectUris].sort((a, b) => a.localeCompare(b));
+    if (JSON.stringify(localRedirects) !== JSON.stringify(serverRedirects)) {
+      diffs.push({
+        field: 'redirectUris',
+        local: localRedirects.join(', ') || '(none)',
+        server: serverRedirects.join(', ') || '(none)',
+      });
+    }
   }
 
-  const localScopes = [...(localConfig.auth?.scopes ?? [])].sort((a, b) => a.localeCompare(b));
-  const serverScopes = [...(ctx.appDetails?.scopes ?? [])]
-    .filter((s) => s !== LEGACY_ALL_SCOPE)
-    .sort((a, b) => a.localeCompare(b));
-  if (JSON.stringify(localScopes) !== JSON.stringify(serverScopes)) {
-    diffs.push({
-      field: 'scopes',
-      local: localScopes.join(', ') || '(none)',
-      server: serverScopes.join(', ') || '(none)',
-    });
+  // Scopes are OAuth-only too: a UI app's config carries no scopes by design
+  // (`auth: {}`), so comparing against whatever the server
+  // reports would flag drift on every refresh.
+  if (!isUiAppConfig(localConfig)) {
+    const localScopes = [...(localConfig.auth?.scopes ?? [])].sort((a, b) => a.localeCompare(b));
+    const serverScopes = [...(ctx.appDetails?.scopes ?? [])]
+      .filter((s) => s !== LEGACY_ALL_SCOPE)
+      .sort((a, b) => a.localeCompare(b));
+    if (JSON.stringify(localScopes) !== JSON.stringify(serverScopes)) {
+      diffs.push({
+        field: 'scopes',
+        local: localScopes.join(', ') || '(none)',
+        server: serverScopes.join(', ') || '(none)',
+      });
+    }
   }
 
   const localLogo = localConfig.logoUri ?? '';
@@ -252,6 +302,13 @@ function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): ConfigDif
       server: serverVersion || '(none)',
     });
   }
+
+  // `ui_app` is deliberately NOT diffed. The local block is the author's source
+  // of truth — the CLI writes it, the server validates it — and not every server
+  // build echoes it back on reads. Diffing it would report drift against an
+  // absent remote value and then a confirmed refresh would overwrite the
+  // partner's hand-edited block with nothing. The local block is instead carried
+  // through the refresh verbatim (see the ctx override in scaffoldCommand).
 
   return diffs;
 }
@@ -282,16 +339,32 @@ interface TemplateVars {
 
 // Build the `{{...}}` substitution map shared by base and feature templates,
 // plus the resolved scopes and whether the legacy 'all' scope was substituted.
+// Render a `ui_app` block for embedding at a 2-space indent inside
+// app-config.json.tmpl. JSON.stringify only indents *nested* levels, so every
+// line after the first needs the parent's indent added to keep the emitted file
+// readable (and diff-friendly against a hand-edited one).
+function renderUiAppJson(uiApp: UiApp | undefined): string {
+  if (!uiApp) return '';
+  return JSON.stringify(uiApp, null, 2).split('\n').join('\n  ');
+}
+
 function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): TemplateVars {
   const rawAppName = ctx.appDetails?.name || path.basename(targetDir);
   const appName = rawAppName.replaceAll(/["\\\n\r\t]/g, '').trim() || 'my-app';
   // Never propagate the deprecated legacy 'all' scope into a fresh
-  // app-config.json — keep the app's granular scopes, fall back to
-  // DEFAULT_SCOPES when 'all' was the only scope, and tell the user (BEX-214).
+  // app-config.json — keep the app's granular scopes, fall back to the
+  // defaults when 'all' was the only scope, and tell the user (BEX-214).
+  // UI apps have no OAuth block at all (`auth: {}`), so their
+  // scopes resolve to [] — the ui_app template branch never renders them.
   const remoteScopes = ctx.appDetails?.scopes;
-  const legacyAllSubstituted = containsLegacyAllScope(remoteScopes);
+  const legacyAllSubstituted = !ctx.uiApp && containsLegacyAllScope(remoteScopes);
   const granularScopes = (remoteScopes ?? []).filter((s) => s !== LEGACY_ALL_SCOPE);
-  const scopes = granularScopes.length > 0 ? granularScopes : [...DEFAULT_SCOPES];
+  let scopes: string[];
+  if (ctx.uiApp) {
+    scopes = [];
+  } else {
+    scopes = granularScopes.length > 0 ? granularScopes : [...DEFAULT_SCOPES];
+  }
 
   const slug = computeSlug(ctx.appDetails?.name);
 
@@ -309,6 +382,9 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
     '{{APP_VERSION}}': ctx.appDetails?.version ?? '',
     '{{OAUTH_BASE}}': OAUTH_BASE,
     '{{OAUTH_REALM}}': OAUTH_REALM,
+    // Empty for OAuth apps — its emptiness is what selects the `oauth`
+    // conditional branch in templates (see resolveTemplateFlags).
+    '{{UI_APP_JSON}}': renderUiAppJson(ctx.uiApp),
   };
 
   return { vars, scopes, legacyAllSubstituted };
@@ -466,7 +542,10 @@ async function resolveScaffoldPlan(
   jsonMode: boolean,
 ): Promise<ScaffoldPlan> {
   const appId = localConfig.appId;
-  const ctx = await fetchAppContext(appId, jsonMode);
+  // Carry the local `ui_app` block into the context so that if the user consents
+  // to a config refresh, `runBaseScaffold` rewrites app-config.json *with* it
+  // rather than dropping it (the refresh is a full overwrite, not a merge).
+  const ctx = await fetchAppContext(appId, jsonMode, localConfig.ui_app);
   const diffs = diffLocalConfig(localConfig, ctx);
 
   // No drift → nothing to refresh; just add the feature.
@@ -522,8 +601,32 @@ export const scaffoldCommand = withCommandHandler(
     }
 
     const { appId, ctx, refreshBase } = plan;
-    const feature = await promptFeatureType(!jsonMode);
     const targetDir = process.cwd();
+
+    // UI apps have no scaffoldable features — there is no local server to run for
+    // an action link. `app scaffold` degrades to a base-config refresh so the
+    // command still has a use inside a UI-app project, instead of offering an
+    // OAuth test server the app can't use.
+    if (isUiAppConfig(localConfig)) {
+      const base = refreshBase ? runBaseScaffold(appId, ctx, targetDir, false) : null;
+      if (jsonMode) {
+        jsonOutput({
+          scaffolded: base?.written ?? 0,
+          directory: targetDir,
+          features: [],
+          reason: messages.APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP,
+        });
+        return;
+      }
+      if (base) {
+        logSuccess(messages.APP_CREATE_BASE_SUCCESS(base.written));
+        logInfo(formatFileTree(base.files.map((f) => f.name)));
+      }
+      logInfo(messages.APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP);
+      return;
+    }
+
+    const feature = await promptFeatureType(!jsonMode);
 
     // Decide how existing feature files are handled (overwrite/merge/cancel)
     // before writing anything.
