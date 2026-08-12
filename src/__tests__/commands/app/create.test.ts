@@ -1376,12 +1376,13 @@ describe('app/create', () => {
     beforeEach(() => {
       askedQuestions = [];
       registryHas(FULL_REGISTRY);
+      // No credential fields: a UI app sends no `auth` block on create and the
+      // server returns none. The fixture used to carry an OAuth client ID and
+      // secret, which made every assertion below run against a response shape the
+      // platform never produces for this app type.
       (appService.createApp as jest.Mock).mockResolvedValue({
         app_id: 42,
         name: 'Invoice Manager',
-        client_id: 'cli-123',
-        client_secret: 'secret-456',
-        redirect_uris: [],
       });
       answerPrompts();
     });
@@ -2037,6 +2038,27 @@ describe('app/create', () => {
       expect(output).not.toContain('Redirect URL');
     });
 
+    // A UI app sends no `auth` block and gets none back, so there is no client ID
+    // and no secret to show. The box used to render both rows regardless, printing
+    // `Client ID: undefined` beside a hidden-secret placeholder for a secret that
+    // never existed.
+    it('omits the credential rows from the UI-app box', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(output).not.toContain('Client ID');
+      expect(output).not.toContain('Client secret');
+      expect(output).not.toContain('undefined');
+    });
+
+    // Same reason: caching `{clientId: undefined, clientSecret: undefined}` under the
+    // app's ID writes an entry that can only mislead a later read.
+    it('caches no credentials for a UI app', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(saveAppCredentials).not.toHaveBeenCalled();
+    });
+
     // `label` labels the menu entry (BEX-290). The one piece of rendered text with no
     // field is a CARD's title, which is the app name — so the box says that instead.
     it('explains where the label renders and that a card title is the app name', async () => {
@@ -2112,12 +2134,28 @@ describe('app/create', () => {
     });
 
     it('creates an OAuth app under --json even on a TTY', async () => {
+      // This one takes the OAuth branch, so it needs an OAuth-shaped response —
+      // the surrounding suite's fixture is a UI app's, which carries no `auth`.
+      // `createApp` has already flattened the block by the time the command sees
+      // it, so these fields are top-level here whichever shape the wire used.
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 42,
+        name: 'Invoice Manager',
+        client_id: 'cli-123',
+        client_secret: 'secret-456',
+        redirect_uris: ['http://localhost:3009/auth/callback'],
+      });
+
       await createCommand({ ...CLI_OPTIONS, json: true });
 
       expect(questionNamed('appType')).toBeUndefined();
       const parsed = JSON.parse(stdoutSpy.mock.calls.map((c) => String(c[0])).join(''));
       expect(parsed.appType).toBe('oauth');
-      expect(parsed).toHaveProperty('redirectUri');
+      // Both were silently dropped when the server started nesting them under
+      // `auth` — JSON.stringify omits undefined, so `--json` lost two documented
+      // fields with no error anywhere. Assert them, not just their container.
+      expect(parsed.clientId).toBe('cli-123');
+      expect(parsed.redirectUri).toEqual(['http://localhost:3009/auth/callback']);
       expect(parsed).not.toHaveProperty('uiApp');
     });
   });

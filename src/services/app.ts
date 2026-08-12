@@ -38,6 +38,55 @@ function pick<K extends string, V>(key: K, value: V | undefined): Partial<Record
   return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
 }
 
+/**
+ * The create response exactly as it comes off the wire: OAuth fields may arrive
+ * nested under `auth`, top-level, or (for a UI app) not at all.
+ */
+type RawCreateAppResponse = CreateAppResponse & {
+  auth?: {
+    client_id?: string;
+    client_secret?: string;
+    scopes?: string[];
+    redirect_uris?: string[];
+  };
+};
+
+/**
+ * Lift the create response's `auth` block to the top level.
+ *
+ * The unified-payload work moved the create REQUEST's OAuth fields inside `auth`,
+ * to match the upload endpoint. The platform's nested-contract handler
+ * (`http_cli_create_app_public.go`) echoes that nesting straight back, so the
+ * response became `{app_id, name, version, distribution_type, auth: {...}}` while
+ * every caller still read the flat shape. Nothing type-errored, so it shipped:
+ * `app create` printed `Client ID: undefined`, dropped its `Redirect URL n:` lines,
+ * `--json` silently omitted `clientId`/`redirectUri` (JSON.stringify drops
+ * undefined), and the scaffold read-back fallback lost its callbacks too.
+ *
+ * Normalising here rather than at the ~7 read sites keeps the fix in one place and
+ * keeps `CreateAppResponse` a single shape for everything downstream. `auth` is
+ * removed after lifting so there is exactly one place to read each field.
+ *
+ * Both shapes are tolerated because the flat handler is still live on some
+ * deployments — this is a compatibility shim, not a migration, and it can go once
+ * the nested contract is the only one in production (RELEASE-CHECKLIST.md).
+ *
+ * A present flat field wins over its nested twin. They should never disagree; if
+ * they do, the shape that shipped is the one callers already expect, and quietly
+ * preferring the other would be a behaviour change hiding inside a shim.
+ */
+function flattenCreateAuth(raw: RawCreateAppResponse): CreateAppResponse {
+  const { auth, ...rest } = raw;
+  if (!auth) return rest;
+  return {
+    ...rest,
+    ...pick('client_id', rest.client_id ?? auth.client_id),
+    ...pick('client_secret', rest.client_secret ?? auth.client_secret),
+    ...pick('redirect_uris', rest.redirect_uris ?? auth.redirect_uris),
+    ...pick('scopes', rest.scopes ?? auth.scopes),
+  };
+}
+
 function rethrowNotFound(err: unknown, appId: string): never {
   if (err instanceof ApiError && err.statusCode === 404) {
     throw new CliError(`App ${appId} not found.`, err.exitCode);
@@ -357,8 +406,8 @@ export function createAppService(client: ApiClient) {
       ui_app?: UiApp;
       logo_uri?: string;
     }): Promise<CreateAppResponse> {
-      const raw = await client.post<CreateAppResponse>(ENDPOINTS.APP_STORE_APPS, payload);
-      return normalizeAppId(raw);
+      const raw = await client.post<RawCreateAppResponse>(ENDPOINTS.APP_STORE_APPS, payload);
+      return flattenCreateAuth(normalizeAppId(raw));
     },
 
     // The payload goes over the wire unchanged: the upload endpoint rejects

@@ -279,6 +279,53 @@ public-apps notice above, including its *Exception — internal Brevo accounts* 
 Append an entry per change that needs verifying. Clear this section (keep the
 heading) before merging into `main`.
 
+### BEX-405 — `app create` reads the nested `auth` block off the create response (2026-08-12)
+
+**Change:** `createApp()` now lifts `auth.{client_id, client_secret, redirect_uris,
+scopes}` to the top level before returning (`flattenCreateAuth`,
+`src/services/app.ts`), and `CreateAppResponse` declares those four optional.
+
+This is a **branch regression, not a live bug** — it never reached npm. The
+unified-payload work moved the create *request*'s OAuth fields inside `auth`; the
+platform's nested-contract handler echoes that nesting back, so the response
+changed shape while all seven read sites kept reading the flat one. Nothing
+type-errored, because the type declared the fields required and flat, so the reads
+compiled clean against `undefined`. Confirmed against production with `--debug` and
+against `main`'s build (`0ad977c`) side by side.
+
+Both shapes are tolerated — the flat handler is still live on some deployments —
+so this is a compatibility shim, not a migration. Two follow-on fixes came with it,
+both consequences of the same wrong assumption that a create response always
+carries credentials: the UI-app box no longer renders `Client ID` / `Client secret`
+rows (a UI app has neither), and `saveAppCredentials` is skipped when there is no
+pair to cache.
+
+**Must hold true:**
+
+- [x] Nested, flat, mixed, and UI-app (no `auth`) responses all resolve correctly.
+      Covered by four cases in `src/__tests__/services/app.test.ts` → `createApp`.
+- [x] A present flat field wins over its nested twin — asserted, so a future
+      "simplification" to nested-first is a test failure rather than a silent
+      behaviour change.
+- [x] `--json` emits `clientId` and `redirectUri` with real values. Asserted on the
+      values, not just key presence: `JSON.stringify` drops `undefined`, which is
+      exactly how the regression stayed invisible.
+- [x] The UI-app fixture in `create.test.ts` carries no credential fields, matching
+      what the platform actually returns for a UI app.
+- [x] `yarn lint && yarn format:check && npx tsc --noEmit && yarn test` green
+      (51 suites / 1073 tests).
+- [ ] **Manual, blocking — this is a wire-shape fix, so mocks cannot confirm it.**
+      Run `brevo app create --name "..." --distribution private --json` against
+      staging and confirm `clientId` and `redirectUri` are both present and correct.
+- [ ] **Manual, blocking:** run the same create interactively and confirm the box
+      prints a real `Client ID:` and one `Redirect URL n:` line per callback.
+- [ ] **Manual:** create a UI app interactively and confirm the box shows no
+      credential rows, and that `~/.brevo/credentials.json` gains no `apps` entry
+      for it.
+- [ ] **Manual:** confirm the scaffold read-back fallback path still works — it
+      reads `client_id` / `redirect_uris` off the same response
+      (`scaffold.ts:137,144,145`) and was silently degrading to placeholders.
+
 ### BEX-355 — `app create` stops sending `source: 'cli'` (2026-08-07)
 
 **Change:** `createApp()` posts the declared payload and nothing else. This closes

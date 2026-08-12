@@ -276,8 +276,23 @@ into `main` — anything that must outlive the branch belongs in
       slot name. Neither call site holds the registry row at print time, so this needs a
       lookup, not a formatting change.
 
-- [ ] **BLOCKER — `app create` reads the create response at the wrong nesting level, so
-      every caller loses `client_id` / `redirect_uris` (found by E2E, 2026-08-12).**
+- [x] **BLOCKER — FIXED (2026-08-12). `app create` read the create response at the wrong
+      nesting level, so every caller lost `client_id` / `redirect_uris` (found by E2E).**
+      Fixed as described below, in the one place the fix belongs: `createApp()` now calls
+      `flattenCreateAuth()` after `normalizeAppId()` (`src/services/app.ts`), lifting
+      `auth.{client_id, client_secret, redirect_uris, scopes}` to the top level and
+      tolerating both wire shapes. All seven read sites are untouched.
+      `CreateAppResponse` now declares those four **optional**, which is what made the
+      compiler surface the three call sites that had been reading `undefined` in silence —
+      the type lying about the shape is why this shipped at all. Two consequences came
+      with it: the UI-app box no longer renders `Client ID` / `Client secret` rows (a UI
+      app has neither), and `saveAppCredentials` is skipped when there is no pair to
+      cache. The read-site count was **seven, not six** — `scaffold.ts:137,144,145` reads
+      the same response through `fetchAppContext`'s `fallbackApp`, and was degrading to
+      placeholders. Verification entry added to `RELEASE-CHECKLIST.md`; the manual
+      staging checks there are still open.
+
+      Original report follows.
       The unified payload work made create send OAuth fields inside `auth`, and the
       platform's nested-contract handler (`http_cli_create_app_public.go`) **echoes that
       nesting back**: the live response is

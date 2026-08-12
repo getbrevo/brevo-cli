@@ -566,8 +566,10 @@ export function renderCreatedUiApp(
   const boxLines = [
     `App name:       ${appName}`,
     `App ID:         ${result.app_id}`,
-    `Client ID:      ${result.client_id}`,
-    `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
+    // No Client ID / Client secret rows: a UI app sends no `auth` block and gets
+    // none back, so those rows could only ever render empty. They used to print
+    // `Client ID: undefined` next to a hidden-secret placeholder for a secret that
+    // does not exist — a credential form with nothing in it.
     `Extension type: ${uiApp.extension_type}`,
     // Each placement carries its own record context, so they print together — a
     // single shared "Record context" row would hide that they can differ. The value

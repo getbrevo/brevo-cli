@@ -344,13 +344,30 @@ export interface AppStateResponse {
   state?: string;
 }
 
+/**
+ * Response shape for POST /v3/app-store/apps, AFTER `createApp` has flattened it.
+ *
+ * The OAuth fields are optional, and that is the contract, not laziness. Two
+ * independent reasons:
+ *
+ * 1. A UI app sends no `auth` block and gets none back — it has no client ID, no
+ *    secret and no callbacks by construction.
+ * 2. The platform's nested-contract handler echoes the request's nesting, so they
+ *    arrive under `auth` rather than at the top level. `createApp` lifts them (see
+ *    `flattenCreateAuth`), tolerating both shapes.
+ *
+ * They were declared required and flat before, which is exactly why (2) shipped
+ * unnoticed: every read site compiled clean while reading `undefined`. Keep them
+ * optional so the compiler keeps asking.
+ */
 export interface CreateAppResponse {
   app_id: string;
   name: string;
-  client_id: string;
-  client_secret: string;
+  client_id?: string;
+  client_secret?: string;
   distribution_type?: 'public' | 'private';
-  redirect_uris: string[];
+  redirect_uris?: string[];
+  scopes?: string[];
   logo_uri?: string;
   version?: string;
   created_at: string;

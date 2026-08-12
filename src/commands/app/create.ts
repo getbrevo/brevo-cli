@@ -24,7 +24,7 @@ import {
 } from './scaffold';
 import { appService } from '../../container';
 import { FeatureType } from '../../templates';
-import { CreateAppResponse, UiApp } from '../../types';
+import { CreateAppResponse, OAuthApp, UiApp } from '../../types';
 // The UI-app half of this flow (registry reads, placement prompts, the summary box) lives
 // beside its app type — see `src/app-types/contract.ts` for why authoring hangs off the
 // module folder rather than off the type descriptor. Only these two entry points are public.
@@ -471,11 +471,16 @@ export const createCommand = withCommandHandler(
     const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri, uiApp };
     const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
 
-    // Store app credentials locally — client_secret may not be retrievable again
-    saveAppCredentials(result.app_id, {
-      clientId: result.client_id,
-      clientSecret: result.client_secret,
-    });
+    // Store app credentials locally — client_secret may not be retrievable again.
+    // Guarded because a UI app has no OAuth credentials to cache: writing the pair
+    // unconditionally stored `{clientId: undefined, clientSecret: undefined}` under
+    // its ID, which is a cache entry that can only mislead a later read.
+    if (result.client_id && result.client_secret) {
+      saveAppCredentials(result.app_id, {
+        clientId: result.client_id,
+        clientSecret: result.client_secret,
+      });
+    }
     if (finalAppName) saveAppName(result.app_id, finalAppName);
 
     // Shared JSON shape for both exits below. `redirectUri` is omitted for UI
@@ -526,7 +531,17 @@ export const createCommand = withCommandHandler(
     // (name, distribution_type, logo_uri, version) plus the credentials. Without
     // it, `GET /v3/app-store/apps/{id}` answering `id not found` for an ID the
     // create just issued aborted the command and left an orphan app behind.
-    const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp, result);
+    //
+    // Widened to `OAuthApp` explicitly rather than passed raw: the create response
+    // declares its OAuth fields optional (a UI app has none), while `OAuthApp` wants
+    // `client_id` present and spells "no callbacks" as `null`. The empty string falls
+    // through to the scaffold's own placeholder, which is what a UI app should get.
+    const fallbackApp: OAuthApp = {
+      ...result,
+      client_id: result.client_id ?? '',
+      redirect_uris: result.redirect_uris ?? null,
+    };
+    const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp, fallbackApp);
 
     // Always write the basic project structure (app-config.json + meta files).
     const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);

@@ -276,6 +276,98 @@ describe('services/app', () => {
       expect(result).toEqual({ ...response, app_id: '1' });
     });
 
+    // The unified payload sends OAuth fields inside `auth`, and the platform's
+    // nested-contract handler echoes that nesting straight back. Every caller
+    // reads the flat shape, so the lift happens here, once — see the comment on
+    // `flattenCreateAuth` in services/app.ts.
+    it('should lift the nested auth block to the top level', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        app_id: 'app-1',
+        name: 'Test App',
+        version: '1.0.0',
+        distribution_type: 'private',
+        auth: {
+          client_id: 'cli-123',
+          client_secret: 'secret',
+          scopes: ['contacts_read'],
+          redirect_uris: ['https://example.com/cb'],
+        },
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      });
+
+      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+
+      expect(result.client_id).toBe('cli-123');
+      expect(result.client_secret).toBe('secret');
+      expect(result.redirect_uris).toEqual(['https://example.com/cb']);
+      expect(result.scopes).toEqual(['contacts_read']);
+    });
+
+    // The flat handler is still live on some deployments, so both shapes have to
+    // work: this is a tolerance, not a migration.
+    it('should leave an already-flat response untouched', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        app_id: 'app-1',
+        client_id: 'cli-123',
+        client_secret: 'secret',
+        redirect_uris: ['https://example.com/cb'],
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      });
+
+      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+
+      expect(result.client_id).toBe('cli-123');
+      expect(result.client_secret).toBe('secret');
+      expect(result.redirect_uris).toEqual(['https://example.com/cb']);
+    });
+
+    // A flat field that is present wins over the nested one. The two should never
+    // disagree, but if they do, the shape every caller already reads is the one
+    // that shipped — silently preferring the other would be a behaviour change
+    // hiding inside a compatibility shim.
+    it('should prefer a present flat field over the nested one', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        app_id: 'app-1',
+        client_id: 'flat-wins',
+        redirect_uris: ['https://flat.example.com/cb'],
+        auth: {
+          client_id: 'nested-loses',
+          client_secret: 'secret',
+          redirect_uris: ['https://nested.example.com/cb'],
+        },
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      });
+
+      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+
+      expect(result.client_id).toBe('flat-wins');
+      expect(result.redirect_uris).toEqual(['https://flat.example.com/cb']);
+      // Only the absent one is filled in from `auth`.
+      expect(result.client_secret).toBe('secret');
+    });
+
+    // A UI app sends no `auth` block and gets none back. Nothing should be
+    // invented for it — the create box and the JSON shape both branch on absence.
+    it('should not synthesize OAuth fields for a UI-app response', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        app_id: 'app-1',
+        name: 'UI App',
+        version: '1.0.0',
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      });
+
+      const result = await service.createApp({ name: 'UI App', distribution_type: 'private' });
+
+      expect(result.client_id).toBeUndefined();
+      expect(result.client_secret).toBeUndefined();
+      expect(result.redirect_uris).toBeUndefined();
+      expect(result).not.toHaveProperty('auth');
+    });
+
     it('should propagate API errors', async () => {
       (mockClient.post as jest.Mock).mockRejectedValue(new Error('API error'));
       await expect(
