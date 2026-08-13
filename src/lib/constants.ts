@@ -69,6 +69,35 @@ function resolveOauthProxyUrl(): string {
 
 export const OAUTH_PROXY_URL = resolveOauthProxyUrl();
 
+/**
+ * Base URL of the app-store service.
+ *
+ * The update-notice endpoint is called here **directly**, not through the v3
+ * API gateway: the gateway enforces authentication on every path it fronts, and
+ * this notice has to render while the user is logged out, mid-`brevo login`, or
+ * holding expired credentials — exactly when telling them their CLI is stale
+ * matters most. The service serves it unauthenticated.
+ *
+ * Override with BREVO_APP_STORE_URL to point at a non-production environment.
+ */
+function resolveAppStoreUrl(): string {
+  const raw = process.env.BREVO_APP_STORE_URL || 'https://app-store-bo-be.brevo.com';
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new CliError(`Invalid BREVO_APP_STORE_URL: "${raw}" is not a valid URL.`);
+  }
+  if (parsed.protocol !== 'https:' && !isLocalHttpAllowed(parsed)) {
+    throw new CliError(
+      `BREVO_APP_STORE_URL must use HTTPS. Got: ${raw}\n  HTTP is only allowed for localhost/127.0.0.1.`,
+    );
+  }
+  return parsed.origin;
+}
+
+export const APP_STORE_BASE = resolveAppStoreUrl();
+
 // Header identifying the CLI on every API request. The backend parses it to
 // emit product-tracking events (e.g. "CLI installed") on the `cli` Kafka topic.
 // Format: `brevo-cli/<version> (<os>[; auth=<method>])` — see lib/telemetry.ts.
@@ -85,18 +114,11 @@ export const ENDPOINTS = {
   ACCOUNT: '/v3/account/info',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
-  // Unauthenticated. Deliberately NOT fetched through ApiClient — see
-  // services/cli-info.ts for why attaching the auth header would be harmful.
-  CLI_INFO: '/v3/app-store/cli/info',
+  // Served by the app-store service directly (APP_STORE_BASE), not via the v3
+  // gateway — see resolveAppStoreUrl above and services/cli-info.ts.
+  CLI_INFO: '/cli/info',
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
-} as const;
-
-// Notice codes the CLI recognises from `GET /cli/info`. An unrecognised code
-// means the body is ignored wholesale and local wording is used instead — the
-// same contract as `apiCodeMessages` in api/client.ts.
-export const CLI_NOTICE_CODES = {
-  VERSION_MISMATCH: 'cli_version_mismatch',
 } as const;
 
 export const CLI = {

@@ -34,16 +34,15 @@ export interface CreateAppResponse {
 
 // ──────────────── CLI update notice (BEX-370) ────────────────
 
-/** Raw v1 body of `GET /v3/app-store/cli/info`. Every field is untrusted. */
+/** Raw v1 body of `GET /cli/info`. Every field is untrusted. */
 export interface CliInfoResponse {
-  code?: string;
-  message?: string;
-}
-
-/** A validated, sanitized notice line ready to render. */
-export interface VersionNotice {
-  code: string;
-  message: string;
+  upgrade_message?: string;
+  /**
+   * Reserved. The API always sends `false` today — the CLI decides for itself,
+   * from the npm registry, whether to show a notice. Typed so the field is
+   * visible to whoever wires it up, not because anything reads it yet.
+   */
+  is_blocked?: boolean;
 }
 
 /**

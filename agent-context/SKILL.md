@@ -90,7 +90,9 @@ When the installed CLI is a full **major** version behind the latest npm release
 
 ## Update notice wording
 
-The update banner's first line comes from the Brevo API (`GET /v3/app-store/cli/info`), fetched only when a banner is actually going to be shown. Whether a banner appears is still decided from the npm registry, exactly as before, and an API failure just means the banner uses local wording. Nothing about flags, exit codes, or the forced-update gate changed.
+The update banner's first line comes from the app-store service (`GET /cli/info`), fetched only when a banner is actually going to be shown. It is called directly rather than through the v3 API gateway and requires no API key, so it works while logged out or with expired credentials. Whether a banner appears is still decided from the npm registry, exactly as before, and a failed call just means the banner uses local wording. Nothing about flags, exit codes, or the forced-update gate changed — the one addition is `BREVO_APP_STORE_URL`, which overrides that service's base URL for non-production testing.
+
+The soft (non-blocking) notice also prints after a command **fails**, not just after it succeeds — so stderr can hold the error message followed by the update box. This does not change exit codes: a failing command still exits with its own code, and the box is never printed twice in one run. A Ctrl-C abort skips it. If you parse stderr strictly, suppress the notice with `BREVO_NO_UPDATE_NOTIFIER=1` or `--no-update-notifier`.
 
 ## Before sharing or committing output
 

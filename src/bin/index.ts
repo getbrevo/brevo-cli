@@ -37,7 +37,8 @@ const version: string = pkg.version;
 
 // Version update check — async, non-blocking. Cached at ~/.brevo/update-check.json (24h TTL).
 // Skipped in CI, non-TTY, or when --no-update-notifier / BREVO_NO_UPDATE_NOTIFIER=1 is set.
-// The notice line on that banner comes from GET /v3/app-store/cli/info, fetched
+// The notice line on that banner comes from GET /cli/info on the app-store
+// service (called directly, no gateway and no credentials), fetched
 // only when a banner is actually about to be shown — an up-to-date CLI makes no
 // request. It supplies wording only: if it fails, the banner still appears with
 // local text.
@@ -224,9 +225,9 @@ forceGate
   )
   .then(() => program.parseAsync(process.argv))
   .then(async () => {
-    if (!showBannerEarly) {
-      await notifyUpdate(updateCheck, { name: pkg.name, version });
-    }
+    // notifyUpdate is idempotent, so the early-banner path above suppresses this
+    // one on its own — no need to branch on showBannerEarly.
+    await notifyUpdate(updateCheck, { name: pkg.name, version });
     // Local skill catalog check — sync, no network. Silently refreshes any
     // installed skill that's behind the bundled catalog so the AI tool always
     // sees the latest primer. Opt out with BREVO_NO_SKILL_AUTOREFRESH=1.
@@ -235,15 +236,24 @@ forceGate
     // prevent the process from exiting when running against local servers.
     process.exit(0);
   })
-  .catch((err) => {
+  .catch(async (err) => {
+    // A deliberate Ctrl-C is not a failure — exit immediately rather than making
+    // the user wait on the update check for a banner they didn't ask for.
     if (err instanceof AbortError) {
       logInfo(`\n  ${messages.ABORTED}`);
       process.exit(EXIT_CODES.ABORTED);
     }
+
+    const exitCode = err instanceof CliError ? err.exitCode : EXIT_CODES.ERROR;
     if (err instanceof CliError) {
       logError(err.message);
-      process.exit(err.exitCode);
+    } else {
+      logError(err.message, err);
     }
-    logError(err.message, err);
-    process.exit(EXIT_CODES.ERROR);
+
+    // A failed command is exactly when knowing about a newer CLI matters most —
+    // the upgrade may be the fix. The banner goes after the error so the error
+    // stays the first thing the user reads, and the exit code is unchanged.
+    await notifyUpdate(updateCheck, { name: pkg.name, version });
+    process.exit(exitCode);
   });

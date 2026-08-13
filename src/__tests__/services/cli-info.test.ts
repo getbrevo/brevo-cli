@@ -17,16 +17,16 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
 }
 
 describe('fetchCliInfo', () => {
-  it('returns the notice for a recognised code', async () => {
+  it('returns the upgrade message', async () => {
     const fetchImpl = jest.fn(async () =>
-      jsonResponse({ code: 'cli_version_mismatch', message: 'The cli version is a mismatch.' }),
+      jsonResponse({
+        upgrade_message: "You're running an older Brevo CLI. Please upgrade the version.",
+        is_blocked: false,
+      }),
     );
     await expect(
       fetchCliInfo(QUERY, { baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch }),
-    ).resolves.toEqual({
-      code: 'cli_version_mismatch',
-      message: 'The cli version is a mismatch.',
-    });
+    ).resolves.toBe("You're running an older Brevo CLI. Please upgrade the version.");
   });
 
   it('calls the unauthenticated endpoint with the documented query params', async () => {
@@ -34,25 +34,37 @@ describe('fetchCliInfo', () => {
     await fetchCliInfo(QUERY, { baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch });
 
     const url = new URL(fetchImpl.mock.calls[0]![0]);
-    expect(url.pathname).toBe('/v3/app-store/cli/info');
+    expect(url.pathname).toBe('/cli/info');
     expect(Object.fromEntries(url.searchParams)).toEqual({
       cli_version: '2.0.1',
       reason: 'version_mismatch',
     });
   });
 
-  // The point of fetching outside ApiClient: no credential ever goes to this
-  // endpoint, so a 401 from it can never reach onAuthFailure and clear the
-  // user's stored credentials.
+  // Called directly on the app-store service, which serves it unauthenticated —
+  // so no credential is attached, and a 401 can never reach onAuthFailure to
+  // clear the user's stored credentials.
   it('sends no auth header of any kind', async () => {
     const fetchImpl = jest.fn(async (_url: string, _init?: RequestInit) => jsonResponse({}));
     await fetchCliInfo(QUERY, { baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch });
 
-    const init = fetchImpl.mock.calls[0]![1]!;
-    const headers = init.headers as Record<string, string>;
+    const headers = fetchImpl.mock.calls[0]![1]!.headers as Record<string, string>;
     expect(Object.keys(headers).map((k) => k.toLowerCase())).toEqual(['accept']);
     expect(headers).not.toHaveProperty('api-key');
     expect(headers).not.toHaveProperty('Authorization');
+  });
+
+  // It does not go through the v3 gateway, so it is unaffected by BREVO_API_URL
+  // and by whatever auth that gateway enforces.
+  it('targets the app-store service, not the v3 API base', async () => {
+    const fetchImpl = jest.fn(async (_url: string, _init?: RequestInit) => jsonResponse({}));
+    await fetchCliInfo(QUERY, {
+      baseUrl: 'https://app-store.example.com',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const url = new URL(fetchImpl.mock.calls[0]![0]);
+    expect(url.origin).toBe('https://app-store.example.com');
+    expect(url.pathname).toBe('/cli/info');
   });
 
   it('sends exactly the two documented params and nothing else', async () => {
@@ -70,27 +82,19 @@ describe('fetchCliInfo', () => {
     const call = (fetchImpl: unknown): Promise<unknown> =>
       fetchCliInfo(QUERY, { baseUrl: BASE, fetchImpl: fetchImpl as typeof fetch });
 
-    it('on an unknown code — the body is ignored wholesale', async () => {
-      await expect(
-        call(async () => jsonResponse({ code: 'brand_new_code', message: 'trust me' })),
-      ).resolves.toBeUndefined();
+    it('on a missing upgrade_message', async () => {
+      await expect(call(async () => jsonResponse({ is_blocked: false }))).resolves.toBeUndefined();
     });
 
-    it('on a missing code', async () => {
+    it('on an empty upgrade_message', async () => {
       await expect(
-        call(async () => jsonResponse({ message: 'no code here' })),
-      ).resolves.toBeUndefined();
-    });
-
-    it('on a missing message', async () => {
-      await expect(
-        call(async () => jsonResponse({ code: 'cli_version_mismatch' })),
+        call(async () => jsonResponse({ upgrade_message: '' })),
       ).resolves.toBeUndefined();
     });
 
     it('on a non-2xx status', async () => {
       await expect(
-        call(async () => jsonResponse({ code: 'cli_version_mismatch', message: 'x' }, false, 500)),
+        call(async () => jsonResponse({ upgrade_message: 'x' }, false, 500)),
       ).resolves.toBeUndefined();
     });
 
@@ -108,9 +112,7 @@ describe('fetchCliInfo', () => {
 
     it('on an HTML body from a gateway', async () => {
       await expect(
-        call(async () =>
-          jsonResponse({ code: 'cli_version_mismatch', message: '<!DOCTYPE html><html>' }),
-        ),
+        call(async () => jsonResponse({ upgrade_message: '<!DOCTYPE html><html>' })),
       ).resolves.toBeUndefined();
     });
 
@@ -145,10 +147,9 @@ describe('fetchCliInfo', () => {
       baseUrl: BASE,
       fetchImpl: (async () =>
         jsonResponse({
-          code: 'cli_version_mismatch',
-          message: '\x1B[31mDanger\x1B[0m\nsecond line',
+          upgrade_message: '\x1B[31mDanger\x1B[0m\nsecond line',
         })) as unknown as typeof fetch,
     });
-    expect(notice?.message).toBe('Danger second line');
+    expect(notice).toBe('Danger second line');
   });
 });

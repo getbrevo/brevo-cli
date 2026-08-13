@@ -448,6 +448,32 @@ describe('notifyUpdate', () => {
     expect(output).toHaveLength(0);
   });
 
+  it('writes the banner only once across repeated calls', async () => {
+    const { stream, output } = makeStream();
+    const handle = { cachedLatest: '1.2.0', pending: Promise.resolve() };
+    const pkg = { name: '@getbrevo/cli', version: '1.0.0' };
+
+    await notifyUpdate(handle, pkg, stream, 0);
+    await notifyUpdate(handle, pkg, stream, 0);
+
+    expect(output).toHaveLength(1);
+  });
+
+  it('still writes on a later call when the first found nothing to report', async () => {
+    const { stream, output } = makeStream();
+    const handle: { cachedLatest?: string; pending: Promise<void> } = {
+      pending: Promise.resolve(),
+    };
+    const pkg = { name: '@getbrevo/cli', version: '1.0.0' };
+
+    await notifyUpdate(handle, pkg, stream, 0);
+    expect(output).toHaveLength(0);
+
+    handle.cachedLatest = '1.2.0';
+    await notifyUpdate(handle, pkg, stream, 0);
+    expect(output).toHaveLength(1);
+  });
+
   it('does not block beyond the wait timeout', async () => {
     const { stream } = makeStream();
     const neverResolves = new Promise<void>(() => {});
@@ -551,7 +577,7 @@ describe('enforceMinVersion', () => {
 
 describe('server-supplied notice line', () => {
   const pkg = { name: '@getbrevo/cli', version: '2.0.1' };
-  const notice = { code: 'cli_version_mismatch', message: 'Server supplied copy.' };
+  const notice = 'Server supplied copy.';
 
   function sink(): { out: NodeJS.WriteStream; text: () => string } {
     let buf = '';
@@ -564,7 +590,7 @@ describe('server-supplied notice line', () => {
   it('renders the server message above the box, not inside it', async () => {
     const s = sink();
     await notifyUpdate(
-      { cachedLatest: '2.4.0', pending: Promise.resolve(), notice: notice.message },
+      { cachedLatest: '2.4.0', pending: Promise.resolve(), notice },
       pkg,
       s.out,
       0,
@@ -678,7 +704,7 @@ describe('server-supplied notice line', () => {
   it('adds the notice to the force-update banner too', async () => {
     const s = sink();
     const blocked = await enforceMinVersion(
-      { cachedLatest: '3.0.0', pending: Promise.resolve(), notice: notice.message },
+      { cachedLatest: '3.0.0', pending: Promise.resolve(), notice },
       pkg,
       s.out,
       0,
@@ -686,5 +712,47 @@ describe('server-supplied notice line', () => {
     expect(blocked).toBe(true);
     expect(s.text()).toContain('Server supplied copy.');
     expect(s.text()).toContain('Update required');
+  });
+});
+
+// ──────────────── box content is frozen ────────────────
+
+// The API supplies the line ABOVE the box and nothing else. These pin the box
+// itself so a future change to the notice cannot quietly alter what has always
+// been shown inside it.
+describe('box content is unaffected by the notice', () => {
+  const pkg = { name: '@getbrevo/cli', version: '2.0.1' };
+  const boxLines = (out: string): string[] =>
+    out
+      .split('\n')
+      .filter((l) => l.includes('│'))
+      .map((l) => l.replace(/^\s*│\s*/, '').replace(/\s*│\s*$/, ''));
+
+  it('soft update box shows exactly the four original lines', () => {
+    expect(boxLines(formatBanner('2.0.1', '2.4.0', pkg.name, 'Server copy.'))).toEqual([
+      'Update available: 2.0.1 → 2.4.0',
+      'Run: npm install -g @getbrevo/cli',
+      'Or:  yarn global add @getbrevo/cli',
+      'Or:  brew upgrade brevo',
+    ]);
+  });
+
+  it('force-update box shows exactly the five original lines', () => {
+    expect(boxLines(formatForceUpdateBanner('2.0.1', '3.0.0', pkg.name, 'Server copy.'))).toEqual([
+      'Update required: v2.0.1 is no longer supported (latest v3.0.0).',
+      'Update to continue using the Brevo CLI:',
+      'Run: npm install -g @getbrevo/cli',
+      'Or:  yarn global add @getbrevo/cli',
+      'Or:  brew upgrade brevo',
+    ]);
+  });
+
+  it('box is byte-identical whether or not the API answered', () => {
+    const withServer = formatBanner('2.0.1', '2.4.0', pkg.name, 'Server copy.');
+    const withLocal = formatBanner('2.0.1', '2.4.0', pkg.name);
+    expect(boxLines(withServer)).toEqual(boxLines(withLocal));
+    // …and the server text lives outside it
+    expect(boxLines(withServer).join('\n')).not.toContain('Server copy.');
+    expect(withServer).toContain('Server copy.');
   });
 });

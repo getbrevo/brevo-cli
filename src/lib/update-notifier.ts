@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { messages } from '../lang/en';
 import { color, COLOR_RED } from './logger';
-import { CliInfoQuery, VersionNotice } from '../types';
+import { CliInfoQuery } from '../types';
 
 const REGISTRY_URL = (name: string): string =>
   `https://registry.npmjs.org/${encodeURIComponent(name).replace('%40', '@')}/latest`;
@@ -39,7 +39,7 @@ export interface UpdateNotifierOptions {
   fetchTimeoutMs?: number;
   // Supplies the one dynamic line of the banner. Optional so the notifier stays
   // usable — and testable — without network.
-  fetchNotice?: (query: CliInfoQuery) => Promise<VersionNotice | undefined>;
+  fetchNotice?: (query: CliInfoQuery) => Promise<string | undefined>;
 }
 
 function getCachePath(override?: string, env: NodeJS.ProcessEnv = process.env): string {
@@ -270,6 +270,10 @@ export interface UpdateCheckHandle {
   notice?: string;
   opts?: UpdateNotifierOptions;
   cachePath?: string;
+  // Set once a banner has actually been written, so notifyUpdate can be called
+  // from several exit paths (early banner, post-run, error handler) without the
+  // user ever seeing the box twice.
+  notified?: boolean;
 }
 
 /**
@@ -291,16 +295,16 @@ async function resolveNotice(handle: UpdateCheckHandle, pkg: PkgInfo): Promise<s
   });
   if (!fetched) return undefined;
 
-  handle.notice = fetched.message;
+  handle.notice = fetched;
   if (handle.cachePath && handle.cachedLatest) {
     const now = opts.now ? opts.now() : Date.now();
     writeCache(handle.cachePath, {
       latest: handle.cachedLatest,
       lastChecked: now,
-      notice: fetched.message,
+      notice: fetched,
     });
   }
-  return fetched.message;
+  return fetched;
 }
 
 export function startUpdateCheck(opts: UpdateNotifierOptions): UpdateCheckHandle {
@@ -346,12 +350,16 @@ export function startUpdateCheck(opts: UpdateNotifierOptions): UpdateCheckHandle
   return handle;
 }
 
+// Idempotent: safe to call from every exit path. The first call that actually
+// writes the banner marks the handle, and later calls become no-ops.
 export async function notifyUpdate(
   handle: UpdateCheckHandle,
   pkg: PkgInfo,
   output: NodeJS.WriteStream = process.stderr,
   waitMs: number = NOTIFY_WAIT_MS,
 ): Promise<void> {
+  if (handle.notified) return;
+
   await Promise.race([
     handle.pending,
     new Promise<void>((resolve) => setTimeout(resolve, waitMs).unref?.()),
@@ -359,6 +367,7 @@ export async function notifyUpdate(
 
   if (handle.cachedLatest && isNewer(pkg.version, handle.cachedLatest)) {
     const notice = await resolveNotice(handle, pkg);
+    handle.notified = true;
     output.write(formatBanner(pkg.version, handle.cachedLatest, pkg.name, notice) + '\n');
   }
 }
