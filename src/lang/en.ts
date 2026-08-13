@@ -174,6 +174,13 @@ const coreMessages = {
   APP_TYPE_OAUTH: 'OAuth app',
   APP_TYPE_UI: 'UI app',
 
+  // Raised instead of opening the app picker when there is no terminal to draw
+  // it on. The picker writes its choice list to stdout, so under --json it
+  // would corrupt the single-document contract, and off a TTY inquirer aborts
+  // with a raw ERR_USE_AFTER_CLOSE readline stack instead of anything readable.
+  APP_SELECT_NON_INTERACTIVE: (command: string) =>
+    `Cannot show the app picker in non-interactive mode. Name the app instead:\n\n      ${command}\n\n  \`${CLI.APP_LIST}\` shows the IDs.`,
+
   // App credentials
   APP_CREDENTIALS_REVEAL_CONFIRM: 'Are you sure you want to reveal the client secret?',
   APP_CREDENTIALS_SELECT: 'Select an app:',
@@ -257,6 +264,12 @@ const coreMessages = {
   LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED: (writtenScopes: string): string =>
     `This app still has the legacy 'all' OAuth scope (deprecated). Wrote ${writtenScopes} to app-config.json instead of 'all'. Migrate the app by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`.`,
   LEGACY_ALL_SCOPE_UPDATE_MIGRATING: `Migrating from legacy 'all' scope — 'all' will be removed.`,
+  // Deliberately in core rather than `preview-messages`: the legacy-scope deprecation
+  // (BEX-214) is GA, and `app upload` — the only reader — ships in every build. It lived
+  // in `preview-messages` between BEX-405 and this fix, which meant a public build read
+  // the key as `undefined` and `new CliError(undefined)` rendered as a bare `✗` with no
+  // text. The build now refuses that class of leak; see `scripts/build.mjs`.
+  LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses in app-config.json's \`auth.scopes\`.\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then run \`${CLI.APP_UPLOAD}\` to migrate.`,
 
   // App delete
   APP_DELETE_SELECT: 'Select an app to delete:',

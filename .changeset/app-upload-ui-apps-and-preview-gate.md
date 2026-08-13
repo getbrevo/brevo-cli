@@ -299,3 +299,44 @@ Two smaller changes close the rest of the gap:
   terminals only — under `--json` or a pipe the error propagates exactly as before.
 
 Exit codes and error text are unchanged; only the moment they appear is.
+
+## The legacy `all` OAuth scope is refused on upload (BEX-214)
+
+The catch-all `all` scope is being deprecated. `brevo app upload` now stops when
+`app-config.json`'s `auth.scopes` still contains it, and says how to migrate: replace it
+with the specific scopes your integration uses, list them with
+`brevo app available-scopes`, then upload. `brevo app start oauth` refuses the same
+config with the same guidance, `brevo app list` tags an affected app, and
+`brevo app scaffold` writes the app's granular scopes rather than `all`.
+
+The refusal is local — it costs no round trip, and nothing is pushed. An app that
+already holds `all` on Brevo is untouched until you upload a replacement scope list; the
+upload diff then labels the change as a migration.
+
+## Fixed: `auth.scopes` written as a single string is read correctly
+
+`app-config.json`'s `auth.scopes` is an array, but a hand-edited file can carry a bare
+string — `"scopes": "contacts:read, contacts:write"`. That shape was documented as
+normalized on read and was not: the splitter was only reached when the value was already
+an array, so the string travelled through untouched and the upload validator then iterated
+it one character at a time, rejecting the run with `Invalid scope: ":"`. A string is now
+split on commas and whitespace exactly as an over-long array entry always has been, so both
+spellings yield the same scope list.
+
+## Fixed: `app credentials` / `app delete` no longer open an app picker they cannot draw
+
+Both commands fall back to an interactive app picker when `--app-id` is absent, and that
+fallback was not gated on the run being interactive. Under `--json`, or off a TTY, the
+picker rendered its choice list — app names, app ids and client ids — onto **stdout**,
+which broke the "stdout is exactly one parseable document" contract for any script reading
+the output, and then aborted the process with a raw
+`ERR_USE_AFTER_CLOSE: readline was closed` stack trace instead of a usable error.
+
+Both now refuse up front, before any network call, with a `CliError` naming the exact
+command to run (`brevo app credentials --app-id <id>`) and exiting `1`; `--json` gets the
+usual `{"error":{…}}` envelope on stdout and nothing else. Interactive runs are unchanged —
+the picker still appears when there is a terminal to draw it on. `brevo app withdraw`, which
+shares the picker, is fixed the same way.
+
+`brevo app delete` is the consequential one: a scripted delete that appeared to rely on the
+picker was never selecting anything, and now says so instead of dying mid-prompt.

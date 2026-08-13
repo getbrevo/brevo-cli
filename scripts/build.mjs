@@ -120,7 +120,10 @@ fs.chmodSync(outfile, builtMode | ((builtMode & 0o444) >> 2));
 // RELEASE-CHECKLIST.md.
 //
 // So: a marker here must name a MODULE-level binding, never an object property, or the
-// check fails in a way no amount of correct gating can clear.
+// check fails in a way no amount of correct gating can clear. The one property-level case
+// that is NOT inert — a live reader left holding a key whose definition was eliminated —
+// is caught by `orphanedPreviewMessageKeys` below, which works the opposite way round:
+// it asserts on names that must be ABSENT from a public build's surviving code.
 const LEAK_MARKERS = [
   'previewAppCommands', // commands/preview-definitions.ts
   'deployCommand', // commands/app/deploy.ts
@@ -131,6 +134,26 @@ const LEAK_MARKERS = [
   'resolveDeploymentTarget', // commands/app/account-deployment.ts
 ];
 
+// The INVERSE leak, and the one `LEAK_MARKERS` is structurally blind to: not a gated
+// module surviving, but surviving code reading a gated *string*. `messages` spreads
+// `previewMessages` in behind `__BREVO_PREVIEW__`, so on a public build the definition is
+// gone while `messages.SOME_KEY` at a live call site remains — and reads as `undefined`.
+// The failure is silent and awful: `new CliError(undefined)` has `message === ''`, so the
+// command exits 1 having printed a bare `✗` with no text. That shipped once, for
+// `LEGACY_ALL_SCOPE_DEPRECATED_BLOCK` — a GA string parked in the gated module by BEX-405
+// and read by `app upload`, which is in every build.
+//
+// Checked against the key names in the SOURCE rather than a hand-kept list, so the guard
+// covers keys added to `preview-messages.ts` later without anyone remembering this file.
+// `minifyIdentifiers` is off and property reads keep their names, so a surviving
+// `messages.KEY` appears verbatim; the definition cannot, because the module is dropped.
+// A hit therefore means exactly one thing: a live reader with no definition.
+function orphanedPreviewMessageKeys(bundle) {
+  const source = fs.readFileSync(path.join(root, 'src/lang/preview-messages.ts'), 'utf-8');
+  const keys = [...source.matchAll(/^ {2}([A-Z][A-Z0-9_]*)\s*:/gm)].map((m) => m[1]);
+  return keys.filter((key) => bundle.includes(key));
+}
+
 if (!preview) {
   const bundle = fs.readFileSync(outfile, 'utf-8');
   const leaked = LEAK_MARKERS.filter((marker) => bundle.includes(marker));
@@ -140,6 +163,15 @@ if (!preview) {
         'A gated module is reachable from live code. Check that it is referenced only ' +
         'from behind `__BREVO_PREVIEW__` (not the imported PREVIEW_BUILD constant, which ' +
         'esbuild cannot fold across modules) and that nothing else imports it.',
+    );
+  }
+  const orphaned = orphanedPreviewMessageKeys(bundle);
+  if (orphaned.length > 0) {
+    throw new Error(
+      `Public build reads gated message keys that have no definition: ${orphaned.join(', ')}.\n` +
+        'These resolve to `undefined` at runtime — a CliError built from one prints an ' +
+        'empty message. Move the string to `lang/en.ts` if its feature is GA, or move the ' +
+        'code that reads it behind `__BREVO_PREVIEW__`.',
     );
   }
 } else {

@@ -56,6 +56,27 @@ function buildTree(previewBuild: boolean): Tree {
   return tree!;
 }
 
+/**
+ * Load the `messages` object as a given build state would produce it.
+ *
+ * Same `isolateModules` trick as {@link buildTree}, for the same reason: `lang/en.ts`
+ * decides at module load whether to spread `previewMessages` in, so the only way to see
+ * a public build's `messages` from a suite that runs with `__BREVO_PREVIEW__= true`
+ * (jest.setup.js, deliberately) is to re-import with the flag flipped.
+ */
+function loadMessages(previewBuild: boolean): Record<string, unknown> {
+  const original = globalThis.__BREVO_PREVIEW__;
+  globalThis.__BREVO_PREVIEW__ = previewBuild;
+
+  let loaded: Record<string, unknown> | undefined;
+  jest.isolateModules(() => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    loaded = require('../../lang/en').messages;
+  });
+  globalThis.__BREVO_PREVIEW__ = original;
+  return loaded!;
+}
+
 function render(cmd: Command): string {
   let captured = '';
   cmd.configureOutput({ writeOut: (s) => (captured += s), writeErr: (s) => (captured += s) });
@@ -131,6 +152,42 @@ describe('the pre-GA gate, end to end', () => {
     it.each(GATED)('does not register `app %s`', (name) => {
       const app = tree.program.commands.find((c) => c.name() === 'app')!;
       expect(app.commands.find((c) => c.name() === name)).toBeUndefined();
+    });
+
+    // Regression: the legacy-'all'-scope deprecation (BEX-214) is GA, and its strings are
+    // read by `app upload` and `app start`, which ship in every build. BEX-405 moved
+    // `_DEPRECATED_BLOCK` into `lang/preview-messages.ts` with the genuinely gated strings,
+    // so a public build eliminated the definition while leaving the read — and
+    // `new CliError(undefined)` has `message === ''`. `brevo app upload` on any app still
+    // holding the 'all' scope printed a bare `✗` and exited 1, telling the one group of
+    // users who need the migration text precisely nothing.
+    //
+    // Asserted on the whole family rather than the one key that broke: they are GA
+    // together, and a future tidy-up that sweeps "legacy scope" strings into the gated
+    // module would take the others the same way. The suite runs preview-side by design
+    // (jest.setup.js), which is why this has to flip the flag to see the bug at all.
+    // `scripts/build.mjs` enforces the general rule on the emitted bundle.
+    it.each([
+      'LEGACY_ALL_SCOPE_DEPRECATED_BLOCK',
+      'LEGACY_ALL_SCOPE_START_BLOCK',
+      'LEGACY_ALL_SCOPE_LIST_TAG',
+      'LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED',
+      'LEGACY_ALL_SCOPE_UPDATE_MIGRATING',
+    ])('still defines messages.%s', (key) => {
+      const value = loadMessages(false)[key];
+      expect(value).toBeDefined();
+      expect(typeof value === 'string' ? value : 'fn').not.toBe('');
+    });
+
+    // The failure mode above, stated as the user-visible symptom rather than the cause:
+    // a CliError built from a missing message renders as an empty line, not an error.
+    it('builds a non-empty CliError from the legacy-scope block', () => {
+      const messages = loadMessages(false);
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { CliError } = require('../../lib/errors');
+      const err = new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK as string);
+      expect(err.message).not.toBe('');
+      expect(err.message).toContain("'all'");
     });
   });
 
