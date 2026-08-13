@@ -91,6 +91,11 @@ const coreMessages = {
   APP_CREATE_APP_TYPE_UI: 'UI app     (Render inside Brevo — opens your app from a record)',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
+  // Shown only after every prompt has been answered — hence the reassurance:
+  // the point of the re-login offer is that nothing typed so far is lost.
+  APP_CREATE_SESSION_EXPIRED:
+    'Your session expired while you were answering. Your answers are still here.',
+  APP_CREATE_RELOGIN_CONFIRM: 'Log in again and create the app?',
   // The platform refuses a public-app create from the CLI (BEX-355). Three short
   // labelled lines rather than one paragraph: the fix, the caveat that stops the
   // user thinking they can flip it later, and the server's own sentence.

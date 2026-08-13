@@ -251,3 +251,28 @@ strictly and rejects unknown keys with a `400`, and the caller already reaches t
 every request as a structured `User-Agent` (`brevo-cli/<version> (<os>; auth=<method>)`).
 
 `brevo app create` no longer leaves a stray project directory behind when the create fails. The target directory was resolved — created, and `chdir`'d into — one line *before* the app was registered, so any hard failure (a plan quota `403`, a dropped connection, an unmapped `400`) left an empty directory on disk and moved the shell's working directory into it. The directory *decision* still happens before the create, deliberately: it is what stops an abandoned prompt from orphaning an app on the server. Only the filesystem mutation moved to after the create returns, so nothing is written until there is provably an app to write it for. The `409` name clash is unaffected — it retries in place and never reached the failure path.
+
+## An expired session is reported before the prompts, not after them (BEX-341 follow-up)
+
+`brevo app create` could ask every question — name, logo, distribution, callback URL,
+output directory — and only then report `Your session has expired. Run \`brevo login\``,
+discarding all of it. The CLI already tried to renew the token before the command ran, but
+a refresh token the login service *refuses* was treated like a transient network failure:
+logged at debug level and swallowed, leaving the run to continue on a session it had just
+proven unusable.
+
+A refused refresh token is now terminal. It clears the stored credentials and reports the
+expiry from the pre-command hook, so the message arrives before the first prompt rather
+than after the last. Failures that say nothing about the session — a timeout, a `5xx`, an
+unwritable credentials file — are still swallowed and still never block a command.
+
+Two smaller changes close the rest of the gap:
+
+- The token is re-checked before each authenticated request, not just once when the
+  command starts. `app create` makes no API call until every prompt is answered, so a
+  token that was valid at the first question could expire before the request went out.
+- If the session does die mid-flow, `brevo app create` offers to log you back in and
+  re-sends the answers you already gave instead of throwing them away. Interactive
+  terminals only — under `--json` or a pipe the error propagates exactly as before.
+
+Exit codes and error text are unchanged; only the moment they appear is.

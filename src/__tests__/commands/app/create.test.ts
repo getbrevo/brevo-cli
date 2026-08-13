@@ -1,5 +1,5 @@
 import { createCommand } from '../../../commands/app/create';
-import { ApiError, ErrorCode } from '../../../lib/errors';
+import { ApiError, AuthExpiredError, ErrorCode } from '../../../lib/errors';
 
 jest.mock('inquirer', () => ({
   prompt: jest.fn(),
@@ -20,8 +20,15 @@ jest.mock('../../../lib/config', () => ({
   saveAppCredentials: jest.fn(),
   saveAppName: jest.fn(),
   hasLocalApp: jest.fn().mockReturnValue(false),
+  isAuthenticated: jest.fn().mockReturnValue(true),
   readProjectConfig: jest.fn().mockReturnValue(null),
   isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
+}));
+
+// `create` reaches for the login command only to recover a session that died
+// mid-flow. Mocked rather than real: the real one opens a browser.
+jest.mock('../../../commands/login', () => ({
+  loginCommand: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../../container', () => ({
@@ -80,8 +87,10 @@ import {
   saveAppCredentials,
   saveAppName,
   hasLocalApp,
+  isAuthenticated,
   readProjectConfig,
 } from '../../../lib/config';
+import { loginCommand } from '../../../commands/login';
 import { messages } from '../../../lang/en';
 import {
   fetchAppContext,
@@ -128,6 +137,7 @@ describe('app/create', () => {
     // `../../../lib/config` mock factory here so tests are isolated from
     // whatever the previous test left behind in these two mocks.
     (hasLocalApp as jest.Mock).mockReturnValue(false);
+    (isAuthenticated as jest.Mock).mockReturnValue(true);
     (readProjectConfig as jest.Mock).mockReturnValue(null);
     (fs.existsSync as jest.Mock).mockReturnValue(false);
     (fetchAppContext as jest.Mock).mockResolvedValue({
@@ -1025,6 +1035,91 @@ describe('app/create', () => {
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     const parsed = JSON.parse(output);
     expect(parsed.appName).toBe('Resolved Name');
+  });
+
+  // `app create` touches the network only once every prompt is answered, so a
+  // session that dies in between costs the user the whole flow. The answers are
+  // already in hand — re-send them rather than exiting.
+  describe('a session that expires during the prompts', () => {
+    const created = {
+      app_id: 7,
+      name: 'Test App',
+      client_id: 'cli-7',
+      client_secret: 'secret-7',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    };
+
+    /** The five answers a plain OAuth create asks for before it calls the API. */
+    function answerCreatePrompts(): void {
+      mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
+        .mockResolvedValueOnce({ appType: 'oauth' })
+        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
+        .mockResolvedValueOnce({ another: false });
+    }
+
+    it('should log in again and re-send the same answers', async () => {
+      (appService.createApp as jest.Mock)
+        .mockRejectedValueOnce(new AuthExpiredError())
+        .mockResolvedValueOnce(created);
+      (isAuthenticated as jest.Mock).mockReturnValue(true);
+
+      answerCreatePrompts();
+      mockPrompt
+        .mockResolvedValueOnce({ relogin: true }) // log in again?
+        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+
+      await createCommand({ name: 'Test App', distribution: 'private' });
+
+      expect(loginCommand).toHaveBeenCalledWith({ suppressNextSteps: true });
+      expect(appService.createApp).toHaveBeenCalledTimes(2);
+      // Byte-for-byte the first payload: nothing the user typed was re-asked.
+      const [first, second] = (appService.createApp as jest.Mock).mock.calls;
+      expect(second[0]).toEqual(first[0]);
+      expect(saveAppName).toHaveBeenCalledWith(7, 'Test App');
+    });
+
+    it('should surface the expiry unchanged when the user declines', async () => {
+      (appService.createApp as jest.Mock).mockRejectedValue(new AuthExpiredError());
+
+      answerCreatePrompts();
+      mockPrompt.mockResolvedValueOnce({ relogin: false });
+
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'private' }),
+      ).rejects.toBeInstanceOf(AuthExpiredError);
+      expect(loginCommand).not.toHaveBeenCalled();
+      expect(appService.createApp).toHaveBeenCalledTimes(1);
+    });
+
+    it('should surface the expiry when the login does not take', async () => {
+      (appService.createApp as jest.Mock).mockRejectedValue(new AuthExpiredError());
+      (isAuthenticated as jest.Mock).mockReturnValue(false);
+
+      answerCreatePrompts();
+      mockPrompt.mockResolvedValueOnce({ relogin: true });
+
+      await expect(
+        createCommand({ name: 'Test App', distribution: 'private' }),
+      ).rejects.toBeInstanceOf(AuthExpiredError);
+      expect(appService.createApp).toHaveBeenCalledTimes(1);
+    });
+
+    // Nobody is there to complete a browser login, so scripts keep the exit code
+    // they have always had rather than hanging on a confirm.
+    it('should not offer a re-login under --json', async () => {
+      (appService.createApp as jest.Mock).mockRejectedValue(new AuthExpiredError());
+
+      await expect(
+        createCommand({
+          name: 'Test App',
+          distribution: 'private',
+          redirectUri: ['http://localhost:3009/auth/callback'],
+          json: true,
+        }),
+      ).rejects.toBeInstanceOf(AuthExpiredError);
+      expect(loginCommand).not.toHaveBeenCalled();
+    });
   });
 
   it('should prompt for name when not provided', async () => {

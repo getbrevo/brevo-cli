@@ -13,6 +13,7 @@ interface RequestOptions {
 }
 
 type AuthFailureHandler = () => Promise<void>;
+type EnsureFreshHandler = () => Promise<void>;
 
 export interface ApiClientDeps {
   baseUrl: string;
@@ -133,11 +134,32 @@ function mapErrorCode(status: number, apiCode?: string): ErrorCode | undefined {
 
 export class ApiClient {
   private onAuthFailure?: AuthFailureHandler;
+  private ensureFresh?: EnsureFreshHandler;
 
   constructor(private readonly deps: ApiClientDeps) {}
 
   setOnAuthFailure(handler: AuthFailureHandler): void {
     this.onAuthFailure = handler;
+  }
+
+  /**
+   * Runs before every authenticated request, to renew an access token that is
+   * expired or about to be.
+   *
+   * The same check also runs once as a `preAction` hook, and that one is not
+   * redundant — it is what fails a dead session *before* an interactive command
+   * starts asking questions. This one covers the other half: a token that was
+   * comfortably fresh when the command started and expired somewhere in the
+   * minutes of prompts before the first request went out. `brevo app create`
+   * makes no API call at all until every prompt is answered, so that window is
+   * as long as the user is slow.
+   *
+   * Cheap: it only reaches the network when the stored expiry is actually
+   * within the skew, so the common case is a file read. Wired in `bin/index.ts`
+   * over the same deps as the hook, so the two can't drift.
+   */
+  setEnsureFresh(handler: EnsureFreshHandler): void {
+    this.ensureFresh = handler;
   }
 
   get<T>(path: string): Promise<T> {
@@ -213,6 +235,17 @@ export class ApiClient {
   }
 
   private async request<T>(opts: RequestOptions, isRetry = false, retryCount = 0): Promise<T> {
+    // Before the headers are built, so the renewed token is the one that gets
+    // sent. Skipped for requests that carry their own credential: `getWithKey`
+    // and `getWithBearer` are login's own validation calls, and refreshing the
+    // stored session underneath them would be answering a question they didn't
+    // ask. Re-entered on the 401/429/502 retries below — harmless, since it is
+    // a no-op unless the token is inside the skew, and after a long 429 backoff
+    // it is the check that keeps the retry from going out stale.
+    if (this.ensureFresh && !opts.skipAuth && !opts.authHeader) {
+      await this.ensureFresh();
+    }
+
     const url = `${this.deps.baseUrl}${opts.path}`;
     const headers = this.buildHeaders(opts);
 

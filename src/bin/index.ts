@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Command } from 'commander';
 import { installAuthGuard } from '../lib/auth-guard';
-import { installProactiveOauthRefresh } from '../lib/oauth-freshness';
+import { installProactiveOauthRefresh, ensureFreshOauthToken } from '../lib/oauth-freshness';
 import { logError, logInfo, logWarn, logSuccess, logDebug } from '../lib/logger';
 import { EXIT_CODES } from '../lib/exit-codes';
 import { CliError, AbortError, AuthExpiredError } from '../lib/errors';
@@ -68,19 +68,35 @@ program
 // Auth guard — blocks unauthenticated access (except login, logout, help)
 installAuthGuard(program);
 
-// Proactive OAuth refresh — replaces a near-expiry access token before the
-// command runs, so a short access-token TTL stays invisible and the session
-// lives as long as the refresh token does. Best-effort: failures are logged at
-// debug level and never block the command. The reactive handler below stays the
-// safety net and the only place credentials get cleared.
-installProactiveOauthRefresh(program, {
+// Proactive OAuth refresh — replaces a near-expiry access token, so a short
+// access-token TTL stays invisible and the session lives as long as the refresh
+// token does.
+//
+// A failure that says nothing about the session (network blip, 5xx, unwritable
+// file) is logged at debug level and never blocks the command. A *refused
+// refresh token* is different in kind: nothing later in the run can recover it,
+// so it clears credentials and stops the command — see `isTerminal` below.
+const oauthFreshnessDeps = {
   getAuthCred,
-  refresh: (refreshToken) => refreshAccessToken(refreshToken, OAUTH_PROXY_URL),
+  refresh: (refreshToken: string) => refreshAccessToken(refreshToken, OAUTH_PROXY_URL),
   persist: updateOauthTokens,
-  onError: (err) =>
+  // `unauthorized` is set only by a 401 from the proxy's `/refresh`, i.e. the
+  // refresh token itself was rejected. Anything else — including a timeout
+  // against that same endpoint — stays best-effort.
+  isTerminal: (err: unknown) => err instanceof RefreshError && err.unauthorized,
+  onTerminal: clearCredentials,
+  onError: (err: unknown) =>
     logDebug('proactive oauth refresh skipped', {
       reason: err instanceof Error ? err.message : String(err),
     }),
+};
+
+// Once before the command body — the check that has to beat the first prompt.
+installProactiveOauthRefresh(program, oauthFreshnessDeps);
+// And again before each authenticated request, for a token that expires during
+// a long interactive flow. Same deps object: one policy, two trigger points.
+client.setEnsureFresh(async () => {
+  await ensureFreshOauthToken(oauthFreshnessDeps);
 });
 
 // ──────────────── Register all commands ────────────────

@@ -3,15 +3,26 @@ import * as path from 'node:path';
 import inquirer from 'inquirer';
 import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
-import { logInfo, logError } from '../../lib/logger';
+import { logInfo, logError, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { ApiError, CliError, ErrorCode } from '../../lib/errors';
+import { ApiError, AuthExpiredError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName, validateYesNo } from '../../lib/validators';
 import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
-import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
+import {
+  saveAppCredentials,
+  saveAppName,
+  hasLocalApp,
+  isAuthenticated,
+  readProjectConfig,
+} from '../../lib/config';
+// Cyclic on paper — `login.ts` imports `createCommand` to offer an app after a
+// successful login. Safe in practice and by construction: neither import is
+// touched at module-init time, only from inside an async handler, so the
+// binding is always resolved by the time it is read.
+import { loginCommand } from '../login';
 // The project writer, not the `scaffold` COMMAND. `create` has never depended on that
 // command — only on the file-writing half it used to be bundled with, which is now its
 // own module. `scaffold.ts` imports the same functions; the two commands don't meet.
@@ -414,6 +425,47 @@ async function retryCreateWithNewName(inputs: CreateAppInputs): Promise<CreatedA
 }
 
 /**
+ * Log in again and re-send the create, rather than discarding the answers.
+ *
+ * A session can die between the first prompt and the POST — `app create` makes
+ * no API call at all until every question is answered, so that gap is the whole
+ * interactive flow. The pre-flight refresh now catches the case where the
+ * session was already dead at the first prompt, and the client re-checks
+ * freshness before each request; what is left for this path is a token revoked
+ * (or a refresh token expired) *during* the prompts. Rare, but the old
+ * behaviour — exit 1, six answers gone — was the worst possible response to it.
+ *
+ * Interactive callers only. Under `--json` or a pipe there is nobody to
+ * complete a browser login, so the error propagates unchanged and scripts see
+ * exactly the exit code they saw before.
+ */
+async function retryCreateAfterLogin(inputs: CreateAppInputs): Promise<CreatedApp> {
+  logWarn(messages.APP_CREATE_SESSION_EXPIRED);
+  const { relogin } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'relogin',
+      message: messages.APP_CREATE_RELOGIN_CONFIRM,
+      default: true,
+    },
+  ]);
+  // A decline is the user choosing to stop, so it gets the plain expiry error
+  // — same message and exit code as if this prompt had never been offered.
+  if (!relogin) throw new AuthExpiredError();
+
+  await loginCommand({ suppressNextSteps: true });
+  if (!isAuthenticated()) throw new AuthExpiredError();
+
+  const spinner = createSpinner('Creating app...');
+  try {
+    const result = await appService.createApp(buildCreatePayload(inputs));
+    return { result, appName: inputs.appName };
+  } finally {
+    spinner.stop();
+  }
+}
+
+/**
  * Recognise the platform's refusal to create a public app from the CLI (BEX-355):
  * `POST /v3/app-store/apps` answers `400 invalid_parameter` — *public apps cannot
  * be created with source "cli"; use distribution_type "private"* — for any create
@@ -453,7 +505,11 @@ function isPublicDistributionRefusal(err: unknown, distribution: string): err is
 }
 
 // 5. Create the app
-async function createAppWithRetry(inputs: CreateAppInputs, jsonMode: boolean): Promise<CreatedApp> {
+async function createAppWithRetry(
+  inputs: CreateAppInputs,
+  jsonMode: boolean,
+  interactive: boolean,
+): Promise<CreatedApp> {
   const spinner = createSpinner('Creating app...', { silent: jsonMode });
   try {
     const result = await appService.createApp(buildCreatePayload(inputs));
@@ -472,6 +528,9 @@ async function createAppWithRetry(inputs: CreateAppInputs, jsonMode: boolean): P
     }
     if (err instanceof ApiError && err.statusCode === 409) {
       return retryCreateWithNewName(inputs);
+    }
+    if (err instanceof AuthExpiredError && interactive) {
+      return retryCreateAfterLogin(inputs);
     }
     throw err;
   }
@@ -534,7 +593,11 @@ export const createCommand = withCommandHandler(
     const dir = await resolveCreateDirectory(appName, interactive);
 
     const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri, uiApp };
-    const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode);
+    const { result, appName: finalAppName } = await createAppWithRetry(
+      inputs,
+      jsonMode,
+      interactive,
+    );
 
     // The app now provably exists, so it is safe to touch the filesystem. Before
     // this line a failed create left a stray directory and a moved cwd behind.

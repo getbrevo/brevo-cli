@@ -1,5 +1,5 @@
 import { ApiClient, parseRetryAfter, sanitizeErrorMessage } from '../../api/client';
-import { ErrorCode } from '../../lib/errors';
+import { AuthExpiredError, ErrorCode } from '../../lib/errors';
 import { messages } from '../../lang/en';
 import { CLI_VERSION } from '../../lib/cli-version';
 import { USER_AGENT_HEADER } from '../../lib/constants';
@@ -581,6 +581,72 @@ describe('api client', () => {
 
       expect(authHandler).toHaveBeenCalledTimes(1);
       expect(result.email).toBe('test@example.com');
+    });
+  });
+
+  // Covers a token that expires between the command starting and the request
+  // going out — the gap that is the whole of `app create`'s prompt sequence.
+  describe('setEnsureFresh', () => {
+    const okResponse = {
+      ok: true,
+      status: 200,
+      headers: new Map(),
+      text: () => Promise.resolve(JSON.stringify({ email: 'test@example.com' })),
+    };
+
+    it('should run before an authenticated request, and before the headers are built', async () => {
+      const order: string[] = [];
+      const getAuthHeader = jest.fn(() => {
+        order.push('headers');
+        return { Authorization: 'Bearer token-test' };
+      });
+      const freshClient = new ApiClient({ baseUrl: 'https://api.brevo.com', getAuthHeader });
+      freshClient.setEnsureFresh(async () => {
+        order.push('ensureFresh');
+      });
+      mockFetch.mockResolvedValue(okResponse);
+
+      await freshClient.get('/v3/account');
+
+      expect(order).toEqual(['ensureFresh', 'headers']);
+    });
+
+    it('should skip requests that carry their own credential', async () => {
+      const ensureFresh = jest.fn().mockResolvedValue(undefined);
+      client.setEnsureFresh(ensureFresh);
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.getWithKey('/v3/account', 'xkeysib-test-key');
+      await client.getWithBearer('/v3/account', 'access-token-test');
+
+      expect(ensureFresh).not.toHaveBeenCalled();
+    });
+
+    it('should propagate a refused session instead of sending the request', async () => {
+      client.setEnsureFresh(jest.fn().mockRejectedValue(new AuthExpiredError()));
+      mockFetch.mockResolvedValue(okResponse);
+
+      await expect(client.get('/v3/account')).rejects.toBeInstanceOf(AuthExpiredError);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should re-check before a retried request', async () => {
+      const ensureFresh = jest.fn().mockResolvedValue(undefined);
+      client.setEnsureFresh(ensureFresh);
+      client.setOnAuthFailure(jest.fn().mockResolvedValue(undefined));
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          headers: new Map(),
+          text: () => Promise.resolve(JSON.stringify({ message: 'Unauthorized' })),
+        })
+        .mockResolvedValueOnce(okResponse);
+
+      await client.get('/v3/account');
+
+      expect(ensureFresh).toHaveBeenCalledTimes(2);
     });
   });
 

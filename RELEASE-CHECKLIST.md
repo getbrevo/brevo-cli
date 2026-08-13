@@ -3075,3 +3075,55 @@ take the primitives without the flow, which it does.
 - [ ] **Manual:** walk `brevo app create` (accept and decline the feature) and
       `brevo app scaffold --app-id <id>` into a populated directory, and confirm the
       conflict question appears for the second and not the first.
+
+### BEX-341 (follow-up) — a dead session is reported before the prompts, not after (2026-08-13)
+
+**Reported:** `brevo app create` asked all six questions, then answered
+*"Your session has expired. Run `brevo login`"* and exited — every answer lost. The
+credentials were present the whole time; what failed was the **refresh token**, refused
+`401` by the proxy's `/refresh`.
+
+**Why the existing pre-flight didn't catch it.** `installProactiveOauthRefresh` ran, tried
+the refresh, got the 401, and **swallowed it** — every failure was best-effort by design
+(BEX-341). Three gaps behind that:
+
+1. A refused refresh token was treated like a network blip, so nothing surfaced.
+2. The freshness check ran once, at `preAction`. `app create` makes **no API call until
+   every prompt is answered**, so a token can also die inside that window.
+3. On failure the command exited, discarding answers the CLI was still holding.
+
+**Change:** all three, none of which alters an exit code.
+
+- `lib/oauth-freshness.ts` gains `isTerminal` / `onTerminal`. A refused refresh token now
+  clears credentials and throws `AuthExpiredError` from the hook — before the command body,
+  so before the first prompt. Every other failure stays best-effort. `bin/index.ts` supplies
+  the predicate (`RefreshError.unauthorized`), keeping `lib/` free of a `services/` import.
+- `api/client.ts` gains `setEnsureFresh`, run before each authenticated request over the
+  same deps, for a token that expires mid-flow. Skipped for `getWithKey`/`getWithBearer`,
+  which carry their own credential.
+- `commands/app/create.ts` offers a re-login and re-sends the collected inputs unchanged
+  rather than discarding them. Interactive only — `--json`/non-TTY propagate as before.
+
+**Must hold true:**
+
+- [x] End-to-end against a stub `/refresh` that answers 401, on a pty, with an expired
+      stored token (`BREVO_CONFIG_HOME` isolates the real credentials file): `app create`
+      prints the expiry message and exits `3` **with no prompt shown**, and the stub logs
+      `POST /refresh` and *no* create call. The same fixture on the pre-fix bundle reached
+      `? App name:`.
+- [x] Exit code unchanged at `3` (`EXIT_CODES.AUTH_FAILURE`), and the message is the same
+      string — nothing script-visible moved, only when it appears.
+- [x] A transient refresh failure still never blocks a command (existing test kept, plus a
+      new one asserting `onTerminal` is not called for it).
+- [x] With no `isTerminal` injected the module is byte-for-byte the old best-effort
+      behaviour — covered, so a caller that doesn't opt in can't be broken by this.
+- [x] Re-login retry sends a payload `toEqual` the first attempt's; declining, and a login
+      that doesn't take, both surface the plain `AuthExpiredError`; `--json` never prompts.
+- [x] `yarn test` (58 suites / 1243 tests), `yarn lint`, `yarn format:check`,
+      `npx tsc --noEmit`, `yarn build` green.
+- [ ] **Manual, blocking:** confirm on a real session why `/refresh` returned 401 at all.
+      Log in, note the access-token TTL from `expiresAt`, set it into the past, and run
+      `brevo app list --debug`. If a token minted minutes earlier is refused, the problem is
+      the IdP/proxy, not the CLI, and this change only improves how it is reported.
+- [ ] **Manual:** walk the mid-flow recovery — start `app create`, expire the session
+      during the prompts, and confirm the re-login offer re-sends the answers.
