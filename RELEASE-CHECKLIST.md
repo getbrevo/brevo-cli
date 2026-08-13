@@ -2833,8 +2833,11 @@ Consequences worth knowing:
 - [x] `yarn test` (56 suites / 1204 tests), `yarn lint`, `yarn format:check`, `yarn build`,
       `yarn build:preview` green.
 - [ ] **Manual:** `brevo app create` from a *published* build (`yarn build`) on a TTY —
-      confirm both one-item lists render sensibly and Enter-through works, and that
-      neither reveals a gated choice.
+      confirm both one-item lists render sensibly and Enter-through works, and that neither
+      reveals a gated choice. The *choices we pass* are asserted in tests and were rendered
+      through a `listRender` mirror on 2026-08-13 (they read fine); what is left is
+      inquirer's own output for a single-item list — notably whether it still prints
+      *(Use arrow keys)* when there is nothing to arrow to.
 
 ### Selection prompts sit in the CLI's output gutter (2026-08-13)
 
@@ -2880,7 +2883,11 @@ structure this adds and would be split from its own label by the indent.
       `npx tsc --noEmit`, `yarn build`, `yarn build:preview` green. Public 169.8 → 170.2 kB.
 - [ ] **Manual:** walk `brevo app create`, `brevo login`, `brevo init` and a scaffold
       conflict on a real TTY and confirm the indent reads better than flush-left, including
-      when the terminal is narrow enough to wrap a long label.
+      when the terminal is narrow enough to wrap a long label. Rendering the choices through
+      a re-implementation of inquirer 8's `listRender` looks right, but that is a mirror of
+      the library, not the library — what it cannot answer is how inquirer itself wraps an
+      over-long *choice* (`printBox`'s wrapping does not apply to prompts) and whether the
+      pointer sitting at column 0 while labels start at column 4 reads as intended.
 
 ### The record-page prompt shows the registry's own page names (2026-08-13)
 
@@ -3011,9 +3018,16 @@ another. Reported together because that run is the evidence for all of them.
 - [x] `yarn test` (57 suites / 1221 tests), `yarn lint`, `yarn format:check`,
       `npx tsc --noEmit`, `yarn build`, `yarn build:preview` green (172.2 kB public /
       203.4 kB preview).
-- [ ] **Manual:** run `brevo init` → UI app on a real TTY at 80, 120 and 200 columns, and
-      resize mid-box. Confirm the frame holds at each width, the example URL stays readable
-      when broken, and the closing line no longer mentions `app start oauth`.
+- [x] **Frame holds at every width — verified 2026-08-13** by driving the real `printBox`
+      from `src/lib/ui.ts` with `process.stdout.columns` forced to 127 (the width that used
+      to shred it), 80, 60 and 40. Borders line up in all four, the label's continuation
+      rows indent two columns past it, the query string is cut at the boundary (it has no
+      spaces to break on), and 40 columns falls back to the 24-column content floor rather
+      than fragmenting. No TTY needed for this — it reads `columns` and nothing else.
+- [ ] **Manual, still open:** the same on a real TTY *resized mid-box*, and confirm
+      `brevo init`'s closing line no longer mentions `app start oauth`. Resize is the part a
+      forced-`columns` run cannot reach: the box is already printed, so it is the terminal
+      that reflows it.
 - [ ] **Manual:** re-run `brevo app create` into an existing directory and choose Merge —
       confirm the count line reads "already in place" rather than "created (0 files)".
 
