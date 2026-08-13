@@ -47,23 +47,23 @@ export const uiAppType: AppTypeModule = {
   // Recoverable only when the server actually echoed the block, which is not a detail of
   // the config — it IS the config, and the app-type discriminator.
   //
-  // This once carried a specific case: "a UI app created but never uploaded has no
-  // snapshot and comes back without it". That is no longer true. `persistCreateResultTx`
-  // writes the `app_versions` row inside the create transaction with the `ui_app` in its
-  // snapshot, and `GET /cli/apps/{id}` serves it back from there — so a never-uploaded UI
-  // app *is* recoverable (verified against app-store-bo-be, 2026-08-13).
+  // **`isUiAppRecordShape` is what makes this reachable, and why it must not be reused
+  // here.** That predicate's fallback (`detect.ts`) calls a record a UI app whenever it
+  // carries no OAuth material — no `client_id`, no `redirect_uris` — *whether or not it has
+  // a block*. So a record with neither is classified `ui` and then arrives here with
+  // nothing to write. Right for labelling a row; wrong for deciding there is a config.
   //
-  // The guard stays anyway, as defence rather than as a known case: a record reaching here
-  // without a block cannot produce a UI config, whatever the reason (a version row that
-  // never landed, a read served from `fetchAppContext`'s create-response fallback, a future
-  // type). It has to refuse rather than write a partial file, because the omission is
-  // invisible — a config without `ui_app` doesn't read as an incomplete UI app, it reads as
-  // a perfectly valid OAuth one, and the next `app upload` pushes an `auth` block where
-  // `ui_app` belonged.
+  // Refusal, not a partial write, because the omission is invisible: a config without
+  // `ui_app` doesn't read as an incomplete UI app, it reads as a perfectly valid OAuth one,
+  // and the next `app upload` pushes an `auth` block where `ui_app` belonged.
   //
-  // Deliberately NOT `isUiAppRecordShape`: that predicate's fallback classifies a blockless
-  // record as a UI app on the absence of OAuth material, which is right for labelling a row
-  // and wrong for deciding there is something to write.
+  // This once justified itself with a *different*, specific case — "a UI app created but
+  // never uploaded has no snapshot and comes back without it". **That case is false**:
+  // `persistCreateResultTx` writes the `app_versions` row inside the create transaction
+  // with the `ui_app` in its snapshot, and `GET /cli/apps/{id}` serves it back from there,
+  // so a never-uploaded UI app *is* recoverable (verified against app-store-bo-be,
+  // 2026-08-13). Correcting that is not a reason to drop the guard — the classifier above
+  // is, and it is independent of anything the server does with snapshots.
   recoverableFromRecord: (app) => !!app?.ui_app,
 
   validateConfig: (config) => {

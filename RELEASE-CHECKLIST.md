@@ -2937,7 +2937,8 @@ Both had been load-bearing in argument only — **no behaviour changed**. The tw
 justified were re-grounded rather than removed: `create` still passes its `ui_app` to
 `fetchAppContext` (because a re-read is the *wrong source* — stale server data must not
 reclassify an app — not because the server lacks it), and `recoverableFromRecord` still
-refuses a blockless record (now as defence with no known trigger).
+refuses a blockless record (its real trigger is the CLI's own classifier, not the
+server — see the resolution below).
 
 **Part 2 — the split.** `scaffold.ts` was 935 lines: a shared project-writing library plus
 one command. The library is now `src/commands/app/project-writer.ts` (561 lines) and
@@ -2960,10 +2961,15 @@ move — no logic edited.
 - [x] `yarn test` (56 suites / 1209 tests), `yarn lint`, `yarn format:check`,
       `npx tsc --noEmit`, `yarn build`, `yarn build:preview` green. Bundle unchanged in
       substance (170.1 kB public / 201.3 kB preview).
-- [ ] **Follow-up, not done here:** `recoverableFromRecord` now has no known trigger. Decide
-      whether it stays as defence (current choice, documented at both sites) or goes. Do not
-      delete it on the strength of this entry alone — it is the only thing standing between
-      a blockless record and an `app-config.json` that silently reads as OAuth.
+- [x] **Resolved 2026-08-13 — the guard stays, and it is not dead code.** The first pass
+      called it "defence with no known trigger", which was wrong in the opposite direction:
+      `isUiAppRecordShape` (`app-types/ui/detect.ts`) classifies a record as a UI app
+      whenever it carries no OAuth material, **block or no block**, so a record with neither
+      is labelled `ui` and reaches `recoverableFromRecord` with nothing to write. That is the
+      trigger, and it comes from the CLI's own classifier — independent of anything the
+      server does with snapshots. Only the *stated* case ("never uploaded") was false.
+      Comments at both sites and `CLAUDE.md` now say so, and warn against reusing
+      `isUiAppRecordShape` as the recoverability test.
 
 ### Four output defects in the `app create` → `init` tail (2026-08-13)
 

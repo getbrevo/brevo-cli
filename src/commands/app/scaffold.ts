@@ -123,11 +123,15 @@ async function resolveBootstrapPlan(appId: string, jsonMode: boolean): Promise<S
   // Refuse before writing anything when the server cannot answer with enough to rebuild
   // a complete app-config.json.
   //
-  // This used to name a case — "a UI app created but never uploaded" — on the belief that
-  // the read endpoint could only source `ui_app` from an upload snapshot. That was wrong:
-  // create writes the snapshot itself, in its own transaction, so such an app does come
-  // back with its block. The guard is now defence with no known trigger rather than a
-  // case-specific refusal; see `recoverableFromRecord` in `src/app-types/ui/index.ts`.
+  // Reachable through the app-type classifier, not through anything the server does with
+  // snapshots: `isUiAppRecordShape` calls a record a UI app whenever it carries no OAuth
+  // material, block or no block, so a record with neither is classified `ui` and lands
+  // here with nothing to write. See `recoverableFromRecord` in `src/app-types/ui/index.ts`.
+  //
+  // This used to name a different case — "a UI app created but never uploaded" — on the
+  // belief that the read endpoint could only source `ui_app` from an upload snapshot. That
+  // was wrong: create writes the snapshot in its own transaction, so such an app does come
+  // back with its block.
   //
   // It has to be a refusal rather than a partial write, because the omission is invisible.
   // The presence of `ui_app` IS the app-type discriminator, so a config written without it
