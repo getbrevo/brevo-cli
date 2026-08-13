@@ -244,16 +244,3 @@ to run (`brevo app credentials --app-id <id>`) and exiting `1`; `--json` gets th
 `{"error":{…}}` envelope and nothing else. Interactive runs are unchanged. `brevo app delete`
 is the consequential one: a scripted delete that appeared to rely on the picker was never
 selecting anything, and now says so instead of dying mid-prompt.
-
-## Fixed: a `ui_app` text field holding an object is refused instead of waved through
-
-`app upload`'s pre-flight coerced each `ui_app` field to a string before checking it, and
-coercing an object yields `[object Object]` — non-blank, so it satisfied the "cannot be
-empty" checks. A hand-edited `app-config.json` carrying `"label": {}`,
-`"surface_point_name": {}`, or an object inside a placement's `context` therefore passed
-validation and travelled to the wire as an object under a field the server expects to be
-text. Those now fail locally with the field's own message.
-
-Fields that must be *absent* for the chosen `extension_type` — `modal_iframe_url` on an
-`actionLink`, `redirect_link` / `link_target` on an `iframeExtension` — are unchanged: a
-non-string value there still counts as present and is still reported.
