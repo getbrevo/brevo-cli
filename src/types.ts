@@ -110,27 +110,6 @@ export type ExtensionPlace =
 export type ExtensionKind = 'widget' | 'action';
 
 /**
- * The registry's `surface_point_name` slug for a slot — e.g.
- * `contact-details-header-menu`. Named for the registry COLUMN it must match, which is
- * also the name of the entry field that carries it (`surface_point_list[].surface_point_name`).
- *
- * NOT the dotted `<location>.<place>.<kind>` name of the BEX-350 grammar
- * (`contactDetails.headerMenu.action`). Both identify the same registry row, 1:1, and
- * both travel under names built from the words "surface point" — but only the slug is
- * authorable. The platform resolves an authored entry with
- * `WHERE surface_point_name = ANY(...)` and then serves that row's dotted
- * `extension_point_name` to the frontend as `extensionPoint`, which is where the grammar
- * shows up and why it is easy to write here by mistake. Naming the authored field after
- * the column it is matched against is the point of the field name: the entry key and the
- * `WHERE` clause now read the same.
- *
- * Spelling is part of the contract: an authored value with no registry row is a 400 from
- * `app upload` (`checkExtensionPoints`), and on the read path the backend *drops* it —
- * an empty slot, no error, still a 200.
- */
-export type SurfacePoint = string;
-
-/**
  * One entry of `surface_point_list`: a slot, plus the record-context field names this app
  * wants forwarded to it *on that slot*.
  *
@@ -152,7 +131,24 @@ export type SurfacePoint = string;
  * server-managed and never echoed back, so nothing writes it into `app-config.json`.
  */
 export interface SurfacePointEntry {
-  surface_point_name: SurfacePoint;
+  /**
+   * The registry's `surface_point_name` slug for the slot — e.g.
+   * `contact-details-header-menu`. Named for the registry COLUMN it must match, which is
+   * the point of the field name: the entry key and the `WHERE` clause read the same.
+   *
+   * NOT the dotted `<location>.<place>.<kind>` name of the BEX-350 grammar
+   * (`contactDetails.headerMenu.action`). Both identify the same registry row, 1:1, and
+   * both travel under names built from the words "surface point" — but only the slug is
+   * authorable. The platform resolves an authored entry with
+   * `WHERE surface_point_name = ANY(...)` and then serves that row's dotted
+   * `extension_point_name` to the frontend as `extensionPoint`, which is where the grammar
+   * shows up and why it is easy to write here by mistake.
+   *
+   * Spelling is part of the contract: an authored value with no registry row is a 400 from
+   * `app upload` (`checkExtensionPoints`), and on the read path the backend *drops* it —
+   * an empty slot, no error, still a 200.
+   */
+  surface_point_name: string;
   context?: string[];
 }
 

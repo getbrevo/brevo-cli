@@ -445,102 +445,137 @@ export function readProjectConfig(): ProjectConfig | null {
 }
 
 /**
+ * Normalize appId at the boundary: accept strings (trimmed) and finite numeric IDs from
+ * legacy configs, reject anything else. Downstream callers can treat `config.appId` as a
+ * guaranteed non-empty string.
+ *
+ * Returning `undefined` is what makes "has a file called app-config.json" and "is a
+ * project" different questions — see {@link readProjectConfigAt}.
+ */
+function readNormalizedAppId(raw: Record<string, unknown>): string | undefined {
+  const rawAppId = raw.appId;
+  if (typeof rawAppId === 'string') {
+    return rawAppId.trim() || undefined;
+  }
+  if (typeof rawAppId === 'number' && Number.isFinite(rawAppId)) {
+    return String(rawAppId);
+  }
+  return undefined;
+}
+
+/**
+ * Normalize the `auth` block, or `undefined` to leave the file's own block untouched.
+ *
+ * Three migrations, applied in order to one copy of the block.
+ */
+function buildAuthOverride(rawAuth: unknown): Record<string, unknown> | undefined {
+  if (!rawAuth || typeof rawAuth !== 'object') return undefined;
+  const auth = rawAuth as Record<string, unknown>;
+  let override: Record<string, unknown> | undefined;
+
+  // Normalize auth.scopes silently — split on commas/whitespace so an entry like
+  // "crm:read, campaigns:read" written by a user editing the JSON by hand becomes two
+  // scopes. Strict charset validation is enforced later, in the upload command, so
+  // unrelated commands that just happen to read config aren't broken by a malformed scope.
+  //
+  // A bare string is accepted as well as an array: the field is typed string[], but a
+  // hand-edited file can carry `"crm:read, crm:write"`, and `splitScopes` handles both.
+  // Gating on Array.isArray alone let the string through unnormalized, and the upload
+  // validator then iterated it one character at a time and rejected `":"` as a scope.
+  const scopes = auth.scopes;
+  if (Array.isArray(scopes) || typeof scopes === 'string') {
+    override = { ...auth, scopes: splitScopes(scopes as string | string[]) };
+  }
+
+  // Redirect URLs were renamed auth.redirectUrls → auth.redirectUris to track the wire key
+  // (redirect_uris, BEX-355/366). Read the legacy key when the new one is absent and drop
+  // it from the returned config, so callers that write the object back to disk (upload.ts,
+  // start.ts) migrate old projects on their next write. Downgrade caveat: older CLI
+  // releases read only the legacy key, so a migrated file fails loudly there ("no redirect
+  // URLs"), never silently.
+  if ('redirectUrls' in auth) {
+    override = override ?? { ...auth };
+    const legacyRedirects = auth.redirectUrls;
+    if (!Array.isArray(override.redirectUris) && Array.isArray(legacyRedirects)) {
+      override.redirectUris = legacyRedirects;
+    }
+    delete override.redirectUrls;
+  }
+
+  // Legacy auth.type is always dropped: the interim distribution carrier
+  // ('private'/'public') is folded into distribution_type by `readDistributionType`, and
+  // the dev-era UI-app marker 'none' is obsolete — a UI app's auth is now the empty object
+  // `{}` (the `ui_app` block alone discriminates the app type). Callers that write the
+  // config back to disk migrate old files on their next write.
+  if (override && 'type' in override) {
+    delete override.type;
+  } else if ('type' in auth) {
+    override = { ...auth };
+    delete override.type;
+  }
+
+  return override;
+}
+
+/**
+ * distribution_type has moved twice: originally a top-level `distribution` key (still the
+ * shape of every currently-published scaffold), briefly `auth.type` (an interim design that
+ * never shipped), now a top-level `distribution_type` key. Backfill from whichever legacy
+ * shape is present, preferring the new key when it already exists.
+ */
+function readDistributionType(
+  rawRecord: Record<string, unknown>,
+  rawAuth: unknown,
+): 'private' | 'public' {
+  const newDistributionType = rawRecord.distribution_type;
+  if (typeof newDistributionType === 'string' && newDistributionType.trim()) {
+    return newDistributionType.trim() as 'private' | 'public';
+  }
+
+  const legacyAuthType =
+    rawAuth && typeof rawAuth === 'object' ? (rawAuth as Record<string, unknown>).type : undefined;
+  if (
+    typeof legacyAuthType === 'string' &&
+    legacyAuthType.trim() &&
+    legacyAuthType !== 'none' // 'none' is the UI-app auth marker, not a distribution
+  ) {
+    return legacyAuthType.trim() as 'private' | 'public';
+  }
+
+  const legacyDistribution = rawRecord.distribution;
+  if (typeof legacyDistribution === 'string' && legacyDistribution.trim()) {
+    return legacyDistribution.trim() as 'private' | 'public';
+  }
+
+  return 'private';
+}
+
+/**
  * `readProjectConfig` for an arbitrary directory.
  *
  * Exists for {@link findEnclosingProjectDir}, which has to ask the same "is this a
  * project?" question of a directory that is not cwd. Kept as the one implementation
  * rather than a second parser so an ancestor is judged a project by exactly the rules
  * every command already applies to cwd — most importantly the appId normalization
- * below, which is what makes "has a file called app-config.json" and "is a project"
- * different questions.
+ * in {@link readNormalizedAppId}, which is what makes "has a file called
+ * app-config.json" and "is a project" different questions.
  */
 export function readProjectConfigAt(dir: string): ProjectConfig | null {
   try {
     const raw = JSON.parse(fs.readFileSync(path.resolve(dir, PROJECT_CONFIG_FILE), 'utf-8'));
     if (!raw || typeof raw !== 'object') return null;
-    // Normalize appId at the boundary: accept strings (trimmed) and finite
-    // numeric IDs from legacy configs, reject anything else. Downstream
-    // callers can treat `config.appId` as a guaranteed non-empty string.
-    const rawAppId = (raw as Record<string, unknown>).appId;
-    let appId: string | undefined;
-    if (typeof rawAppId === 'string') {
-      const trimmed = rawAppId.trim();
-      if (trimmed) appId = trimmed;
-    } else if (typeof rawAppId === 'number' && Number.isFinite(rawAppId)) {
-      appId = String(rawAppId);
-    }
-    if (!appId) return null;
-    // Normalize auth.scopes silently — split on commas/whitespace so an entry
-    // like "crm:read, campaigns:read" written by a user editing the JSON by
-    // hand becomes two scopes. Strict charset validation is enforced later,
-    // in the upload command, so unrelated commands that just happen to read
-    // config aren't broken by a malformed scope.
-    const rawAuth = (raw as Record<string, unknown>).auth;
-    let authOverride: Record<string, unknown> | undefined;
-    if (rawAuth && typeof rawAuth === 'object') {
-      const scopes = (rawAuth as Record<string, unknown>).scopes;
-      // A bare string is accepted as well as an array: the field is typed
-      // string[], but a hand-edited file can carry `"crm:read, crm:write"`, and
-      // `splitScopes` handles both. Gating on Array.isArray alone let the string
-      // through unnormalized, and the upload validator then iterated it one
-      // character at a time and rejected `":"` as a scope.
-      if (Array.isArray(scopes) || typeof scopes === 'string') {
-        authOverride = { ...rawAuth, scopes: splitScopes(scopes as string | string[]) };
-      }
-    }
-    // Redirect URLs were renamed auth.redirectUrls → auth.redirectUris to track
-    // the wire key (redirect_uris, BEX-355/366). Read the legacy key when the
-    // new one is absent and drop it from the returned config, so callers that
-    // write the object back to disk (upload.ts, start.ts) migrate old projects
-    // on their next write. Downgrade caveat: older CLI releases read only the
-    // legacy key, so a migrated file fails loudly there ("no redirect URLs"),
-    // never silently.
-    if (rawAuth && typeof rawAuth === 'object' && 'redirectUrls' in rawAuth) {
-      authOverride = authOverride ?? { ...rawAuth };
-      const legacyRedirects = (rawAuth as Record<string, unknown>).redirectUrls;
-      if (!Array.isArray(authOverride.redirectUris) && Array.isArray(legacyRedirects)) {
-        authOverride.redirectUris = legacyRedirects;
-      }
-      delete authOverride.redirectUrls;
-    }
-    // distribution_type has moved twice: originally a top-level `distribution`
-    // key (still the shape of every currently-published scaffold), briefly
-    // `auth.type` (an interim design that never shipped), now a top-level
-    // `distribution_type` key. Backfill from whichever legacy shape is present,
-    // preferring the new key when it already exists.
     const rawRecord = raw as Record<string, unknown>;
-    const newDistributionType = rawRecord.distribution_type;
-    const legacyAuthType =
-      rawAuth && typeof rawAuth === 'object'
-        ? (rawAuth as Record<string, unknown>).type
-        : undefined;
-    const legacyDistribution = rawRecord.distribution;
-    let distributionType: 'private' | 'public' | undefined;
-    if (typeof newDistributionType === 'string' && newDistributionType.trim()) {
-      distributionType = newDistributionType.trim() as 'private' | 'public';
-    } else if (
-      typeof legacyAuthType === 'string' &&
-      legacyAuthType.trim() &&
-      legacyAuthType !== 'none' // 'none' is the UI-app auth marker, not a distribution
-    ) {
-      distributionType = legacyAuthType.trim() as 'private' | 'public';
-    } else if (typeof legacyDistribution === 'string' && legacyDistribution.trim()) {
-      distributionType = legacyDistribution.trim() as 'private' | 'public';
-    } else {
-      distributionType = 'private';
-    }
-    // Legacy auth.type is always dropped: the interim distribution carrier
-    // ('private'/'public') is folded into distributionType above, and the
-    // dev-era UI-app marker 'none' is obsolete — a UI app's auth is now the
-    // empty object `{}` (the `ui_app` block alone discriminates the app type).
-    // Callers that write the config back to disk migrate old files on their
-    // next write.
-    if (authOverride && 'type' in authOverride) {
-      delete authOverride.type;
-    } else if (rawAuth && typeof rawAuth === 'object' && 'type' in rawAuth) {
-      authOverride = { ...rawAuth };
-      delete (authOverride as Record<string, unknown>).type;
-    }
+
+    const appId = readNormalizedAppId(rawRecord);
+    if (!appId) return null;
+
+    // `auth` normalization and the distribution backfill are independent: the backfill
+    // reads the RAW auth block, never the normalized one, so neither can see the other's
+    // work and the order between them does not matter.
+    const rawAuth = rawRecord.auth;
+    const authOverride = buildAuthOverride(rawAuth);
+    const distributionType = readDistributionType(rawRecord, rawAuth);
+
     // Drop the legacy top-level `distribution` key from the returned config —
     // it's already folded into distribution_type above. `permittedUrls` and
     // `support` were scaffolded into every config but never read by anything;
@@ -675,7 +710,7 @@ export function backfillProjectConfigFromServer(
   if (!raw || typeof raw !== 'object') return [];
 
   const normalized = readProjectConfig();
-  if (!normalized || normalized.appId !== appId) return [];
+  if (normalized?.appId !== appId) return [];
 
   const rawRecord = raw as Record<string, unknown>;
   const backfilled: string[] = [];

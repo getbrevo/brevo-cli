@@ -18,7 +18,12 @@ import {
   UploadAppPayload,
   UploadAppResponse,
 } from '../types';
-import { getAppCredentials, getOrganizationId, saveAppCredentials } from '../lib/config';
+import {
+  AppCredential,
+  getAppCredentials,
+  getOrganizationId,
+  saveAppCredentials,
+} from '../lib/config';
 import { normalizeAppId } from './normalize-app-id';
 
 /** First of the candidates that is a non-blank string, trimmed; `undefined` if none is. */
@@ -166,6 +171,33 @@ function buildInstallPayload(accountId: string, name: string) {
 function logEmptyAndThrow(): never {
   logInfo(`\n  ${messages.APP_LIST_EMPTY}\n`);
   throw new CliError(messages.APP_LIST_EMPTY, EXIT_CODES.ERROR);
+}
+
+/**
+ * Merge the locally cached credentials into a freshly-read app, in place: prefer the remote
+ * value, fall back to the cache for a field the GET did not carry.
+ *
+ * Returns the names of the fields where the cache and the server both had a value and they
+ * disagreed — the caller surfaces those as a staleness warning rather than silently picking
+ * a side.
+ */
+function mergeCachedCredentials(app: OAuthApp, local: AppCredential | undefined): string[] {
+  const diffs: string[] = [];
+  if (!local) return diffs;
+
+  if (!app.client_id && local.clientId) {
+    app.client_id = local.clientId;
+  } else if (local.clientId && local.clientId !== app.client_id) {
+    diffs.push('client_id');
+  }
+
+  if (!app.client_secret && local.clientSecret) {
+    app.client_secret = local.clientSecret;
+  } else if (local.clientSecret && local.clientSecret !== app.client_secret) {
+    diffs.push('client_secret');
+  }
+
+  return diffs;
 }
 
 export function createAppService(client: ApiClient) {
@@ -348,24 +380,7 @@ export function createAppService(client: ApiClient) {
       }
       if (!raw) return null;
       const app = normalizeAppId(raw);
-
-      const local = getAppCredentials(appId);
-      const diffs: string[] = [];
-
-      // Merge: prefer remote values, fall back to local cache for missing fields
-      if (local) {
-        if (!app.client_id && local.clientId) {
-          app.client_id = local.clientId;
-        } else if (local.clientId && local.clientId !== app.client_id) {
-          diffs.push('client_id');
-        }
-        if (!app.client_secret && local.clientSecret) {
-          app.client_secret = local.clientSecret;
-        } else if (local.clientSecret && local.clientSecret !== app.client_secret) {
-          diffs.push('client_secret');
-        }
-      }
-
+      const diffs = mergeCachedCredentials(app, getAppCredentials(appId));
       return { app, diffs };
     },
 

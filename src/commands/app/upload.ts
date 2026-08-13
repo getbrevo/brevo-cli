@@ -445,16 +445,16 @@ function validateAuthShape(config: NonNullable<ProjectConfig>): void {
   }
 }
 
-export const uploadCommand = withCommandHandler(async (options: UploadOptions): Promise<void> => {
-  const config = loadUsableConfig();
-  const isUiApp = isUiAppConfig(config);
-
+/**
+ * Everything that can be judged from `app-config.json` alone, before any round trip.
+ */
+function runLocalPreflight(config: ProjectConfig): void {
   validateAuthShape(config);
 
   // A UI app has no OAuth callback (enforced above), so the redirect
   // requirement — and validation — is OAuth-only.
   const redirectUris = config.auth?.redirectUris ?? [];
-  if (!isUiApp && redirectUris.length === 0) {
+  if (!isUiAppConfig(config) && redirectUris.length === 0) {
     throw new CliError(messages.APP_UPLOAD_NO_REDIRECT_URLS_OAUTH);
   }
   validateRedirectUrls(redirectUris);
@@ -476,6 +476,31 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   if (containsLegacyAllScope(scopes)) {
     throw new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK);
   }
+}
+
+/**
+ * Ask before pushing. Returns false when the user declined; refuses outright off a TTY,
+ * where there is nobody to answer.
+ */
+async function confirmUpload(): Promise<boolean> {
+  if (!process.stdin.isTTY) {
+    throw new CliError(NON_INTERACTIVE_CONFIRM_ERROR);
+  }
+  const { confirmed } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'confirmed',
+      message: messages.APP_UPLOAD_CONFIRM,
+      default: true,
+    },
+  ]);
+  return !!confirmed;
+}
+
+export const uploadCommand = withCommandHandler(async (options: UploadOptions): Promise<void> => {
+  const config = loadUsableConfig();
+
+  runLocalPreflight(config);
 
   // Unconditional: --json and --yes both still fetch + diff, per BEX-250.
   const remote = await fetchExistingApp(config.appId, options.json);
@@ -510,22 +535,9 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     return;
   }
 
-  if (!options.json && !options.yes) {
-    if (!process.stdin.isTTY) {
-      throw new CliError(NON_INTERACTIVE_CONFIRM_ERROR);
-    }
-    const { confirmed } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'confirmed',
-        message: messages.APP_UPLOAD_CONFIRM,
-        default: true,
-      },
-    ]);
-    if (!confirmed) {
-      logInfo(`\n  ${messages.APP_UPLOAD_CANCELLED}\n`);
-      return;
-    }
+  if (!options.json && !options.yes && !(await confirmUpload())) {
+    logInfo(`\n  ${messages.APP_UPLOAD_CANCELLED}\n`);
+    return;
   }
 
   const { confirmedVersion, finalName } = await uploadProjectConfig(config, {

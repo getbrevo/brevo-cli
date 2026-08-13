@@ -416,7 +416,7 @@ interface TemplateVars {
 // readable (and diff-friendly against a hand-edited one).
 function renderUiAppJson(uiApp: UiApp | undefined): string {
   if (!uiApp) return '';
-  return JSON.stringify(uiApp, null, 2).split('\n').join('\n  ');
+  return JSON.stringify(uiApp, null, 2).replaceAll('\n', '\n  ');
 }
 
 function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): TemplateVars {

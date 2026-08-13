@@ -220,29 +220,9 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     messages.APP_SUBMIT_NOT_PUBLIC(appId),
   );
 
-  // The local config is only a sync source when it describes the app being
-  // submitted; a different --app-id makes it irrelevant, not an error (submit
-  // never writes locally).
-  const configMatches = !!config?.appId && config.appId === appId;
   // Tracks whether we actually ran a local-vs-server comparison and it came back
   // clean — only then does the "no mismatch" note make sense to show.
-  let configVerified = false;
-  if (configMatches) {
-    const drift = computeConfigDrift(config!, app);
-    if (drift.length > 0) {
-      // JSON mode keeps the compact field-name message (machine consumers only
-      // need the outcome); human mode shows the value-level diff.
-      throw new CliError(
-        options.json
-          ? messages.APP_SUBMIT_OUT_OF_SYNC(
-              drift.map((d) => d.field),
-              appId,
-            )
-          : messages.APP_SUBMIT_OUT_OF_SYNC_DIFF(renderDriftBlock(drift), appId),
-      );
-    }
-    configVerified = true;
-  }
+  const configVerified = assertConfigInSync(config, app, appId, !!options.json);
 
   // The submission form link is part of the app payload for public apps —
   // no extra request needed. Absent means the backend isn't ready for this app.
@@ -272,6 +252,43 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     }
   }
 
+  openSubmissionForm(formUrl, appId);
+  logInfo(messages.APP_SUBMIT_FORM_GATE);
+  logInfo(messages.APP_SUBMIT_NEXT_STEPS);
+});
+
+/**
+ * Refuse a submission whose local `app-config.json` no longer matches the server, and
+ * report whether a comparison actually ran and came back clean.
+ *
+ * The local config is only a sync source when it describes the app being submitted; a
+ * different `--app-id` makes it irrelevant, not an error (submit never writes locally).
+ */
+function assertConfigInSync(
+  config: ProjectConfig | null,
+  app: OAuthApp,
+  appId: string,
+  jsonMode: boolean,
+): boolean {
+  if (!config?.appId || config.appId !== appId) return false;
+
+  const drift = computeConfigDrift(config, app);
+  if (drift.length > 0) {
+    // JSON mode keeps the compact field-name message (machine consumers only
+    // need the outcome); human mode shows the value-level diff.
+    throw new CliError(
+      jsonMode
+        ? messages.APP_SUBMIT_OUT_OF_SYNC(
+            drift.map((d) => d.field),
+            appId,
+          )
+        : messages.APP_SUBMIT_OUT_OF_SYNC_DIFF(renderDriftBlock(drift), appId),
+    );
+  }
+  return true;
+}
+
+function openSubmissionForm(formUrl: string, appId: string): void {
   // Both branches include the URL, so headless users always get it.
   try {
     openBrowser(formUrl);
@@ -280,6 +297,4 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     logDebug('openBrowser failed', { message: (err as Error).message });
     logInfo(messages.APP_SUBMIT_BROWSER_FAILED(formUrl, appId));
   }
-  logInfo(messages.APP_SUBMIT_FORM_GATE);
-  logInfo(messages.APP_SUBMIT_NEXT_STEPS);
-});
+}

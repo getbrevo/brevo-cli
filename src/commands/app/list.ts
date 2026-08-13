@@ -20,80 +20,99 @@ export const listCommand = withCommandHandler(
       spinner.stop();
     }
 
-    // The app-store list endpoint can lag behind writes (eventual consistency),
-    // so a name set via `brevo app upload` may not appear here for a while.
-    // Merge locally cached names to mask the propagation delay. Once the server
-    // catches up (cache equals server), drop the entry so any subsequent
-    // out-of-band rename (e.g. dashboard) is visible on the next list.
-    const cachedNames = getAppNames();
-    apps = (apps || []).map((app) => {
-      const cached = cachedNames[app.app_id];
-      if (!cached) return app;
-      if (cached === app.name) {
-        deleteAppName(app.app_id);
-        return app;
-      }
-      return { ...app, name: cached };
-    });
+    const merged = mergeCachedNames(apps || []);
 
     if (options.json) {
-      // `legacy_all_scope: true` is the machine-readable deprecation signal
-      // for scripts/agents — only present on affected apps (BEX-214).
-      const safeApps = apps.map(({ client_secret: _secret, ...rest }) => ({
-        ...rest,
-        ...(containsLegacyAllScope(rest.scopes) ? { legacy_all_scope: true } : {}),
-      }));
-      jsonOutput(safeApps);
+      jsonOutput(merged.map(toJsonApp));
       return;
     }
 
-    if (!apps || apps.length === 0) {
+    if (merged.length === 0) {
       logInfo(`\n  ${messages.APP_LIST_EMPTY}\n`);
       return;
     }
 
     logInfo(`\n  ${messages.APP_LIST_HEADER}\n`);
 
-    for (const app of apps) {
-      const name = app.name || '—';
-      // The type resolves itself and carries its own label, so a third app type shows up
-      // here correctly without this loop learning about it.
-      const appType = resolveFromRecord(app);
-      const isUiApp = appType.id === 'ui';
-      process.stdout.write(`  ${name}  (App ID: ${app.app_id})\n`);
-      process.stdout.write(`    Type:          ${appType.label}\n`);
-      // A UI app has no OAuth material at all — no client_id, no callbacks, no
-      // scopes. Printing those rows empty would read as a broken OAuth app
-      // rather than a UI app, so they are skipped entirely (same reasoning as
-      // the upload summary's UI-app branch).
-      if (!isUiApp) {
-        process.stdout.write(`    Client ID:     ${app.client_id}\n`);
-        const redirectUris = app.redirect_uris ?? [];
-        if (redirectUris.length > 0) {
-          redirectUris.forEach((uri, i) => {
-            process.stdout.write(`    Redirect URL ${i + 1}: ${uri}\n`);
-          });
-        } else {
-          process.stdout.write(`    Redirect URLs: (none)\n`);
-        }
-      }
-      process.stdout.write(`    Logo URL:      ${app.logo_uri || '(none)'}\n`);
-      process.stdout.write(`    Version:       ${app.version || '(none)'}\n`);
-      if (!isUiApp) {
-        const scopes = app.scopes ?? [];
-        const legacyTag = containsLegacyAllScope(scopes) ? messages.LEGACY_ALL_SCOPE_LIST_TAG : '';
-        process.stdout.write(
-          `    Scopes:        ${scopes.length > 0 ? scopes.join(', ') : '(none)'}${legacyTag}\n`,
-        );
-      }
-      // Only when the server echoes the block. The list endpoint does not today,
-      // so a UI app usually stops at the Type row — which is still the truth of
-      // what the response carried, and better than inventing empty rows.
-      if (app.ui_app) printUiApp(app.ui_app);
-      process.stdout.write('\n');
+    for (const app of merged) {
+      printApp(app);
     }
   },
 );
+
+/**
+ * The app-store list endpoint can lag behind writes (eventual consistency), so a name set
+ * via `brevo app upload` may not appear here for a while. Merge locally cached names to
+ * mask the propagation delay. Once the server catches up (cache equals server), drop the
+ * entry so any subsequent out-of-band rename (e.g. dashboard) is visible on the next list.
+ */
+function mergeCachedNames(apps: OAuthApp[]): OAuthApp[] {
+  const cachedNames = getAppNames();
+  return apps.map((app) => {
+    const cached = cachedNames[app.app_id];
+    if (!cached) return app;
+    if (cached === app.name) {
+      deleteAppName(app.app_id);
+      return app;
+    }
+    return { ...app, name: cached };
+  });
+}
+
+/**
+ * Strip the secret and add the machine-readable deprecation signal.
+ *
+ * `legacy_all_scope: true` is for scripts/agents — only present on affected apps (BEX-214).
+ */
+function toJsonApp({ client_secret: _secret, ...rest }: OAuthApp): Record<string, unknown> {
+  return {
+    ...rest,
+    ...(containsLegacyAllScope(rest.scopes) ? { legacy_all_scope: true } : {}),
+  };
+}
+
+function printApp(app: OAuthApp): void {
+  const name = app.name || '—';
+  // The type resolves itself and carries its own label, so a third app type shows up
+  // here correctly without this function learning about it.
+  const appType = resolveFromRecord(app);
+  const isUiApp = appType.id === 'ui';
+  process.stdout.write(`  ${name}  (App ID: ${app.app_id})\n`);
+  process.stdout.write(`    Type:          ${appType.label}\n`);
+  // A UI app has no OAuth material at all — no client_id, no callbacks, no
+  // scopes. Printing those rows empty would read as a broken OAuth app
+  // rather than a UI app, so they are skipped entirely (same reasoning as
+  // the upload summary's UI-app branch).
+  if (!isUiApp) printOAuthIdentity(app);
+  process.stdout.write(`    Logo URL:      ${app.logo_uri || '(none)'}\n`);
+  process.stdout.write(`    Version:       ${app.version || '(none)'}\n`);
+  if (!isUiApp) printScopes(app);
+  // Only when the server echoes the block. The list endpoint does not today,
+  // so a UI app usually stops at the Type row — which is still the truth of
+  // what the response carried, and better than inventing empty rows.
+  if (app.ui_app) printUiApp(app.ui_app);
+  process.stdout.write('\n');
+}
+
+function printOAuthIdentity(app: OAuthApp): void {
+  process.stdout.write(`    Client ID:     ${app.client_id}\n`);
+  const redirectUris = app.redirect_uris ?? [];
+  if (redirectUris.length === 0) {
+    process.stdout.write(`    Redirect URLs: (none)\n`);
+    return;
+  }
+  redirectUris.forEach((uri, i) => {
+    process.stdout.write(`    Redirect URL ${i + 1}: ${uri}\n`);
+  });
+}
+
+function printScopes(app: OAuthApp): void {
+  const scopes = app.scopes ?? [];
+  const legacyTag = containsLegacyAllScope(scopes) ? messages.LEGACY_ALL_SCOPE_LIST_TAG : '';
+  process.stdout.write(
+    `    Scopes:        ${scopes.length > 0 ? scopes.join(', ') : '(none)'}${legacyTag}\n`,
+  );
+}
 
 /**
  * The stored `ui_app` block, field for field — this is what actually renders

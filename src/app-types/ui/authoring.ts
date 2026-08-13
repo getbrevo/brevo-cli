@@ -130,7 +130,7 @@ function toUsableRows(rows: SurfacePointRow[]): UsableSurfacePoint[] {
  * and the slot renders nothing.
  */
 function rowSupportsExtensionType(row: SurfacePointRow, extensionType: string): boolean {
-  if (row.status !== undefined && row.status.trim() && row.status.trim() !== 'active') {
+  if (row.status?.trim() && row.status.trim() !== 'active') {
     return false;
   }
   const types = row.extension_type_list;

@@ -85,7 +85,7 @@ describe('oauth/handler.js template — private (confidential client)', () => {
   it('authenticates the code exchange and refresh with client_secret', () => {
     // Two URLSearchParams bodies (callback + refresh) both carry the secret.
     const matches = handler.match(/client_secret: CLIENT_SECRET,/g) ?? [];
-    expect(matches.length).toBe(2);
+    expect(matches).toHaveLength(2);
   });
 
   it('contains no PKCE machinery', () => {

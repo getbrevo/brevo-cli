@@ -121,7 +121,8 @@ describe('messages (lang/en)', () => {
     ];
     for (const [name, text] of prompts) {
       expect([...text].length + PREFIX).toBeLessThanOrEqual(80);
-      expect(name && text).toBeTruthy();
+      expect(name).toBeTruthy();
+      expect(text).toBeTruthy();
     }
   });
 

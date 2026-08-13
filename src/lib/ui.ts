@@ -286,8 +286,11 @@ export function printStatusCard(
   // "icon + space" is 2 columns wide; indent the message to align under the label.
   const bodyIndent = '  ' + ' '.repeat(2);
 
+  // Bold the label in the tone's own colour.
+  const boldCode = `1;${code}`;
+
   let out = `\n  ${color('1', title)}\n  ${color('90', rule)}\n\n`;
-  out += `  ${color(code, icon)} ${color(`1;${code}`, label)}\n`;
+  out += `  ${color(code, icon)} ${color(boldCode, label)}\n`;
   for (const line of message.split('\n')) {
     out += `${bodyIndent}${color('90', line)}\n`;
   }

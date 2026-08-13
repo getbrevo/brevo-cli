@@ -255,9 +255,9 @@ export function validateUiAppMoreInfo(value: string): true | string {
  * and passing one the platform had removed.
  *
  * Note the value is the registry's `surface_point_name` slug
- * (`contact-details-header-menu`), not the dotted grammar name — see the `SurfacePoint`
- * type. Shape-only means the two are indistinguishable here; only the registry can tell
- * them apart, which is another reason not to try.
+ * (`contact-details-header-menu`), not the dotted grammar name — see
+ * `SurfacePointEntry.surface_point_name`. Shape-only means the two are indistinguishable
+ * here; only the registry can tell them apart, which is another reason not to try.
  */
 export function validateSurfacePoint(point: string): true | string {
   const trimmed = String(point ?? '').trim();
@@ -299,6 +299,34 @@ export function validateUiAppContext(fields: readonly string[]): true | string {
 }
 
 /**
+ * `String()` for a field read out of a hand-edited `app-config.json`, type-narrowed first.
+ *
+ * Every field of `ui_app` arrives as `unknown`, and a bare `String(value)` on an object or
+ * array yields Object's default stringification — `'[object Object]'`. That is a non-blank
+ * string, so it sails through the "cannot be empty" checks below and lets an object reach
+ * the wire under a field the server expects to be text. Anything that is not a primitive is
+ * therefore treated as absent, so the field's own message fires instead.
+ */
+function asText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object' || typeof value === 'function') return '';
+  return String(value);
+}
+
+/**
+ * Is a field that must be ABSENT actually present?
+ *
+ * Distinct from `asText(value).trim() !== ''` on purpose: these are the "cannot be combined
+ * with" checks, where a non-string value is still something the partner wrote and still
+ * travels to the wire, so it must be reported rather than read as an empty string and
+ * waved through. Only a genuinely blank string counts as absent.
+ */
+function isPresentField(value: unknown): boolean {
+  if (value === undefined) return false;
+  return typeof value !== 'string' || value.trim() !== '';
+}
+
+/**
  * Fully validate a `ui_app` block before it is sent to the server.
  *
  * The block is the app snapshot the platform stores, verbatim.
@@ -318,7 +346,7 @@ export function validateUiApp(uiApp: unknown): void {
     );
   }
   const block = uiApp as Record<string, unknown>;
-  const extensionType = String(block.extension_type ?? '');
+  const extensionType = asText(block.extension_type);
 
   if (!AUTHORABLE_EXTENSION_TYPES.includes(extensionType)) {
     throw new CliError(
@@ -330,10 +358,10 @@ export function validateUiApp(uiApp: unknown): void {
 
   validateSurfacePointList(block.surface_point_list);
 
-  const labelCheck = validateUiAppLabel(String(block.label ?? ''));
+  const labelCheck = validateUiAppLabel(asText(block.label));
   if (labelCheck !== true) throw new CliError(`ui_app.label: ${labelCheck}`);
 
-  const moreInfoCheck = validateUiAppMoreInfo(String(block.more_info ?? ''));
+  const moreInfoCheck = validateUiAppMoreInfo(asText(block.more_info));
   if (moreInfoCheck !== true) throw new CliError(`ui_app.more_info: ${moreInfoCheck}`);
 
   if (extensionType === EXTENSION_TYPE_IFRAME) {
@@ -399,9 +427,9 @@ function validateSurfacePointList(entries: unknown): void {
       );
     }
     const row = entry as Record<string, unknown>;
-    const check = validateSurfacePoint(String(row.surface_point_name ?? ''));
+    const check = validateSurfacePoint(asText(row.surface_point_name));
     if (check !== true) throw new CliError(`ui_app.surface_point_list: ${check}`);
-    const name = String(row.surface_point_name).trim();
+    const name = asText(row.surface_point_name).trim();
     names.push(name);
 
     if (row.context !== undefined) {
@@ -410,7 +438,7 @@ function validateSurfacePointList(entries: unknown): void {
           `ui_app.surface_point_list["${name}"].context must be an array of field names, e.g. ["recordId"].`,
         );
       }
-      const contextCheck = validateUiAppContext(row.context.map((field) => String(field)));
+      const contextCheck = validateUiAppContext(row.context.map(asText));
       if (contextCheck !== true) {
         throw new CliError(`ui_app.surface_point_list["${name}"].context: ${contextCheck}`);
       }
@@ -422,24 +450,24 @@ function validateSurfacePointList(entries: unknown): void {
 }
 
 function validateActionLinkFields(block: Record<string, unknown>): void {
-  const urlCheck = validateUiAppUrl(String(block.redirect_link ?? ''));
+  const urlCheck = validateUiAppUrl(asText(block.redirect_link));
   if (urlCheck !== true) throw new CliError(`ui_app.redirect_link: ${urlCheck}`);
 
   // _self is refused server-side for now, so accepting it here would only move the
   // failure to upload time. See UPLOADABLE_LINK_TARGETS.
   if (
     block.link_target !== undefined &&
-    !UPLOADABLE_LINK_TARGETS.includes(String(block.link_target))
+    !UPLOADABLE_LINK_TARGETS.includes(asText(block.link_target))
   ) {
     throw new CliError(
-      `Invalid ui_app.link_target "${String(block.link_target)}". Must be one of: ${UPLOADABLE_LINK_TARGETS.join(', ')}.`,
+      `Invalid ui_app.link_target "${asText(block.link_target)}". Must be one of: ${UPLOADABLE_LINK_TARGETS.join(', ')}.`,
     );
   }
 
   // The UI kit keeps `modal_iframe_url` only for an `iframeExtension` item, so one
   // carried by an actionLink is dropped without a word. Reject rather than let a
   // partner ship a URL that will never open.
-  if (block.modal_iframe_url !== undefined && String(block.modal_iframe_url).trim()) {
+  if (isPresentField(block.modal_iframe_url)) {
     throw new CliError(
       `ui_app.modal_iframe_url is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
     );
@@ -447,21 +475,21 @@ function validateActionLinkFields(block: Record<string, unknown>): void {
 }
 
 function validateIframeExtensionFields(block: Record<string, unknown>): void {
-  const urlCheck = validateUiAppUrl(String(block.modal_iframe_url ?? ''));
+  const urlCheck = validateUiAppUrl(asText(block.modal_iframe_url));
   if (urlCheck !== true) throw new CliError(`ui_app.modal_iframe_url: ${urlCheck}`);
 
   // Refused because the two delivery paths disagree about which URL wins: the
   // widget-card path pairs strictly by extension_type and opens the modal, while the
   // header-menu path routes on redirect_link first and never opens it. The same app would
   // behave differently depending on the slot it rendered on.
-  if (block.redirect_link !== undefined && String(block.redirect_link).trim()) {
+  if (isPresentField(block.redirect_link)) {
     throw new CliError(
       `ui_app.redirect_link cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the modal, while a card would open the modal. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
     );
   }
 
   // link_target only governs where a redirect_link opens; a modal embeds its URL.
-  if (block.link_target !== undefined && String(block.link_target).trim()) {
+  if (isPresentField(block.link_target)) {
     throw new CliError(
       `ui_app.link_target has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL in a modal rather than navigating to it. Remove it.`,
     );

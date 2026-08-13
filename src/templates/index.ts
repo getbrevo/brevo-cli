@@ -74,7 +74,7 @@ export function applyConditionals(
   const out: string[] = [];
   // Stack of block states; `keep` is false once any enclosing block excludes us.
   const stack: boolean[] = [];
-  const active = (): boolean => stack.length === 0 || stack[stack.length - 1] === true;
+  const active = (): boolean => stack.length === 0 || stack.at(-1) === true;
 
   for (const line of lines) {
     const open = IF_OPEN_RE.exec(line);
