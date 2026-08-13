@@ -50,8 +50,13 @@ jobs:
           node-version: 20.15.0
           cache: yarn
 
+      # `--ignore-scripts`: this job installs the dependency tree on a runner that
+      # goes on to hold a publish secret, so no dependency's lifecycle script gets
+      # to run. Safe for the build — esbuild resolves its binary from the
+      # `@esbuild/<platform>` optional dependency, not from its postinstall — and
+      # the project's own `prepare` (husky) was already neutralised by `HUSKY: 0`.
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-scripts
         env:
           HUSKY: 0
 
