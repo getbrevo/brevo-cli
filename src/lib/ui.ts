@@ -82,6 +82,48 @@ function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
+/**
+ * The two-space gutter every other line of CLI output already sits in — see
+ * `logInfo`, `logWarn` and `printBox` above, which all open with two spaces.
+ */
+const OUTPUT_GUTTER = '  ';
+
+/** A choice as inquirer accepts it, narrowed to the fields this helper touches. */
+export interface PromptChoice {
+  name: string;
+  value: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * Indent a selection prompt's choice labels into the CLI's output gutter, so the
+ * options read as nested under their question instead of running flush to the
+ * terminal's left edge.
+ *
+ * **Only the label moves.** inquirer 8 renders each row as `pointer + ' ' + name`
+ * (selected) or `'  ' + name`, and `listRender` is module-private — there is no hook
+ * for the pointer, so `❯` stays in the gutter at column 0 while every label lines up
+ * two columns further right. That is the intended look: the pointer reads as a margin
+ * marker rather than as part of the option text. Don't try to "fix" the pointer by
+ * subclassing `ListPrompt` — it would pin us to inquirer's private render internals
+ * for two columns of alignment.
+ *
+ * Applies to `list` and `checkbox` prompts. Deliberately **not** applied to `rawlist`,
+ * whose rows already open with ` 1) `, ` 2) ` — a number that both provides the
+ * structure this adds and would be split from its own label by the indent.
+ *
+ * Anything that isn't a labelled choice (a separator, a bare string) is returned
+ * untouched, so a caller can pass a mixed array without filtering first.
+ */
+export function indentChoices<T>(choices: readonly T[]): T[] {
+  return choices.map((choice) => {
+    if (!choice || typeof choice !== 'object') return choice;
+    const candidate = choice as unknown as PromptChoice;
+    if (candidate.type === 'separator' || typeof candidate.name !== 'string') return choice;
+    return { ...candidate, name: `${OUTPUT_GUTTER}${candidate.name}` } as unknown as T;
+  });
+}
+
 // Visual tone for a status. Each tone maps to an ANSI colour code and a glyph
 // so a state reads at a glance (green ✓ approved, red ✗ rejected, …).
 export type StatusTone = 'neutral' | 'info' | 'pending' | 'progress' | 'success' | 'warn' | 'error';

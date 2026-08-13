@@ -10,7 +10,7 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName, validateYesNo } from '../../lib/validators';
 import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
-import { printBox, createSpinner } from '../../lib/ui';
+import { printBox, createSpinner, indentChoices } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
 import {
   computeSlug,
@@ -88,10 +88,12 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
   return answer.name;
 }
 
-// 3. App type — OAuth integration vs UI app (BEX-290).
-//    Asked after distribution: name and distribution describe the app record
-//    itself, so they come first; the type then decides which of the two
-//    remaining prompt paths runs (OAuth callback URLs vs UI-app placement).
+// 4. App type — OAuth integration vs UI app (BEX-290).
+//    Asked last of the four opening questions: name, logo and distribution all
+//    describe the app record itself and are asked of every app, so they come first.
+//    The type is the branch point — it decides which of the two remaining prompt
+//    paths runs (OAuth callback URLs vs UI-app placement) — so it is the last thing
+//    asked before the flow splits.
 //
 //    Prompt-only, deliberately: there is no `--type` flag, so a UI app can only
 //    be authored from an interactive terminal. UI apps aren't live on the
@@ -102,66 +104,92 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
 export type AppType = 'oauth' | 'ui';
 
 async function resolveAppType(interactive: boolean): Promise<AppType> {
-  // A UI app is only reachable through this prompt (there is no `--type` flag), so
-  // gating the feature means not asking at all rather than asking and refusing.
-  // Skipping the prompt outright restores the exact pre-BEX-290 flow — one fewer
-  // question, straight to an OAuth app — instead of showing a one-item list.
-  // ELIMINATION SITE — the raw global, not `isFeatureAvailable('ui-app-type')`. esbuild
-  // cannot fold a function call, so the helper alone would leave this branch live and
-  // keep the whole UI-authoring layer (registry reads, placement prompts, the summary
-  // box) in the published bundle. Checked first so the rest folds away with it.
-  if (!__BREVO_PREVIEW__ || !interactive || !isFeatureAvailable('ui-app-type')) {
+  // A UI app is only reachable through this prompt (there is no `--type` flag), so a
+  // non-interactive run has nothing to resolve and creates an OAuth app, exactly as it
+  // did before BEX-290.
+  if (!interactive) {
     return 'oauth';
+  }
+  // The question is always asked; only the *choices* are gated. A build that offers one
+  // app type still names it, so the flow reads the same everywhere and the user is told
+  // what they are getting rather than having it applied silently.
+  //
+  // ELIMINATION SITE — the raw global, not `isFeatureAvailable('ui-app-type')` alone.
+  // esbuild cannot fold a function call, so the helper by itself would leave this branch
+  // live and keep `messages.APP_CREATE_APP_TYPE_UI` reachable. `isFeatureAvailable` is
+  // still consulted, so flipping `FEATURE_STAGE` to `'ga'` releases the choice without
+  // touching this line. The elimination that actually matters — the whole UI-authoring
+  // layer (registry reads, placement prompts, the summary box) — hangs off the
+  // `resolveUiApp` call site, which is guarded by the same global.
+  const choices: Array<{ name: string; value: AppType }> = [
+    { name: messages.APP_CREATE_APP_TYPE_OAUTH, value: 'oauth' },
+  ];
+  if (__BREVO_PREVIEW__ && isFeatureAvailable('ui-app-type')) {
+    choices.push({ name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' });
   }
   const answer = await inquirer.prompt([
     {
       type: 'list',
       name: 'appType',
       message: messages.APP_CREATE_APP_TYPE_PROMPT,
-      choices: [
-        { name: messages.APP_CREATE_APP_TYPE_OAUTH, value: 'oauth' },
-        { name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' },
-      ],
+      choices: indentChoices(choices),
     },
   ]);
   return answer.appType as AppType;
 }
 
-// 2. Distribution type
-async function resolveDistribution(distributionFlag: string | undefined): Promise<string> {
-  // Public distribution is pre-GA (BEX-405). The flag keeps validating against the
-  // full set so `--distribution public` still fails as an *unreleased feature* rather
-  // than as an unknown value — the second would be a lie, and would send the user
-  // looking for a typo. `validateEnum` runs first so a genuine typo still gets the
-  // "invalid value" error it deserves.
+// 0b. Validate `--distribution` before anything is asked.
+//
+//     Hoisted out of `resolveDistribution` because that now runs *after* the logo
+//     prompt: a flag the CLI is going to reject must be rejected before the user is
+//     made to answer questions, otherwise `--distribution typo` costs a logo prompt
+//     first. Pure — no I/O, no prompts — so it is safe this early.
+//
+//     Public distribution is pre-GA (BEX-405). The flag keeps validating against the
+//     full set so `--distribution public` still fails as an *unreleased feature* rather
+//     than as an unknown value — the second would be a lie, and would send the user
+//     looking for a typo. `validateEnum` runs first so a genuine typo still gets the
+//     "invalid value" error it deserves.
+function assertDistributionFlag(distributionFlag: string | undefined): void {
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
   if (distributionFlag === 'public') {
     assertFeatureAvailable('public-distribution');
   }
+}
+
+// 3. Distribution type — the flag is already validated by `assertDistributionFlag`.
+async function resolveDistribution(
+  distributionFlag: string | undefined,
+  interactive: boolean,
+): Promise<string> {
   if (distributionFlag) {
     return distributionFlag;
   }
-  // Same reasoning as the app-type prompt: with only one choice left there is
-  // nothing to ask, so a locked run skips straight to a private app.
-  if (!isFeatureAvailable('public-distribution')) {
+  // Load-bearing, not a tidy-up: this used to be covered by the feature check below
+  // returning early, so removing that check without this one would put a prompt in
+  // front of every `--json` / piped run and hang CI on a question it cannot answer.
+  if (!interactive) {
     return 'private';
+  }
+  // Same shape as the app-type prompt: the question is always asked, only the choices
+  // are gated. See the ELIMINATION SITE note there for why the raw global appears
+  // alongside `isFeatureAvailable`.
+  const choices: Array<{ name: string; value: string }> = [
+    { name: 'Private  (Used exclusively by your organisation)', value: 'private' },
+  ];
+  if (__BREVO_PREVIEW__ && isFeatureAvailable('public-distribution')) {
+    choices.push({
+      name: 'Public   (Distributed to end users or marketplace listings)',
+      value: 'public',
+    });
   }
   const answer = await inquirer.prompt([
     {
       type: 'list',
       name: 'distribution',
       message: messages.APP_CREATE_TYPE_PROMPT,
-      choices: [
-        {
-          name: 'Private  (Used exclusively by your organisation)',
-          value: 'private',
-        },
-        {
-          name: 'Public   (Distributed to end users or marketplace listings)',
-          value: 'public',
-        },
-      ],
+      choices: indentChoices(choices),
     },
   ]);
   return answer.distribution;
@@ -222,7 +250,7 @@ async function promptRedirectUrls(quiet: boolean): Promise<string[]> {
   return redirectUris;
 }
 
-// 3. Redirect URI(s) — already validated by collectUrls parser when passed via flag
+// 5. Redirect URI(s) — already validated by collectUrls parser when passed via flag
 async function resolveRedirectUrls(
   redirectUriFlag: string[] | undefined,
   quiet: boolean,
@@ -237,8 +265,13 @@ async function resolveRedirectUrls(
   return [DEFAULT_REDIRECT_URI];
 }
 
-// 4. Logo URL (optional) — prompt interactively when no --logo-uri flag.
+// 2. Logo URL (optional) — prompt interactively when no --logo-uri flag.
 //    Skipped under --json since the field is optional and --json implies scripting.
+//
+//    Asked up front, right after the name, and asked identically for every app
+//    type: the logo belongs to the app record rather than to either prompt path,
+//    so it must not sit behind the type branch where an OAuth app answers it after
+//    its callback URLs and a UI app after its placements.
 async function resolveLogoUri(
   logoUriFlag: string | undefined,
   jsonMode: boolean,
@@ -474,11 +507,16 @@ export const createCommand = withCommandHandler(
     const originalCwd = process.cwd();
 
     guardAgainstLinkedApp();
+    assertDistributionFlag(options.distribution);
 
     const interactive = !jsonMode && !!process.stdin.isTTY;
 
+    // The app record first — name, logo, distribution — then the app type. All three
+    // identify the app and are asked of every app regardless of type; the type is the
+    // branch point, and everything below it belongs to one path or the other.
     const appName = await resolveAppName(options.name);
-    const distribution = await resolveDistribution(options.distribution);
+    const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
+    const distribution = await resolveDistribution(options.distribution, interactive);
     const appType = await resolveAppType(interactive);
 
     // The two app types diverge here: OAuth apps collect callback URLs, UI apps
@@ -494,8 +532,6 @@ export const createCommand = withCommandHandler(
     } else {
       redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
     }
-
-    const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
 
     const dir = await resolveCreateDirectory(appName, interactive);
 

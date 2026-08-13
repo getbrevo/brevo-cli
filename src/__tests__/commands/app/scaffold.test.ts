@@ -1155,13 +1155,20 @@ describe('app/scaffold', () => {
         const result = await promptFeatureType(true);
 
         expect(mockPrompt).toHaveBeenCalledWith([
-          expect.objectContaining({
-            name: 'featureType',
-            choices: [
-              { name: 'Test OAuth App', value: 'oauth' },
-              { name: 'Webhook receiver', value: 'webhook' },
-            ],
-          }),
+          expect.objectContaining({ name: 'featureType', choices: expect.any(Array) }),
+        ]);
+        // Labels are trimmed before comparing: `indentChoices` pads each one into the
+        // CLI's output gutter, which is presentation. Asserting the padded string would
+        // make every label assertion in the suite a test of the indent instead.
+        const question = mockPrompt.mock.calls[0][0][0];
+        expect(
+          question.choices.map((choice: { name: string; value: string }) => ({
+            name: choice.name.trim(),
+            value: choice.value,
+          })),
+        ).toEqual([
+          { name: 'Test OAuth App', value: 'oauth' },
+          { name: 'Webhook receiver', value: 'webhook' },
         ]);
         expect(result).toBe('webhook');
       } finally {

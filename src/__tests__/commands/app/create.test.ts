@@ -158,10 +158,10 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' }) // logo
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
-      .mockResolvedValueOnce({ logoUrl: '' }) // logo
       .mockResolvedValueOnce({ scaffoldRaw: 'y' }); // scaffold a feature?
 
     await createCommand({ name: 'Test App', distribution: 'private' });
@@ -204,15 +204,88 @@ describe('app/create', () => {
     (appService.createApp as jest.Mock).mockResolvedValue(created);
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ appType: 'oauth' })
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'n' });
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
     expect(fetchAppContext).toHaveBeenCalledWith(1, false, undefined, created);
+  });
+
+  // The whole opening of the flow, pinned in one place: name, logo and distribution all
+  // describe the app record and are asked of every app, then "What type of app are you
+  // building?" — the branch point — then whatever that branch asks for.
+  //
+  // The logo's position is the part that has drifted: it used to sit *behind* the type
+  // branch, so an OAuth app answered it after its callback URLs and a UI app after its
+  // placements. Answered by question *name*, so the assertion is about the order the
+  // prompts fire in and not about the order this test queues its answers.
+  it('asks name → logo → distribution → app type, before any type-specific prompt', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 2,
+      name: 'Order App',
+      client_id: 'cli-order',
+      client_secret: 'secret-order',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+    const answers: Record<string, unknown> = {
+      name: 'Order App',
+      logoUrl: '',
+      appType: 'oauth',
+      distribution: 'private',
+      redirectUrl: 'http://localhost:3009/auth/callback',
+      anotherRaw: 'n',
+      scaffoldRaw: 'n',
+    };
+    const asked: string[] = [];
+    mockPrompt.mockImplementation((questions: Array<Record<string, unknown>>) => {
+      const name = String(questions[0]?.name ?? '');
+      asked.push(name);
+      return Promise.resolve(name in answers ? { [name]: answers[name] } : {});
+    });
+
+    // No flags at all — every one of these questions has to actually be asked.
+    await createCommand({});
+
+    expect(asked.slice(0, 4)).toEqual(['name', 'logoUrl', 'distribution', 'appType']);
+    // …and the branch's own prompts come after all four, not interleaved with them.
+    expect(asked.indexOf('redirectUrl')).toBeGreaterThan(asked.indexOf('appType'));
+  });
+
+  // The inverse of the two published-build assertions further down: a preview build
+  // offers the gated choice on both questions. Without this, gating everything to a
+  // one-item list would pass the public-build tests and ship a preview build that
+  // cannot reach the features it exists to exercise.
+  it('offers both choices on each gated question in a preview build', async () => {
+    (appService.createApp as jest.Mock).mockResolvedValue({
+      app_id: 3,
+      name: 'Preview App',
+      client_id: 'cli-preview',
+      client_secret: 'secret-preview',
+      redirect_uris: ['http://localhost:3009/auth/callback'],
+    });
+    mockPrompt.mockResolvedValue({
+      name: 'Preview App',
+      logoUrl: '',
+      distribution: 'private',
+      appType: 'oauth',
+      redirectUrl: 'http://localhost:3009/auth/callback',
+      anotherRaw: 'n',
+      scaffoldRaw: 'n',
+    });
+
+    await createCommand({});
+
+    const questionNamed = (name: string) =>
+      mockPrompt.mock.calls.flatMap((call) => call[0]).find((q) => q?.name === name);
+    const valuesOf = (name: string) =>
+      questionNamed(name).choices.map((choice: { value: string }) => choice.value);
+
+    expect(valuesOf('distribution')).toEqual(['private', 'public']);
+    expect(valuesOf('appType')).toEqual(['oauth', 'ui']);
   });
 
   describe('feature scaffolding', () => {
@@ -225,10 +298,10 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
       await createCommand({ name: 'Feature App', distribution: 'private' });
@@ -260,10 +333,10 @@ describe('app/create', () => {
         version: '0.0.1',
       });
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'n' });
 
       await createCommand({ name: 'Order App', distribution: 'private' });
@@ -289,10 +362,10 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'n' });
 
       await createCommand({ name: 'Base Only App', distribution: 'private' });
@@ -432,10 +505,10 @@ describe('app/create', () => {
         };
       });
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
       await createCommand({ name: 'Dir App', distribution: 'private' });
@@ -481,10 +554,10 @@ describe('app/create', () => {
         order.push('apply');
       });
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
       await createCommand({ name: 'Ordered App', distribution: 'private' });
@@ -501,10 +574,10 @@ describe('app/create', () => {
       });
       (appService.createApp as jest.Mock).mockRejectedValue(new Error('quota exceeded'));
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' });
+        .mockResolvedValueOnce({ another: false });
 
       await expect(createCommand({ name: 'Doomed App', distribution: 'private' })).rejects.toThrow(
         /quota exceeded/,
@@ -530,10 +603,10 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
       await createCommand({ name: 'Cd Hint App', distribution: 'private' });
@@ -586,10 +659,10 @@ describe('app/create', () => {
         return 'oauth';
       });
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
         .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
       await createCommand({ name: 'Ordered App', distribution: 'private' });
@@ -632,10 +705,10 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Versioned App', distribution: 'private' });
@@ -697,10 +770,10 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Hint App', distribution: 'private' });
@@ -741,8 +814,8 @@ describe('app/create', () => {
     });
 
     mockPrompt
-      .mockResolvedValueOnce({ appType: 'oauth' })
       .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ appType: 'oauth' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({
@@ -762,10 +835,10 @@ describe('app/create', () => {
     );
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ logoUrl: '' });
+      .mockResolvedValueOnce({ another: false });
 
     await expect(createCommand({ name: 'Test', distribution: 'private' })).rejects.toThrow(
       'maximum number of OAuth apps',
@@ -789,10 +862,10 @@ describe('app/create', () => {
       (appService.createApp as jest.Mock).mockRejectedValue(rejection());
 
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' });
+        .mockResolvedValueOnce({ another: false });
 
       // One invocation, both assertions — a second call would exhaust the
       // `mockResolvedValueOnce` prompt chain above and fail before the API call.
@@ -811,10 +884,10 @@ describe('app/create', () => {
       (appService.createApp as jest.Mock).mockRejectedValue(rejection());
 
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' });
+        .mockResolvedValueOnce({ another: false });
 
       await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
         /use distribution_type "private"/,
@@ -836,10 +909,10 @@ describe('app/create', () => {
       });
 
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
         .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ scaffoldRaw: 'n' });
 
       await createCommand({ name: 'Test', distribution: 'public' });
@@ -858,10 +931,10 @@ describe('app/create', () => {
       );
 
       mockPrompt
+        .mockResolvedValueOnce({ logoUrl: '' })
         .mockResolvedValueOnce({ appType: 'oauth' })
         .mockResolvedValueOnce({ redirectUrl: 'https://example.com/cb' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ logoUrl: '' });
+        .mockResolvedValueOnce({ another: false });
 
       await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
         'logo_uri must be a valid https URL',
@@ -881,10 +954,10 @@ describe('app/create', () => {
       });
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
-      .mockResolvedValueOnce({ logoUrl: '' }) // skip logo prompt
       .mockResolvedValueOnce({ name: 'New Name' }) // retry name prompt
       .mockResolvedValueOnce({ scaffoldRaw: 'y' }); // scaffold a feature?
 
@@ -933,11 +1006,11 @@ describe('app/create', () => {
   it('should prompt for name when not provided', async () => {
     mockPrompt
       .mockResolvedValueOnce({ name: 'Prompted App' }) // name prompt
+      .mockResolvedValueOnce({ logoUrl: '' }) // logo prompt
       .mockResolvedValueOnce({ distribution: 'private' }) // distribution prompt
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
       .mockResolvedValueOnce({ another: false }) // no more URLs
-      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     (appService.createApp as jest.Mock).mockResolvedValue({
@@ -979,10 +1052,10 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Public App', distribution: 'public' });
@@ -1026,10 +1099,10 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Café Résumé', distribution: 'private' });
@@ -1054,12 +1127,12 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // first URL
       .mockResolvedValueOnce({ anotherRaw: 'y' }) // add another
       .mockResolvedValueOnce({ nextUrl: 'https://myapp.com/callback' }) // second URL
       .mockResolvedValueOnce({ anotherRaw: 'n' }) // no more
-      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Multi URL App', distribution: 'private' });
@@ -1084,8 +1157,8 @@ describe('app/create', () => {
     });
 
     mockPrompt
-      .mockResolvedValueOnce({ appType: 'oauth' })
       .mockResolvedValueOnce({ logoUrl: '' })
+      .mockResolvedValueOnce({ appType: 'oauth' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({
@@ -1188,10 +1261,10 @@ describe('app/create', () => {
     });
 
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: 'https://example.com/prompted.png' })
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ logoUrl: 'https://example.com/prompted.png' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Prompted Logo App', distribution: 'private' });
@@ -1235,10 +1308,10 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ anotherRaw: 'n' })
-      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Test App', distribution: 'private' });
@@ -1261,10 +1334,10 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
     mockPrompt
+      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ appType: 'oauth' }) // app type
       .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
       .mockResolvedValueOnce({ anotherRaw: 'n' })
-      .mockResolvedValueOnce({ logoUrl: '' })
       .mockResolvedValueOnce({ scaffoldRaw: 'y' });
 
     await createCommand({ name: 'Test App', distribution: 'private' });
@@ -1827,7 +1900,9 @@ describe('app/create', () => {
         }>
       )
         .filter((choice) => choice.value !== undefined)
-        .map((choice) => String(choice.name));
+        // Trimmed: `indentChoices` pads every label into the CLI's output gutter, which
+        // is presentation. This test is about the label's *content*.
+        .map((choice) => String(choice.name).trim());
       expect(names).toEqual([
         'Header "More" (•••) menu — menu entry',
         'Main column — card',
@@ -2060,6 +2135,22 @@ describe('app/create', () => {
       expect(collectedUiApp()).not.toHaveProperty('link_target');
     });
 
+    // The other half of the OAuth-path assertion up top: the opening questions are the
+    // same for both app types, so a UI app answers the logo before it is asked what it
+    // is building — and long before it is asked where the thing renders.
+    it('asks for the logo before the app type and the placement prompts', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const names = askedQuestions.map((question) => String(question.name));
+      const logoIdx = names.indexOf('logoUrl');
+      const typeIdx = names.indexOf('appType');
+      const placementIdx = names.findIndex((name) => name.startsWith('placement:'));
+      expect(logoIdx).toBeGreaterThanOrEqual(0);
+      expect(placementIdx).toBeGreaterThanOrEqual(0);
+      expect(logoIdx).toBeLessThan(typeIdx);
+      expect(typeIdx).toBeLessThan(placementIdx);
+    });
+
     // The per-field flags are gone, so these prompt `validate` callbacks are now
     // the only thing standing between a typo and a silently unrenderable action
     // link. Assert they're still wired up.
@@ -2288,28 +2379,68 @@ describe('app/create', () => {
       ).rejects.not.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
     });
 
-    it('does not ask for the app type, and creates an OAuth app', async () => {
-      mockPrompt.mockResolvedValue({ redirectUrl: '', logoUri: '', scaffold: false });
+    // The question is asked in every build; only the *choices* are gated. A gated
+    // build offering one app type still names it, rather than applying it silently —
+    // so the flow reads the same everywhere and the user is told what they're getting.
+    // What must never appear is the withheld choice itself.
+    it('asks for the app type, offering only OAuth, and creates an OAuth app', async () => {
+      mockPrompt.mockResolvedValue({ appType: 'oauth', redirectUrl: '', logoUrl: '' });
 
       await createCommand({ name: 'Test App', distribution: 'private' });
 
-      const asked = mockPrompt.mock.calls.flatMap((call) => call[0]).map((q) => q?.name);
-      expect(asked).not.toContain('appType');
+      const appTypeQuestion = mockPrompt.mock.calls
+        .flatMap((call) => call[0])
+        .find((question) => question?.name === 'appType');
+      expect(appTypeQuestion).toBeDefined();
+      // Labels are trimmed before comparing — `indentChoices` pads them into the CLI's
+      // output gutter. This matters for more than tidiness here: the withheld-choice
+      // assertion below is a `not.toContain`, which an unnoticed indent would satisfy
+      // vacuously, quietly turning the gate's own test green for the wrong reason.
+      const labels = appTypeQuestion.choices.map((choice: { name: string }) => choice.name.trim());
+      expect(labels).toEqual([messages.APP_CREATE_APP_TYPE_OAUTH]);
+      expect(labels).not.toContain(messages.APP_CREATE_APP_TYPE_UI);
+      expect(appTypeQuestion.choices.map((choice: { value: string }) => choice.value)).toEqual([
+        'oauth',
+      ]);
+
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(payload).not.toHaveProperty('ui_app');
     });
 
-    // With `public` withheld the prompt has one answer left, so asking is noise.
-    // Skipping it restores the pre-BEX-249 flow rather than showing a one-item list.
-    it('does not ask for the distribution, and defaults to private', async () => {
-      mockPrompt.mockResolvedValue({ redirectUrl: '', logoUri: '', scaffold: false });
+    // Same rule for the distribution question, whose gated choice is `public`.
+    it('asks for the distribution, offering only private, and defaults to private', async () => {
+      mockPrompt.mockResolvedValue({
+        appType: 'oauth',
+        distribution: 'private',
+        redirectUrl: '',
+        logoUrl: '',
+      });
 
       await createCommand({ name: 'Test App' });
 
-      const asked = mockPrompt.mock.calls.flatMap((call) => call[0]).map((q) => q?.name);
-      expect(asked).not.toContain('distribution');
+      const distributionQuestion = mockPrompt.mock.calls
+        .flatMap((call) => call[0])
+        .find((question) => question?.name === 'distribution');
+      expect(distributionQuestion).toBeDefined();
+      expect(distributionQuestion.choices).toHaveLength(1);
+      expect(distributionQuestion.choices[0].value).toBe('private');
+
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(payload.distribution_type).toBe('private');
+    });
+
+    // The prompts are interactive-only in every build. This is what the removed
+    // `!isFeatureAvailable(...) → 'private'` early return used to guarantee by
+    // accident: without it, a `--json` run would block on a question it can't answer.
+    it('asks neither question under --json, and still defaults to private + OAuth', async () => {
+      await createCommand({ name: 'Test App', json: true });
+
+      const asked = mockPrompt.mock.calls.flatMap((call) => call[0]).map((q) => q?.name);
+      expect(asked).not.toContain('distribution');
+      expect(asked).not.toContain('appType');
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.distribution_type).toBe('private');
+      expect(payload).not.toHaveProperty('ui_app');
     });
 
     // The same command in a preview build, which is what `PREVIEW=1 yarn link:dev`

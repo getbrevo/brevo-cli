@@ -127,6 +127,31 @@ re-running produced another one. The create response is now used as a fallback, 
 completes with a warning pointing at `brevo app scaffold`. Scoped to that one read and to
 `404` only — a `500` or an expired session surfaces as before.
 
+**The logo URL is now asked up front, for every app.** `App logo URL` used to be the last
+question before the output directory, which put it *after* the app-type branch — so it
+arrived once the OAuth callback URLs had been entered. It describes the app record rather
+than either prompt path, so it is now asked immediately after the app name, identically
+for every app. The interactive flow opens name → logo URL → distribution → app type, and
+only then asks whatever the chosen type needs. The logo remains optional (blank skips it),
+and `--logo-uri` / `--json` / non-interactive runs are unchanged. Relatedly, an invalid
+`--distribution` value is now rejected before any prompt is shown rather than after the
+logo question.
+
+**`Distribution type?` and `What type of app are you building?` are now always asked.**
+Both used to be skipped in a build where only one answer remained, applying it silently.
+They are now asked whenever the run is interactive, listing only the choices that build
+supports — so the flow reads the same everywhere and you are told which distribution and
+app type you are getting rather than having to know. Non-interactive runs (`--json` or
+piped stdin) still ask neither and still default to a private OAuth app.
+
+**Selection prompts are indented into the CLI's output gutter.** Every `list` and
+`checkbox` prompt — the login method, `init`'s next action, distribution, app type,
+scaffold's overwrite/merge conflicts, and the UI-app authoring questions — used to render
+its options flush against the terminal's left edge, two columns left of every other line
+the CLI prints. The option labels now sit in the same two-space gutter as the rest of the
+output, so they read as nested under their question. Numbered `rawlist` prompts (the app
+pickers) are unchanged — their ` 1) `, ` 2) ` already provide that structure.
+
 ## `app-config.json` shape
 
 All changes are backward compatible on read and migrated on the next write-back (by `upload`,

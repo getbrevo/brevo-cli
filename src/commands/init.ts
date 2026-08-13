@@ -1,7 +1,7 @@
 import inquirer from 'inquirer';
 import { isAuthenticated, readProjectConfig } from '../lib/config';
 import { logSuccess, logInfo, logWarn, logDebug } from '../lib/logger';
-import { createSpinner } from '../lib/ui';
+import { createSpinner, indentChoices } from '../lib/ui';
 import { messages } from '../lang/en';
 import { ApiError, AuthExpiredError, CliError, ErrorCode } from '../lib/errors';
 import { withCommandHandler } from '../lib/command-handler';
@@ -87,11 +87,11 @@ async function promptLinkedAppAction(
       type: 'list',
       name: 'action',
       message: messages.INIT_APP_ACTION,
-      choices: [
+      choices: indentChoices([
         { name: 'Scaffold this app', value: 'scaffold' },
         { name: 'Create a new app', value: 'create' },
         { name: "Skip — I'm all set", value: 'skip' },
-      ],
+      ]),
     },
   ]);
   return action;

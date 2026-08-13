@@ -10,7 +10,7 @@ import {
   LEGACY_ALL_SCOPE,
 } from '../../lib/constants';
 import { logSuccess, logInfo, logWarn } from '../../lib/logger';
-import { createSpinner, printBox } from '../../lib/ui';
+import { createSpinner, printBox, indentChoices } from '../../lib/ui';
 import { messages } from '../../lang/en';
 import { withCommandHandler } from '../../lib/command-handler';
 import { CliError } from '../../lib/errors';
@@ -218,11 +218,11 @@ export async function resolveProjectDirectory(
       type: 'list',
       name: 'action',
       message: messages.APP_SCAFFOLD_DIR_EXISTS,
-      choices: [
+      choices: indentChoices([
         { name: 'Overwrite existing files', value: 'overwrite' },
         { name: 'Merge (keep existing, add missing)', value: 'merge' },
         { name: 'Choose a different path', value: 'new' },
-      ],
+      ]),
     },
   ]);
   if (action === 'new') {
@@ -484,11 +484,11 @@ export async function resolveFeatureConflict(
       type: 'list',
       name: 'action',
       message: messages.APP_SCAFFOLD_FEATURE_EXISTS,
-      choices: [
+      choices: indentChoices([
         { name: messages.APP_SCAFFOLD_FEATURE_EXISTS_OVERWRITE, value: 'overwrite' },
         { name: messages.APP_SCAFFOLD_FEATURE_EXISTS_MERGE, value: 'merge' },
         { name: messages.APP_SCAFFOLD_FEATURE_EXISTS_CANCEL, value: 'cancel' },
-      ],
+      ]),
     },
   ]);
   return action as FeatureConflictChoice;

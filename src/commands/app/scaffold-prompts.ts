@@ -2,6 +2,7 @@ import inquirer from 'inquirer';
 import { messages } from '../../lang/en';
 import { FeatureType, FEATURE_TEMPLATE_MANIFESTS, FEATURE_LABELS } from '../../templates';
 import { validateYesNo } from '../../lib/validators';
+import { indentChoices } from '../../lib/ui';
 
 /**
  * The two questions about scaffolding a feature, in their own module because both
@@ -60,7 +61,7 @@ export async function promptFeatureType(interactive: boolean): Promise<FeatureTy
       type: 'list',
       name: 'featureType',
       message: messages.APP_SCAFFOLD_FEATURE_TYPE_PROMPT,
-      choices: types.map((type) => ({ name: FEATURE_LABELS[type], value: type })),
+      choices: indentChoices(types.map((type) => ({ name: FEATURE_LABELS[type], value: type }))),
     },
   ]);
   return featureType;

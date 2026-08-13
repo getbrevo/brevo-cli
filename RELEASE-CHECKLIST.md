@@ -396,10 +396,17 @@ open-questions log. Only settled decisions are recorded below, for the reasoning
       decision as `--distribution public` — refuse, don't warn — and the same escape
       hatch. The shape differs because there is no flag to refuse: a UI app is only
       reachable from the interactive app-type prompt, so the gate *withholds the
-      choice* rather than rejecting an answer. A locked run doesn't ask at all, which
-      restores the exact pre-BEX-290 flow instead of showing a one-item list. The
-      prompt being interactive-only was a soft limit on reaching it accidentally; it
-      was never a limit on reaching it deliberately, which is what the gate adds.
+      choice* rather than rejecting an answer. The prompt being interactive-only was a
+      soft limit on reaching it accidentally; it was never a limit on reaching it
+      deliberately, which is what the gate adds.
+
+      **Revised 2026-08-13:** a locked run originally didn't ask at all, restoring the
+      pre-BEX-290 flow rather than rendering a one-item list. It now asks, listing only
+      the choices that build supports. The gate is unchanged — the withheld choice is
+      still absent, and `resolveUiApp` is still eliminated — but the question itself is
+      no longer conditional, so the flow reads the same in both builds and the user is
+      told which app type they are getting instead of having it applied silently. Same
+      change to the distribution question. GA still just flips `FEATURE_STAGE`.
 
       `app deploy` / `app rollback` are gated as commands (capability
       `account-install`), hidden from help and refused when invoked.
@@ -2736,3 +2743,141 @@ literal, so the wrapping is visible in the source.
       directory up…"*. The two changes landed on the same lines; the entry above is
       what explains why the phrase changed, and this one only re-wraps it.
 
+
+### `app create` asks for the logo up front, for every app type (2026-08-13)
+
+**Change:** `App logo URL` moved from the end of the interactive flow — where it sat
+*behind* the app-type branch, so an OAuth app answered it after its callback URLs and a
+UI app after its placements — to immediately after the app name. It describes the app
+record rather than either prompt path, so it is now asked identically for both types.
+
+Order is now name → **logo** → distribution → app type → the type's own prompts → output
+directory. The three record-level questions come first and the type, being the branch
+point, is the last thing asked before the flow splits.
+
+The app-type prompt's wording was already *"What type of app are you building?"*
+(`APP_CREATE_APP_TYPE_PROMPT`) and is unchanged; only the logo moved. `--distribution`
+flag validation was hoisted out of `resolveDistribution` into a new pure
+`assertDistributionFlag()`, called before any prompt — otherwise a rejected flag value
+would cost the user a logo prompt first.
+
+**Must hold true:**
+
+- [x] The full opening sequence is pinned, not just the one move: `create.test.ts` →
+      *asks name → logo → distribution → app type, before any type-specific prompt* runs
+      with **no flags at all** and asserts the first four questions by name. The logo's
+      position drifted twice while this landed, so the assertion is on the whole prefix
+      rather than a pairwise "logo before type".
+- [x] Both prompt-order tests answer by question *name* rather than call order, so a future
+      reorder fails the order assertion instead of silently shifting an answer onto the
+      wrong field. The UI branch has its own (`UI apps` → *asks for the logo before the app
+      type and the placement prompts*).
+- [x] Nothing changes off a TTY: `--logo-uri`, `--json` and piped stdin all still skip the
+      logo prompt and the field stays optional (blank → `logo_uri` omitted from the
+      payload). A non-interactive run still never asks the type and still creates an OAuth
+      app.
+- [x] `--distribution privte` still fails as an invalid value, and `--distribution public`
+      still fails as an unreleased feature in a public build — both now *before* any
+      prompt, and before `createApp` / `resolveProjectDirectory` / `chdir`. Verified
+      against the built artifact, not just the mocks.
+- [x] `yarn test` (56 suites / 1202 tests), `yarn lint`, `yarn format:check`, `yarn build`
+      green.
+- [x] No agent-doc edit needed: neither `SKILL.md` nor `AGENTS.md` documents the
+      interactive prompt *order* — both describe `--logo-uri` and the `app-config.json`
+      `logoUri` field, which are unchanged. `AGENTS.md`'s one ordering sentence ("asks for
+      the name before the OAuth prompts") is still true.
+- [ ] **Manual:** run `PREVIEW=1 yarn link:dev` then `brevo app create` on a TTY with no
+      flags and walk both branches — confirm the four opening questions read naturally in
+      this order.
+
+### The gated questions are asked in every build, with only their usable choices (2026-08-13)
+
+**Change:** `Distribution type?` and `What type of app are you building?` used to be
+*skipped entirely* in a build where the gated choice was withheld — one answer left, so
+the value was applied silently. Both now always ask when interactive, and gate the
+**choices** instead of the question: a published build offers `Private` only, and
+`OAuth app` only. Nothing about the gate itself moved.
+
+Consequences worth knowing:
+
+- **`resolveDistribution` gained an `interactive` parameter, and it is load-bearing.** The
+  `!isFeatureAvailable(…) → 'private'` early return that was removed is what had been
+  keeping every `--json` / piped run away from that prompt in a published build. Without
+  the replacement guard, a public `--json` create would block on a question it cannot
+  answer. Covered by *asks neither question under --json…*.
+- **Elimination is unchanged, and one string got better.** The gated choices are pushed
+  behind the raw `__BREVO_PREVIEW__` global (not `isFeatureAvailable` alone, which esbuild
+  cannot fold), so `resolveUiApp` / `renderCreatedUiApp` / the whole UI-authoring layer are
+  still absent from a public build — verified on the artifact. The
+  `Public   (Distributed to end users…)` label is now eliminated too; it previously
+  survived in a branch esbuild couldn't fold. `messages.APP_CREATE_APP_TYPE_UI` remains as
+  an inert object property, exactly as before — the known "esbuild cannot prune object
+  literal properties" class, already recorded in the BEX-405 entry above.
+
+**Must hold true:**
+
+- [x] Published build asks both questions and offers exactly one choice each, and the
+      withheld choice is absent — asserted on the rendered label for the app type, so
+      offering `UI app` from a public build fails the test. `create.test.ts` → *asks for
+      the app type, offering only OAuth…* / *asks for the distribution, offering only
+      private…*.
+- [x] Preview build still offers both choices on both questions — the inverse assertion
+      (*offers both choices on each gated question in a preview build*). Without it,
+      over-gating would pass every public-build test and ship a preview build that cannot
+      reach the features it exists to exercise.
+- [x] Neither question is asked off a TTY or under `--json`, in either build; the defaults
+      stay `private` + OAuth.
+- [x] Public artifact still eliminates `resolveUiApp`, `renderCreatedUiApp`,
+      `buildSurfacePointList`, `resolveDeploymentTarget`, `previewAppCommands`. Checked
+      against `dist/bin/index.js`, not the mocks. Public 169.6 → 169.8 kB.
+- [x] `yarn test` (56 suites / 1204 tests), `yarn lint`, `yarn format:check`, `yarn build`,
+      `yarn build:preview` green.
+- [ ] **Manual:** `brevo app create` from a *published* build (`yarn build`) on a TTY —
+      confirm both one-item lists render sensibly and Enter-through works, and that
+      neither reveals a gated choice.
+
+### Selection prompts sit in the CLI's output gutter (2026-08-13)
+
+**Change:** new `indentChoices()` in `src/lib/ui.ts` pads each choice label with the same
+two spaces `logInfo` / `logWarn` / `printBox` already open with, so a prompt's options no
+longer render two columns left of every other line the CLI prints. Applied at all ten
+`list` / `checkbox` sites: `app create` (distribution, app type), `app scaffold`
+(directory conflict, feature conflict), `scaffold-prompts` (feature type), `login`
+(auth method), `init` (next action), and UI-app authoring (pages, placement, integration
+type).
+
+**Known limit, deliberately accepted:** only the *label* moves. inquirer 8 renders a row
+as `pointer + ' ' + name` / `'  ' + name` and `listRender` is module-private, so `❯` stays
+at column 0 while labels line up at column 4:
+
+```
+? Distribution type? (Use arrow keys)
+❯   Private  (Used exclusively by your organisation)
+    Public   (Distributed to end users or marketplace listings)
+```
+
+Moving the pointer too would mean subclassing `ListPrompt` or wrapping the output stream —
+pinning us to inquirer's private render internals, or to `ScreenManager`'s line-height
+bookkeeping, for two columns of alignment. Recorded in the helper's docstring so the next
+person doesn't rediscover it.
+
+`rawlist` is deliberately excluded (`select-app.ts`, `account-deployment.ts`,
+`services/app.ts`): its rows already open with ` 1) `, ` 2) `, which both supplies the
+structure this adds and would be split from its own label by the indent.
+
+**Must hold true:**
+
+- [x] `indentChoices` is covered directly in `__tests__/lib/ui.test.ts`: it pads labels,
+      carries other fields through (a `disabled` choice stays disabled), does not mutate
+      its input, and returns separators / bare strings / nullish entries untouched — so a
+      caller can pass a mixed array without filtering.
+- [x] **Three existing assertions compared raw labels and were made indent-independent
+      rather than re-baselined.** One of them mattered beyond tidiness: the published-build
+      gate test asserts `labels not.toContain(APP_CREATE_APP_TYPE_UI)`, which an unnoticed
+      indent would have satisfied *vacuously* — the gate's own test would have gone green
+      for the wrong reason. All three now trim before comparing.
+- [x] `yarn test` (56 suites / 1208 tests), `yarn lint`, `yarn format:check`,
+      `npx tsc --noEmit`, `yarn build`, `yarn build:preview` green. Public 169.8 → 170.2 kB.
+- [ ] **Manual:** walk `brevo app create`, `brevo login`, `brevo init` and a scaffold
+      conflict on a real TTY and confirm the indent reads better than flush-left, including
+      when the terminal is narrow enough to wrap a long label.

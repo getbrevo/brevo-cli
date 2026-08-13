@@ -31,7 +31,7 @@ import {
   validateUiAppMoreInfo,
   validateUiAppUrl,
 } from '../../lib/validators';
-import { printBox, createSpinner } from '../../lib/ui';
+import { printBox, createSpinner, indentChoices } from '../../lib/ui';
 import { appService } from '../../container';
 import { CreateAppResponse, SurfacePointEntry, SurfacePointRow, UiApp } from '../../types';
 import { formatPlacementLines } from './fields';
@@ -305,7 +305,7 @@ async function promptSurfacePointList(
       type: 'checkbox',
       name: 'surfaces',
       message: messages.APP_CREATE_UI_SURFACE_PROMPT,
-      choices: surfaceChoices.map(({ name, value }) => ({ name, value })),
+      choices: indentChoices(surfaceChoices.map(({ name, value }) => ({ name, value }))),
       // Only pre-select the default page when the registry actually offers it.
       default: surfaceChoices.some((choice) => choice.value === DEFAULT_UI_APP_SURFACE)
         ? [DEFAULT_UI_APP_SURFACE]
@@ -354,10 +354,12 @@ async function promptSurfacePointList(
         ),
         // A page offering one placement still asks, rather than being chosen silently:
         // it is a single keypress either way, and the partner sees where the app lands.
-        choices: group.rows.map((row) => ({
-          name: placementLabel(row),
-          value: row.surface_point_name,
-        })),
+        choices: indentChoices(
+          group.rows.map((row) => ({
+            name: placementLabel(row),
+            value: row.surface_point_name,
+          })),
+        ),
       },
     ]);
     const chosen = String(answer[question] ?? '').trim();
@@ -382,7 +384,7 @@ async function promptIntegrationType(): Promise<UiApp['extension_type']> {
       type: 'list',
       name: 'integrationType',
       message: messages.APP_CREATE_UI_INTEGRATION_PROMPT,
-      choices: [
+      choices: indentChoices([
         {
           name: messages.APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK,
           value: EXTENSION_TYPE_ACTION_LINK,
@@ -392,7 +394,7 @@ async function promptIntegrationType(): Promise<UiApp['extension_type']> {
           value: EXTENSION_TYPE_IFRAME,
           disabled: messages.APP_CREATE_UI_INTEGRATION_COMING_SOON,
         },
-      ],
+      ]),
     },
   ]);
   return integrationType as UiApp['extension_type'];

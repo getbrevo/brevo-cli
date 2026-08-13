@@ -1,4 +1,4 @@
-import { createSpinner, printBox } from '../../lib/ui';
+import { createSpinner, printBox, indentChoices } from '../../lib/ui';
 
 describe('ui', () => {
   let stdoutSpy: jest.SpyInstance;
@@ -70,6 +70,45 @@ describe('ui', () => {
       expect(output).toContain('Line 2');
       expect(output).toContain('┌');
       expect(output).toContain('┘');
+    });
+  });
+
+  describe('indentChoices', () => {
+    it('pads each label into the same two-space gutter the rest of the output uses', () => {
+      expect(
+        indentChoices([
+          { name: 'Private  (Used exclusively by your organisation)', value: 'private' },
+          { name: 'Public   (Distributed to end users)', value: 'public' },
+        ]),
+      ).toEqual([
+        { name: '  Private  (Used exclusively by your organisation)', value: 'private' },
+        { name: '  Public   (Distributed to end users)', value: 'public' },
+      ]);
+    });
+
+    it('carries every other field through, so a disabled choice stays disabled', () => {
+      expect(
+        indentChoices([
+          { name: 'Modal iframe', value: 'iframeExtension', disabled: 'Coming soon' },
+        ]),
+      ).toEqual([{ name: '  Modal iframe', value: 'iframeExtension', disabled: 'Coming soon' }]);
+    });
+
+    it('does not mutate the choices it was given', () => {
+      const choices = [{ name: 'OAuth app', value: 'oauth' }];
+      indentChoices(choices);
+      expect(choices[0]?.name).toBe('OAuth app');
+    });
+
+    // Callers can pass a mixed array without filtering: a separator has no label to
+    // indent, and indenting one would push its rule out of alignment with the choices.
+    it('leaves separators and non-labelled entries untouched', () => {
+      const separator = { type: 'separator', line: '── Contact ──' };
+      expect(indentChoices([separator, 'bare string', null])).toEqual([
+        separator,
+        'bare string',
+        null,
+      ]);
     });
   });
 });
