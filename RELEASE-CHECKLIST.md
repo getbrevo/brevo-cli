@@ -3010,3 +3010,48 @@ another. Reported together because that run is the evidence for all of them.
       when broken, and the closing line no longer mentions `app start oauth`.
 - [ ] **Manual:** re-run `brevo app create` into an existing directory and choose Merge —
       confirm the count line reads "already in place" rather than "created (0 files)".
+
+### `create` and `scaffold` share one command tail (2026-08-13)
+
+**Change:** `app create` and `app scaffold`'s bootstrap carried near-identical copies of
+everything after the base project lands — the UI-app sign-off, the feature offer, the
+conflict question, the feature write, the report. Two commands whose only real difference
+is how they *obtain* the app had drifting answers to what happens afterwards. That tail is
+now `finishProject()` in `src/commands/app/finish-project.ts`, called by both.
+
+**No behaviour changed.** Every difference between the two callers is a parameter:
+
+- `offerFeature` — `false` means the question is *not asked*, which is what `--json` and
+  piped runs pass. Asking-and-defaulting would block exactly the runs that can't answer.
+- `onConflict` — `'ask'` for `scaffold`, which is routinely pointed at a populated
+  directory; `create` passes the answer it already has, because the directory question was
+  put to the user moments earlier about that same directory.
+- The **base write stays with each caller**, deliberately. `create` must not print under
+  `--json` and `scaffold` defers the write off a TTY; routing that half through one
+  function needs more flags than it saves.
+
+**Why a separate module from `project-writer.ts`:** that file is primitives — render a
+template, write files, report what landed — and knows nothing about a flow. This one asks
+questions and branches on app type. Keeping them apart lets `scaffold`'s feature-add path
+take the primitives without the flow, which it does.
+
+**Must hold true:**
+
+- [x] `finish-project.test.ts` covers the flow directly (9 cases): the UI-app early exit
+      asks nothing, `offerFeature: false` asks nothing *and* writes nothing, both
+      `onConflict` modes reach the right `mergeOnly`, `'cancel'` writes nothing, and the
+      legacy-'all' warning is never repeated (the base report already gave it).
+- [x] **Zero rewrites to the existing create/scaffold suites.** This is the check that the
+      move preserved behaviour rather than the tests being bent to fit it — those suites
+      assert on `runFeatureScaffold`, `promptFeatureType` and the prompt chains, and all of
+      it still passes through the new indirection untouched.
+- [x] Putting `finishProject` in its own module rather than in `project-writer.ts` is what
+      keeps those seams intact: `create.test.ts` mocks `project-writer` wholesale, so a
+      `finishProject` living there would have been stubbed out and ~20 assertions would
+      have had to be rewritten against the mock. The module boundary was chosen for the
+      design reason above; this is a consequence worth knowing before anyone merges them.
+- [x] `yarn test` (58 suites / 1230 tests), `yarn lint`, `yarn format:check`,
+      `npx tsc --noEmit`, `yarn build`, `yarn build:preview` green.
+- [ ] **Manual:** walk `brevo app create` (accept and decline the feature) and
+      `brevo app scaffold --app-id <id>` into a populated directory, and confirm the
+      conflict question appears for the second and not the first.

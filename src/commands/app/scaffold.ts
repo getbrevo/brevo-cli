@@ -4,9 +4,10 @@
  * Two modes, chosen by whether cwd holds an `app-config.json`: with one it adds a feature
  * to the linked app, without one it *bootstraps* a directory for an app that already
  * exists. What both modes have in common — fetching the app, resolving a directory,
- * writing the files, reporting what landed — lives in `./project-writer`, which
- * `app create` shares. This file is only the part that decides WHICH app and WHETHER to
- * write; the writing itself is not here.
+ * writing the files — lives in `./project-writer`, and everything both do *after* the
+ * base project lands (offer the feature, resolve a conflict, write it, report) lives in
+ * `./finish-project`. Both are shared with `app create`, which reaches the same tail once
+ * its app exists. This file is only the part that decides WHICH app and WHETHER to write.
  */
 import inquirer from 'inquirer';
 import { logSuccess, logInfo } from '../../lib/logger';
@@ -24,7 +25,7 @@ import {
 import { resolveFromRecord } from '../../app-types';
 import { stripUiAppWireOnlyKeys } from '../../app-types/wire';
 import { promptAppSelection } from './select-app';
-import { promptFeatureType, promptScaffoldFeature } from './scaffold-prompts';
+import { promptFeatureType } from './scaffold-prompts';
 // The project writer. `app create` imports the same module directly — neither command
 // reaches the other, which is the point of the split.
 import {
@@ -43,6 +44,7 @@ import {
   computeCdHint,
   printFileTree,
 } from './project-writer';
+import { finishProject } from './finish-project';
 
 // Resolve which app this project is linked to (from cwd's app-config.json),
 // and decide whether the base config has drifted from the server. Returns a
@@ -355,11 +357,25 @@ export const scaffoldCommand = withCommandHandler(
       : null;
     if (bootstrapBase) {
       reportBaseScaffoldSuccess(bootstrapBase);
-      if (!(await promptScaffoldFeature())) {
-        logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
-        printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_BASE_ONLY_NEXT(cdDir));
-        return;
-      }
+      // The rest of a bootstrap is the same tail `app create` runs once its app exists —
+      // offer the feature, resolve a conflict, write, report — so it runs the shared one
+      // in `./finish-project` rather than a second copy of it here. `'ask'` because this
+      // command is routinely pointed at a directory that already has files in it; create
+      // passes the answer it already has.
+      await finishProject({
+        appId,
+        ctx,
+        targetDir,
+        baseScopes: bootstrapBase.scopes,
+        cdDir,
+        // A bootstrapped UI app is already handled above, so this is always an OAuth app.
+        isUiApp: false,
+        offerFeature: true,
+        onConflict: 'ask',
+        jsonMode,
+        overwriteFlag: overwrite,
+      });
+      return;
     }
 
     const feature = await promptFeatureType(!jsonMode);
@@ -378,21 +394,20 @@ export const scaffoldCommand = withCommandHandler(
 
     // Refresh the base config/meta files (full overwrite) only when the local
     // config drifted from the server and the user consented.
+    //
+    // Only the feature-add path and non-interactive bootstraps reach here: an
+    // interactive bootstrap wrote and reported its base above and then returned
+    // through `finishProject`, so there is no "already written" case left to carry.
     let baseWritten = 0;
     let baseFiles: Array<{ name: string; content: string }> = [];
     let legacyAllSubstituted = false;
     let scopes: string[] = [];
-    if (refreshBase && !bootstrapBase) {
+    if (refreshBase) {
       const base = runBaseScaffold(appId, ctx, targetDir, baseMergeOnly);
       baseWritten = base.written;
       baseFiles = base.files;
       legacyAllSubstituted = base.legacyAllSubstituted;
       scopes = base.scopes;
-    } else if (bootstrapBase) {
-      // Written and reported above, so only the scope list is carried forward — the
-      // count and the file tree would otherwise be printed a second time, and the
-      // legacy-'all' notice repeated. Same split `app create` uses.
-      scopes = bootstrapBase.scopes;
     }
 
     // Feature files merge by default (never clobber hand-edited code); the user

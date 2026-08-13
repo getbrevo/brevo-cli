@@ -19,16 +19,14 @@ import {
   computeSlug,
   fetchAppContext,
   runBaseScaffold,
-  runFeatureScaffold,
   resolveProjectDirectory,
   applyProjectDirectory,
   reportBaseScaffoldSuccess,
-  reportScaffoldSuccess,
   computeCdHint,
 } from './project-writer';
-import { promptFeatureType, promptScaffoldFeature } from './scaffold-prompts';
+import { finishProject } from './finish-project';
 import { appService } from '../../container';
-import { FeatureType } from '../../templates';
+
 import { CreateAppResponse, OAuthApp, UiApp } from '../../types';
 // The UI-app half of this flow (registry reads, placement prompts, the summary box) lives
 // beside its app type — see `src/app-types/contract.ts` for why authoring hangs off the
@@ -649,39 +647,24 @@ export const createCommand = withCommandHandler(
     renderBox();
     reportBaseScaffoldSuccess(base);
 
-    const cdDir = computeCdHint(originalCwd, dir.targetDir);
-
-    // UI apps have no scaffoldable feature — an action link runs on the partner's
-    // own infrastructure, so there is no local server to generate. Point at the
-    // upload → deploy path instead of offering the OAuth test server.
-    if (uiApp) {
-      printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_UI_NEXT(cdDir));
-      return;
-    }
-
-    // Then offer to scaffold a feature (default yes → pick a type). Only the
-    // interactive prompt triggers it; a piped (non-TTY) run stays base-only.
-    let feature: FeatureType | null = null;
-    if (interactive && (await promptScaffoldFeature())) {
-      feature = await promptFeatureType(true);
-    }
-
-    if (feature) {
-      const feat = runFeatureScaffold(feature, result.app_id, ctx, dir.targetDir, dir.mergeOnly);
-      reportScaffoldSuccess({
-        written: feat.written,
-        // The legacy 'all' substitution (if any) was already surfaced by
-        // reportBaseScaffoldSuccess above — don't repeat it here.
-        legacyAllSubstituted: false,
-        scopes: base.scopes,
-        files: feat.files,
-        targetDir: dir.targetDir,
-        cdDir,
-      });
-    } else {
-      // Base project only — point the user at `brevo app scaffold` to add a feature.
-      logInfo(messages.APP_SCAFFOLD_SCOPES_TIP);
-      printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_BASE_ONLY_NEXT(cdDir));
-    }
+    // Everything from here — the UI-app sign-off, the feature offer, the feature
+    // write and its report — is the same tail `app scaffold`'s bootstrap runs, and
+    // lives with it in `./project-writer`. `create` used to carry its own near-copy.
+    //
+    // `onConflict: 'merge'` rather than `'ask'`: the directory question was already
+    // answered above, for this exact directory, before the app was created. Asking
+    // again here would be the same question twice in one run.
+    await finishProject({
+      appId: result.app_id,
+      ctx,
+      targetDir: dir.targetDir,
+      baseScopes: base.scopes,
+      cdDir: computeCdHint(originalCwd, dir.targetDir),
+      isUiApp: !!uiApp,
+      // A piped run stays base-only, exactly as before: no question is asked and the
+      // feature is left to a follow-up `brevo app scaffold`.
+      offerFeature: interactive,
+      onConflict: dir.mergeOnly ? 'merge' : 'overwrite',
+    });
   },
 );
