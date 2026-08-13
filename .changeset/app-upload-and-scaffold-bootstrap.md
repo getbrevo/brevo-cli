@@ -147,9 +147,15 @@ All changes are backward compatible on read and migrated on the next write-back 
 
 - `auth.redirectUrls` → **`auth.redirectUris`**, matching the wire key `redirect_uris`. The
   old key is still read (the new one wins if both are present). **Downgrade caveat:** older
-  CLI releases read only `redirectUrls`, so a migrated file fails there with
-  "app-config.json has no redirect URLs configured" — upgrade the lagging CLI, or keep both
-  keys as a stopgap.
+  CLI releases read only `redirectUrls`, so a migrated file reads to them as a config with no
+  redirect URLs at all. Where that is loud it is harmless — `app update` stops with
+  "app-config.json has no redirect URLs configured". **`app start` is the one that costs you
+  something:** seeing an empty list, it offers to register `http://localhost:<port>/auth/callback`
+  and, on yes, pushes that single URL as the app's whole `redirect_uris` — so every real
+  redirect URI on the app is dropped, and the write-back re-adds the URL under the legacy
+  key. Nothing in the run says a URL was removed. Upgrade the lagging CLI, or keep both keys
+  as a stopgap; if it already happened, restore the list in `app-config.json` and
+  `brevo app upload`.
 - A legacy top-level `distribution` key, and the interim `auth.type`, become
   **`distribution_type`**.
 - New read-only top-level **`version`**, tracking the app-store API's version field.
