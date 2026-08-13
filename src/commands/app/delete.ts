@@ -9,7 +9,8 @@ import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { deleteAppCredentials, deleteAppName, readProjectConfig } from '../../lib/config';
-import { promptAppSelection } from './select-app';
+import { assertAppSelectionAllowed, promptAppSelection } from './select-app';
+import { CLI } from '../../lib/constants';
 
 function isSafeToDelete(dir: string): boolean {
   const resolved = path.resolve(dir);
@@ -80,6 +81,7 @@ export const deleteCommand = withCommandHandler(
     let appLabel = '';
 
     if (!appId) {
+      assertAppSelectionAllowed(CLI.APP_DELETE_APP_ID(), options.json);
       const selection = await promptAppSelection(messages.APP_DELETE_SELECT);
       appId = selection.appId;
       appLabel = selection.appLabel;

@@ -8,7 +8,7 @@ import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { readProjectConfig } from '../../lib/config';
-import { promptAppSelection } from './select-app';
+import { assertAppSelectionAllowed, promptAppSelection } from './select-app';
 
 async function confirmWithdrawal(appLabel: string, appId: string): Promise<boolean> {
   const { confirmed } = await inquirer.prompt([
@@ -58,6 +58,7 @@ export const withdrawCommand = withCommandHandler(
         appId = projectConfig.appId;
         appLabel = projectConfig.appName || projectConfig.appId;
       } else {
+        assertAppSelectionAllowed(CLI.APP_WITHDRAW(), options.json);
         const selection = await promptAppSelection(messages.APP_WITHDRAW_SELECT);
         appId = selection.appId;
         appLabel = selection.appLabel;

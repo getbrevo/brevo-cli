@@ -7,6 +7,8 @@ import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { saveAppName, backfillProjectConfigFromServer } from '../../lib/config';
+import { assertAppSelectionAllowed } from './select-app';
+import { CLI } from '../../lib/constants';
 
 type AppDetails = Awaited<ReturnType<typeof appService.resolveAppCredentials>>;
 
@@ -99,6 +101,9 @@ async function reconcileLocalCache(
 
 export const credentialsCommand = withCommandHandler(
   async (options: { appId?: string; revealSecret?: boolean; json?: boolean }): Promise<void> => {
+    if (!options.appId) {
+      assertAppSelectionAllowed(CLI.APP_CREDENTIALS(), options.json);
+    }
     const appId = options.appId ?? (await appService.pickApp(messages.APP_CREDENTIALS_SELECT));
 
     const spinner = createSpinner('Fetching credentials...', { silent: options.json });

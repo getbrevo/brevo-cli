@@ -38,9 +38,40 @@ describe('app/withdraw', () => {
 
   afterEach(() => {
     stdoutSpy.mockRestore();
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: originalIsTTY,
+      configurable: true,
+    });
   });
 
+  const originalIsTTY = process.stdin.isTTY;
+
+  function withTTY(value: boolean): void {
+    Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true });
+  }
+
   const output = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+  // Same defect as `app delete` / `app credentials`: the picker renders to
+  // stdout, so under --json it corrupts the JSON document and off a TTY
+  // inquirer aborts with a raw ERR_USE_AFTER_CLOSE stack.
+  it('refuses instead of opening the picker under --json', async () => {
+    withTTY(true);
+
+    await expect(withdrawCommand({ json: true })).rejects.toThrow(/--app-id/);
+
+    expect(appService.fetchAppsList).not.toHaveBeenCalled();
+    expect(appService.withdrawApp).not.toHaveBeenCalled();
+  });
+
+  it('refuses instead of opening the picker off a TTY', async () => {
+    withTTY(false);
+
+    await expect(withdrawCommand({})).rejects.toThrow(/--app-id/);
+
+    expect(appService.fetchAppsList).not.toHaveBeenCalled();
+    expect(appService.withdrawApp).not.toHaveBeenCalled();
+  });
 
   it('should withdraw app with --force and --appId', async () => {
     (appService.withdrawApp as jest.Mock).mockResolvedValue(undefined);
@@ -89,6 +120,7 @@ describe('app/withdraw', () => {
   });
 
   it('should prompt app picker when no appId provided', async () => {
+    withTTY(true);
     (appService.fetchAppsList as jest.Mock).mockResolvedValue([
       { app_id: '1', client_id: 'cli-123' },
       { app_id: '2', client_id: 'cli-456' },
@@ -105,6 +137,7 @@ describe('app/withdraw', () => {
   });
 
   it('should throw when no apps exist and no appId provided', async () => {
+    withTTY(true);
     (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
 
     await expect(withdrawCommand({})).rejects.toThrow('No apps found');

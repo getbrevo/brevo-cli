@@ -65,6 +65,10 @@ describe('app/credentials', () => {
     stderrSpy.mockRestore();
   });
 
+  function withTTY(value: boolean): void {
+    Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true });
+  }
+
   it('should display credentials fetched from API', async () => {
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(mockApp());
 
@@ -147,6 +151,8 @@ describe('app/credentials', () => {
   });
 
   it('should prompt app picker when no appId provided', async () => {
+    const originalIsTTY = process.stdin.isTTY;
+    withTTY(true);
     (appService.pickApp as jest.Mock).mockResolvedValue('5');
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(
       mockApp({ app_id: '5', client_id: 'cli-picked' }),
@@ -156,6 +162,32 @@ describe('app/credentials', () => {
 
     expect(appService.pickApp).toHaveBeenCalled();
     expect(appService.resolveAppCredentials).toHaveBeenCalledWith('5');
+    withTTY(originalIsTTY as boolean);
+  });
+
+  // The picker writes its choice list — including app ids and client ids — to
+  // stdout, so reaching it under --json corrupts the JSON document, and off a
+  // TTY inquirer dies on a raw ERR_USE_AFTER_CLOSE readline stack.
+  it('refuses instead of opening the picker under --json', async () => {
+    const originalIsTTY = process.stdin.isTTY;
+    withTTY(true);
+
+    await expect(credentialsCommand({ json: true })).rejects.toThrow(/--app-id/);
+
+    expect(appService.pickApp).not.toHaveBeenCalled();
+    expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
+    withTTY(originalIsTTY as boolean);
+  });
+
+  it('refuses instead of opening the picker off a TTY', async () => {
+    const originalIsTTY = process.stdin.isTTY;
+    withTTY(false);
+
+    await expect(credentialsCommand({})).rejects.toThrow(/--app-id/);
+
+    expect(appService.pickApp).not.toHaveBeenCalled();
+    expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
+    withTTY(originalIsTTY as boolean);
   });
 
   it('should accept a UUID app-id', async () => {

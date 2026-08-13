@@ -399,6 +399,20 @@ describe('config', () => {
         expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write', 'campaigns:read']);
       });
 
+      // `auth.scopes` is typed as string[], but a user editing app-config.json by
+      // hand can leave a bare string there. `splitScopes` has always handled that
+      // shape; the call site used to gate on Array.isArray and drop it, so the
+      // string reached the upload validator and was iterated character by
+      // character ("Invalid scope: \":\"").
+      it('splits a bare comma-separated scope string into individual tokens', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: 'crm:read, campaigns:read' },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.scopes).toEqual(['crm:read', 'campaigns:read']);
+      });
+
       it('leaves well-formed scope arrays untouched', () => {
         writeConfig({
           appId: '42',

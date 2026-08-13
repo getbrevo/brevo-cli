@@ -479,8 +479,13 @@ export function readProjectConfigAt(dir: string): ProjectConfig | null {
     let authOverride: Record<string, unknown> | undefined;
     if (rawAuth && typeof rawAuth === 'object') {
       const scopes = (rawAuth as Record<string, unknown>).scopes;
-      if (Array.isArray(scopes)) {
-        authOverride = { ...rawAuth, scopes: splitScopes(scopes as string[]) };
+      // A bare string is accepted as well as an array: the field is typed
+      // string[], but a hand-edited file can carry `"crm:read, crm:write"`, and
+      // `splitScopes` handles both. Gating on Array.isArray alone let the string
+      // through unnormalized, and the upload validator then iterated it one
+      // character at a time and rejected `":"` as a scope.
+      if (Array.isArray(scopes) || typeof scopes === 'string') {
+        authOverride = { ...rawAuth, scopes: splitScopes(scopes as string | string[]) };
       }
     }
     // Redirect URLs were renamed auth.redirectUrls → auth.redirectUris to track
