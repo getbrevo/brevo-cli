@@ -84,8 +84,9 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 - **Non-interactive auth:** `BREVO_API_KEY=xkeysib-... brevo login`. The legacy `--api-key` flag was removed because it leaks into shell history.
 - **Skip prompts:** `--force` for delete/logout; `--yes` for `app update`.
 - **Forced update:** when the installed CLI is a full **major** version behind the latest npm release, every command except `--help`/`--version` prints a blocking update banner to stderr and exits `1` without running. Update with `npm install -g @getbrevo/cli` (or `yarn global add`). The gate honors the same opt-outs as the soft update notice (`BREVO_NO_UPDATE_NOTIFIER=1`, `--no-update-notifier`, CI, non-TTY), so it never fires in those contexts.
-- **Update notice wording:** the update/force-update banners take their first line from the app-store service (`GET /cli/info`), fetched only when a banner is actually shown. It is called directly, not through the v3 API gateway, and needs no API key — so it works while logged out or with expired credentials. Detection is unchanged (still the npm registry), and if the call fails the banner still appears with local wording.
+- **Update notice wording:** the update/force-update banners take their first line from the app-store service (`GET /cli/info`). It is called directly, not through the v3 API gateway, and needs no API key — so it works while logged out or with expired credentials. It runs once per invocation, **before** the command, and is **never cached**, so reworded text applies on the very next run. Whether an update banner appears is still decided from the npm registry, and if the call fails the banner still appears with local wording.
 - **Soft update notice on failures:** the non-blocking update banner also prints after a command *fails*, not just after it succeeds — so stderr may hold the error message followed by the update box. Exit codes are unchanged (still the command's own), the box never appears twice in one run, and a Ctrl-C abort skips it. Parse stderr accordingly, or set `BREVO_NO_UPDATE_NOTIFIER=1` / pass `--no-update-notifier`.
+- **Server-side block:** `GET /cli/info` may answer `"is_blocked": true`, in which case every command except `--help` / `--version` prints a banner to stderr and exits `1` **without running** — independently of the npm major-version gate. Unlike the update notice, this is **not** suppressed by `BREVO_NO_UPDATE_NOTIFIER=1`, `--no-update-notifier`, CI, or a non-TTY: a hidden banner must never mean a hidden block. It fails open — a timeout, a non-2xx, or an unparseable body lets the command run, and only a literal `true` blocks. So a `brevo` call that suddenly exits `1` with an update banner may mean either a major-version gap or a server-side block; both are cleared by upgrading.
 - **Exit codes:** `0` success · `1` general error · `2` aborted · `3` auth · `4` network · `5` not found.
 
 ## Scopes
@@ -112,11 +113,11 @@ The legacy catch-all `'all'` OAuth scope is deprecated. The CLI **blocks** `brev
 | `BREVO_API_KEY` | Non-interactive login |
 | `BREVO_API_URL` | Override API base (HTTPS required, except `localhost`) |
 | `BREVO_OAUTH_PROXY_URL` | Override OAuth proxy used by browser login |
-| `BREVO_APP_STORE_URL` | Override the app-store service base used for the update notice (HTTPS required, except `localhost`) |
+| `BREVO_APP_STORE_URL` | Override the app-store service base used for the update notice and the server-side block check (HTTPS required, except `localhost`) |
 | `BREVO_CONFIG_HOME` | Override credentials directory (default `~/.brevo/`) |
 | `BREVO_CLAUDE_HOME` | Override Claude Code home used by `skill:cli` (default `~/.claude/`) |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs |
-| `BREVO_NO_UPDATE_NOTIFIER` | Set to `1` to suppress the npm update-available notice **and** the blocking major-version force-update gate |
+| `BREVO_NO_UPDATE_NOTIFIER` | Set to `1` to suppress the npm update-available notice **and** the blocking major-version force-update gate. Does **not** suppress a server-side `is_blocked` block. |
 | `BREVO_DEBUG=1` or `--debug` | Verbose HTTP and error logging |
 
 ## Safety

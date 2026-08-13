@@ -1,6 +1,6 @@
 import { APP_STORE_BASE, ENDPOINTS } from '../lib/constants';
 import { sanitizeErrorMessage, looksLikeHtml } from '../api/client';
-import { CliInfoQuery, CliInfoResponse } from '../types';
+import { CliInfo, CliInfoQuery, CliInfoResponse } from '../types';
 
 // Budget for the whole call. The notice is cosmetic and the banner is already
 // going to be shown, so the user waits at most this long for nicer wording
@@ -66,7 +66,7 @@ function buildUrl(baseUrl: string, query: CliInfoQuery): string {
 export async function fetchCliInfo(
   query: CliInfoQuery,
   opts: FetchCliInfoOptions = {},
-): Promise<string | undefined> {
+): Promise<CliInfo | undefined> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? CLI_INFO_TIMEOUT_MS);
@@ -81,11 +81,16 @@ export async function fetchCliInfo(
     const body = (await res.json()) as CliInfoResponse | null;
     if (!body || typeof body !== 'object') return undefined;
 
-    // Nothing about the body is trusted beyond being a usable string: it is
-    // rejected outright if it looks like HTML, then stripped of control
-    // sequences, flattened and clamped. Anything unusable yields undefined and
-    // the caller falls back to local wording.
-    return sanitizeNoticeMessage(body.upgrade_message);
+    return {
+      // Nothing about the text is trusted beyond being usable: rejected outright
+      // if it looks like HTML, then stripped of control sequences, flattened and
+      // clamped. Unusable text yields undefined and the caller falls back to
+      // local wording.
+      upgradeMessage: sanitizeNoticeMessage(body.upgrade_message),
+      // Strict equality, not truthiness: a string "false", a 1, or any other
+      // stray value must not stop someone working.
+      isBlocked: body.is_blocked === true,
+    };
   } catch {
     return undefined;
   } finally {

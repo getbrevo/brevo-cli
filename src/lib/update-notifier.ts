@@ -3,7 +3,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { messages } from '../lang/en';
 import { color, COLOR_RED } from './logger';
-import { CliInfoQuery } from '../types';
 
 const REGISTRY_URL = (name: string): string =>
   `https://registry.npmjs.org/${encodeURIComponent(name).replace('%40', '@')}/latest`;
@@ -22,9 +21,6 @@ export interface PkgInfo {
 export interface UpdateCheckCache {
   latest: string;
   lastChecked: number;
-  // Server-supplied notice line, cached alongside the npm result so an outdated
-  // CLI asks /cli/info at most once per TTL rather than on every invocation.
-  notice?: string;
 }
 
 export interface UpdateNotifierOptions {
@@ -37,9 +33,6 @@ export interface UpdateNotifierOptions {
   now?: () => number;
   ttlMs?: number;
   fetchTimeoutMs?: number;
-  // Supplies the one dynamic line of the banner. Optional so the notifier stays
-  // usable — and testable — without network.
-  fetchNotice?: (query: CliInfoQuery) => Promise<string | undefined>;
 }
 
 function getCachePath(override?: string, env: NodeJS.ProcessEnv = process.env): string {
@@ -159,11 +152,7 @@ export function readCache(cachePath: string): UpdateCheckCache | undefined {
       typeof raw.lastChecked === 'number' &&
       Number.isFinite(raw.lastChecked)
     ) {
-      return {
-        latest: raw.latest,
-        lastChecked: raw.lastChecked,
-        notice: typeof raw.notice === 'string' ? raw.notice : undefined,
-      };
+      return { latest: raw.latest, lastChecked: raw.lastChecked };
     }
   } catch {
     // missing or corrupt — caller treats as no cache
@@ -261,50 +250,42 @@ export function formatForceUpdateBanner(
   );
 }
 
+/**
+ * Banner for a run the API has blocked. When the npm check knows the latest
+ * version this is the ordinary force-update banner; otherwise it drops the
+ * version line, since there is no honest value to put in it. Either way every
+ * line inside the box is one the CLI already showed.
+ */
+export function formatBlockedBanner(
+  current: string,
+  latest: string | undefined,
+  name: string,
+  serverMessage?: string,
+): string {
+  if (latest) return formatForceUpdateBanner(current, latest, name, serverMessage);
+  return withNotice(
+    renderBox([
+      messages.FORCE_UPDATE_HINT,
+      messages.UPDATE_RUN(name),
+      messages.UPDATE_RUN_YARN(name),
+      messages.UPDATE_RUN_BREW,
+    ]),
+    serverMessage,
+  );
+}
+
 export interface UpdateCheckHandle {
   cachedLatest?: string;
   pending: Promise<void>;
-  // Cached notice line, and what is needed to fetch one lazily. Both optional so
-  // a hand-built handle (tests, or a caller that does not want the extra call)
-  // still works.
-  notice?: string;
-  opts?: UpdateNotifierOptions;
-  cachePath?: string;
-  // Set once a banner has actually been written, so notifyUpdate can be called
-  // from several exit paths (early banner, post-run, error handler) without the
-  // user ever seeing the box twice.
+  /** Set once a banner has been written, so repeat calls are no-ops. */
   notified?: boolean;
-}
-
-/**
- * Resolve the banner's notice line, fetching it only now — at the point a
- * banner is definitely going to be shown.
- *
- * A CLI that is up to date never reaches here, so the healthy path makes no
- * request to /cli/info at all. The result is cached alongside the npm answer, so
- * an outdated CLI asks at most once per TTL.
- */
-async function resolveNotice(handle: UpdateCheckHandle, pkg: PkgInfo): Promise<string | undefined> {
-  if (handle.notice) return handle.notice;
-  const opts = handle.opts;
-  if (!opts?.fetchNotice) return undefined;
-
-  const fetched = await opts.fetchNotice({
-    cliVersion: pkg.version,
-    reason: 'version_mismatch',
-  });
-  if (!fetched) return undefined;
-
-  handle.notice = fetched;
-  if (handle.cachePath && handle.cachedLatest) {
-    const now = opts.now ? opts.now() : Date.now();
-    writeCache(handle.cachePath, {
-      latest: handle.cachedLatest,
-      lastChecked: now,
-      notice: fetched,
-    });
-  }
-  return fetched;
+  /**
+   * The notice line to render above the box, set by the caller from the API
+   * response. Deliberately in-memory only and never persisted: the wording is
+   * fetched fresh on every run, so a reworded message reaches users immediately
+   * rather than after a cache expires.
+   */
+  notice?: string;
 }
 
 export function startUpdateCheck(opts: UpdateNotifierOptions): UpdateCheckHandle {
@@ -319,21 +300,12 @@ export function startUpdateCheck(opts: UpdateNotifierOptions): UpdateCheckHandle
 
   const stale = !cache || now - cache.lastChecked > ttl;
   if (!stale) {
-    return {
-      cachedLatest: cache?.latest,
-      notice: cache?.notice,
-      pending: Promise.resolve(),
-      opts,
-      cachePath,
-    };
+    return { cachedLatest: cache?.latest, pending: Promise.resolve() };
   }
 
   const handle: UpdateCheckHandle = {
     cachedLatest: cache?.latest,
-    notice: cache?.notice,
     pending: Promise.resolve(),
-    opts,
-    cachePath,
   };
   handle.pending = (async () => {
     const latest = await fetchLatestVersion(opts.pkg.name, opts);
@@ -341,8 +313,6 @@ export function startUpdateCheck(opts: UpdateNotifierOptions): UpdateCheckHandle
       // Prefer the freshly fetched version so first-run users (no cache)
       // and stale-cache users see the banner without waiting another run.
       handle.cachedLatest = latest;
-      // The notice is re-fetched lazily on a refresh, so drop the stale copy.
-      handle.notice = undefined;
       writeCache(cachePath, { latest, lastChecked: now });
     }
   })();
@@ -366,9 +336,8 @@ export async function notifyUpdate(
   ]);
 
   if (handle.cachedLatest && isNewer(pkg.version, handle.cachedLatest)) {
-    const notice = await resolveNotice(handle, pkg);
     handle.notified = true;
-    output.write(formatBanner(pkg.version, handle.cachedLatest, pkg.name, notice) + '\n');
+    output.write(formatBanner(pkg.version, handle.cachedLatest, pkg.name, handle.notice) + '\n');
   }
 }
 
@@ -392,9 +361,8 @@ export async function enforceMinVersion(
   ]);
 
   if (handle.cachedLatest && isMajorBehind(pkg.version, handle.cachedLatest)) {
-    const notice = await resolveNotice(handle, pkg);
     output.write(
-      formatForceUpdateBanner(pkg.version, handle.cachedLatest, pkg.name, notice) + '\n',
+      formatForceUpdateBanner(pkg.version, handle.cachedLatest, pkg.name, handle.notice) + '\n',
     );
     return true;
   }

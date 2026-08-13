@@ -37,12 +37,19 @@ export interface CreateAppResponse {
 /** Raw v1 body of `GET /cli/info`. Every field is untrusted. */
 export interface CliInfoResponse {
   upgrade_message?: string;
-  /**
-   * Reserved. The API always sends `false` today — the CLI decides for itself,
-   * from the npm registry, whether to show a notice. Typed so the field is
-   * visible to whoever wires it up, not because anything reads it yet.
-   */
   is_blocked?: boolean;
+}
+
+/** The validated form of that body. */
+export interface CliInfo {
+  /** Sanitized display line, or undefined when nothing usable came back. */
+  upgradeMessage?: string;
+  /**
+   * True only when the API explicitly said so. Anything else — absent, a
+   * non-boolean, a failed request — is false, so the CLI can only ever be
+   * blocked by a deliberate answer, never by a mistake or an outage.
+   */
+  isBlocked: boolean;
 }
 
 /**

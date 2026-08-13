@@ -26,7 +26,10 @@ describe('fetchCliInfo', () => {
     );
     await expect(
       fetchCliInfo(QUERY, { baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch }),
-    ).resolves.toBe("You're running an older Brevo CLI. Please upgrade the version.");
+    ).resolves.toEqual({
+      upgradeMessage: "You're running an older Brevo CLI. Please upgrade the version.",
+      isBlocked: false,
+    });
   });
 
   it('calls the unauthenticated endpoint with the documented query params', async () => {
@@ -82,14 +85,20 @@ describe('fetchCliInfo', () => {
     const call = (fetchImpl: unknown): Promise<unknown> =>
       fetchCliInfo(QUERY, { baseUrl: BASE, fetchImpl: fetchImpl as typeof fetch });
 
-    it('on a missing upgrade_message', async () => {
-      await expect(call(async () => jsonResponse({ is_blocked: false }))).resolves.toBeUndefined();
+    // An unusable message no longer collapses the whole response: the block
+    // verdict travels beside it and has to survive on its own.
+    it('drops a missing upgrade_message but keeps the verdict', async () => {
+      await expect(call(async () => jsonResponse({ is_blocked: false }))).resolves.toEqual({
+        upgradeMessage: undefined,
+        isBlocked: false,
+      });
     });
 
-    it('on an empty upgrade_message', async () => {
-      await expect(
-        call(async () => jsonResponse({ upgrade_message: '' })),
-      ).resolves.toBeUndefined();
+    it('drops an empty upgrade_message but keeps the verdict', async () => {
+      await expect(call(async () => jsonResponse({ upgrade_message: '' }))).resolves.toEqual({
+        upgradeMessage: undefined,
+        isBlocked: false,
+      });
     });
 
     it('on a non-2xx status', async () => {
@@ -107,12 +116,6 @@ describe('fetchCliInfo', () => {
             throw new SyntaxError('Unexpected token <');
           },
         })),
-      ).resolves.toBeUndefined();
-    });
-
-    it('on an HTML body from a gateway', async () => {
-      await expect(
-        call(async () => jsonResponse({ upgrade_message: '<!DOCTYPE html><html>' })),
       ).resolves.toBeUndefined();
     });
 
@@ -150,6 +153,32 @@ describe('fetchCliInfo', () => {
           upgrade_message: '\x1B[31mDanger\x1B[0m\nsecond line',
         })) as unknown as typeof fetch,
     });
-    expect(notice).toBe('Danger second line');
+    expect(notice?.upgradeMessage).toBe('Danger second line');
+  });
+});
+
+describe('is_blocked', () => {
+  const call = (body: unknown): Promise<unknown> =>
+    fetchCliInfo(QUERY, {
+      baseUrl: BASE,
+      fetchImpl: (async () => jsonResponse(body)) as unknown as typeof fetch,
+    });
+
+  it('blocks only on an explicit boolean true', async () => {
+    await expect(call({ is_blocked: true })).resolves.toMatchObject({ isBlocked: true });
+  });
+
+  // Anything other than a real `true` must let the user keep working. A stray
+  // string or number stopping every command would be a very bad failure mode.
+  it.each([['false'], ['"true"'], ['1'], ['null'], ['undefined']])(
+    'does not block on %s',
+    async (raw) => {
+      const value = raw === 'undefined' ? undefined : JSON.parse(raw);
+      await expect(call({ is_blocked: value })).resolves.toMatchObject({ isBlocked: false });
+    },
+  );
+
+  it('does not block when the field is absent entirely', async () => {
+    await expect(call({ upgrade_message: 'hi' })).resolves.toMatchObject({ isBlocked: false });
   });
 });

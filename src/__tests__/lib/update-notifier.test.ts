@@ -11,6 +11,7 @@ import {
   writeCache,
   formatBanner,
   formatForceUpdateBanner,
+  formatBlockedBanner,
   fetchLatestVersion,
   startUpdateCheck,
   notifyUpdate,
@@ -628,79 +629,7 @@ describe('server-supplied notice line', () => {
     expect(await widths('x'.repeat(200))).toEqual(await widths('hi'));
   });
 
-  it('fetches the notice only when a banner is actually shown', async () => {
-    const fetchNotice = jest.fn(async () => notice);
-
-    // Up to date — no banner, so no request.
-    const upToDate = sink();
-    await notifyUpdate(
-      { cachedLatest: '2.0.1', pending: Promise.resolve(), opts: { pkg, fetchNotice } },
-      pkg,
-      upToDate.out,
-      0,
-    );
-    expect(fetchNotice).not.toHaveBeenCalled();
-    expect(upToDate.text()).toBe('');
-
-    // Behind — banner shown, so the copy is fetched.
-    const behind = sink();
-    await notifyUpdate(
-      { cachedLatest: '2.4.0', pending: Promise.resolve(), opts: { pkg, fetchNotice } },
-      pkg,
-      behind.out,
-      0,
-    );
-    expect(fetchNotice).toHaveBeenCalledTimes(1);
-    expect(behind.text()).toContain('Server supplied copy.');
-  });
-
-  it('sends the installed version as cliVersion, and nothing more', async () => {
-    const fetchNotice = jest.fn(async () => notice);
-    await notifyUpdate(
-      { cachedLatest: '2.4.0', pending: Promise.resolve(), opts: { pkg, fetchNotice } },
-      pkg,
-      sink().out,
-      0,
-    );
-    expect(fetchNotice).toHaveBeenCalledWith({
-      cliVersion: '2.0.1',
-      reason: 'version_mismatch',
-    });
-  });
-
-  it('reuses a cached notice rather than refetching', async () => {
-    const fetchNotice = jest.fn(async () => notice);
-    await notifyUpdate(
-      {
-        cachedLatest: '2.4.0',
-        pending: Promise.resolve(),
-        notice: 'Cached copy.',
-        opts: { pkg, fetchNotice },
-      },
-      pkg,
-      sink().out,
-      0,
-    );
-    expect(fetchNotice).not.toHaveBeenCalled();
-  });
-
   // /cli/info is cosmetic — a failure costs wording, never the banner.
-  it('still shows the banner when the fetch yields nothing', async () => {
-    const s = sink();
-    await notifyUpdate(
-      {
-        cachedLatest: '2.4.0',
-        pending: Promise.resolve(),
-        opts: { pkg, fetchNotice: async () => undefined },
-      },
-      pkg,
-      s.out,
-      0,
-    );
-    expect(s.text()).toContain('Update available: 2.0.1 → 2.4.0');
-    expect(s.text()).toContain('A newer version of the Brevo CLI is available.');
-  });
-
   it('adds the notice to the force-update banner too', async () => {
     const s = sink();
     const blocked = await enforceMinVersion(
@@ -754,5 +683,65 @@ describe('box content is unaffected by the notice', () => {
     // …and the server text lives outside it
     expect(boxLines(withServer).join('\n')).not.toContain('Server copy.');
     expect(withServer).toContain('Server copy.');
+  });
+});
+
+describe('formatBlockedBanner', () => {
+  // `color()` is TTY-gated and Jest's stdout is not a TTY, so the ANSI codes
+  // are stripped here. Position is what these assert; the red styling itself is
+  // covered by the logger's own tests.
+  it('puts the server message on its own line above the box', () => {
+    const lines = formatBlockedBanner('1.0.0', '2.0.0', 'pkg', 'Upgrade now.').split('\n');
+    expect(lines[0]).toBe('');
+    expect(lines[1]).toBe('  Upgrade now.');
+    expect(lines[3]).toMatch(/^\s*\u256d/);
+  });
+
+  // The server is not required to send text, and a block must still be legible
+  // without it — otherwise a terse API answer produces a bare box with no
+  // explanation of why the command refused to run.
+  it('falls back to local wording when no server message is supplied', () => {
+    const lines = formatBlockedBanner('1.0.0', '2.0.0', 'pkg').split('\n');
+    expect(lines[1]).toBe('  A newer version of the Brevo CLI is available.');
+    expect(lines[3]).toMatch(/^\s*\u256d/);
+  });
+
+  // The npm check runs in the background; a block can land before it resolves.
+  it('renders without a known latest version', () => {
+    const out = formatBlockedBanner('1.0.0', undefined, 'pkg', 'Upgrade now.');
+    expect(out).toContain('Upgrade now.');
+    expect(out).toContain('npm install -g pkg');
+  });
+});
+
+describe('the /cli/info response is never persisted', () => {
+  // The whole point of dropping the notice cache: wording and block state must
+  // take effect on the next run, not after a TTL. A cache write that smuggled
+  // either one back onto disk would silently restore the stale-message bug.
+  it('writes only npm data to the cache file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-cache-'));
+    const file = path.join(dir, 'update-check.json');
+    try {
+      writeCache(file, { latest: '2.0.0', lastChecked: 123 });
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      expect(Object.keys(raw).sort()).toEqual(['lastChecked', 'latest']);
+      expect(readCache(file)).toEqual({ latest: '2.0.0', lastChecked: 123 });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores a notice left behind by an older CLI version', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-cache-'));
+    const file = path.join(dir, 'update-check.json');
+    try {
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ latest: '2.0.0', lastChecked: 123, notice: 'stale wording' }),
+      );
+      expect(readCache(file)).not.toHaveProperty('notice');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

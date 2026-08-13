@@ -90,7 +90,16 @@ When the installed CLI is a full **major** version behind the latest npm release
 
 ## Update notice wording
 
-The update banner's first line comes from the app-store service (`GET /cli/info`), fetched only when a banner is actually going to be shown. It is called directly rather than through the v3 API gateway and requires no API key, so it works while logged out or with expired credentials. Whether a banner appears is still decided from the npm registry, exactly as before, and a failed call just means the banner uses local wording. Nothing about flags, exit codes, or the forced-update gate changed — the one addition is `BREVO_APP_STORE_URL`, which overrides that service's base URL for non-production testing.
+The update banner's first line comes from the app-store service (`GET /cli/info`). It is called directly rather than through the v3 API gateway and requires no API key, so it works while logged out or with expired credentials. It runs once per invocation, **before** the command, and is **never cached** — so reworded text takes effect on the very next run rather than after a TTL. Whether an update banner appears is still decided from the npm registry, exactly as before, and a failed call just means the banner uses local wording. `BREVO_APP_STORE_URL` overrides that service's base URL for non-production testing.
+
+## Server-side block
+
+The same response may carry `"is_blocked": true`. When it does, every command except `--help` / `--version` prints a banner to stderr and exits `1` **without running** — a separate mechanism from the major-version gate above, and one the server can turn on without shipping a new CLI.
+
+Two things to know when you hit this:
+
+- **The notice opt-outs do not apply.** `BREVO_NO_UPDATE_NOTIFIER=1`, `--no-update-notifier`, CI, and a non-TTY all suppress the *notice*; none of them suppress a block. Don't suggest them as a workaround — the only fix is upgrading the CLI.
+- **It fails open.** A timeout, a non-2xx, or an unparseable body lets the command run normally; only a literal `true` blocks. So a network problem never manifests as a block.
 
 The soft (non-blocking) notice also prints after a command **fails**, not just after it succeeds — so stderr can hold the error message followed by the update box. This does not change exit codes: a failing command still exits with its own code, and the box is never printed twice in one run. A Ctrl-C abort skips it. If you parse stderr strictly, suppress the notice with `BREVO_NO_UPDATE_NOTIFIER=1` or `--no-update-notifier`.
 
