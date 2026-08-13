@@ -35,6 +35,10 @@ jest.mock('../../../lib/config', () => ({
   getAppCredentials: jest.fn(),
   saveAppCredentials: jest.fn(),
   readProjectConfig: jest.fn().mockReturnValue(null),
+  // The config in the directory a *bootstrap* was pointed at, which is a different
+  // question from `readProjectConfig`'s (cwd) — a bootstrap only runs because cwd had
+  // none. Defaults to null: an empty target directory, the fresh-bootstrap case.
+  readProjectConfigAt: jest.fn().mockReturnValue(null),
   findEnclosingProjectDir: jest.fn().mockReturnValue(null),
   isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
@@ -76,7 +80,11 @@ jest.mock('node:path', () => {
 
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
-import { readProjectConfig, findEnclosingProjectDir } from '../../../lib/config';
+import {
+  readProjectConfig,
+  readProjectConfigAt,
+  findEnclosingProjectDir,
+} from '../../../lib/config';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
@@ -124,6 +132,7 @@ describe('app/scaffold', () => {
     // the mock factory's default here — a test that stubs an enclosing project must
     // not leak that into the next one.
     (findEnclosingProjectDir as jest.Mock).mockReturnValue(null);
+    (readProjectConfigAt as jest.Mock).mockReturnValue(null);
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
       diffs: [],
       app: serverApp,
@@ -255,6 +264,118 @@ describe('app/scaffold', () => {
           expect(output).toContain('Scaffolding into the current directory.');
           expect(output).not.toContain('cd .');
           expect(output).toContain('1. yarn --cwd src/oauth');
+        });
+
+        // A bootstrap pointed at a directory that already holds a project is a
+        // refresh, and gets the drift question the feature-add path asks — not the
+        // directory prompt's merge answer.
+        //
+        // The two answer different things. "Merge (keep existing, add missing)" is
+        // about not clobbering the user's own files, and it is implemented by skipping
+        // any path that exists — which app-config.json always does here. So merging
+        // skipped the one file the bootstrap exists to write: the command fetched the
+        // app, discarded every field, wrote nothing, and printed its success box.
+        describe('when the target directory already holds a project', () => {
+          // Drifted the way a real re-run drifts: a config written by an older CLI,
+          // still carrying the deprecated `all` scope and no `version` at all.
+          const staleConfig = {
+            ...matchingLocalConfig,
+            version: '',
+            auth: { scopes: ['all'], redirectUris: ['http://localhost:3009/auth/callback'] },
+          };
+
+          beforeEach(() => {
+            (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+              { app_id: '1', name: 'Test App', client_id: 'cli-123' },
+            ]);
+            // The directory and every file a previous scaffold left in it are present.
+            (fs.existsSync as jest.Mock).mockReturnValue(true);
+          });
+
+          it('shows the drift and rewrites app-config.json once confirmed', async () => {
+            (readProjectConfigAt as jest.Mock).mockReturnValue(staleConfig);
+            const target = tmpPath('already-a-project');
+            mockPrompt
+              .mockResolvedValueOnce({ useExisting: true })
+              .mockResolvedValueOnce({ selectedApp: '1' })
+              .mockResolvedValueOnce({ outputDir: target })
+              .mockResolvedValueOnce({ action: 'merge' })
+              .mockResolvedValueOnce({ confirmed: true })
+              .mockResolvedValueOnce({ scaffoldRaw: 'y' })
+              .mockResolvedValueOnce({ action: 'merge' });
+
+            await scaffoldCommand({});
+
+            // The *target* directory, not cwd. cwd is where the command ran, and its
+            // having no config is what selected the bootstrap branch — reading it again
+            // would find nothing and skip the refresh every time.
+            expect(readProjectConfigAt).toHaveBeenCalledWith(path.resolve(target));
+            const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+            expect(output).toContain('differs from the server');
+            expect(output).toContain('scopes: all → contacts:read');
+            const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
+            expect(written.some((p: string) => p.endsWith('app-config.json'))).toBe(true);
+          });
+
+          // Declining leaves the directory exactly as it was — the same outcome the
+          // feature-add path gives, rather than the base half of a refresh.
+          it('writes nothing when the refresh is declined', async () => {
+            (readProjectConfigAt as jest.Mock).mockReturnValue(staleConfig);
+            mockPrompt
+              .mockResolvedValueOnce({ useExisting: true })
+              .mockResolvedValueOnce({ selectedApp: '1' })
+              .mockResolvedValueOnce({ outputDir: tmpPath('declined') })
+              .mockResolvedValueOnce({ action: 'merge' })
+              .mockResolvedValueOnce({ confirmed: false });
+
+            await scaffoldCommand({});
+
+            expect(fs.writeFileSync).not.toHaveBeenCalled();
+            const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+            expect(output).toContain('Scaffold cancelled.');
+          });
+
+          // No drift means the file already matches the server, so there is nothing to
+          // rewrite — the feature is still added. This is the one case where writing no
+          // base file is the correct answer, and it must not be confused with the bug.
+          it('leaves app-config.json alone when it already matches the server', async () => {
+            (readProjectConfigAt as jest.Mock).mockReturnValue(matchingLocalConfig);
+            mockPrompt
+              .mockResolvedValueOnce({ useExisting: true })
+              .mockResolvedValueOnce({ selectedApp: '1' })
+              .mockResolvedValueOnce({ outputDir: tmpPath('in-sync') })
+              .mockResolvedValueOnce({ action: 'merge' })
+              .mockResolvedValueOnce({ scaffoldRaw: 'y' })
+              .mockResolvedValueOnce({ action: 'overwrite' });
+
+            await scaffoldCommand({});
+
+            const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
+            expect(written.some((p: string) => p.endsWith('app-config.json'))).toBe(false);
+            // The feature still lands, so the run did something.
+            expect(written.some((p: string) => p.endsWith('src/oauth/server.js'))).toBe(true);
+          });
+
+          // The `--app-id` guard compares against cwd, and the target is elsewhere —
+          // so without this the run would leave a project whose app-config.json and
+          // src/oauth/.env.local name two different apps.
+          it('refuses when the target directory belongs to a different app', async () => {
+            (readProjectConfigAt as jest.Mock).mockReturnValue({
+              ...matchingLocalConfig,
+              appId: '99',
+            });
+            mockPrompt
+              .mockResolvedValueOnce({ useExisting: true })
+              .mockResolvedValueOnce({ selectedApp: '1' })
+              .mockResolvedValueOnce({ outputDir: tmpPath('other-app') })
+              .mockResolvedValueOnce({ action: 'merge' });
+
+            await expect(scaffoldCommand({})).rejects.toThrow(
+              /already a project for app 99, so it can't be set up for app 1/,
+            );
+
+            expect(fs.writeFileSync).not.toHaveBeenCalled();
+          });
         });
 
         // The project is what the command was asked for; the OAuth test server is an

@@ -18,6 +18,7 @@ import { CliError } from '../../lib/errors';
 import { jsonOutput } from '../../lib/json-output';
 import {
   readProjectConfig,
+  readProjectConfigAt,
   findEnclosingProjectDir,
   ProjectConfig,
   isUiAppConfig,
@@ -64,20 +65,33 @@ interface ScaffoldPlanCancelled {
 
 type ScaffoldPlan = ScaffoldPlanResolved | ScaffoldPlanCancelled;
 
-async function resolveScaffoldPlan(
+type BaseRefreshDecision = { cancelled: false; refreshBase: boolean } | ScaffoldPlanCancelled;
+
+/**
+ * Diff a config that is already on disk against the server, and decide whether to
+ * rewrite it.
+ *
+ * Shared by both modes, because both can end up holding one. The feature-add path
+ * always does — a local config is what puts it in that mode. A bootstrap does whenever
+ * the directory it was pointed at turns out to hold a project already, which is the
+ * common way to run it: someone re-running `app scaffold` over the folder they made
+ * last week. That case used to skip this question entirely and take the *directory*
+ * prompt's merge answer instead, which silently dropped the whole refresh — see the
+ * call site.
+ *
+ * The outcome is a full overwrite or nothing, never a merge: merging keeps the file
+ * that exists, which is precisely the file a refresh has to rewrite.
+ */
+async function resolveBaseRefresh(
   localConfig: ProjectConfig,
+  ctx: AppContext,
   jsonMode: boolean,
-): Promise<ScaffoldPlan> {
-  const appId = localConfig.appId;
-  // Carry the local `ui_app` block into the context so that if the user consents
-  // to a config refresh, `runBaseScaffold` rewrites app-config.json *with* it
-  // rather than dropping it (the refresh is a full overwrite, not a merge).
-  const ctx = await fetchAppContext(appId, jsonMode, localConfig.ui_app);
+): Promise<BaseRefreshDecision> {
   const diffs = diffLocalConfig(localConfig, ctx);
 
   // No drift → nothing to refresh; just add the feature.
   if (diffs.length === 0) {
-    return { cancelled: false, appId, ctx, refreshBase: false };
+    return { cancelled: false, refreshBase: false };
   }
 
   // --json can't prompt for confirmation — decline and surface the diffs so a
@@ -86,7 +100,7 @@ async function resolveScaffoldPlan(
     return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIFF_CANCELLED, diffs };
   }
 
-  logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.appName || appId));
+  logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.appName || localConfig.appId));
   for (const diff of diffs) {
     logInfo(messages.APP_SCAFFOLD_DIFF_LINE(diff.field, diff.local, diff.server));
   }
@@ -99,7 +113,21 @@ async function resolveScaffoldPlan(
     },
   ]);
   if (!confirmed) return { cancelled: true };
-  return { cancelled: false, appId, ctx, refreshBase: true };
+  return { cancelled: false, refreshBase: true };
+}
+
+async function resolveScaffoldPlan(
+  localConfig: ProjectConfig,
+  jsonMode: boolean,
+): Promise<ScaffoldPlan> {
+  const appId = localConfig.appId;
+  // Carry the local `ui_app` block into the context so that if the user consents
+  // to a config refresh, `runBaseScaffold` rewrites app-config.json *with* it
+  // rather than dropping it (the refresh is a full overwrite, not a merge).
+  const ctx = await fetchAppContext(appId, jsonMode, localConfig.ui_app);
+  const refresh = await resolveBaseRefresh(localConfig, ctx, jsonMode);
+  if (refresh.cancelled) return refresh;
+  return { cancelled: false, appId, ctx, refreshBase: refresh.refreshBase };
 }
 
 // Set an empty directory up for an app that already exists on the platform.
@@ -218,13 +246,30 @@ async function resolveBootstrapAppId(
 async function resolveBootstrapDirectory(
   ctx: AppContext,
   jsonMode: boolean,
+  appId: string,
 ): Promise<{ targetDir: string; mergeOnly: boolean } | undefined> {
   if (jsonMode || !process.stdin.isTTY) return undefined;
 
+  // Refuse a target that is already *another* app's project, and do it before the
+  // Overwrite / Merge question rather than after: writing this app's credentials into
+  // that directory would leave a project whose app-config.json and src/oauth/.env.local
+  // name two different apps, so there is nothing to ask about. The `--app-id` mismatch
+  // guard cannot catch this — it compares against the current directory, and this target
+  // is elsewhere. A target holding *this* app's project is fine and is resolved as a
+  // refresh by the caller.
+  const refuseIfLinkedElsewhere = (targetDir: string): void => {
+    const targetConfig = readProjectConfigAt(targetDir);
+    if (targetConfig && targetConfig.appId !== appId) {
+      throw new CliError(
+        messages.APP_SCAFFOLD_TARGET_LINKED_ELSEWHERE(targetDir, targetConfig.appId, appId),
+      );
+    }
+  };
+
   const defaultDir = `./${computeSlug(ctx.appDetails?.name)}`;
-  let dir = await resolveProjectDirectory(defaultDir);
+  let dir = await resolveProjectDirectory(defaultDir, false, refuseIfLinkedElsewhere);
   while (!dir.unresolved && dir.chooseAgain) {
-    dir = await resolveProjectDirectory(defaultDir);
+    dir = await resolveProjectDirectory(defaultDir, false, refuseIfLinkedElsewhere);
   }
   if (dir.unresolved) {
     // Unreachable: `unresolved` is only ever returned with jsonMode=true, which
@@ -296,13 +341,16 @@ export const scaffoldCommand = withCommandHandler(
       return;
     }
 
-    const { appId, ctx, refreshBase } = plan;
+    const { appId, ctx } = plan;
+    let refreshBase = plan.refreshBase;
 
     // Captured before `resolveBootstrapDirectory` may chdir: the `cd` hint has to
     // be relative to the shell the user typed the command in, not to the directory
     // the CLI has since moved its own process into.
     const originalCwd = process.cwd();
-    const bootstrapDir = localConfig ? undefined : await resolveBootstrapDirectory(ctx, jsonMode);
+    const bootstrapDir = localConfig
+      ? undefined
+      : await resolveBootstrapDirectory(ctx, jsonMode, appId);
     const targetDir = bootstrapDir?.targetDir ?? process.cwd();
     // `cd` is only worth printing when the files did not land where the user is
     // standing; `computeCdHint` returns undefined for the directory they're in.
@@ -312,7 +360,51 @@ export const scaffoldCommand = withCommandHandler(
     // bootstrap that was pointed at a non-empty directory can hit. The feature-add
     // path keeps its full overwrite: a consented refresh means "make it match the
     // server", which a merge would quietly not do.
-    const baseMergeOnly = bootstrapDir?.mergeOnly ?? false;
+    let baseMergeOnly = bootstrapDir?.mergeOnly ?? false;
+
+    // A bootstrap pointed at a directory that already holds a project is a *refresh*,
+    // and has to be resolved as one rather than left to the directory prompt's
+    // merge answer.
+    //
+    // Those two answer different questions. "Merge (keep existing, add missing)" is
+    // about not clobbering the user's own files, and `writeScaffoldFiles` implements it
+    // by skipping any path that exists. app-config.json always exists in this case, so
+    // merging skipped the one file the bootstrap exists to write — the command fetched
+    // the app, discarded every field of it, wrote nothing, and printed the success box
+    // anyway. `resolveBootstrapPlan` sets `refreshBase` unconditionally *because*
+    // writing that file is the whole command; the merge flag was quietly overruling it.
+    //
+    // So ask the question the feature-add path asks — show the drift, confirm, then
+    // fully overwrite — and drop the merge flag once a refresh is agreed, since a merge
+    // cannot carry one out. The directory answer still governs a target that has files
+    // but no config (a fresh clone, an empty git repo): app-config.json doesn't exist
+    // there, so it is written either way and the user's other files stay untouched.
+    //
+    // Only reachable when a directory was resolved: without one the target is cwd, and
+    // cwd having no config is what selected this branch in the first place.
+    // A target belonging to a *different* app was already refused inside
+    // `resolveBootstrapDirectory`, before the merge question. What can still be here is
+    // this same app's project, which is a refresh.
+    if (bootstrapDir) {
+      const targetConfig = readProjectConfigAt(targetDir);
+      if (targetConfig) {
+        const refresh = await resolveBaseRefresh(targetConfig, ctx, jsonMode);
+        if (refresh.cancelled) {
+          // Always the interactive decline, never the `--json` one: this branch needs a
+          // resolved directory, and `resolveBootstrapDirectory` returns none under
+          // `--json` or off a TTY. So there is no machine-readable cancellation to emit.
+          logInfo(messages.APP_SCAFFOLD_CANCELLED);
+          return;
+        }
+        refreshBase = refresh.refreshBase;
+        // Only drop the merge flag when a refresh is actually going ahead, because
+        // dropping it is what allows app-config.json to be rewritten. With no drift
+        // there is nothing to rewrite, and clearing it anyway would overwrite a file
+        // that already matches the server — reintroducing a write this branch exists to
+        // make deliberate.
+        if (refresh.refreshBase) baseMergeOnly = false;
+      }
+    }
 
     // UI apps have no scaffoldable features — there is no local server to run for
     // an action link. `app scaffold` degrades to a base-config refresh so the
@@ -356,11 +448,18 @@ export const scaffoldCommand = withCommandHandler(
     // on its own. Off a TTY the base is written further down and the feature always
     // follows, exactly as before.
     const bootstrapInteractive = !localConfig && !jsonMode && !!process.stdin.isTTY;
-    const bootstrapBase = bootstrapInteractive
-      ? runBaseScaffold(appId, ctx, targetDir, baseMergeOnly)
-      : null;
-    if (bootstrapBase) {
-      reportBaseScaffoldSuccess(bootstrapBase);
+    if (bootstrapInteractive) {
+      // `refreshBase` is false in exactly one case here: the target directory already
+      // held a config and it already matches the server, so there is nothing to
+      // rewrite. Say so instead of writing — a blind overwrite would regenerate
+      // README.md/CLAUDE.md/AGENTS.md over the user's edits to report that nothing
+      // needed changing. Every other bootstrap still writes unconditionally, which is
+      // the point of the mode.
+      const bootstrapBase = refreshBase
+        ? runBaseScaffold(appId, ctx, targetDir, baseMergeOnly)
+        : null;
+      if (bootstrapBase) reportBaseScaffoldSuccess(bootstrapBase);
+      else logInfo(messages.APP_SCAFFOLD_BASE_IN_SYNC);
       // The rest of a bootstrap is the same tail `app create` runs once its app exists —
       // offer the feature, resolve a conflict, write, report — so it runs the shared one
       // in `./finish-project` rather than a second copy of it here. `'ask'` because this
@@ -370,7 +469,7 @@ export const scaffoldCommand = withCommandHandler(
         appId,
         ctx,
         targetDir,
-        baseScopes: bootstrapBase.scopes,
+        baseScopes: bootstrapBase?.scopes ?? [],
         cdDir,
         // A bootstrapped UI app is already handled above, so this is always an OAuth app.
         isUiApp: false,

@@ -72,6 +72,23 @@ a silently wrong project:
   a second, nested config — after which `brevo app upload` from there pushed the wrong app
   without a warning. It now names the enclosing project and stops.
 - **`--app-id` naming a different app than the directory is linked to.**
+- **An output directory that is already another app's project.** The `--app-id` check
+  above compares against the current directory, so it cannot catch this — the target is
+  somewhere else. Without the check, answering **Merge** there left that app's
+  `app-config.json` in place while writing *this* app's credentials into
+  `src/oauth/.env.local` beside it, so the project named two different apps. It now names
+  the target directory and the app it belongs to, and stops.
+
+Fixed: bootstrapping into a directory that **already holds a project for the same app**
+wrote nothing and reported success anyway. The directory prompt's **Merge** answer — which
+means "keep existing files, add missing ones" — was being applied to `app-config.json`
+itself, and that file always exists in this case, so the command fetched the app,
+discarded every field of it, and printed the success box. Re-running `app scaffold` over
+a folder made earlier is the ordinary way to hit this. That case is now resolved as the
+*refresh* it is: the drift against the server is listed, you confirm, and the file is
+rewritten in full — the same question the feature-add mode has always asked. A target that
+has files but no `app-config.json` (a fresh clone, an empty git repo) is unaffected and
+still honours the merge answer.
 
 `scaffold` also asks before reusing existing feature files: interactive runs prompt
 **Overwrite / Merge / Cancel** (default **Merge**, which keeps existing files and only adds

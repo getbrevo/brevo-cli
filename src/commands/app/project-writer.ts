@@ -196,6 +196,19 @@ export type ResolveProjectDirectoryResult =
 export async function resolveProjectDirectory(
   defaultDir: string,
   jsonMode = false,
+  /**
+   * Optional refusal hook, run as soon as a target directory is known and **before**
+   * the Overwrite / Merge / Choose-a-different-path question. Throw from it to reject
+   * the directory outright.
+   *
+   * It runs before that prompt on purpose: a directory we are going to refuse must not
+   * first be the subject of a question about how to write into it. It also runs on every
+   * pass of the caller's `chooseAgain` loop, so a second answer is validated like the
+   * first. `app scaffold`'s bootstrap uses it to refuse a directory that already belongs
+   * to a *different* app — a case its `--app-id` guard cannot see, because that one
+   * compares against the current directory and this target is somewhere else.
+   */
+  validateTarget?: (targetDir: string) => void,
 ): Promise<ResolveProjectDirectoryResult> {
   // --json must never block on a prompt: skip the "Output directory:" input
   // and use the default directly.
@@ -213,6 +226,11 @@ export async function resolveProjectDirectory(
       ).outputDir as string);
   const targetDir = path.resolve(outputDir);
   const existed = fs.existsSync(targetDir);
+
+  // Before the conflict question, not after — see the parameter's own note. A
+  // directory that does not exist cannot hold a project, but the hook is called for it
+  // anyway so the caller owns that judgement rather than inferring it from `existed`.
+  validateTarget?.(targetDir);
 
   if (!existed) {
     return { targetDir, mergeOnly: false, chooseAgain: false, existed: false };

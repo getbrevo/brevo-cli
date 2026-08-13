@@ -23,6 +23,7 @@ import {
   parseJson,
   requireApp,
   requireCommand,
+  requireFeature,
   skip,
   uploadApp,
 } from './core';
@@ -44,10 +45,28 @@ const SUBMITTED_STATES = new Set(['submitted', 'in_review']);
 
 const SMOKE_LOGO_URI = 'https://example.com/logo.png';
 
+/**
+ * The public app, or a skip.
+ *
+ * Every step after the create needs the app the create made. When the build has no
+ * `--distribution public` the create skipped, so there is no app and no failure to report —
+ * skip the rest of the lifecycle for the same reason rather than raising `no public app from
+ * the create step`, which reads as a broken run. `requireApp` is still the path for a create
+ * that was attempted and genuinely produced nothing.
+ */
+function requirePublicApp(state: State): SmokeApp {
+  requireFeature(state, 'public-distribution');
+  return requireApp(state.publicApp, 'public');
+}
+
 async function stepPublicAppCreate(state: State): Promise<string> {
   // --distribution public is accepted since BEX-327; the old negative step that
   // asserted the CLI rejected it has been removed. --logo-uri exercises the
   // optional create field from BEX-255 in the same call.
+  //
+  // Gated since BEX-405: a published-surface build refuses the flag outright, so this is a
+  // skip, not a failure. See GATED_FEATURES in core.ts.
+  requireFeature(state, 'public-distribution');
   const app = await createSmokeApp(state, {
     label: 'public',
     distribution: 'public',
@@ -58,7 +77,7 @@ async function stepPublicAppCreate(state: State): Promise<string> {
 
 function stepPublicAppUpload(state: State): string {
   requireCommand(state, 'upload');
-  const app = requireApp(state.publicApp, 'public');
+  const app = requirePublicApp(state);
   const res = uploadApp(state, app);
   const next = (res.next ?? {}) as Record<string, unknown>;
   must(
@@ -92,7 +111,7 @@ function readReviewState(state: State, app: SmokeApp): string {
 
 function stepPublicAppStatus(state: State): string {
   requireCommand(state, 'status');
-  const app = requireApp(state.publicApp, 'public');
+  const app = requirePublicApp(state);
   const reviewState = readReviewState(state, app);
   state.publicObs.stateBeforeSubmit = reviewState;
   return `pre-submit state: ${reviewState}`;
@@ -104,7 +123,7 @@ function stepPublicAppStatus(state: State): string {
 // the CLI owns and records the URL.
 function stepPublicAppSubmit(state: State): string {
   requireCommand(state, 'submit');
-  const app = requireApp(state.publicApp, 'public');
+  const app = requirePublicApp(state);
   // Run from the project dir so the local-vs-server drift check is exercised;
   // straight after an upload it must come back clean. Without a project dir
   // (older build) submit still works from --app-id alone, minus the drift check.
@@ -145,7 +164,7 @@ function stepPublicAppSubmit(state: State): string {
 // already-under-review message, never an unmapped error.
 function stepPublicAppSubmitAgain(state: State): string {
   requireCommand(state, 'submit');
-  const app = requireApp(state.publicApp, 'public');
+  const app = requirePublicApp(state);
   if (!state.publicObs.formUrl) skip('first submit did not run, nothing to repeat');
 
   const r = exec(brevoCmd(state), ['app', 'submit', '--app-id', app.appId, '--json'], state, {
@@ -168,7 +187,7 @@ function stepPublicAppSubmitAgain(state: State): string {
 
 function stepPublicAppStatusAfterSubmit(state: State): string {
   requireCommand(state, 'status');
-  const app = requireApp(state.publicApp, 'public');
+  const app = requirePublicApp(state);
   const reviewState = readReviewState(state, app);
   state.publicObs.stateAfterSubmit = reviewState;
   const before = state.publicObs.stateBeforeSubmit;
@@ -184,7 +203,7 @@ function stepPublicAppStatusAfterSubmit(state: State): string {
 // re-read the state.
 function stepPublicAppWithdraw(state: State): string {
   requireCommand(state, 'withdraw');
-  const app = requireApp(state.publicApp, 'public');
+  const app = requirePublicApp(state);
   const r = exec(
     brevoCmd(state),
     ['app', 'withdraw', '--app-id', app.appId, '--force', '--json'],
@@ -229,7 +248,7 @@ function stepPublicAppWithdraw(state: State): string {
 
 function stepPublicAppStatusAfterWithdraw(state: State): string {
   requireCommand(state, 'status');
-  const app = requireApp(state.publicApp, 'public');
+  const app = requirePublicApp(state);
   const reviewState = readReviewState(state, app);
   state.publicObs.stateAfterWithdraw = reviewState;
   // Only a real withdrawal implies a state change; a NOT_SUBMITTED no-op must
@@ -249,7 +268,7 @@ function stepPublicAppStatusAfterWithdraw(state: State): string {
 }
 
 async function stepDeletePublicApp(state: State): Promise<string> {
-  const app = requireApp(state.publicApp, 'public');
+  const app = requirePublicApp(state);
   const detail = await deleteSmokeApp(state, app);
   state.publicApp = null;
   return detail;

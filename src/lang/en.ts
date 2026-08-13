@@ -290,6 +290,19 @@ const coreMessages = {
   // summarise what would be lost.
   APP_SCAFFOLD_APP_ID_MISMATCH: (localAppId: string, requestedAppId: string) =>
     `This directory is already linked to app ${localAppId}, so it can't be set up for app ${requestedAppId}.\n\n  Run \`${CLI.APP_SCAFFOLD}\` (no --app-id) to work on app ${localAppId}, or cd into an empty directory and run \`${CLI.APP_SCAFFOLD_APP_ID(requestedAppId)}\` there.`,
+  // The same refusal for the directory a bootstrap was *pointed at*, which is a
+  // different directory from the one the command ran in — hence its own message
+  // rather than a reuse of the one above, whose "This directory" would name the
+  // wrong place. Reached when the answer to "Output directory:" turns out to hold
+  // another app's project: without this, answering "Merge" there would leave that
+  // app's app-config.json in place while writing this app's credentials into
+  // src/oauth/.env.local beside it.
+  APP_SCAFFOLD_TARGET_LINKED_ELSEWHERE: (
+    targetDir: string,
+    localAppId: string,
+    requestedAppId: string,
+  ) =>
+    `${targetDir} is already a project for app ${localAppId}, so it can't be set up for app ${requestedAppId}.\n\n  - cd ${targetDir} and run \`${CLI.APP_SCAFFOLD}\` to work on app ${localAppId}, or\n  - run \`${CLI.APP_SCAFFOLD}\` again and choose a different directory for app ${requestedAppId}.`,
   // Deliberately doesn't say *which* directory: interactively the next prompt is
   // "Output directory:", so naming one here would promise a location the user is
   // about to be asked to choose. Under --json/non-TTY there is no prompt and the
@@ -338,6 +351,11 @@ const coreMessages = {
   APP_SCAFFOLD_DIFF_CONFIRM:
     'Scaffolding will update app-config.json to match the server. Continue?',
   APP_SCAFFOLD_CANCELLED: 'Scaffold cancelled.',
+  // The no-drift outcome of a bootstrap pointed at a directory that was already a
+  // project. Said rather than silently skipped: a bootstrap normally reports the files
+  // it wrote, so writing none needs a reason on screen — otherwise it looks like the
+  // same "did nothing" this branch exists to stop being silent about.
+  APP_SCAFFOLD_BASE_IN_SYNC: 'app-config.json already matches the server — left as it is.',
   APP_SCAFFOLD_JSON_DIFF_CANCELLED:
     'app-config.json differs from the server and --json cannot prompt for confirmation. Re-run without --json to review and confirm the update.',
   // Shown when `app create`'s read-back of the app it just created comes back

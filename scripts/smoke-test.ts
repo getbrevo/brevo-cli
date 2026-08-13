@@ -186,7 +186,17 @@ uninstall) always run, whichever suites are selected. Examples:
 Steps that need a command the installed CLI doesn't have (notably
 --against=published, where 'app submit' / 'app status' / 'app withdraw' /
 'app upload' may not be released yet) are auto-detected and reported as
-skipped rather than failed.
+skipped rather than failed. The same detection covers gated *features* that
+come with no command of their own — '--distribution public', which a published
+build refuses (BEX-405).
+
+--against=local builds what the selected suites need, and one 'yarn link' can
+only hold one build:
+  * with 'public' selected (the default) it builds PREVIEW=1, because the
+    public lifecycle only exists on the preview surface;
+  * with only 'private' selected it builds the published surface, i.e. what npm
+    actually ships. Run 'yarn smoke --suite=private' when that is the thing you
+    want to verify.
 `);
 }
 

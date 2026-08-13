@@ -2,7 +2,7 @@
  * The `brevo app init` wizard, driven through scripted stdin. Opt-in only.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -35,20 +35,36 @@ async function findInitAppByName(state: State, expectedName: string): Promise<st
   return null;
 }
 
-// Tertiary appId recovery: read app-config.json (only present if user
-// scaffolded in wizard, which our scripted answers explicitly decline — but
-// keep as a safety net in case the wizard flow changes).
+// Tertiary appId recovery: read app-config.json.
+//
+// It is written by the *base* project write, so it is always there on a
+// successful run — declining the feature only skips `src/oauth/`. But it is one
+// level DOWN: `app create` writes into `./<slug-of-the-app-name>` under the cwd it
+// was given, not into the cwd itself. This looked only in `tmp`, which is where
+// create used to write, so the fallback could never fire. Both are checked, and
+// the search stays one level deep — deeper would risk picking up a config this
+// run did not write.
 function readInitAppIdFromConfig(state: State, tmp: string): string | null {
-  const cfgPath = join(tmp, 'app-config.json');
-  if (!existsSync(cfgPath)) return null;
+  const candidates = [join(tmp, 'app-config.json')];
   try {
-    const cfg = readJsonFile(cfgPath);
-    // Narrow before stringifying — `appId` is unknown here, and an object would
-    // stringify to "[object Object]" and then be used as an app id.
-    const rawId = cfg.appId;
-    if (typeof rawId === 'string' || typeof rawId === 'number') return String(rawId);
+    for (const entry of readdirSync(tmp, { withFileTypes: true })) {
+      if (entry.isDirectory()) candidates.push(join(tmp, entry.name, 'app-config.json'));
+    }
   } catch (e) {
-    logToFile(state, `app-config.json parse failed: ${errMsg(e)}`);
+    logToFile(state, `could not list ${tmp}: ${errMsg(e)}`);
+  }
+
+  for (const cfgPath of candidates) {
+    if (!existsSync(cfgPath)) continue;
+    try {
+      const cfg = readJsonFile(cfgPath);
+      // Narrow before stringifying — `appId` is unknown here, and an object would
+      // stringify to "[object Object]" and then be used as an app id.
+      const rawId = cfg.appId;
+      if (typeof rawId === 'string' || typeof rawId === 'number') return String(rawId);
+    } catch (e) {
+      logToFile(state, `${cfgPath} parse failed: ${errMsg(e)}`);
+    }
   }
   return null;
 }
@@ -56,23 +72,45 @@ function readInitAppIdFromConfig(state: State, tmp: string): string | null {
 async function stepInitWizard(state: State): Promise<string> {
   const tmp = trackTmpDir(state, 'brevo-smoke-init-');
 
-  // Wizard prompts (must stay in sync with `brevo app init` flow):
-  //   1. App name          → unique, readable, traceable name
-  //   2. Distribution type → '' = accept default (Private)
-  //   3. OAuth callback    → '' = accept default
-  //   4. Add another?      → n
-  //   5. Generate starter? → n (scaffold has its own step)
+  // Exactly ONE prompt is reachable here, and that is not a simplification —
+  // `execScriptedStdin` gives the child a **pipe** for stdin, so
+  // `process.stdin.isTTY` is undefined in it, and every question in `app create`
+  // is gated either on that flag directly (logo, redirect URL, output directory)
+  // or on the `interactive` value derived from it (distribution, app type, the
+  // feature offer). What is left is:
+  //
+  //   1. App name → unique, readable, traceable name
+  //
+  // Everything else takes its non-interactive default: `private`, an OAuth app,
+  // the default localhost callback, `./<slug>` for the directory, and no feature
+  // (base files only — `scaffold` has its own step). `app init`'s own
+  // "what would you like to do?" list is not asked either: it only appears when
+  // cwd already holds a linked `app-config.json`, and this runs in a fresh tmp dir.
+  //
+  // Send exactly that one answer and no filler. Blank padding lines would let a
+  // newly-added prompt silently accept its default; with nothing left to read,
+  // inquirer force-closes and the step fails loudly, which is the behaviour we
+  // want from a smoke test.
+  //
+  // This list was `[name, '', '', 'n', 'n']` and described a five-prompt TTY flow
+  // that no longer exists in that order (the logo moved to second, the app-type
+  // question was added, the output directory is asked, and the feature confirm now
+  // names the feature). The extra lines were inert only because of the TTY gating
+  // above — under a pty they would have mis-answered, e.g. landing `n` on
+  // `Output directory:` and creating a directory called `n`.
   const expectedName = stampedName(state, 'init');
-  const answers = [expectedName, '', '', 'n', 'n'];
+  const answers = [expectedName];
 
-  // Paced writes: spawnSync(input:) closes stdin immediately on EOF and
-  // inquirer reads ahead of its prompts before then, defaulting prompts that
-  // had no answer yet. Use execScriptedStdin which writes lines one at a time
-  // with a short delay so inquirer reads each answer as its prompt renders.
+  // Paced writes: the writer sleeps before each line and once more before closing
+  // stdin, and EOF *before* inquirer attaches its reader force-closes the prompt.
+  // With a single answer that pre-close window is the only slack there is, and the
+  // name prompt sits behind `init`'s credential-verification round trip — hence
+  // seconds, not milliseconds. (The old five-line array bought the same slack by
+  // accident.)
   const r = await execScriptedStdin(brevoCmd(state), ['app', 'init'], state, {
     cwd: tmp,
     answers,
-    interLineDelayMs: 400,
+    interLineDelayMs: 2000,
   });
   if (r.exitCode !== 0) throw new Error(`brevo app init exited ${r.exitCode}`);
   const output = r.stdout;

@@ -165,6 +165,9 @@ export interface ExecOptions {
   inherit?: boolean;
   // Hard cap, used by the trap paths so cleanup can't hang on a signal.
   timeoutMs?: number;
+  // Merged over process.env. Only the build in stepReinstall needs this, to ask
+  // for the preview surface (PREVIEW=1); every `brevo` call inherits plain env.
+  env?: Record<string, string | undefined>;
 }
 
 export interface ExecResult {
@@ -218,7 +221,7 @@ export function execOnce(cmd: string, args: string[], state: State, opts: ExecOp
     cwd: opts.cwd,
     input: opts.input,
     encoding: 'utf8',
-    env: process.env,
+    env: opts.env ? { ...process.env, ...opts.env } : process.env,
     ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
     stdio: opts.inherit ? 'inherit' : ['pipe', 'pipe', 'pipe'],
   });
@@ -512,6 +515,21 @@ export const GATED_COMMANDS = ['upload', 'submit', 'status', 'withdraw'] as cons
 
 export type GatedCommand = (typeof GATED_COMMANDS)[number];
 
+/**
+ * Gated *features* — surface that is missing from a build without a command going with
+ * it, so command detection can't see it.
+ *
+ * `public-distribution` is the one that matters: since BEX-405 the published build drops
+ * `--distribution public` (`assertFeatureAvailable('public-distribution')` refuses it with
+ * a typed CliError) while `app create` itself is obviously still there. The public suite
+ * opens by creating a public app, so without this the whole lifecycle *failed* on a
+ * published-surface build instead of skipping — and `yarn build` has produced that surface
+ * by default since `link:dev` stopped implying preview.
+ */
+export const GATED_FEATURES = ['public-distribution'] as const;
+
+export type GatedFeature = (typeof GATED_FEATURES)[number];
+
 export function listedInHelp(helpText: string, command: string): boolean {
   return new RegExp(String.raw`brevo app ${command}\b`).test(helpText);
 }
@@ -540,6 +558,20 @@ function respondsToOwnHelp(state: State, command: string): boolean {
   return new RegExp(String.raw`Usage: brevo app ${command}\b`).test(r.stdout + r.stderr);
 }
 
+/**
+ * Does this build offer `--distribution public`?
+ *
+ * Read off `app create`'s own help, where the flag's description is built from
+ * `distributionValues()` (`src/lib/help.ts`) — `Distribution type (private|public)` when the
+ * feature is available, `Distribution type (private)` when it isn't. Help is the only safe
+ * probe: actually running `create --distribution public` would either create a real app or
+ * burn an API call to be told it can't.
+ */
+export function publicDistributionOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'create', '--help'], state);
+  return /Distribution type \([^)]*\bpublic\b/.test(r.stdout + r.stderr);
+}
+
 // Detection is help-text based, with one probe per unlisted command (see above).
 export function detectCapabilities(state: State): Record<string, boolean> {
   const help = exec(brevoCmd(state), ['--help'], state);
@@ -556,6 +588,7 @@ export function detectCapabilities(state: State): Record<string, boolean> {
       'capability detection: unrecognised --help layout; assuming all commands present',
     );
     for (const name of GATED_COMMANDS) caps[name] = true;
+    for (const name of GATED_FEATURES) caps[name] = true;
     state.caps = caps;
     return caps;
   }
@@ -565,6 +598,7 @@ export function detectCapabilities(state: State): Record<string, boolean> {
       ? respondsToOwnHelp(state, name)
       : listedInHelp(helpText, name);
   }
+  caps['public-distribution'] = publicDistributionOffered(state);
   logToFile(state, `capabilities: ${JSON.stringify(caps)}`);
   state.caps = caps;
   return caps;
@@ -580,6 +614,17 @@ export function requireCommand(state: State, name: GatedCommand): void {
   if (state.caps?.[name] === false) {
     skip(`brevo app ${name} not available in this build (--against=${state.opts.against})`);
   }
+}
+
+export function requireFeature(state: State, name: GatedFeature): void {
+  if (state.caps?.[name] === false) {
+    skip(`${name} not available in this build (--against=${state.opts.against})`);
+  }
+}
+
+/** True when the feature is known-absent, for callers that branch rather than skip. */
+export function featureMissing(state: State, name: GatedFeature): boolean {
+  return state.caps?.[name] === false;
 }
 
 // ──────────────────────────── port helpers ────────────────────────────
@@ -658,8 +703,17 @@ export function stepReinstall(state: State): string {
   exec(PKG_YARN, ['unlink'], state);
   exec(PKG_NPM, ['uninstall', '-g', PACKAGE_NAME], state);
 
+  let buildNote = '';
   if (state.opts.against === 'local') {
-    execOrThrow(PKG_YARN, ['build'], state);
+    // `yarn build` produces the *published* surface — the pre-GA commands and
+    // `--distribution public` are eliminated from it (BEX-405). The public suite exists to
+    // exercise exactly that surface, so it needs the preview artefact; asking for it here
+    // is what keeps the coverage rather than skipping the suite on a local run. Everything
+    // the private suite touches is present in both, so a private-only run stays published —
+    // and is then the only local run that tests what npm actually ships.
+    const needsPreview = state.opts.suites.includes('public');
+    buildNote = needsPreview ? ', build=preview' : ', build=published';
+    execOrThrow(PKG_YARN, ['build'], state, needsPreview ? { env: { PREVIEW: '1' } } : {});
     execOrThrow(PKG_YARN, ['link'], state);
   } else {
     execOrThrow(PKG_NPM, ['install', '-g', `${PACKAGE_NAME}@latest`], state);
@@ -674,9 +728,9 @@ export function stepReinstall(state: State): string {
   const version = execOrThrow(brevoCmd(state), ['--version'], state).stdout.trim();
 
   const caps = detectCapabilities(state);
-  const missing = GATED_COMMANDS.filter((c) => !caps[c]);
+  const missing = [...GATED_COMMANDS, ...GATED_FEATURES].filter((c) => !caps[c]);
   const capNote = missing.length > 0 ? `, missing: ${missing.join(', ')}` : '';
-  return `brevo ${version} at ${which}${capNote}`;
+  return `brevo ${version} at ${which}${buildNote}${capNote}`;
 }
 
 export async function stepAuth(state: State): Promise<string> {

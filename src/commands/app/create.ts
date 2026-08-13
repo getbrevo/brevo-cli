@@ -583,7 +583,8 @@ export const createCommand = withCommandHandler(
     // Same elimination site as `resolveAppType`: this is the only call to
     // `resolveUiApp`, so guarding it on the build global is what lets the bundler drop
     // `app-types/ui/authoring.ts`. In a public build `appType` can never be `'ui'`
-    // anyway — the prompt isn't asked — so this changes nothing at runtime.
+    // anyway — the prompt is asked, but `UI app` is not among the choices it offers —
+    // so this changes nothing at runtime.
     if (__BREVO_PREVIEW__ && appType === 'ui') {
       uiApp = await resolveUiApp();
     } else {
