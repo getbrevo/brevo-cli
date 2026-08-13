@@ -50,15 +50,8 @@ jobs:
           node-version: 20.15.0
           cache: yarn
 
-      # `--ignore-scripts`: this job installs on a release branch and then runs a
-      # build, so a dependency's install-time lifecycle script would execute here
-      # with no one reading the log (Sonar S6505). Nothing in the tree needs one —
-      # the only install script is our own `prepare: husky`, which `HUSKY: 0`
-      # already neutralised, and esbuild/tsx resolve their binaries from
-      # platform-specific optional dependencies rather than a postinstall. Verified
-      # by installing with the flag and running `yarn build` + `yarn smoke --help`.
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --ignore-scripts
+        run: yarn install --frozen-lockfile
         env:
           HUSKY: 0
 
