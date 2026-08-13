@@ -306,11 +306,18 @@ export function validateUiAppContext(fields: readonly string[]): true | string {
  * string, so it sails through the "cannot be empty" checks below and lets an object reach
  * the wire under a field the server expects to be text. Anything that is not a primitive is
  * therefore treated as absent, so the field's own message fires instead.
+ *
+ * Narrowed by listing what IS accepted rather than excluding objects, because TypeScript
+ * does not subtract from `unknown`: after `if (typeof value === 'object') return ''` the
+ * else-branch is still `unknown`, so `String(value)` there is the very call this exists to
+ * avoid. A JSON document holds no symbols or functions, so nothing reachable is lost.
  */
 function asText(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'object' || typeof value === 'function') return '';
-  return String(value);
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  return '';
 }
 
 /**
