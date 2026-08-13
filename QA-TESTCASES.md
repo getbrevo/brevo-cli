@@ -11,8 +11,15 @@ after upgrading the CLI).
 
 > **⚠️ Public apps and UI apps are not in a published build (BEX-405).** Their commands
 > are eliminated at build time, so `app submit` / `app status` / `app withdraw` /
-> `app deploy` / `app rollback` answer `unknown command`, `--distribution public` is
-> refused, and the app-type prompt is never asked.
+> `app deploy` / `app rollback` answer `unknown command` and `--distribution public` is
+> refused.
+>
+> **The two gated questions are still asked** (changed 2026-08-13 — earlier revisions of
+> this file said the app-type prompt is never asked, and that is no longer true). A
+> published build asks `Distribution type?` and `What type of app are you building?` like
+> any other build, and gates the **choices**: `Private` only, `OAuth app` only. A
+> one-item list showing inquirer's `(Use arrow keys)` hint is expected, not a defect.
+> Off a TTY and under `--json` neither question is asked, in either build.
 >
 > **Build the CLI with `PREVIEW=1 yarn link:dev` before running any of those suites**
 > (2, 6, 7 and 12). Nothing else unlocks them — the interim `@brevo.com` /
@@ -78,18 +85,28 @@ Check the exit code after any command with `echo $?`.
 **Steps:**
 1. Run `brevo app create`.
 2. At the name prompt, enter `QA Private App`.
-3. At the distribution prompt, select **Private**.
-4. Accept the default redirect URL (localhost callback).
-5. Leave logo URL empty.
-6. Accept the default output directory.
-7. At "Do you want to scaffold a feature? (Y/n)" press Enter (yes), select the OAuth feature.
+3. At `App logo URL (optional — leave blank to skip):` press Enter (the logo is asked
+   **second**, before distribution — it moved there on 2026-08-13).
+4. At the distribution prompt, select **Private**.
+5. At `What type of app are you building?` select **OAuth app**.
+6. Accept the default redirect URL (localhost callback) and answer `n` to "Add another
+   redirect URL?".
+7. Accept the default output directory.
+8. At "Scaffold the Test OAuth App? (Y/n)" press Enter (yes).
 
 **Expected:**
+- Prompt order is **name → logo → distribution → app type → redirect → output directory**. Nothing else is asked in between.
 - "App created" box shows App name, App ID, Client ID, `Client secret: [hidden …]`, Redirect URL(s), `Default scopes:` line, and — if the API returns one — an `App version:` line.
 - Base project files + the OAuth feature files are written into `./qa-private-app`.
 - Next-steps box includes a `cd qa-private-app` step (relative to where you started).
-- `app-config.json` exists in the new directory with `"distribution_type": "private"`.
+- `app-config.json` exists in the new directory with `"distribution_type": "private"`, `auth.redirectUris` (never `redirectUrls`), and no `cliVersion` / `permittedUrls` / `support` keys.
 - Exit code `0`.
+
+**Result:** ✅ Pass — 2026-08-13, published build, production account, real TTY. Order,
+box contents (real 32-hex Client ID, one `Redirect URL 1` line, `App version: 0.0.1`,
+four default scopes), `5 files` base + `6 files` feature, and the `cd <dir>` next-steps
+box all as written. The single-choice distribution and app-type lists rendered with
+inquirer's `(Use arrow keys)` hint — expected.
 
 ### TC-1.2 — Create a private app non-interactively with flags
 **Priority:** High
@@ -126,8 +143,9 @@ brevo app create --name "QA Flags App" --distribution private \
 > **⚠️ BEX-405 changed the entry condition for this whole suite — read before running it.**
 > Public distribution is gated at **build time**. A published build (`npm i -g
 > @getbrevo/cli`, or plain `yarn build`) refuses `--distribution public` with *"That
-> command is not available yet…"*, exit `1`, and never asks the distribution prompt — it
-> goes straight to a private app.
+> command is not available yet…"*, exit `1`, and asks the distribution prompt with
+> **`Private` as its only choice** — it no longer skips the question and applies
+> `private` silently (changed 2026-08-13).
 >
 > **Every case below requires a preview build: `PREVIEW=1 yarn link:dev`.** There is no
 > account, flag or environment variable that unlocks a published build — the
@@ -148,6 +166,16 @@ brevo app create --name "QA Flags App" --distribution private \
 - `app-config.json` records `"distribution_type": "public"`.
 - Exit `0`.
 
+> **Account-dependent.** The platform allows a CLI public create only for accounts
+> carrying the `app-store-bo-be-public-apps` flag. On an account **without** it the
+> correct result is the mapped refusal (TC-2.4 / `APP_CREATE_PUBLIC_REJECTED`), not an
+> app — record which kind of account you ran on.
+
+**Result:** ✅ Pass — 2026-08-13, preview build, internal production account (flag
+enabled). Evidence is the written project: `distribution_type: "public"` and
+`version: "0.0.2"`, i.e. created *and* uploaded. Not re-run on a flag-less account, so
+the refusal half is untested.
+
 ### TC-2.2 — Public is selectable in the interactive picker
 **Priority:** High
 **Steps:** Run `brevo app create` interactively; at the distribution prompt inspect the choices.
@@ -158,29 +186,67 @@ brevo app create --name "QA Flags App" --distribution private \
 **Steps:** After TC-2.1, `brevo app list --json`.
 **Expected:** The public app is present with the public distribution reflected in server data.
 
+### TC-2.4 — The platform's own refusal is explained, not dumped
+**Priority:** High
+**Why it's here:** the preamble above has always pointed at TC-2.4; the case itself was
+missing. Added 2026-08-13.
+**Preconditions:** A **preview** build, and an account **without** the
+`app-store-bo-be-public-apps` flag — i.e. the opposite of TC-2.1's precondition. The two
+cases are mutually exclusive on any one account.
+**Steps:** `brevo app create --name "QA Public Refused" --distribution public`, then the
+same with `--json`.
+**Expected:** The CLI **still attempts the create** (it deliberately does not mirror the
+platform's per-account policy locally), then translates the `400`: a lead line saying
+public apps can't be created from the CLI yet, a `Do this:` line naming
+`--distribution private`, a `Note:` that `distribution_type` is fixed at creation, and a
+`Brevo said:` line quoting the server verbatim. Exit non-zero. Under `--json`, the same
+text arrives inside the single `{"error": {…}}` document on stdout. An unrelated `400` on
+a public create must keep its own text — the translation is narrowed to messages naming
+`distribution_type`.
+
 ---
 
 ## Suite 3 — create → scaffold split & `brevo app scaffold`
 
 ### TC-3.1 — Decline the feature prompt → base files only
 **Priority:** High
-**Steps:** `brevo app create` interactively; at "Do you want to scaffold a feature? (Y/n)" enter `n`.
+**Steps:** `brevo app create` interactively; at "Scaffold the Test OAuth App? (Y/n)" enter `n`. (The confirm names the one feature the CLI ships; the generic "Do you want to scaffold a feature?" wording only appears if a second feature is ever added.)
 **Expected:**
 - Only base project files are written (no `src/oauth/*`).
 - A lighter next-steps box points at `brevo app scaffold` to add a feature later.
 - Exit `0`.
 
-### TC-3.2 — `brevo app scaffold` with no `app-config.json` → friendly error
+### TC-3.2 — `brevo app scaffold` with no `app-config.json`, off a TTY → friendly error
 **Priority:** High
 **Preconditions:** `cd` into a directory with **no** `app-config.json`.
-**Steps:** `brevo app scaffold`
-**Expected:** Friendly `CliError` (not a raw stack); **no server fetch**; exit `1`.
+**Steps:** `brevo app scaffold --json`, and `brevo app scaffold < /dev/null` (non-TTY).
+**Expected:** Friendly `CliError` (`APP_SCAFFOLD_NO_CONFIG`, not a raw stack); **no server
+fetch**; exit `1`.
+
+> **Narrowed 2026-08-13 — this case used to say plain `brevo app scaffold` errors.** It no
+> longer does **on a TTY**: the bootstrap offer added on 2026-08-12 asks *"Set up a project
+> for an app you already have?"* first, and declining exits **`0`**. The error is now the
+> scripted path only, which is exactly the point of the offer being interactive-only. The
+> TTY behaviour is TC-3.2b.
 
 ### TC-3.2b — bootstrap asks where to put the project
 **Priority:** High
 **Preconditions:** A TTY, logged in, at least one app on the account. `cd` into a directory with **no** `app-config.json` — ideally one that already holds other folders, e.g. the folder you keep your app projects in.
 **Steps:** `brevo app scaffold`; accept the offer; pick an app; accept the default at `Output directory:`. Then repeat, answering `.` instead. Then repeat with `brevo app scaffold --app-id <id> --json`.
 **Expected:** No *"What feature do you want to scaffold?"* list appears at any point — the CLI ships one feature, so it is named in a confirm (*"Scaffold the Test OAuth App? (Y/n)"*) that comes **after** the project is written and listed. Answering `n` leaves `app-config.json` and the base files on disk, writes no `src/oauth/*`, and exits `0`. The default is `./<the app's name, slugified>`. Accepting it creates that directory, writes **nothing** into the directory you started in, and the *Next steps* box opens with `cd <dir>` — verify your shell is still in the original directory afterwards, and that `cd <dir> && brevo app upload` works. Answering `.` writes into the current directory (an "already exists" prompt appears first — Merge keeps existing files) and the *Next steps* box has **no** `cd` step, starting at `1. yarn --cwd src/oauth`. The `--json` run asks **nothing** and writes into the current directory, with `directory` in its output pointing there — this is the scripted contract and must not move.
+
+**Result:** ◐ Partial pass — 2026-08-13, preview build, production, real TTY. Ran twice
+back to back from a folder holding other app projects. Both runs: the offer appeared
+(*"No app-config.json in this directory, so there is no app to add a feature to."* → *"Set
+up a project for an app you already have?"*), the picker listed the account's apps, the
+default was `./<app name>` (`./test12`, `./test-pubic1`) and accepting it printed
+`Creating <dir> and moving into it...`, wrote `5 files`, and **then** asked *"Scaffold the
+Test OAuth App? (Y/n)"* — no feature *list* at any point, and the confirm came after the
+base files were listed. Answering `n` left the base files and `app-config.json` on disk
+with no `src/oauth/*` and exited `0`; answering `y` wrote the `6` feature files. The
+*Next steps* box opened with `cd <dir>` both times, and **the shell was still in the
+original directory afterwards** (the prompt stayed on `test1`). Not run: the `.`
+answer, and the `--json` run.
 
 ### TC-3.2c — an existing directory isn't reported as "Creating"
 **Priority:** Medium
@@ -210,6 +276,12 @@ brevo app create --name "QA Flags App" --distribution private \
 - **Cancel** → nothing written, "Scaffold cancelled." printed.
 - `--overwrite` → no conflict prompt, files rewritten.
 
+**Result:** ◐ Partial pass — 2026-08-13. **Overwrite** only: in a project whose
+`src/oauth/*` already existed, `brevo app scaffold` asked *"This feature already has files
+in this project. What would you like to do?"* and Overwrite rewrote all `6` files, printing
+the feature list and a *Next steps* box with **no** `cd` step (already in the project).
+Merge, Cancel and `--overwrite` were not exercised.
+
 ### TC-3.6 — `scaffold --json` never blocks on a prompt
 **Priority:** High
 **Preconditions:** Any project dir with `app-config.json`.
@@ -225,6 +297,11 @@ brevo app create --name "QA Flags App" --distribution private \
 **Preconditions:** `cd` into a directory that already has an `app-config.json`.
 **Steps:** `brevo app create`
 **Expected:** Immediate hard error naming the linked app: `App "<name>" is already linked in this directory …`; **no prompts, no API call, no app created**; exit `1`.
+
+**Result:** ✅ Pass — 2026-08-13. In a project linked to `test-pubic`, `brevo app create`
+printed the refusal naming that app, mentioned `app-config.json`, and offered both exits
+(move to a different directory, or run `brevo app scaffold` here to add a feature). No
+prompt appeared.
 
 ### TC-4.2 — `--json` create is fully non-interactive
 **Priority:** High
@@ -273,6 +350,13 @@ brevo app create --name "QA Flags App" --distribution private \
 
 **Also:** `brevo --help` and `brevo app --help` list `upload` and mention no `update` at all (it is registered hidden).
 
+**Result:** ◐ Partial pass — 2026-08-13. The **bare** `brevo app update` printed the full
+removal message (names `brevo app upload`, lists the five dead flags, points at editing
+`app-config.json`), and the root help listed `upload` with no `update` row. The other six
+invocations in the step list were not run manually — they are covered against the built
+artifact in `RELEASE-CHECKLIST.md`. Bonus confirmation that the interception is scoped:
+`brevo app uplaod` still fell through to Commander's own `(Did you mean upload?)`.
+
 ### TC-5.2 — `upload` outside a usable project dir → hard error, no API call
 **Priority:** High
 **Steps:** Run `brevo app upload` in each situation:
@@ -294,11 +378,19 @@ brevo app create --name "QA Flags App" --distribution private \
 **Steps:** `brevo app upload`
 **Expected:** "Already up to date at version X." printed; **no upload API call**; exit `0`. With `--json`: `{ "appId": …, "upToDate": true, "version": …, "current": {…}, "next": {…} }`.
 
+**Result:** ✅ Pass (human path) — 2026-08-13. Immediately after a create: summary
+printed, then `Already up to date at version 0.0.1.`, no confirm prompt. `--json` not
+run.
+
 ### TC-5.5 — Confirm prompt on changes (interactive)
 **Priority:** High
 **Preconditions:** Local change vs server; TTY; no `--yes`/`--json`.
 **Steps:** Run `brevo app upload`; at "Proceed with upload?" answer **No**, then rerun and answer **Yes**.
 **Expected:** **No** → "Upload cancelled.", nothing pushed, exit `0`. **Yes** → "App uploaded." + `Version: …`, exit `0`.
+
+**Result:** ◐ Partial pass — 2026-08-13. **Yes** confirmed three times (name change,
+scope additions, logo), each printing `✓ App uploaded.` + the bumped `Version:`. The
+**No** branch was not exercised.
 
 ### TC-5.6 — Non-TTY without `--yes`/`--json` → refuses
 **Priority:** High
@@ -333,11 +425,26 @@ brevo app create --name "QA Flags App" --distribution private \
 **Steps:** Change the name locally, `brevo app upload --yes`, then inspect `app-config.json`.
 **Expected:** File updated with server-confirmed name, logo, `distribution_type`, `version`, scopes, redirectUris. `brevo app list` reflects the new name (cached-name masking may apply briefly).
 
+**Result:** ◐ Partial pass — 2026-08-13. Confirmed indirectly and reliably: each upload's
+bumped version became the *base* version of the next run's summary (`0.0.2` → `0.0.3` →
+`0.0.4`), and name / scopes / logo each stopped appearing as drift once uploaded. The
+file itself was not inspected in that run, and `brevo app list` was not run.
+
 ### TC-5.12 — Server rejection propagates
 **Priority:** Medium
 **Preconditions:** Force a server-side rejection if possible (e.g. outdated version).
 **Steps:** `brevo app upload --yes`
 **Expected:** Error surfaced; exit `1` (non-zero). No silent success.
+
+**Result:** ✅ Pass — 2026-08-13, with the version case. `version` hand-edited to `0.0.2`
+while the server held `0.0.1`: the summary showed `Version: 0.0.1 → 0.0.2`, the upload
+was confirmed, and the platform answered *"app version is outdated; pull the latest
+version of the app before uploading"*. Non-zero, nothing written; reverting the file to
+`0.0.1` uploaded cleanly.
+> **Two rough edges recorded, not defects for this case:** the summary presents
+> server-owned `version` as an authored field, and the server's copy tells the user to
+> "pull the latest version", which is not a command this CLI has. Tracked in
+> `RELEASE-CHECKLIST.md` → *Manual QA sweep*.
 
 ### TC-5.13 — Upload blocked while app is `Submitted` (US-2)
 **Priority:** High
@@ -376,6 +483,12 @@ brevo app create --name "QA Flags App" --distribution private \
 **Steps:** `brevo app status --app-id <APP_ID>`
 **Expected:** An aligned card: bold **App status** title, a `─` rule, a coloured icon + label, then the message indented under the label. Exit `0`.
 
+**Result:** ✅ Pass — 2026-08-13, preview build, on a public app resolved from the linked
+`app-config.json` (no `--app-id`, so this covers TC-6.5 case 1 too). Rendered exactly as
+written: bold `App status`, the `─` rule, `◇ Configured`, and *"Your app is set up but
+hasn't been submitted for review yet."* indented under the label. Ran **after** an upload
+— before one it fails, see TC-6.3.
+
 ### TC-6.2 — State → tone/label mapping
 **Priority:** Medium
 **Steps:** Inspect status for apps in different states (use whatever states your test account can reach).
@@ -394,6 +507,34 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Preconditions:** An app with no review state (e.g. a private app never submitted).
 **Steps:** `brevo app status --app-id <APP_ID>`
 **Expected:** Header "App status: Unknown"; message "Status information isn't available for your app yet. Make sure your app is public and has been uploaded with `brevo app upload`." Exit `0`.
+
+**Result:** ✗ **Fail — 2026-08-13. A never-uploaded app does not reach this path at all.**
+On a public app freshly created by `brevo app init` and not yet uploaded, both
+`brevo app status` and `brevo app submit` printed a **raw server message**:
+
+```
+✗ Please ensure your app is correctly configured with the following required data: name, logo_uri, scopes and redirect_uris
+```
+
+Not the friendly Unknown card. The cause is that `statusCommand` only reaches its
+`state ?? 'unknown'` normalization when `fetchAppState` **resolves** — here
+`GET` the state endpoint *rejects*, so `withCommandHandler` surfaces the `ApiError`
+copy verbatim and the card never renders. Two separate problems:
+
+1. **The message is unmapped.** It is server copy reaching the user directly, which
+   `src/lang/en.ts` exists to prevent. Nothing in `apiCodeMessages` covers it.
+2. **The message is misleading** — it names four fields that were all present (the
+   upload summary immediately afterwards showed a name, a server-defaulted
+   `logo_uri`, four scopes and one redirect URI). The real precondition is *"has never
+   been uploaded"*, i.e. the app has no `app_versions` row for the state endpoint to
+   read. Running `brevo app upload` once made the same command answer `◇ Configured`.
+
+**So TC-6.3 as written is unreachable via "never submitted"** — the app must be
+*uploaded* but unsubmitted, which is the `configured` state (TC-6.1), not `unknown`.
+Either the precondition is wrong or the empty-state path is dead code; worth deciding
+which before merge. Exit code was not captured (`echo $?` not run) — it is whatever
+`ApiError` maps to, not the documented `0`. Tracked in the sweep entry in
+`RELEASE-CHECKLIST.md`.
 
 ### TC-6.4 — `--json` output
 **Priority:** High
@@ -578,10 +719,20 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Steps:** `node dist/bin/index.js --help` (or `brevo --help`).
 **Expected:** Command signatures and descriptions are column-aligned; long signatures wrap their description onto an indented line.
 
+**Result:** ✅ Pass — 2026-08-13, on both builds. `brevo`, `brevo -h` and `brevo --help` render identically.
+
 ### TC-10.2 — Public-app command grouping
 **Priority:** Low
 **Steps:** `brevo --help`.
 **Expected:** `brevo app status` and `brevo app submit` appear under a heading like **"App-review commands (public apps only):"**. `status` is present (regression guard). `upload` is listed; `update` is not.
+
+**Result:** ✅ Pass — 2026-08-13, both builds, and the pair is the useful part. **Preview:**
+the *App-review commands (public apps only)* heading carries `status` + `submit` and no
+`withdraw` (TC-10.3), the *App-deployment commands (UI apps only)* heading carries
+`deploy` + `rollback`, and `app create` advertises `--distribution private|public`.
+**Published:** both headings and all four commands are absent, and `app create` reads
+`--distribution private` / *"Create a new OAuth app"* — i.e. the build-time elimination
+shows up in the help exactly where BEX-405 says it should.
 
 ### TC-10.3 — `withdraw` is hidden from help but still works
 **Priority:** Medium
@@ -601,6 +752,11 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Priority:** High
 **Steps:** Review `create` / `credentials` human + JSON output.
 **Expected:** Client secret shown as `[hidden …]` (human) / `[hidden]` (JSON) unless `--reveal-secret` is explicitly used. No API keys, refresh tokens, or credential-file contents printed.
+
+**Result:** ✅ Pass (human path) — 2026-08-13. The created-app box and `brevo app
+credentials` both printed `Client secret: [hidden — run \`brevo app credentials
+--reveal-secret\`]`. `--reveal-secret` additionally asked *"Are you sure you want to
+reveal the client secret?"* before printing it. JSON path not run.
 
 ### TC-11.3 — Automated suite green
 **Priority:** High
@@ -636,6 +792,23 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 **Steps:** Compare the shared command surface, hard rules, version-check procedure, and exit codes between `AGENTS.md` and `SKILL.md`.
 **Expected:** The two docs agree on the shared surface. Any intentional divergence (e.g. `AGENTS.md` branching by agent type because `SKILL.md` is Claude-only) is called out as intentional, not a drift.
 
+### TC-11.8 — `brevo app available-scopes`, terminal and `--web`
+**Priority:** Medium
+**Why it's here:** the command is on the root help screen and in both agent docs but had
+no case; added 2026-08-13 after it was exercised.
+**Steps:** `brevo app available-scopes`, then `brevo app available-scopes --web`, then
+`Ctrl+C`. Also `brevo app available-scopes --json | jq .`.
+**Expected:** Scopes printed grouped by category (`account`, `campaigns`,
+`contacts_crm`, `conversations`, `custom_objects`, `ecommerce`, `events`, `loyalty`,
+`transactional`), followed by the "edit `auth.scopes` … then `brevo app upload`" hint and
+the two docs links. `--web` prints the same listing **and** serves the catalog on a
+`http://127.0.0.1:<port>/` loopback URL (loopback http is deliberate, not a defect), and
+`Ctrl+C` shuts it down with "Received SIGINT, shutting down." and exit `0`. `--json`
+emits one parseable document with no human lines.
+
+**Result:** ◐ Partial pass — 2026-08-13. Human and `--web` paths both as written,
+including the clean SIGINT shutdown. `--json` not run.
+
 ---
 
 ---
@@ -643,8 +816,9 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 ## 12 — UI apps / action links (BEX-290)
 
 > **⚠️ UI apps are not available to end users yet**, and BEX-405 removes them from the
-> published build entirely — `app deploy` / `app rollback` answer `unknown command` and
-> the app-type prompt is never asked. **Every case below requires a preview build:
+> published build entirely — `app deploy` / `app rollback` answer `unknown command`, and
+> the app-type prompt is asked but offers **`OAuth app` only**. **Every case below
+> requires a preview build:
 > `PREVIEW=1 yarn link:dev`**, the same entry condition as the public-app suite. No
 > account or env var unlocks a published build.
 >
@@ -681,20 +855,30 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 > written by an earlier build of this branch is **rejected** by upload with a migration
 > hint; that is deliberate, see TC-12.5b.
 >
-> **Only five context field names exist** on the platform's registry: `recordId`,
-> `recordName`, `userId`, `locale`, `accountId`. Anything else is refused at upload.
+> **The registry owns the context field names — do not check them against a list in this
+> file.** Corrected 2026-08-13: earlier revisions said *"only five context field names
+> exist — `recordId`, `recordName`, `userId`, `locale`, `accountId`; anything else is
+> refused at upload"*, and **both halves were wrong.** A live create against
+> `company-details-header-menu` seeded **six**, the sixth being `clientId`, so the
+> enumeration was incomplete; and the CLI refuses nothing by name —
+> `validateUiAppContext` is non-empty-and-unique only, deliberately, because the
+> allow-list lives on the registry row (`allowed_context_field`) and a local copy can only
+> lag it. `brevo app create` seeds each entry from that row's own `default_context_field`,
+> so a created app is always within the allow-list. Expect whatever the row carries; the
+> only wrong answer is a field the row doesn't allow, and the **server** is what reports
+> that.
 
-### TC-12.1 — Interactive create asks for the app type after name and distribution
+### TC-12.1 — Interactive create asks for the app type after name, logo and distribution
 **Priority:** High
 **Preconditions:** Logged in; TTY; cwd has **no** `app-config.json`.
 **Steps:** Run `brevo app create`.
-**Expected:** Prompt order is "App name:" → "Distribution type?" → "What type of app are you building?" with **OAuth app** and **UI app**. Choosing **OAuth app** reproduces the previous flow from there (redirect URL → logo → scaffold prompt).
+**Expected:** Prompt order is "App name:" → "App logo URL (optional — leave blank to skip):" → "Distribution type?" → "What type of app are you building?" with **OAuth app** and **UI app**. The three record-level questions come first and the app type is the last thing asked before the flow branches (the logo moved here on 2026-08-13 — it used to be asked *inside* each branch, after the redirect URLs / placements). Choosing **OAuth app** reproduces the previous flow from there (redirect URL → "Add another redirect URL?" → output directory → scaffold confirm).
 
 ### TC-12.2 — Prompt order, and the Iframe choice shown as disabled
 **Priority:** High
 **Preconditions:** BEX-361 endpoint available (see the section preamble).
 **Steps:** `brevo app create`, choose **UI app**, and walk the whole flow.
-**Expected:** The order is **"Do you want to add a link or an iframe?"** → "Which record pages should it appear on?" → "Where should it appear on those pages?" (one prompt **per picked page** — see TC-12.2c) → "Label — …" → "More info — … (optional)" → "Redirect link — …" → **"App logo URL"** (optional) → "Output directory". The logo and output-directory prompts are easy to miss when scripting the walkthrough: they belong to the shared create flow rather than the UI-app one, so they come after every UI-specific question. The first lists **Link** as selectable and **Iframe** as visibly disabled ("coming soon"), and the disabled entry cannot be selected. There is **no** "How should it appear on those pages?" (kind) question, **no** separate "Where on those pages?" (place) question, and **no** record-context question anywhere.
+**Expected:** The order is **"Do you want to add a link or an iframe?"** → "Which record pages should it appear on?" → "Where should it appear on those pages?" (one prompt **per picked page** — see TC-12.2c) → "Label — …" → "More info — … (optional)" → "Redirect link — …" → "Output directory". **The logo prompt is no longer here** — it moved to second in the shared opening (name → logo → distribution → app type) on 2026-08-13, so by the time this branch starts it has already been answered; the output-directory prompt still belongs to the shared flow and still comes last. The first lists **Link** as selectable and **Iframe** as visibly disabled ("coming soon"), and the disabled entry cannot be selected. There is **no** "How should it appear on those pages?" (kind) question, **no** separate "Where on those pages?" (place) question, and **no** record-context question anywhere.
 
 ### TC-12.2c — One single-select placement prompt per picked page
 **Priority:** High
@@ -705,6 +889,20 @@ Messages match the canned copy per state (e.g. `submitted` → "Your app has bee
 One placement per page is enforced *structurally*: a single-select cannot be left empty and cannot take two values, so there is no "pick at least one spot" or "you missed a page" validation message to see — those were deleted along with the grouped prompt. Note the platform is more permissive than this (it rejects only a *duplicate* slot), so a hand-edited config with two spots on one page still uploads; the single-per-page rule is the CLI's, and is deliberate.
 
 A page the registry offers no usable placement on is **skipped with a warning** rather than prompted for — the page prompt cannot know in advance, because a location listing carries no extension-type information.
+
+**Result:** ◐ Partial pass — 2026-08-13, preview build, production. Ran with **one** page
+ticked (`companyDetails`), so the one-prompt-per-page fan-out is only evidenced for N=1:
+a single `Where should it appear on the companyDetails page?` list, phrased per page and
+naming it. The choice taken read `Header "More" (•••) menu — menu entry` — a region plus
+its rendered shape, with **no kebab-case slug anywhere in the prompt**, as required. The
+multi-page case (tick two pages, mix a menu entry and a card) was **not** run and is the
+half that matters most here; TC-12.8 covers it and is also unrun.
+
+Incidental confirmation for `RELEASE-CHECKLIST.md` → *Before UI-apps GA*: the registry
+**is** seeded in this environment and `location_name` is populated for at least
+`companyDetails` — the page prompt offered it by that name and the placement read
+resolved a row for it. No page was skipped with a warning, so that path stayed unexercised
+(expected — `rowSupportsExtensionType` cannot filter against today's projection).
 
 ### TC-12.2b — UI-app create aborts when the surface-points fetch fails
 **Priority:** High
@@ -722,7 +920,26 @@ A page the registry offers no usable placement on is **skipped with a warning** 
 **Priority:** High
 **Preconditions:** BEX-361 endpoint available.
 **Steps:** Complete the UI-app flow — **Link**, one or more record pages, one or more placements, then a label, a `more_info` line and a redirect link (`https://…`).
-**Expected:** A "UI app created" box shows extension type, each placement with its seeded record context, the label, more info and redirect link — and **no** `Redirect URL` lines. It states that the menu entry is labelled with **the label you typed**, and that on a card that text becomes the button while the card's *title* is the app name. It also prints an **example URL** — the redirect link with the seeded context fields as query parameters and placeholder values. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extension_type: "actionLink"`, `surface_point_list` (a list of `{ surface_point_name, context? }` **objects**, the name being the registry's kebab-case slug), `label`, `more_info`, `redirect_link` — and **no** `link_target`, `heading`, `subheading`, top-level `context`, `properties`, `trigger`, `surface`, `placement` or `contextProperties` keys. Every context field name is one of `recordId`, `recordName`, `userId`, `locale`, `accountId`. `auth` is exactly the empty object `{}` — **no** `scopes`, **no** `redirectUris`, **no** `type` key — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
+**Expected:** A "UI app created" box shows extension type, each placement with its seeded record context, the label, more info and redirect link — and **no** `Redirect URL` lines. It states that the menu entry is labelled with **the label you typed**, and that on a card that text becomes the button while the card's *title* is the app name. It also prints an **example URL** — the redirect link with the seeded context fields as query parameters and placeholder values. The generated `app-config.json` is valid JSON with a top-level `ui_app` containing exactly `extension_type: "actionLink"`, `surface_point_list` (a list of `{ surface_point_name, context? }` **objects**, the name being the registry's kebab-case slug), `label`, `more_info`, `redirect_link` — and **no** `link_target`, `heading`, `subheading`, top-level `context`, `properties`, `trigger`, `surface`, `placement` or `contextProperties` keys. Every context field name is one the registry seeded for that slot (see the preamble — do **not** check them against a fixed list; a live `company-details-header-menu` seeds six, including `clientId`). `auth` is exactly the empty object `{}` — **no** `scopes`, **no** `redirectUris`, **no** `type` key — and there are **no** `permittedUrls`/`support` sections. No `src/oauth/` directory, no feature prompt.
+
+**Result:** ◐ Partial pass (box confirmed, file not inspected) — 2026-08-13, preview build,
+production. A private UI app (`actionLink`, `company-details-header-menu`) rendered the
+`UI app created` box with App name, App ID, `Extension type: actionLink`,
+`Placement: company-details-header-menu  (context: recordId, recordName, userId, locale,
+accountId, clientId)`, `Label`, `More info`, `Redirect link`, `App version: 0.0.1` — and
+**no `Redirect URL` lines and no credential rows**, which is also the outstanding manual
+tick on the nested-`auth` entry in `RELEASE-CHECKLIST.md`. The box printed the example URL
+with all six context fields as query parameters and placeholder values, the *"Values are
+placeholders… the path is never templated"* note, and the label explanation naming the app
+name as a card's title. Base project wrote `5 files`, **no `src/oauth/`, no feature
+prompt** — correct for a UI app.
+
+Two things this run did **not** verify, and both are the actual assertions of this case:
+`app-config.json` was never opened, so the block's key set (and the absence of
+`link_target` / `heading` / `subheading` / top-level `context`) is unconfirmed on disk; and
+`~/.brevo/credentials.json` was not checked for an absent `apps` entry. The example URL
+**wrapped mid-token** inside the box (`…&clientId=CLIEN` / `T_ID`) — that is the boxed-output
+wrapping from `3280138` working as designed on a long unbreakable URL, not a defect.
 
 ### TC-12.3b — Record context is seeded per placement, and reaches the URL as query params
 **Priority:** High
@@ -740,6 +957,22 @@ A page the registry offers no usable placement on is **skipped with a warning** 
 **Priority:** High
 **Steps:** After a successful upload, (a) run `brevo app upload` again with nothing changed; (b) change only `ui_app.label` and upload; (c) reorder the keys inside `ui_app` and reorder the `surface_point_list` entries, without changing any value, and upload.
 **Expected:** (a) "Already up to date" — this is the regression to watch: the server echo carries a `link_target` (and possibly a `version`) the file does not, and those must not read as drift. (b) The diff shows the UI-app block as `(changed)` and the upload proceeds. (c) "Already up to date" — neither key order nor placement order is a change.
+
+**Result:** ✅ Pass on (a) — 2026-08-13, preview build, production. `brevo app upload`
+immediately after the UI-app create printed the summary with its `UI app:` block
+(extension type, placement + all six context fields, label, more info, redirect link) and
+then **`Already up to date at version 0.0.1.`**, pushing nothing. That is the exact
+regression this case guards, and it clears it end to end: create persisted the block
+server-side, the read-back echoed it with a `link_target` the file does not carry, and the
+diff still reported no drift. It also confirms, from the terminal rather than from reading
+the handler, that `POST /v3/app-store/apps` **stores** `ui_app` — the claim in `CLAUDE.md`
+→ *A created app is immediately readable as a UI app*.
+
+The summary carried **no "Redirect URLs" row and no `Link target:` row** (TC-12.4's
+rendering half). (b) and (c) were not run — nothing was hand-edited, so the `(changed)`
+diff and the key/placement-reorder no-ops are still unverified, as is the whole of
+TC-12.4's *push* half: this app was never uploaded with a real change, so no `ui_app`
+payload has been observed on the wire and no write-back has been inspected.
 
 ### TC-12.5b — The pre-BEX-290 block shape is rejected with a migration hint
 **Priority:** High
@@ -817,25 +1050,151 @@ Note the second run relies on the uninstall route answering **404** for both "no
 ### TC-12.14 — OAuth regression sweep
 **Priority:** High
 **Steps:** Create a private OAuth app end to end (`brevo app create` → accept the feature prompt → `yarn --cwd src/oauth` → `brevo app start oauth`), then `brevo app upload`.
-**Expected:** Byte-for-byte the same experience as before this branch: redirect-URL prompts, four default scopes, `src/oauth/` scaffold, working OAuth flow, and an upload payload with **no** `snapshot` (and no `ui_app`) key. A public OAuth app must still get the PKCE scaffold.
+**Expected:** The same experience as before this branch — redirect-URL prompts, four default scopes, `src/oauth/` scaffold, working OAuth flow, and an upload payload with **no** `snapshot` (and no `ui_app`) key — **except** for the prompt-order change in TC-12.1 (the logo is now asked second) and the two gated questions now being asked with one choice each on a published build. A public OAuth app must still get the PKCE scaffold.
+
+**Result:** ✅ Pass — 2026-08-13, published build, production. Full walk: create → accept
+the feature confirm → `yarn --cwd src/oauth` (6 files, clean install) → `brevo app start
+oauth` → browser authorization → **access token and refresh token both received**, refresh
+endpoint advertised → `Ctrl+C` shut down cleanly → `brevo app upload`. Four default
+scopes as expected. Payload keys were not observed on the wire (no proxy in the run) —
+that half is covered by the unit assertions. Public/PKCE variant not run.
+
+**Result (second run):** ✅ Pass — 2026-08-13, **preview** build, production, this time a
+**public** app created through `brevo app init` rather than `brevo app create`. Same
+outcome: `yarn --cwd src/oauth` clean, `brevo app start oauth` on `localhost:3009`,
+browser authorization, **access token *and* refresh token received**, clean `Ctrl+C`. The
+following `brevo app upload` summary showed the OAuth shape (Redirect URLs, four scopes,
+logo, version) with **no `UI app:` block** — the negative half of this case, as far as a
+terminal can show it.
+
+This closes the *"Public/PKCE variant not run"* gap only **partially**: a public OAuth app
+was built and its flow works, but nothing in the output distinguishes a PKCE scaffold from
+the private one — the same `6` feature files were written. **Whether "a public OAuth app
+must still get the PKCE scaffold" is still a real expectation needs settling by reading
+the templates, not by watching the terminal.**
+
+---
+
+## Suite 13 — commands with no prior coverage (`init`, `credentials`, `delete`, `submit`)
+
+> Added 2026-08-13. These four ship in the CLI and had **no test case anywhere in this
+> file**, yet three of them are destructive or credential-revealing and `init` is the
+> command the docs point a new user at first. All four were exercised in the second sweep;
+> the cases are written from what was observed so the expectations are now pinned.
+
+### TC-13.1 — `brevo app init` runs the whole guided setup
+**Priority:** High
+**Preconditions:** Authenticated; TTY; run from a directory with no `app-config.json`.
+**Steps:** `brevo app init`, answer the prompts through to the feature confirm.
+**Expected:** A `Brevo CLI — Quick Setup` header, then `✓ Already authenticated.` when a
+session exists (it must **not** re-run the browser login), then `Step 2: Create your first
+app` and the ordinary `app create` prompt sequence — name → logo → distribution → app type
+→ redirect → add-another → output directory. The created-app box, base-file list, feature
+confirm and *Next steps* box are the same ones `app create` prints. Exit `0`.
+
+**Result:** ✅ Pass — 2026-08-13, preview build, production. Exactly as above, for a
+**public** OAuth app: the auth step short-circuited to `✓ Already authenticated.`, prompt
+order held, and the run ended at the *Next steps* box (`cd` → install → `brevo app start
+oauth`) plus the scopes tip and the `All set!` line. The app-created box carried a real
+32-hex Client ID, `[hidden …]` secret and `App version: 0.0.1`.
+
+### TC-13.2 — `brevo app credentials` hides the secret until asked twice
+**Priority:** High
+**Steps:** `brevo app credentials`, then `brevo app credentials --reveal-secret`.
+**Expected:** Without the flag, `Client secret: [hidden — run \`brevo app credentials
+--reveal-secret\`]`. With it, a confirm prompt (*"Are you sure you want to reveal the
+client secret?"*) gates the value — the flag alone is not enough. Both print App name, App
+ID, Client ID, Scopes and numbered `Redirect URL n:` lines. Exit `0`.
+
+**Result:** ✅ Pass — 2026-08-13. Both forms run against an app chosen from the picker
+(whose choice line itself shows App ID + Client ID, never the secret). The 64-hex secret
+appeared **only** after the flag *and* the confirm. Ten scopes and one redirect URL
+rendered on the aligned rows.
+
+### TC-13.3 — `brevo app delete` offers to remove the local project too
+**Priority:** High
+**Preconditions:** A disposable app, ideally with a local project directory linked to it.
+**Steps:** `brevo app delete` from inside that project; confirm both prompts.
+**Expected:** App picker → a confirm naming the app **and** its ID and stating
+`This cannot be undone.` (default must not be destructive) → `✓ App <id> deleted.` Then a
+**second, separate** prompt offering to delete the local project folder, printing its
+**absolute path**; confirming prints `✓ Project folder deleted: <path>`. Declining the
+second must leave the folder. Exit `0`.
+
+**Result:** ◐ Partial pass — 2026-08-13. Both prompts appeared in that order with the app
+name + ID in the first and the absolute path in the second, and both confirmations
+completed with the two `✓` lines. **Not verified:** declining the folder prompt, the
+default answers, `--force`, `--json`, and deleting from outside a linked project.
+
+### TC-13.4 — `brevo app submit` previews the config and opens the form
+**Priority:** High
+**Preconditions:** A **public**, uploaded app (see TC-6.3 — a never-uploaded app fails
+first). Preview build.
+**Steps:** `brevo app submit` from the linked project.
+**Expected:** `No configuration mismatch detected.` when the local config matches the
+server, then the full config preview (App ID, Name, Distribution, Redirect URLs, Scopes,
+Logo URL, Version), then `Submit this app for review?`. Confirming opens a browser tab and
+prints the form URL plus the caveat that **the app is only submitted once the form is
+completed** and that `brevo app status` tracks it. Exit `0`.
+
+**Result:** ◐ Partial pass — 2026-08-13, preview build. As written, twice in a row. Note
+what this means and what it does not: `app submit` is a **signpost to a Google Form**, not
+an API submission, so it is idempotent and repeatable and never moves the app's state —
+`brevo app status` still reported `◇ Configured` after it. **The mismatch branch was not
+exercised** (no drift was introduced), and the form was not completed, so no `submitted` /
+`in_review` state was ever reached — which is why TC-5.13–5.16, TC-6.2's later states and
+all of Suite 7 remain unrunnable on this account.
 
 ---
 
 ## Sign-off
 
+Cases carrying a **Result:** line were run on 2026-08-13 against **production** on a real
+TTY, across **two sweeps** — both described in full in `RELEASE-CHECKLIST.md` →
+*Manual QA sweep* entries, which also record what they do not cover.
+
+- **Sweep 1** — a **published** build: the OAuth happy path (`login` → `create` → `start
+  oauth` → `upload` ×4), `available-scopes`, `credentials`, both help screens. It ran one
+  commit behind `HEAD`, so the logo prompt still showed the pre-`b75315c` long form.
+- **Sweep 2** — a **preview** build: `app init` on a public app, `status`, `submit`,
+  `delete`, `scaffold` in **both** modes, and a **UI app** created and uploaded.
+
+A Result line says which build it ran on when it matters.
+
 | Suite | Owner | Result (Pass/Fail) | Notes |
 |-------|-------|--------------------|-------|
-| 1 — create: private | | | |
-| 2 — create: public | | | |
-| 3 — create/scaffold split | | | |
-| 4 — create guardrails/JSON | | | |
-| 5 — upload | | | |
-| 6 — status | | | |
-| 7 — withdraw | | | |
-| 8 — list/version | | | |
-| 9 — backward compat/migration | | | |
-| 10 — help layout | | | |
-| 11 — cross-cutting/regression | | | |
-| 12 — UI apps / action links | | | |
+| 1 — create: private | Piyush | ◐ Partial pass | TC-1.1 ✅. TC-1.2–1.5 (flags, `--logo-uri`, bad values) not run — **no non-interactive create has been run at all**, in either sweep. |
+| 2 — create: public | Piyush | ◐ Partial pass | TC-2.1 ✅ — created live in sweep 2 on a preview build + flag-enabled account, then uploaded to `0.0.2`. Refusal path on a flag-less account still untested (needs an account without `app-store-bo-be-public-apps`); TC-2.2 / TC-2.3 not run. |
+| 3 — create/scaffold split | Piyush | ◐ Partial pass | TC-3.2b ✅ both branches (decline leaves base files + exit `0`; accept writes the feature), TC-3.5 **Overwrite** ✅. TC-3.2 narrowed to the non-TTY path and **not** re-run; Merge/Cancel/`--overwrite`, TC-3.3, TC-3.4 (drift refresh) and TC-3.6 (`--json`) not run. |
+| 4 — create guardrails/JSON | Piyush | ◐ Partial pass | TC-4.1 ✅ (already-linked directory refuses with no prompt). TC-4.2–4.4 not run — still **no `--json` or non-TTY coverage anywhere**. |
+| 5 — upload | Piyush | ◐ Partial pass | TC-5.1 (bare), 5.4, 5.5 (yes-branch), 5.11 (indirect), 5.12 ✅, plus the distribution-immutability refusal and a public-app upload to `0.0.2` in sweep 2. `--json`, `--yes`, non-TTY and the review-state cases (5.13–5.16) not run — 5.13–5.16 are **blocked**, see Suite 7. |
+| 6 — status | Piyush | ✗ **Fail** | TC-6.1 ✅ (`◇ Configured`, aligned card, resolved from the linked config — also TC-6.5 case 1). **TC-6.3 fails:** a never-uploaded app surfaces a raw, misleading server message instead of the friendly Unknown card. TC-6.2's other states, 6.4 (`--json`) and 6.6 (colour) not run. |
+| 7 — withdraw | | **Blocked** | Not run, and **not runnable on this account**: `app submit` only opens a Google Form, so no app can be driven into `submitted`/`in_review` from the CLI. Reaching Suite 7 (and TC-5.13–5.16, and TC-6.2's review states) needs the form completed or the state set server-side. |
+| 8 — list/version | | | Not run. |
+| 9 — backward compat/migration | | | Not run — no legacy fixtures exercised. **Still the highest-value gap**: it is the only suite whose failures land on existing users. |
+| 10 — help layout | Piyush | ✅ Pass | TC-10.1 / 10.2 / 10.3 confirmed on **both** builds, which is what makes the BEX-405 elimination visible. Re-confirmed on the preview build in sweep 2. |
+| 11 — cross-cutting/regression | Piyush | ◐ Partial pass | TC-11.2 (human) ✅ twice, TC-11.8 ✅. TC-11.1 (`--json` cleanliness) not run; doc cases 11.4–11.7 are a review, not a run. |
+| 12 — UI apps / action links | Piyush | ◐ Partial pass | **TC-12.5(a) ✅ — the headline result**: a UI app created and then uploaded reported `Already up to date at version 0.0.1`, so create persists `ui_app` and the server's `link_target` echo is not read as drift. TC-12.2 / 12.2c / 12.3 partial (one page only; `app-config.json` never opened), TC-12.14 ✅ ×2. **Not run: 12.4's push half, 12.5(b)/(c), 12.5b, 12.6, 12.7–12.13** — nothing was hand-edited, and `deploy` / `rollback` were never invoked. |
+| 13 — init/credentials/delete/submit | Piyush | ◐ Partial pass | TC-13.1 ✅, TC-13.2 ✅, TC-13.3 ◐, TC-13.4 ◐. New suite — these four commands had no coverage before 2026-08-13. |
 
-**Overall verdict:** ☐ Ready to merge  ☐ Blocked (see notes)
+**Overall verdict:** ☐ Ready to merge  ☑ Not yet signed off.
+
+What the two sweeps establish: both app types can be created, scaffolded and uploaded end
+to end, the OAuth flow completes a real token exchange, and the UI-app create→upload
+round trip is clean — including the drift regression TC-12.5(a) exists to catch.
+
+What still blocks sign-off, in priority order:
+
+1. **TC-6.3 is a confirmed failure** — an unmapped, misleading server message on a
+   never-uploaded app. It needs a decision (map the message, or fix the case's
+   precondition and delete the dead empty-state path) before merge.
+2. **Suite 9 (backward compatibility) has not been touched.** Highest user-facing risk
+   and it needs no special account — only hand-written fixtures.
+3. **No `--json` / non-TTY path has been run in either sweep** (TC-3.6, 4.2, 4.3, 5.6,
+   6.4, 11.1, 12.12). This is the scripted contract; it is also the cheapest gap to close.
+4. **`ui_app` on disk is still unverified** — every UI-app assertion so far is read off
+   the terminal, not out of `app-config.json`. TC-12.4's push half, TC-12.5b and TC-12.6
+   are the ones that would catch a wrong key.
+5. **Suite 7 and TC-5.13–5.16 are blocked, not merely unrun** — they need a submitted
+   app, which the CLI cannot produce on its own.
+6. `deploy` / `rollback` (TC-12.7, 12.9, 12.10, 12.11) have never been invoked.
