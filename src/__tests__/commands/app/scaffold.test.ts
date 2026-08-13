@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { scaffoldCommand, fetchAppContext } from '../../../commands/app/scaffold';
+import { scaffoldCommand } from '../../../commands/app/scaffold';
+import { fetchAppContext } from '../../../commands/app/project-writer';
 
 // fs is fully mocked below, so these paths are never written. We deliberately
 // avoid os.tmpdir() to keep tests off any shared, world-writable directory
@@ -853,7 +854,7 @@ describe('app/scaffold', () => {
     };
 
     it('writes base files and returns metadata without prompting or printing', async () => {
-      const { runBaseScaffold, computeSlug } = require('../../../commands/app/scaffold');
+      const { runBaseScaffold, computeSlug } = require('../../../commands/app/project-writer');
 
       const result = runBaseScaffold('1', ctx, tmpPath('run-base-core'), false);
 
@@ -868,7 +869,7 @@ describe('app/scaffold', () => {
     });
 
     it('passes DEFAULT_SCOPES fallback into template vars without a CLI_VERSION var', () => {
-      const { runBaseScaffold } = require('../../../commands/app/scaffold');
+      const { runBaseScaffold } = require('../../../commands/app/project-writer');
       runBaseScaffold(
         '1',
         { ...ctx, appDetails: { ...ctx.appDetails, scopes: [] } },
@@ -888,7 +889,7 @@ describe('app/scaffold', () => {
       ['present', 'https://example.com/logo.png', 'https://example.com/logo.png'],
       ['absent', undefined, ''],
     ])('maps {{LOGO_URI}} when logo_uri is %s', (_label, logoUri, expected) => {
-      const { runBaseScaffold } = require('../../../commands/app/scaffold');
+      const { runBaseScaffold } = require('../../../commands/app/project-writer');
       runBaseScaffold(
         '1',
         {
@@ -910,7 +911,7 @@ describe('app/scaffold', () => {
       ['present', '0.0.1', '0.0.1'],
       ['absent', undefined, ''],
     ])('maps {{APP_VERSION}} when version is %s', (_label, version, expected) => {
-      const { runBaseScaffold } = require('../../../commands/app/scaffold');
+      const { runBaseScaffold } = require('../../../commands/app/project-writer');
       runBaseScaffold(
         '1',
         {
@@ -931,7 +932,7 @@ describe('app/scaffold', () => {
       const run = (
         remoteScopes: string[],
       ): { writtenScopes: string; legacyAllSubstituted: boolean } => {
-        const { runBaseScaffold } = require('../../../commands/app/scaffold');
+        const { runBaseScaffold } = require('../../../commands/app/project-writer');
         const result = runBaseScaffold(
           '1',
           { ...ctx, appDetails: { ...ctx.appDetails, scopes: remoteScopes } },
@@ -983,7 +984,7 @@ describe('app/scaffold', () => {
     };
 
     it('writes the oauth feature files and returns the written count', () => {
-      const { runFeatureScaffold } = require('../../../commands/app/scaffold');
+      const { runFeatureScaffold } = require('../../../commands/app/project-writer');
 
       const result = runFeatureScaffold('oauth', '1', ctx, tmpPath('run-feature-core'), false);
 
@@ -995,7 +996,7 @@ describe('app/scaffold', () => {
     });
 
     it('skips existing files under mergeOnly', () => {
-      const { runFeatureScaffold } = require('../../../commands/app/scaffold');
+      const { runFeatureScaffold } = require('../../../commands/app/project-writer');
       (fs.existsSync as jest.Mock).mockReturnValue(true);
 
       const result = runFeatureScaffold('oauth', '1', ctx, tmpPath('run-feature-merge'), true);
@@ -1010,7 +1011,7 @@ describe('app/scaffold', () => {
     // the app is registered, so a write here is a stray directory whenever the create
     // that follows fails.
     it('decides a fresh directory without creating or entering it', async () => {
-      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      const { resolveProjectDirectory } = require('../../../commands/app/project-writer');
       mockPrompt.mockResolvedValueOnce({ outputDir: tmpPath('fresh-dir') });
 
       const result = await resolveProjectDirectory('./default-slug');
@@ -1026,7 +1027,7 @@ describe('app/scaffold', () => {
     });
 
     it('records that an existing directory was already there, without entering it', async () => {
-      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      const { resolveProjectDirectory } = require('../../../commands/app/project-writer');
       (fs.existsSync as jest.Mock).mockReturnValue(true);
       mockPrompt
         .mockResolvedValueOnce({ outputDir: tmpPath('existing-dir') })
@@ -1042,7 +1043,7 @@ describe('app/scaffold', () => {
     });
 
     it('does not chdir when the user chooses a different path', async () => {
-      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      const { resolveProjectDirectory } = require('../../../commands/app/project-writer');
       (fs.existsSync as jest.Mock).mockReturnValue(true);
       mockPrompt
         .mockResolvedValueOnce({ outputDir: tmpPath('existing-dir') })
@@ -1055,7 +1056,7 @@ describe('app/scaffold', () => {
     });
 
     it('suppresses the directory notice in json mode', async () => {
-      const { resolveProjectDirectory } = require('../../../commands/app/scaffold');
+      const { resolveProjectDirectory } = require('../../../commands/app/project-writer');
 
       await resolveProjectDirectory('./default-slug', true);
 
@@ -1067,7 +1068,7 @@ describe('app/scaffold', () => {
 
   describe('applyProjectDirectory', () => {
     it('creates and enters a directory that was not there', () => {
-      const { applyProjectDirectory } = require('../../../commands/app/scaffold');
+      const { applyProjectDirectory } = require('../../../commands/app/project-writer');
 
       applyProjectDirectory({
         targetDir: tmpPath('fresh-dir'),
@@ -1081,7 +1082,7 @@ describe('app/scaffold', () => {
     });
 
     it('enters an existing directory without re-creating it', () => {
-      const { applyProjectDirectory } = require('../../../commands/app/scaffold');
+      const { applyProjectDirectory } = require('../../../commands/app/project-writer');
 
       applyProjectDirectory({
         targetDir: tmpPath('existing-dir'),
@@ -1097,7 +1098,7 @@ describe('app/scaffold', () => {
     // Both describe "no directory to apply": the caller is being asked to loop, or
     // could not resolve one at all under --json.
     it('is a no-op for chooseAgain and for an unresolved decision', () => {
-      const { applyProjectDirectory } = require('../../../commands/app/scaffold');
+      const { applyProjectDirectory } = require('../../../commands/app/project-writer');
 
       applyProjectDirectory({
         targetDir: tmpPath('a'),
@@ -1112,7 +1113,7 @@ describe('app/scaffold', () => {
     });
 
     it('suppresses the directory notice under --json', () => {
-      const { applyProjectDirectory } = require('../../../commands/app/scaffold');
+      const { applyProjectDirectory } = require('../../../commands/app/project-writer');
 
       applyProjectDirectory(
         { targetDir: tmpPath('json-dir'), mergeOnly: false, chooseAgain: false, existed: false },
@@ -1131,7 +1132,7 @@ describe('app/scaffold', () => {
     // the picker comes back on its own — the choices are derived from it, so this
     // assertion is what keeps a hard-coded one-item list from being reintroduced.
     it('does not ask which feature while the manifest holds only one', async () => {
-      const { promptFeatureType } = require('../../../commands/app/scaffold');
+      const { promptFeatureType } = require('../../../commands/app/scaffold-prompts');
 
       const result = await promptFeatureType(true);
 
@@ -1142,7 +1143,7 @@ describe('app/scaffold', () => {
     it('asks, and offers every manifest entry, once there is more than one', async () => {
       // Re-required through an isolated registry so the prompt module reads a
       // two-entry manifest instead of the suite-wide one-entry mock.
-      const { promptFeatureType } = require('../../../commands/app/scaffold');
+      const { promptFeatureType } = require('../../../commands/app/scaffold-prompts');
       const { FEATURE_TEMPLATE_MANIFESTS, FEATURE_LABELS } = require('../../../templates');
       // Added to the mocked registry rather than through a re-imported module: the
       // count is read per call (`Object.keys`), which is exactly the property under
@@ -1178,7 +1179,7 @@ describe('app/scaffold', () => {
     });
 
     it('returns oauth without prompting when not interactive', async () => {
-      const { promptFeatureType } = require('../../../commands/app/scaffold');
+      const { promptFeatureType } = require('../../../commands/app/scaffold-prompts');
 
       const result = await promptFeatureType(false);
 

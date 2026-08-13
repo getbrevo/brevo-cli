@@ -144,6 +144,26 @@ supports — so the flow reads the same everywhere and you are told which distri
 app type you are getting rather than having to know. Non-interactive runs (`--json` or
 piped stdin) still ask neither and still default to a private OAuth app.
 
+**Boxed output wraps instead of shredding itself.** `printBox` sized itself to its longest
+line, which left the *terminal* to wrap anything wider than the window — and a terminal
+wraps the text without the frame, so the tail of an over-long line came out with no
+borders and every `│` after it landed mid-row. One long line was enough to destroy the
+whole box: a created-app summary carrying an example URL with six query parameters came to
+147 columns and shredded itself in a 127-column window. Lines are now wrapped to the
+window before the frame is drawn, breaking on a word where one is available and mid-string
+where none is (a URL), with continuation rows indented under their label. Colour is
+measured out of the width and carried across the break, so a wrapped coloured value can't
+leak its colour onto the border. Piped or redirected output has no width to respect and
+falls back to 80 columns.
+
+**The UI-app record-page prompt shows the registry's own page names.** It used to render
+`contactDetails` as `contact` through a CLI-owned map, with a strip-`Details` guess for any
+page the map didn't know — so the prompt could disagree with the platform, and every page
+the registry gained needed a second name kept in step by hand. The prompt now shows the
+`location_name` the API returned, verbatim, and pre-selects nothing (it used to default to
+*contact*): the pages are the registry's answer, so the CLI doesn't nominate one. Picking
+at least one is still required.
+
 **Selection prompts are indented into the CLI's output gutter.** Every `list` and
 `checkbox` prompt — the login method, `init`'s next action, distribution, app type,
 scaffold's overwrite/merge conflicts, and the UI-app authoring questions — used to render

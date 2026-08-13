@@ -44,13 +44,26 @@ export const uiAppType: AppTypeModule = {
   detectConfig: isUiAppConfigShape,
   detectRecord: isUiAppRecordShape,
 
-  // Recoverable only when the server actually echoed the block. The read endpoint sources
-  // `ui_app` from the latest `app_versions` snapshot, so a UI app created but never uploaded
-  // has no snapshot and comes back without it — and the block is not a detail of the config,
-  // it IS the config (and the app-type discriminator). Note this is deliberately NOT
-  // `isUiAppRecordShape`: that predicate's fallback classifies a blockless record as a UI app
-  // on the absence of OAuth material, which is right for labelling a row and wrong for
-  // deciding there is something to write.
+  // Recoverable only when the server actually echoed the block, which is not a detail of
+  // the config — it IS the config, and the app-type discriminator.
+  //
+  // This once carried a specific case: "a UI app created but never uploaded has no
+  // snapshot and comes back without it". That is no longer true. `persistCreateResultTx`
+  // writes the `app_versions` row inside the create transaction with the `ui_app` in its
+  // snapshot, and `GET /cli/apps/{id}` serves it back from there — so a never-uploaded UI
+  // app *is* recoverable (verified against app-store-bo-be, 2026-08-13).
+  //
+  // The guard stays anyway, as defence rather than as a known case: a record reaching here
+  // without a block cannot produce a UI config, whatever the reason (a version row that
+  // never landed, a read served from `fetchAppContext`'s create-response fallback, a future
+  // type). It has to refuse rather than write a partial file, because the omission is
+  // invisible — a config without `ui_app` doesn't read as an incomplete UI app, it reads as
+  // a perfectly valid OAuth one, and the next `app upload` pushes an `auth` block where
+  // `ui_app` belonged.
+  //
+  // Deliberately NOT `isUiAppRecordShape`: that predicate's fallback classifies a blockless
+  // record as a UI app on the absence of OAuth material, which is right for labelling a row
+  // and wrong for deciding there is something to write.
   recoverableFromRecord: (app) => !!app?.ui_app,
 
   validateConfig: (config) => {

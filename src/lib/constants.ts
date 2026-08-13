@@ -229,18 +229,16 @@ export const EXTENSION_PLACE_LABELS: Readonly<Record<string, string>> = {
 } as const;
 
 /**
- * Friendly record-type choices (the values offered at the UI-app record-page
- * prompt) mapped to their `location` segment. Partners think in record types; the
- * wire wants the page name.
+ * There is deliberately no friendly-name map for record pages, and no default page.
+ *
+ * `app create`'s record-page prompt shows the registry's own `location_name` values
+ * verbatim (`contactDetails`, …) and pre-selects none of them. A local `contact →
+ * contactDetails` map used to sit here: it gave every page a second, CLI-owned name that
+ * had to be kept in step with the platform, needed a strip-`Details` guess for any page
+ * the map didn't know, and let the prompt show something the API never said. Do not
+ * reintroduce it. `EXTENSION_PLACE_LABELS` above is not a counter-example: it labels a
+ * fixed segment of the BEX-350 grammar, not a server-supplied identifier.
  */
-export const UI_APP_SURFACE_TO_LOCATION: Readonly<Record<string, string>> = {
-  contact: 'contactDetails',
-  company: 'companyDetails',
-  deal: 'dealDetails',
-} as const;
-
-export const UI_APP_SURFACES: readonly string[] = Object.keys(UI_APP_SURFACE_TO_LOCATION);
-export const DEFAULT_UI_APP_SURFACE = 'contact';
 
 /**
  * `extension_type` values, camelCase per BEX-350 — the same casing as the

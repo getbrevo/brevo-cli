@@ -14,13 +14,11 @@
  */
 import inquirer from 'inquirer';
 import {
-  DEFAULT_UI_APP_SURFACE,
   EXTENSION_KIND_ACTION,
   EXTENSION_KIND_WIDGET,
   EXTENSION_PLACE_LABELS,
   EXTENSION_TYPE_ACTION_LINK,
   EXTENSION_TYPE_IFRAME,
-  UI_APP_SURFACE_TO_LOCATION,
 } from '../../lib/constants';
 import { logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
@@ -76,25 +74,6 @@ import { formatPlacementLines } from './fields';
  * that page — the flow answers by question name throughout.
  */
 const PLACEMENT_QUESTION_PREFIX = 'placement:';
-
-/** Reverse of UI_APP_SURFACE_TO_LOCATION, for labelling fetched locations. */
-const LOCATION_TO_UI_APP_SURFACE: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(UI_APP_SURFACE_TO_LOCATION).map(([surface, location]) => [location, surface]),
-);
-
-/**
- * Friendly prompt value for a fetched location token: the known `contact` /
- * `company` / `deal` names where the mapping exists, otherwise derived by
- * stripping a trailing `Details` (`orderDetails` → `order`), raw token as the
- * last resort. Values only need to be stable within one prompt run — the wire
- * identity is always the row's `extension_point_name`.
- */
-function surfaceValueForLocation(location: string): string {
-  const known = LOCATION_TO_UI_APP_SURFACE[location];
-  if (known) return known;
-  const stripped = location.endsWith('Details') ? location.slice(0, -'Details'.length) : location;
-  return stripped || location;
-}
 
 /**
  * A registry row whose three slot segments are guaranteed present — either served
@@ -286,37 +265,36 @@ function placementLabel(row: UsableSurfacePoint): string {
  * the CLI's authoring model, not a wire constraint.
  *
  * Every choice is a real registry row and the answer maps straight back to it, so the
- * authored values are never string-composed client-side. Choice VALUES are the row's
+ * authored values are never string-composed client-side. Page choices are the registry's
+ * `location_name` verbatim, label and value alike. Placement choice VALUES are the row's
  * `surface_point_name` slug — the authoring identity (see `buildSurfacePointList`) —
- * while the visible label is built from the decomposed segments.
+ * while their visible label is built from the decomposed segments.
  */
 async function promptSurfacePointList(
   locations: readonly string[],
   extensionType: string,
 ): Promise<UsableSurfacePoint[]> {
-  // Pages — the registry's locations in server order, shown under their friendly names.
-  const surfaceChoices = locations.map((location) => ({
-    name: surfaceValueForLocation(location),
-    value: surfaceValueForLocation(location),
-    location,
-  }));
+  // Pages — the registry's locations verbatim, in server order. Deliberately NOT renamed
+  // for display: the CLI used to show `contactDetails` as `contact` through a local map
+  // (with a strip-`Details` fallback for anything unmapped), which meant the prompt could
+  // disagree with the platform and every page the registry gains had a second, CLI-owned
+  // name to keep in step. Showing the registry's own token is what makes the choice
+  // verifiable against the API.
   const { surfaces } = await inquirer.prompt([
     {
       type: 'checkbox',
       name: 'surfaces',
       message: messages.APP_CREATE_UI_SURFACE_PROMPT,
-      choices: indentChoices(surfaceChoices.map(({ name, value }) => ({ name, value }))),
-      // Only pre-select the default page when the registry actually offers it.
-      default: surfaceChoices.some((choice) => choice.value === DEFAULT_UI_APP_SURFACE)
-        ? [DEFAULT_UI_APP_SURFACE]
-        : [],
+      choices: indentChoices(locations.map((location) => ({ name: location, value: location }))),
+      // Nothing pre-selected — the pages are the registry's answer, so the CLI has no
+      // business nominating one of them. `validate` below is what stops an empty answer.
       validate: (picked: unknown[]) => picked.length > 0 || messages.APP_CREATE_UI_SURFACE_REQUIRED,
     },
   ]);
-  const pickedSurfaces = (surfaces as string[]) ?? [];
-  const pickedLocations = surfaceChoices
-    .filter((choice) => pickedSurfaces.includes(choice.value))
-    .map((choice) => choice.location);
+  // Filtered from the registry's list rather than taken as answered, so the picked pages
+  // keep server order and nothing that isn't a real location can reach the row read.
+  const pickedSurfaces = new Set((surfaces as string[]) ?? []);
+  const pickedLocations = locations.filter((location) => pickedSurfaces.has(location));
 
   const rows = await fetchSurfacePointsForPages(pickedLocations, extensionType);
 
@@ -337,7 +315,7 @@ async function promptSurfacePointList(
     (location) => !grouped.some((group) => group.location === location),
   );
   if (dropped.length > 0) {
-    logWarn(messages.APP_CREATE_UI_PLACEMENT_PAGES_DROPPED(dropped.map(surfaceValueForLocation)));
+    logWarn(messages.APP_CREATE_UI_PLACEMENT_PAGES_DROPPED(dropped));
   }
 
   // One prompt per page, each named for its location so an answer can never land on the
@@ -349,9 +327,7 @@ async function promptSurfacePointList(
       {
         type: 'list',
         name: question,
-        message: messages.APP_CREATE_UI_PLACEMENT_PAGE_PROMPT(
-          surfaceValueForLocation(group.location),
-        ),
+        message: messages.APP_CREATE_UI_PLACEMENT_PAGE_PROMPT(group.location),
         // A page offering one placement still asks, rather than being chosen silently:
         // it is a single keypress either way, and the partner sees where the app lands.
         choices: indentChoices(

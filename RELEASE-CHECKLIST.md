@@ -2881,3 +2881,86 @@ structure this adds and would be split from its own label by the indent.
 - [ ] **Manual:** walk `brevo app create`, `brevo login`, `brevo init` and a scaffold
       conflict on a real TTY and confirm the indent reads better than flush-left, including
       when the terminal is narrow enough to wrap a long label.
+
+### The record-page prompt shows the registry's own page names (2026-08-13)
+
+**Change:** `app create`'s UI-app record-page prompt lists the locations endpoint's
+`location_name` values verbatim — `contactDetails`, `companyDetails`, `dealDetails` —
+and pre-selects none of them.
+
+Both halves were local inventions. `UI_APP_SURFACE_TO_LOCATION` mapped each page to a
+friendlier `contact` / `company` / `deal`, with a strip-`Details` guess
+(`orderDetails` → `order`) for anything it didn't know and the raw token as a last
+resort; `DEFAULT_UI_APP_SURFACE` pre-ticked `contact` whenever the registry offered it.
+Neither survives: the map gave every page a second, CLI-owned name that had to be kept
+in step with a registry the CLI does not control — and could disagree with it on screen
+— while the default put a choice in the answer that nothing on the platform had made.
+The three constants had no other reader, so they are deleted rather than left unused
+(`UI_APP_SURFACES` was already dead).
+
+Nothing on the wire moves. The prompt's choice *values* were already discarded — the
+picked pages narrow the row read, and an entry is authored by its row's
+`surface_point_name` slug — so this is display and default only.
+
+**Must hold true:**
+
+- [x] The prompt offers exactly what the locations endpoint answered, in server order,
+      as both label and value; a page the CLI has never heard of (`orderDetails`) is
+      offered unchanged and authors correctly. Covered in `create.test.ts`.
+- [x] No page is pre-selected (`default` is absent), and `validate` still refuses an
+      empty answer — that refusal is now the *only* thing standing between a blank
+      answer and the row read, so its test matters more than it did.
+- [x] Picked pages are filtered out of the registry's list rather than taken as
+      answered, so they keep server order and a value that isn't a real location cannot
+      reach `fetchSurfacePoints`.
+- [x] `yarn test` (56 suites / 1209 tests), `yarn lint`, `npx tsc --noEmit` green.
+- [ ] **Manual:** walk `PREVIEW=1` `brevo app create` → UI app on a real TTY and confirm
+      the page list reads acceptably now that it carries the platform's spelling, and
+      that nothing is ticked on arrival.
+
+### Two verified-wrong backend claims corrected, and the project writer split out (2026-08-13)
+
+**Part 1 — corrections.** Two claims in `CLAUDE.md` and in code comments were checked
+against `app-store-bo-be` (branch `chore/bump-prod-image-tag-1.8.0`, 12 Aug) and are
+**false**:
+
+- *"The server only learns about `ui_app` on `app upload`."* `persistCreateResultTx`
+  (`http_cli_create_app.go`) inserts the initial `app_versions` row **inside the create
+  transaction**, snapshot included, and `GET /cli/apps/{id}` serves it back through
+  `applyLatestVersionFields` → `uiAppResponseFromSnapshot`. A created app is immediately
+  readable as a UI app.
+- *"`client_secret` may not be retrievable again."* `GET /cli/apps/{id}` is a
+  credential-reveal endpoint; `cliOAuthAppResponse` carries `client_secret`, fetched from
+  the OAuth service by the app's stored `oauth_id`.
+
+Both had been load-bearing in argument only — **no behaviour changed**. The two things they
+justified were re-grounded rather than removed: `create` still passes its `ui_app` to
+`fetchAppContext` (because a re-read is the *wrong source* — stale server data must not
+reclassify an app — not because the server lacks it), and `recoverableFromRecord` still
+refuses a blockless record (now as defence with no known trigger).
+
+**Part 2 — the split.** `scaffold.ts` was 935 lines: a shared project-writing library plus
+one command. The library is now `src/commands/app/project-writer.ts` (561 lines) and
+`scaffold.ts` is the command alone (422). `create.ts` imports the writer directly. Pure
+move — no logic edited.
+
+**Must hold true:**
+
+- [x] Dependency runs one way. Verified before moving anything: nothing in the shared half
+      referenced a command symbol (the single `scaffoldCommand` hit was inside a comment).
+- [x] **No re-export shim from `scaffold.ts`.** Adding one would have made the move
+      zero-churn, and would have preserved the exact confusion the split exists to remove —
+      `create` appearing to depend on the `scaffold` command. Importers were repointed
+      instead: `create.ts`, and 18 inline `require`s plus 2 top-level imports across
+      `create.test.ts` / `scaffold.test.ts`.
+- [x] `create.test.ts`'s wholesale module mock now targets `project-writer`. Its
+      `scaffold-prompts` mock is **partial on purpose** — `promptFeatureType` is stubbed,
+      `promptScaffoldFeature` stays real so its default-yes/decline confirm is still
+      exercised from `create`'s side through the mocked inquirer.
+- [x] `yarn test` (56 suites / 1209 tests), `yarn lint`, `yarn format:check`,
+      `npx tsc --noEmit`, `yarn build`, `yarn build:preview` green. Bundle unchanged in
+      substance (170.1 kB public / 201.3 kB preview).
+- [ ] **Follow-up, not done here:** `recoverableFromRecord` now has no known trigger. Decide
+      whether it stays as defence (current choice, documented at both sites) or goes. Do not
+      delete it on the strength of this entry alone — it is the only thing standing between
+      a blockless record and an `app-config.json` that silently reads as OAuth.

@@ -12,6 +12,9 @@ import { validateEnum, validateAppName, validateYesNo } from '../../lib/validato
 import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
 import { saveAppCredentials, saveAppName, hasLocalApp, readProjectConfig } from '../../lib/config';
+// The project writer, not the `scaffold` COMMAND. `create` has never depended on that
+// command — only on the file-writing half it used to be bundled with, which is now its
+// own module. `scaffold.ts` imports the same functions; the two commands don't meet.
 import {
   computeSlug,
   fetchAppContext,
@@ -19,14 +22,11 @@ import {
   runFeatureScaffold,
   resolveProjectDirectory,
   applyProjectDirectory,
-  promptFeatureType,
   reportBaseScaffoldSuccess,
   reportScaffoldSuccess,
   computeCdHint,
-} from './scaffold';
-// Not from './scaffold': that module is mocked wholesale in this command's tests,
-// and the confirm's own behaviour (default yes, decline) is covered there.
-import { promptScaffoldFeature } from './scaffold-prompts';
+} from './project-writer';
+import { promptFeatureType, promptScaffoldFeature } from './scaffold-prompts';
 import { appService } from '../../container';
 import { FeatureType } from '../../templates';
 import { CreateAppResponse, OAuthApp, UiApp } from '../../types';
@@ -542,7 +542,10 @@ export const createCommand = withCommandHandler(
     // this line a failed create left a stray directory and a moved cwd behind.
     applyCreateDirectory(dir, jsonMode);
 
-    // Store app credentials locally — client_secret may not be retrievable again.
+    // Cache the credentials locally. Not because this is the only copy — `GET
+    // /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
+    // too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
+    // `app start` can read them without a round trip.
     // Guarded because a UI app has no OAuth credentials to cache: writing the pair
     // unconditionally stored `{clientId: undefined, clientSecret: undefined}` under
     // its ID, which is a cache entry that can only mislead a later read.
@@ -595,9 +598,20 @@ export const createCommand = withCommandHandler(
       return;
     }
 
-    // Pass the freshly collected `ui_app` block explicitly: the server doesn't
-    // have it yet (it only learns about it on `app upload`), so the scaffold
-    // can't read it back from `fetchAppContext`'s server response.
+    // Pass the freshly collected `ui_app` block explicitly.
+    //
+    // NOT because the server lacks it — it does have it. This comment used to claim
+    // the server "only learns about it on `app upload`", which was true before create
+    // accepted the block and is false now: `persistCreateResultTx` writes an
+    // `app_versions` row *inside the create transaction* whose snapshot carries the
+    // `ui_app`, and `GET /cli/apps/{id}` serves it straight back from that snapshot
+    // (`applyLatestVersionFields`). Verified against app-store-bo-be, 2026-08-13.
+    //
+    // It is passed because a re-read is the wrong source, not an impossible one:
+    // `fetchAppContext` deliberately ignores `appDetails.ui_app` so stale or
+    // unexpected server data can't reclassify an app the user just told us the type
+    // of. The local answer is the authoritative one here; see that parameter's own
+    // comment in `./scaffold`.
     //
     // `result` is passed as the fallback so a read-back that 404s can't destroy a
     // successful create: the app is already on the server at this point, and the

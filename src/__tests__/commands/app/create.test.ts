@@ -42,7 +42,8 @@ jest.mock('../../../container', () => ({
   client: {},
 }));
 
-jest.mock('../../../commands/app/scaffold', () => ({
+// The project writer, not the `scaffold` command — that is what `create.ts` depends on.
+jest.mock('../../../commands/app/project-writer', () => ({
   computeSlug: jest.fn(
     (name: string | undefined) =>
       (name || 'my-app')
@@ -55,10 +56,18 @@ jest.mock('../../../commands/app/scaffold', () => ({
   runFeatureScaffold: jest.fn(),
   resolveProjectDirectory: jest.fn(),
   applyProjectDirectory: jest.fn(),
-  promptFeatureType: jest.fn(),
   reportBaseScaffoldSuccess: jest.fn(),
   reportScaffoldSuccess: jest.fn(),
   computeCdHint: jest.fn(),
+}));
+
+// Partial: `promptFeatureType` is stubbed so the feature choice is deterministic, but
+// `promptScaffoldFeature` stays REAL — its confirm is answered through the mocked
+// inquirer (the `scaffoldRaw` answers below), which is what exercises the default-yes
+// and decline paths from `create`'s side.
+jest.mock('../../../commands/app/scaffold-prompts', () => ({
+  ...jest.requireActual('../../../commands/app/scaffold-prompts'),
+  promptFeatureType: jest.fn(),
 }));
 
 jest.mock('node:fs');
@@ -80,20 +89,30 @@ import {
   runFeatureScaffold,
   resolveProjectDirectory,
   applyProjectDirectory,
-  promptFeatureType,
   reportBaseScaffoldSuccess,
   reportScaffoldSuccess,
   computeCdHint,
-} from '../../../commands/app/scaffold';
+} from '../../../commands/app/project-writer';
+import { promptFeatureType } from '../../../commands/app/scaffold-prompts';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
 describe('app/create', () => {
   let stdoutSpy: jest.SpyInstance;
   const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+  const originalColumnsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
   let chdirSpy: jest.SpyInstance;
 
   beforeEach(() => {
+    // `printBox` wraps to the terminal, and under jest there is no terminal — it would
+    // fall back to 80 columns and break long box lines mid-URL. Pin a wide window so
+    // these assertions read box CONTENT; the wrapping itself is covered in
+    // `__tests__/lib/ui.test.ts`, which is the only place that should care about width.
+    Object.defineProperty(process.stdout, 'columns', {
+      configurable: true,
+      writable: true,
+      value: 200,
+    });
     stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
     chdirSpy = jest.spyOn(process, 'chdir').mockImplementation(() => undefined);
     Object.defineProperty(process.stdin, 'isTTY', {
@@ -143,6 +162,11 @@ describe('app/create', () => {
       Object.defineProperty(process.stdin, 'isTTY', originalIsTTYDescriptor);
     } else {
       Reflect.deleteProperty(process.stdin, 'isTTY');
+    }
+    if (originalColumnsDescriptor) {
+      Object.defineProperty(process.stdout, 'columns', originalColumnsDescriptor);
+    } else {
+      Reflect.deleteProperty(process.stdout, 'columns');
     }
   });
 
@@ -1420,7 +1444,7 @@ describe('app/create', () => {
         // The flow asks the integration type FIRST, then the pages, then one placement
         // prompt per picked page.
         integrationType: 'actionLink',
-        surfaces: ['contact'],
+        surfaces: ['contactDetails'],
         ...perPage,
         label: 'View in CRM',
         more_info: '',
@@ -1543,6 +1567,12 @@ describe('app/create', () => {
         .filter((choice) => choice.type !== 'separator' && choice.value !== undefined)
         .map((choice) => choice.value);
 
+    // Labels, not values — `indentChoices` pads them, so callers trim.
+    const choiceNamesOf = (name: string) =>
+      ((questionNamed(name)?.choices ?? []) as Array<{ name?: string; type?: string }>)
+        .filter((choice) => choice.type !== 'separator' && choice.name !== undefined)
+        .map((choice) => String(choice.name));
+
     // A UI app has no OAuth block (`auth: {}` in its config) — the whole
     // auth key is omitted from the wire entirely, not sent empty.
     it('omits the auth block from the create payload', async () => {
@@ -1656,7 +1686,7 @@ describe('app/create', () => {
 
     it('reads the pages from the locations endpoint, then the picked pages by location', async () => {
       answerPrompts({
-        surfaces: ['contact', 'deal'],
+        surfaces: ['contactDetails', 'dealDetails'],
         placements: ['contact-details-header-menu', 'deal-details-header-menu'],
       });
 
@@ -1669,7 +1699,9 @@ describe('app/create', () => {
 
     // The page choices are the locations endpoint's answer, not a reduction of the rows:
     // here the row fixture covers three pages and only the two listed ones are offered.
-    it('offers exactly the pages the locations endpoint lists', async () => {
+    // They are also offered VERBATIM — no friendly renaming, so what's on screen is what
+    // the API said and what the row read is narrowed by.
+    it('offers exactly the pages the locations endpoint lists, verbatim', async () => {
       (appService.fetchSurfacePointLocations as jest.Mock).mockResolvedValue([
         'contactDetails',
         'dealDetails',
@@ -1677,7 +1709,21 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(choiceValuesOf('surfaces')).toEqual(['contact', 'deal']);
+      expect(choiceValuesOf('surfaces')).toEqual(['contactDetails', 'dealDetails']);
+      expect(choiceNamesOf('surfaces').map((name) => name.trim())).toEqual([
+        'contactDetails',
+        'dealDetails',
+      ]);
+    });
+
+    // No page is pre-ticked: the pages are the registry's answer, so the CLI nominating
+    // one of them would put a choice on screen that nothing on the platform made.
+    it('pre-selects no record page', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      const surfaces = questionNamed('surfaces');
+      expect(surfaces).toBeDefined();
+      expect(surfaces?.default).toBeUndefined();
     });
 
     // The narrowed read is now the only row read, so a filter an early build doesn't
@@ -1710,7 +1756,7 @@ describe('app/create', () => {
     // placements they asked for instead of a warning that a page they can see has nothing.
     it('retries unfiltered when the narrowed read covers only some picked pages', async () => {
       answerPrompts({
-        surfaces: ['contact', 'deal'],
+        surfaces: ['contactDetails', 'dealDetails'],
         placements: ['contact-details-header-menu', 'deal-details-header-menu'],
       });
       (appService.fetchSurfacePoints as jest.Mock)
@@ -1739,7 +1785,7 @@ describe('app/create', () => {
 
     it('asks one placement prompt per picked page, each listing only that page', async () => {
       answerPrompts({
-        surfaces: ['contact', 'deal'],
+        surfaces: ['contactDetails', 'dealDetails'],
         placements: ['contact-details-header-menu', 'deal-details-overview-main'],
       });
 
@@ -1778,7 +1824,7 @@ describe('app/create', () => {
     // the per-page prompt buys, and what the old kind-then-place pair made unauthorable.
     it('mixes menu entries and cards across pages in one app', async () => {
       answerPrompts({
-        surfaces: ['contact', 'deal'],
+        surfaces: ['contactDetails', 'dealDetails'],
         placements: ['contact-details-header-menu', 'deal-details-overview-sidebar'],
       });
 
@@ -1795,7 +1841,7 @@ describe('app/create', () => {
     it('writes the placements in registry order regardless of answer order', async () => {
       answerPrompts({
         // Deal answered first; contact rows come first in the registry.
-        surfaces: ['deal', 'contact'],
+        surfaces: ['dealDetails', 'contactDetails'],
         placements: ['deal-details-overview-sidebar', 'contact-details-header-menu'],
       });
 
@@ -1822,7 +1868,7 @@ describe('app/create', () => {
     // authors three placements — no page can be silently left out, and none can take two.
     it('authors exactly one placement for each picked page', async () => {
       answerPrompts({
-        surfaces: ['contact', 'company', 'deal'],
+        surfaces: ['contactDetails', 'companyDetails', 'dealDetails'],
         placements: [
           'contact-details-header-menu',
           'company-details-overview-main',
@@ -1853,7 +1899,7 @@ describe('app/create', () => {
     describe('a picked page with no placement that can host the chosen type', () => {
       beforeEach(() => {
         answerPrompts({
-          surfaces: ['contact', 'deal'],
+          surfaces: ['contactDetails', 'dealDetails'],
           placements: ['contact-details-header-menu'],
         });
         // The deal page is listed and has a placement, but not one an actionLink can use —
@@ -2010,14 +2056,16 @@ describe('app/create', () => {
       expect(appService.createApp).not.toHaveBeenCalled();
     });
 
-    it('offers an unknown location under a derived name and accepts it', async () => {
+    it('offers a page the CLI has never heard of, unchanged, and accepts it', async () => {
       registryHas([REGISTRY_ROW('orderDetails', 'headerMenu', 'action')]);
-      answerPrompts({ surfaces: ['order'], placements: ['order-details-header-menu'] });
+      answerPrompts({ surfaces: ['orderDetails'], placements: ['order-details-header-menu'] });
 
       await createCommand(CLI_OPTIONS);
 
-      // The page is registry-only (no entry in the local surface-name map), so this also
-      // proves the prompt labels whatever the locations endpoint lists.
+      // A page the CLI carries no knowledge of at all needs no code change to be
+      // authorable — which is the point of showing the registry's token rather than a
+      // name of the CLI's own.
+      expect(choiceValuesOf('surfaces')).toEqual(['orderDetails']);
       expect(surfacePointNames()).toEqual(['order-details-header-menu']);
     });
 
@@ -2081,7 +2129,7 @@ describe('app/create', () => {
         }),
       ]);
       answerPrompts({
-        surfaces: ['contact', 'deal'],
+        surfaces: ['contactDetails', 'dealDetails'],
         placements: ['contact-details-header-menu', 'deal-details-header-menu'],
       });
 
@@ -2180,7 +2228,7 @@ describe('app/create', () => {
 
       const surfaces = questionNamed('surfaces');
       expect((surfaces?.validate as (v: unknown[]) => unknown)([])).toMatch(/at least one/i);
-      expect((surfaces?.validate as (v: unknown[]) => unknown)(['contact'])).toBe(true);
+      expect((surfaces?.validate as (v: unknown[]) => unknown)(['contactDetails'])).toBe(true);
     });
 
     it('never offers the OAuth feature scaffold', async () => {

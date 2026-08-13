@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { isAuthenticated, readProjectConfig } from '../lib/config';
+import { isAuthenticated, isUiAppConfig, readProjectConfig } from '../lib/config';
 import { logSuccess, logInfo, logWarn, logDebug } from '../lib/logger';
 import { createSpinner, indentChoices } from '../lib/ui';
 import { messages } from '../lang/en';
@@ -97,6 +97,18 @@ async function promptLinkedAppAction(
   return action;
 }
 
+/**
+ * The closing line, chosen by what the run actually left on disk.
+ *
+ * Read back from the project rather than threaded out of `create`/`scaffold`: both
+ * `process.chdir()` into the project they wrote, so the config in cwd is theirs, and
+ * neither returns anything. A run that wrote no config at all (a declined scaffold)
+ * falls through to the OAuth line, which is what it was before any of this.
+ */
+function initDoneMessage(): string {
+  return isUiAppConfig(readProjectConfig()) ? messages.INIT_DONE_UI_APP : messages.INIT_DONE;
+}
+
 export const initCommand = withCommandHandler(
   async (_options: Record<string, unknown>): Promise<void> => {
     process.stdout.write(`\n  ${messages.INIT_WELCOME}\n`);
@@ -113,14 +125,14 @@ export const initCommand = withCommandHandler(
       const action = await promptLinkedAppAction(configAppId, linkedName);
 
       if (action === 'skip') {
-        logInfo(`\n  ${messages.INIT_DONE}\n`);
+        logInfo(`\n  ${initDoneMessage()}\n`);
         return;
       }
 
       if (action === 'scaffold') {
         process.stdout.write('\n');
         await scaffoldCommand({});
-        logInfo(`\n  ${messages.INIT_DONE}\n`);
+        logInfo(`\n  ${initDoneMessage()}\n`);
         return;
       }
       // action === 'create' — fall through
@@ -135,6 +147,6 @@ export const initCommand = withCommandHandler(
 
     process.stdout.write('\n');
     await createCommand({});
-    logInfo(`\n  ${messages.INIT_DONE}\n`);
+    logInfo(`\n  ${initDoneMessage()}\n`);
   },
 );

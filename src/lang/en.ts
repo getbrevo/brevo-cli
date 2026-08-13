@@ -1,6 +1,21 @@
 import { CLI, BREVO_CLI_REFERENCE_URL, BREVO_OAUTH_SCOPES_DOCS_URL } from '../lib/constants';
 import { previewMessages } from './preview-messages';
 
+/**
+ * How a scaffold report describes what it just did, given the files it wrote and the
+ * files the project ends up with.
+ *
+ * They are equal on a fresh scaffold and diverge on a merge, which keeps existing files
+ * and writes only the missing ones — so "wrote 0" and "the project has 5" are both true
+ * and only the pair is informative. Saying just the first printed `(0 files)` above a
+ * five-file tree; saying just the second would claim to have written files it left alone.
+ */
+function scaffoldFileCount(done: string, written: number, total: number): string {
+  if (written === total) return `${done} (${total} files)`;
+  if (written === 0) return `already in place (${total} files, nothing rewritten)`;
+  return `${done} (${written} of ${total} files written)`;
+}
+
 const coreMessages = {
   // Update notifier
   UPDATE_AVAILABLE: (current: string, latest: string): string =>
@@ -115,7 +130,12 @@ const coreMessages = {
   // `promptFeatureType`.
   APP_SCAFFOLD_FEATURE_CONFIRM: (label?: string) =>
     label ? `Scaffold the ${label}?` : 'Do you want to scaffold a feature?',
-  APP_CREATE_BASE_SUCCESS: (count: number) => `Project structure created (${count} files)`,
+  // `written` counts files actually put on disk, `total` the files the project has —
+  // and they differ whenever a merge kept what was already there. Reporting only
+  // `written` printed "created (0 files)" directly above a five-file tree, which read
+  // as a failure. See `scaffoldFileCount`, which both scaffold reports share.
+  APP_CREATE_BASE_SUCCESS: (written: number, total: number) =>
+    `Project structure ${scaffoldFileCount('created', written, total)}`,
   APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] => [
     ...(cdDir ? [`1. cd ${cdDir}`] : []),
     `${cdDir ? 2 : 1}. ${CLI.APP_SCAFFOLD}   (add a feature — e.g. the OAuth test server)`,
@@ -316,7 +336,8 @@ const coreMessages = {
   // the scaffold needs except `scopes` (which falls back to the defaults).
   APP_SCAFFOLD_SERVER_READBACK_FAILED: (appId: string) =>
     `App ${appId} was created but could not be read back from the server. Scaffolding from the create response instead — run \`${CLI.APP_SCAFFOLD}\` later to refresh app-config.json from the server.`,
-  APP_SCAFFOLD_SUCCESS: (count: number) => `Feature scaffolded (${count} files)`,
+  APP_SCAFFOLD_SUCCESS: (written: number, total: number) =>
+    `Feature ${scaffoldFileCount('scaffolded', written, total)}`,
   APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_DEPLOY()}\`.`,
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
   APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
@@ -405,6 +426,13 @@ const coreMessages = {
   INIT_APP_LINKED: (name: string) => `App "${name}" is linked to this project (app-config.json).`,
   INIT_APP_ACTION: 'What would you like to do?',
   INIT_DONE: `All set! Run \`${CLI.APP_START('oauth')}\` to test your OAuth flow, or \`${CLI.HELP}\` to see all commands.`,
+  // `init` ends by naming the obvious next command, and for a UI app that is not
+  // `app start oauth`: an action link has no OAuth flow and no local server to run,
+  // so the OAuth line pointed at a command that would fail. It also contradicted the
+  // Next steps box printed directly above it, which already said upload → deploy.
+  // Deliberately in core rather than `preview-messages`: `init` is not a gated command,
+  // and a hand-edited `ui_app` block can reach this line in a published build.
+  INIT_DONE_UI_APP: `All set! Follow the next steps above, or run \`${CLI.HELP}\` to see all commands.`,
 
   // Skill
   SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string) =>

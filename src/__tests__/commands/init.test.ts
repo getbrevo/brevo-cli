@@ -8,6 +8,9 @@ jest.mock('../../lib/config', () => ({
   getApiKey: jest.fn().mockReturnValue('test-key'),
   isAuthenticated: jest.fn(),
   readProjectConfig: jest.fn(),
+  // Real implementation, not a stub: the closing line branches on it, and the whole
+  // point of the branch is that it reads what `create`/`scaffold` left behind.
+  isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
 
 jest.mock('../../commands/login', () => ({

@@ -19,10 +19,33 @@ describe('messages (lang/en)', () => {
     expect(messages.APP_DELETE_CONFIRM('MyApp', '42')).toContain('MyApp');
     expect(messages.APP_DELETE_CONFIRM('MyApp', '42')).toContain('42');
     expect(messages.APP_DELETE_SUCCESS('1')).toContain('1');
-    expect(messages.APP_SCAFFOLD_SUCCESS(5)).toContain('5');
+    expect(messages.APP_SCAFFOLD_SUCCESS(5, 5)).toContain('5');
     expect(messages.ERR_RATE_LIMITED(5)).toContain('5');
     expect(messages.INIT_APPS_EXIST(3)).toContain('3');
     expect(messages.INIT_APPS_EXIST(1)).not.toContain('apps');
+  });
+
+  // A merge keeps existing files and writes only the missing ones, so "wrote 0" and
+  // "the project has 5" are both true. Reporting only the first printed
+  // "created (0 files)" directly above a five-file tree, which read as a failure.
+  it('reports written and total separately when a merge kept existing files', () => {
+    expect(messages.APP_CREATE_BASE_SUCCESS(5, 5)).toBe('Project structure created (5 files)');
+    expect(messages.APP_CREATE_BASE_SUCCESS(0, 5)).toBe(
+      'Project structure already in place (5 files, nothing rewritten)',
+    );
+    expect(messages.APP_CREATE_BASE_SUCCESS(2, 5)).toBe(
+      'Project structure created (2 of 5 files written)',
+    );
+    expect(messages.APP_SCAFFOLD_SUCCESS(3, 3)).toBe('Feature scaffolded (3 files)');
+    expect(messages.APP_SCAFFOLD_SUCCESS(0, 3)).toContain('already in place');
+  });
+
+  // `init` closes by naming the obvious next command, and a UI app has no OAuth flow
+  // to start — the OAuth line pointed at a command that would fail.
+  it('does not send a UI app to the OAuth test server', () => {
+    expect(messages.INIT_DONE).toContain('app start oauth');
+    expect(messages.INIT_DONE_UI_APP).not.toContain('oauth');
+    expect(messages.INIT_DONE_UI_APP).toContain('--help');
   });
 
   it('should have working app start messages', () => {
