@@ -13,6 +13,7 @@ interface RequestOptions {
 }
 
 type AuthFailureHandler = () => Promise<void>;
+type EnsureFreshHandler = () => Promise<void>;
 
 export interface ApiClientDeps {
   baseUrl: string;
@@ -26,6 +27,11 @@ const MAX_RETRY_AFTER_SECONDS = 300;
 const apiCodeMessages: Record<string, string> = {
   APP_LIMIT_REACHED: messages.APP_CREATE_LIMIT_REACHED,
   REGISTRY_ERROR: messages.ERR_REGISTRY,
+  // app-store-bo-be's `gateUIApp` answers 403 `ui_app_not_enabled` when the calling
+  // account lacks the public-apps flag and the request authors a `ui_app` block. It
+  // guards both `app create` and `app upload`, so it is mapped here rather than in
+  // either command — the code is stable, unlike the copy.
+  ui_app_not_enabled: messages.ERR_UI_APP_NOT_ENABLED,
 };
 
 function resolveErrorMessage(apiCode: string | undefined, fallback: string): string {
@@ -94,10 +100,15 @@ function parseResponseData(text: string, status: number): Record<string, unknown
 
 function throwResponseError(data: Record<string, unknown>, status: number): never {
   const apiCode = typeof data.code === 'string' ? data.code : undefined;
-  const rawFallback =
-    typeof data.message === 'string' && data.message
-      ? data.message
-      : `Request failed with status ${status}`;
+  // Prefer the API's human-readable text: some endpoints return `message`,
+  // others (e.g. app upload's `distribution_type cannot be changed via upload`)
+  // return it under `error`. Surface whichever is present before falling back
+  // to the generic status line.
+  const apiText =
+    (typeof data.message === 'string' && data.message) ||
+    (typeof data.error === 'string' && data.error) ||
+    '';
+  const rawFallback = apiText || `Request failed with status ${status}`;
   const fallback = sanitizeErrorMessage(rawFallback);
   const message = resolveErrorMessage(apiCode, fallback);
   throw new ApiError(message, status, mapErrorCode(status, apiCode), apiCode);
@@ -123,11 +134,32 @@ function mapErrorCode(status: number, apiCode?: string): ErrorCode | undefined {
 
 export class ApiClient {
   private onAuthFailure?: AuthFailureHandler;
+  private ensureFresh?: EnsureFreshHandler;
 
   constructor(private readonly deps: ApiClientDeps) {}
 
   setOnAuthFailure(handler: AuthFailureHandler): void {
     this.onAuthFailure = handler;
+  }
+
+  /**
+   * Runs before every authenticated request, to renew an access token that is
+   * expired or about to be.
+   *
+   * The same check also runs once as a `preAction` hook, and that one is not
+   * redundant — it is what fails a dead session *before* an interactive command
+   * starts asking questions. This one covers the other half: a token that was
+   * comfortably fresh when the command started and expired somewhere in the
+   * minutes of prompts before the first request went out. `brevo app create`
+   * makes no API call at all until every prompt is answered, so that window is
+   * as long as the user is slow.
+   *
+   * Cheap: it only reaches the network when the stored expiry is actually
+   * within the skew, so the common case is a file read. Wired in `bin/index.ts`
+   * over the same deps as the hook, so the two can't drift.
+   */
+  setEnsureFresh(handler: EnsureFreshHandler): void {
+    this.ensureFresh = handler;
   }
 
   get<T>(path: string): Promise<T> {
@@ -146,8 +178,10 @@ export class ApiClient {
     return this.request<T>({ method: 'PUT', path, body });
   }
 
-  delete<T>(path: string): Promise<T> {
-    return this.request<T>({ method: 'DELETE', path });
+  // A body on DELETE is unusual but not disallowed, and the app-store installs
+  // resource requires one (it identifies the install by account, not by path).
+  delete<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>({ method: 'DELETE', path, body });
   }
 
   getWithKey<T>(path: string, apiKey: string): Promise<T> {
@@ -201,10 +235,28 @@ export class ApiClient {
   }
 
   private async request<T>(opts: RequestOptions, isRetry = false, retryCount = 0): Promise<T> {
+    // Before the headers are built, so the renewed token is the one that gets
+    // sent. Skipped for requests that carry their own credential: `getWithKey`
+    // and `getWithBearer` are login's own validation calls, and refreshing the
+    // stored session underneath them would be answering a question they didn't
+    // ask. Re-entered on the 401/429/502 retries below — harmless, since it is
+    // a no-op unless the token is inside the skew, and after a long 429 backoff
+    // it is the check that keeps the retry from going out stale.
+    if (this.ensureFresh && !opts.skipAuth && !opts.authHeader) {
+      await this.ensureFresh();
+    }
+
     const url = `${this.deps.baseUrl}${opts.path}`;
     const headers = this.buildHeaders(opts);
 
     logHttp(opts.method, opts.path);
+    // The request body, symmetric with the response log below and redacted by the
+    // same rules. Logged before the fetch so the payload is visible even when the
+    // request never comes back (timeout, network error). A bodyless method logs
+    // nothing rather than a bare `undefined`.
+    if (opts.body !== undefined) {
+      logDebug(`request ${opts.method} ${opts.path}`, opts.body);
+    }
     const response = await this.performFetch(url, opts, headers);
     logHttpResponse(response.status, opts.path);
 
@@ -234,7 +286,7 @@ export class ApiClient {
     const text = await response.text();
     const data = parseResponseData(text, response.status);
 
-    logDebug(`response ${opts.path}`, data);
+    logDebug(`response ${opts.method} ${opts.path}`, data);
 
     if (!response.ok) {
       throwResponseError(data, response.status);

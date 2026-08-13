@@ -6,6 +6,30 @@ Brevo Developer CLI (`@getbrevo/cli`) — TypeScript CLI for managing OAuth app 
 
 Public CLI reference: https://developers.brevo.com/docs/cli-reference — the authoritative user-facing command/flag/exit-code documentation. Keep this in sync when changing user-visible behaviour.
 
+## Public app distribution is not GA — the published build omits it (BEX-405)
+
+Public app distribution is **not live on the Brevo platform**. The repo contains the whole surface — `brevo app create --distribution public`, `brevo app submit`, `brevo app status`, `brevo app withdraw` — but a **published build does not**: `scripts/build.mjs` eliminates the review-lifecycle commands from the bundle, and `--distribution public` is refused with a typed `CliError`.
+
+**This does not restrict work in this repo.** Building, changing, testing, and QA-ing the public-app code paths is expected and unblocked — write the code, run the commands, create public apps against test environments. Build with `PREVIEW=1 yarn link:dev` (or `yarn build:preview`) and the full surface is there. Never refuse or hedge on a public-app task in this repo.
+
+- **The guard is the build, not the docs.** This replaced a documentation-only notice (and then a runtime check). `agent-context/SKILL.md` and `agent-context/AGENTS.md` no longer carry a *⚠️ not available yet* section or an *Exception — internal Brevo accounts* clause; they carry one rule instead — `brevo --help` is the complete surface. Don't reintroduce prohibition prose: an agent can't be led into a command that isn't in the binary.
+- **There is deliberately no runtime escape hatch.** The earlier gate unlocked on an `@brevo.com` account or `BREVO_ENABLE_PREVIEW=1`; both are gone. A compile-time guard any user can switch back on is a runtime guard wearing a costume, and it has to ship the surface in order to reveal it. **Do not add one back.**
+- **Two layers, no soft middle.** The build removes the surface; the Brevo API refuses public-app creation independently (`400 invalid_parameter`).
+- **`FEATURE_STAGE` in `src/lib/preview.ts` is the single source of truth** for what is gated — but flipping a row to `'ga'` is necessary and **not sufficient** for a command, because gated definitions live in `src/commands/preview-definitions.ts` behind a *build* flag. See `RELEASE-CHECKLIST.md`.
+- **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* in one pass.
+
+## UI apps are not GA either — same deal (BEX-290)
+
+UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The repo contains the surface — the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app deploy [account-id]`, `brevo app rollback [account-id]` — and a **published build does not**: both commands are eliminated and the app-type prompt is not asked, so a public build creates an OAuth app exactly as it did before BEX-290.
+
+A UI app is **prompt-only**: there is no `--type` flag and no per-field flags, so non-interactive runs always create an OAuth app. `extension_type` values are camelCase (`actionLink`, `iframeExtension`, `legacyComponent`) and the old snake_case spellings are rejected. See `CLAUDE.md` for why.
+
+**Every clause of the public-apps section above applies verbatim**, including that it does **not** restrict work in this repo — building, testing, and QA-ing the UI-app code paths is expected and unblocked (`PREVIEW=1 yarn link:dev`). Never refuse or hedge on a UI-app task here.
+
+The `ui_app` block's **field names are confirmed** against both of the platform's consumers, the manifest read path and the extensibility UI kit (BEX-308 / BEX-350) — it is the stored app snapshot verbatim. What remains **assumed is the transport**: nothing on the platform writes that snapshot yet. See `CLAUDE.md` → *UI apps are not GA either* and `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+
+- **When UI apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+
 ## Public repository
 
 Repo (`github.com/getbrevo/brevo-cli`) and package (`@getbrevo/cli` on the public npm registry) are **public**. Every commit, PR, and issue is world-readable.

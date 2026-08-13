@@ -4,19 +4,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Command } from 'commander';
 import { installAuthGuard } from '../lib/auth-guard';
-import { installProactiveOauthRefresh } from '../lib/oauth-freshness';
+import { installProactiveOauthRefresh, ensureFreshOauthToken } from '../lib/oauth-freshness';
 import { logError, logInfo, logWarn, logSuccess, logDebug } from '../lib/logger';
 import { EXIT_CODES } from '../lib/exit-codes';
 import { CliError, AbortError, AuthExpiredError } from '../lib/errors';
 import { messages } from '../lang/en';
 import { readHiddenInput } from '../lib/hidden-input';
 import { saveCredentials, clearCredentials, getAuthCred, updateOauthTokens } from '../lib/config';
-import {
-  ENDPOINTS,
-  OAUTH_PROXY_URL,
-  warnIfPathStripped,
-  BREVO_CLI_REFERENCE_URL,
-} from '../lib/constants';
+import { ENDPOINTS, OAUTH_PROXY_URL, warnIfPathStripped } from '../lib/constants';
 import { refreshAccessToken, RefreshError } from '../services/oauth-refresh';
 import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
@@ -30,6 +25,8 @@ import {
   shouldShowBannerBefore,
 } from '../lib/update-notifier';
 import { skillService } from '../services/skill';
+import { emitJsonError } from '../lib/json-output';
+import { createHelpFormatter } from '../lib/help';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
 const version: string = pkg.version;
@@ -53,57 +50,7 @@ program
   .description('Brevo Developer CLI — create, manage, and test OAuth integrations')
   .version(version)
   .option('--debug', 'Enable debug logging')
-  .configureHelp({
-    formatHelp: (_cmd, helper) => {
-      const version = helper.commandDescription(_cmd);
-      return [
-        `Usage: brevo [options] [command]`,
-        ``,
-        version,
-        ``,
-        `Options:`,
-        `  -V, --version    output the version number`,
-        `  -h, --help       display help for command`,
-        ``,
-        `Commands:`,
-        `  brevo login       [--browser] [--json]         Authenticate with your Brevo account`,
-        `  brevo logout      [--json]                     Clear stored credentials`,
-        `  brevo whoami      [--json]                     Show current authenticated user`,
-        ``,
-        `App commands:`,
-        `  brevo app init                                 Quick setup — login, create app, and scaffold`,
-        `  brevo app create      [--name] [--distribution private|public] [--redirect-uri <url>...] [--logo-uri <url>] [--json]`,
-        `  brevo app list        [--json]`,
-        `  brevo app credentials [--app-id <id>] [--reveal-secret] [--json]`,
-        `  brevo app update      [--app-id <id>] [--name] [--redirect-uri <url>...] [--logo-uri <url>] [--json]`,
-        `  brevo app delete      [--app-id <id>] [--force] [--json]`,
-        `  brevo app scaffold    [--app-id <id>] [--json]`,
-        `  brevo app start       [feature] [--port <port>]`,
-        ``,
-        `Skill commands:`,
-        `  brevo skill:cli install   [--json]             Install the brevo-cli Claude Code skill`,
-        `  brevo skill:cli uninstall [--json]             Remove the brevo-cli skill`,
-        ``,
-        `Scope commands:`,
-        `  brevo app available-scopes [--web] [--json]    List OAuth scopes supported by the IdP`,
-        `                                                 (--web opens the catalog in a local browser page)`,
-        ``,
-        `Run \`brevo <command> --help\` for details on a specific command.`,
-        ``,
-        `Examples:`,
-        `  $ brevo login                                   # authenticate interactively`,
-        `  $ brevo app init                                # guided setup`,
-        `  $ brevo app create --name "My App" --json       # create app, JSON output`,
-        `  $ brevo app list --json                         # list apps as JSON`,
-        `  $ brevo app scaffold --app-id APPID             # generate starter code`,
-        `  $ brevo app start oauth --port 3000             # start OAuth test server`,
-        `  $ brevo app available-scopes --web              # browse OAuth scope catalog`,
-        ``,
-        `Docs: ${BREVO_CLI_REFERENCE_URL}`,
-        ``,
-      ].join('\n');
-    },
-  })
+  .configureHelp({ formatHelp: createHelpFormatter(program) })
   .action((_options, cmd) => {
     const stray = cmd.args;
     if (stray.length === 0) {
@@ -121,19 +68,35 @@ program
 // Auth guard — blocks unauthenticated access (except login, logout, help)
 installAuthGuard(program);
 
-// Proactive OAuth refresh — replaces a near-expiry access token before the
-// command runs, so a short access-token TTL stays invisible and the session
-// lives as long as the refresh token does. Best-effort: failures are logged at
-// debug level and never block the command. The reactive handler below stays the
-// safety net and the only place credentials get cleared.
-installProactiveOauthRefresh(program, {
+// Proactive OAuth refresh — replaces a near-expiry access token, so a short
+// access-token TTL stays invisible and the session lives as long as the refresh
+// token does.
+//
+// A failure that says nothing about the session (network blip, 5xx, unwritable
+// file) is logged at debug level and never blocks the command. A *refused
+// refresh token* is different in kind: nothing later in the run can recover it,
+// so it clears credentials and stops the command — see `isTerminal` below.
+const oauthFreshnessDeps = {
   getAuthCred,
-  refresh: (refreshToken) => refreshAccessToken(refreshToken, OAUTH_PROXY_URL),
+  refresh: (refreshToken: string) => refreshAccessToken(refreshToken, OAUTH_PROXY_URL),
   persist: updateOauthTokens,
-  onError: (err) =>
+  // `unauthorized` is set only by a 401 from the proxy's `/refresh`, i.e. the
+  // refresh token itself was rejected. Anything else — including a timeout
+  // against that same endpoint — stays best-effort.
+  isTerminal: (err: unknown) => err instanceof RefreshError && err.unauthorized,
+  onTerminal: clearCredentials,
+  onError: (err: unknown) =>
     logDebug('proactive oauth refresh skipped', {
       reason: err instanceof Error ? err.message : String(err),
     }),
+};
+
+// Once before the command body — the check that has to beat the first prompt.
+installProactiveOauthRefresh(program, oauthFreshnessDeps);
+// And again before each authenticated request, for a token that expires during
+// a long interactive flow. Same deps object: one policy, two trigger points.
+client.setEnsureFresh(async () => {
+  await ensureFreshOauthToken(oauthFreshnessDeps);
 });
 
 // ──────────────── Register all commands ────────────────
@@ -196,12 +159,9 @@ warnIfPathStripped();
 // latest npm release, block the command (non-zero exit) so the user upgrades.
 // Skipped for --help/--version (so help stays reachable) and whenever the
 // update check itself is skipped (CI / non-TTY / opt-out). Fails open.
-const args = process.argv.slice(2);
+const args = new Set(process.argv.slice(2));
 const isHelpOrVersion =
-  args.includes('--help') ||
-  args.includes('-h') ||
-  args.includes('--version') ||
-  args.includes('-V');
+  args.has('--help') || args.has('-h') || args.has('--version') || args.has('-V');
 
 const forceGate = isHelpOrVersion
   ? Promise.resolve()
@@ -227,6 +187,7 @@ forceGate
     process.exit(0);
   })
   .catch((err) => {
+    emitJsonError(err);
     if (err instanceof AbortError) {
       logInfo(`\n  ${messages.ABORTED}`);
       process.exit(EXIT_CODES.ABORTED);

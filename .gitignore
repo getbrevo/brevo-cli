@@ -9,6 +9,9 @@ coverage/
 .planning/
 package-lock.json
 src/__tests__/**/__sandbox__/
+# Scratch app scaffolded by `brevo app create` for manual testing. Carries a real
+# app ID and credentials, which must never reach this public repo.
+test/
 .env.local
 *.tsbuildinfo
 .planning/

@@ -22,7 +22,7 @@ import { EXIT_CODES } from '../lib/exit-codes';
 import { withCommandHandler } from '../lib/command-handler';
 import { createCommand } from './app/create';
 import { appService, accountService, client } from '../container';
-import { printBox, createSpinner } from '../lib/ui';
+import { printBox, createSpinner, indentChoices } from '../lib/ui';
 import { jsonOutput } from '../lib/json-output';
 import { AccountResponse } from '../types';
 import { runBrowserLoginFlow } from '../services/browser-auth';
@@ -78,10 +78,10 @@ async function resolveLoginMethod(
       type: 'list',
       name: 'chosen',
       message: messages.AUTH_PROMPT_METHOD,
-      choices: [
+      choices: indentChoices([
         { name: 'Browser  (sign in through your browser)', value: 'browser' },
         { name: 'API key  (paste from your Brevo dashboard)', value: 'api-key' },
-      ],
+      ]),
       default: 'browser',
     },
   ]);
@@ -235,7 +235,7 @@ async function showNextSteps(): Promise<void> {
     printBox("What's next?", [
       CLI.APP_CREATE,
       CLI.APP_LIST,
-      CLI.APP_SCAFFOLD(),
+      CLI.APP_SCAFFOLD,
       CLI.APP_CREDENTIALS(),
     ]);
     return;

@@ -42,6 +42,11 @@ const mockReadProjectConfig = readProjectConfig as jest.Mock;
 
 describe('app/delete', () => {
   let stdoutSpy: jest.SpyInstance;
+  const originalIsTTY = process.stdin.isTTY;
+
+  function withTTY(value: boolean): void {
+    Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true });
+  }
 
   beforeEach(() => {
     stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -50,6 +55,10 @@ describe('app/delete', () => {
 
   afterEach(() => {
     stdoutSpy.mockRestore();
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: originalIsTTY,
+      configurable: true,
+    });
   });
 
   it('should delete app with --force and --appId', async () => {
@@ -102,6 +111,7 @@ describe('app/delete', () => {
   });
 
   it('should prompt app picker when no appId provided', async () => {
+    withTTY(true);
     (appService.fetchAppsList as jest.Mock).mockResolvedValue([
       { app_id: '1', client_id: 'cli-123' },
       { app_id: '2', client_id: 'cli-456' },
@@ -118,9 +128,33 @@ describe('app/delete', () => {
   });
 
   it('should throw when no apps exist and no appId provided', async () => {
+    withTTY(true);
     (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
 
     await expect(deleteCommand({})).rejects.toThrow('No apps found');
+  });
+
+  // The picker writes its choice list to stdout, so reaching it under --json
+  // corrupts the JSON document, and off a TTY inquirer dies on a raw
+  // ERR_USE_AFTER_CLOSE readline stack. Refuse before fetching anything.
+  it('refuses instead of opening the picker under --json', async () => {
+    withTTY(true);
+
+    await expect(deleteCommand({ json: true })).rejects.toThrow(/--app-id/);
+
+    expect(appService.fetchAppsList).not.toHaveBeenCalled();
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(appService.deleteApp).not.toHaveBeenCalled();
+  });
+
+  it('refuses instead of opening the picker off a TTY', async () => {
+    withTTY(false);
+
+    await expect(deleteCommand({})).rejects.toThrow(/--app-id/);
+
+    expect(appService.fetchAppsList).not.toHaveBeenCalled();
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(appService.deleteApp).not.toHaveBeenCalled();
   });
 
   it('should prompt to delete folder when app-config.json matches deleted app', async () => {

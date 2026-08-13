@@ -4,12 +4,13 @@ import * as os from 'node:os';
 import inquirer from 'inquirer';
 import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { CliError } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { deleteAppCredentials, deleteAppName, readProjectConfig } from '../../lib/config';
+import { assertAppSelectionAllowed, promptAppSelection } from './select-app';
+import { CLI } from '../../lib/constants';
 
 function isSafeToDelete(dir: string): boolean {
   const resolved = path.resolve(dir);
@@ -22,36 +23,6 @@ function isSafeToDelete(dir: string): boolean {
   // Must contain app-config.json (scaffold marker)
   if (!fs.existsSync(path.join(resolved, 'app-config.json'))) return false;
   return true;
-}
-
-// We need the full apps list to get appLabel for the confirmation prompt
-async function promptAppSelection(): Promise<{ appId: string; appLabel: string }> {
-  const listSpinner = createSpinner('Fetching apps...');
-  let apps;
-  try {
-    apps = await appService.fetchAppsList();
-  } finally {
-    listSpinner.stop();
-  }
-  if (apps.length === 0) {
-    logInfo(`\n  ${messages.APP_LIST_EMPTY}\n`);
-    throw new CliError(messages.APP_LIST_EMPTY);
-  }
-
-  const { selectedApp } = await inquirer.prompt([
-    {
-      type: 'rawlist',
-      name: 'selectedApp',
-      message: 'Select an app to delete:',
-      choices: apps.map((a) => ({
-        name: `${a.name || 'App ' + a.app_id}  (App ID: ${a.app_id}, Client ID: ${a.client_id})`,
-        value: a.app_id,
-      })),
-    },
-  ]);
-  const appId = selectedApp as string;
-  const matched = apps.find((a) => a.app_id === appId);
-  return { appId, appLabel: matched?.name || matched?.client_id || appId };
 }
 
 async function confirmDeletion(appLabel: string, appId: string): Promise<boolean> {
@@ -110,7 +81,8 @@ export const deleteCommand = withCommandHandler(
     let appLabel = '';
 
     if (!appId) {
-      const selection = await promptAppSelection();
+      assertAppSelectionAllowed(CLI.APP_DELETE_APP_ID(), options.json);
+      const selection = await promptAppSelection(messages.APP_DELETE_SELECT);
       appId = selection.appId;
       appLabel = selection.appLabel;
     }

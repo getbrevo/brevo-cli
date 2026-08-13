@@ -8,6 +8,9 @@ jest.mock('../../lib/config', () => ({
   getApiKey: jest.fn().mockReturnValue('test-key'),
   isAuthenticated: jest.fn(),
   readProjectConfig: jest.fn(),
+  // Real implementation, not a stub: the closing line branches on it, and the whole
+  // point of the branch is that it reads what `create`/`scaffold` left behind.
+  isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
 
 jest.mock('../../commands/login', () => ({
@@ -192,7 +195,8 @@ describe('initCommand', () => {
     await initCommand({});
 
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
-    expect(scaffoldCommand).toHaveBeenCalledWith({ appId: '42' });
+    // scaffold now reads the linked app from cwd's app-config.json itself.
+    expect(scaffoldCommand).toHaveBeenCalledWith({});
     expect(createCommand).not.toHaveBeenCalled();
   });
 
@@ -252,6 +256,6 @@ describe('initCommand', () => {
     await initCommand({});
 
     expect(appService.fetchApp).toHaveBeenCalledWith(uuid);
-    expect(scaffoldCommand).toHaveBeenCalledWith({ appId: uuid });
+    expect(scaffoldCommand).toHaveBeenCalledWith({});
   });
 });

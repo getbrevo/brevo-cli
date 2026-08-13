@@ -2,6 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { splitScopes } from './validators';
+import { OAuthApp, UiApp } from '../types';
+import { isUiAppConfigShape, isUiAppRecordShape } from '../app-types/ui/detect';
 
 // ──────────────── Directory ────────────────
 
@@ -345,7 +347,7 @@ export function deleteAppCredentials(appId: string): void {
   writeCredentials(creds);
 }
 
-// Locally cached app names mirror values from `app update` and `app credentials`.
+// Locally cached app names mirror values from `app upload` and `app credentials`.
 // Server-side, the PUT endpoint and the GET-list endpoint are eventually consistent,
 // so `app list` can return a stale name immediately after an update. Merging this
 // cache on top of the list response masks the lag. Entries expire after
@@ -402,65 +404,213 @@ export function deleteAppName(appId: string): void {
 export interface ProjectConfig {
   appId: string;
   appName: string;
+  version?: string;
   logoUri?: string;
-  cliVersion?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** Distribution type of the app: 'private' or 'public' */
+  distribution_type: 'private' | 'public';
+  /**
+   * OAuth apps carry `{ scopes, redirectUris }`. UI apps carry exactly the
+   * empty object `{}` — no scopes, no redirect URIs, no jwtSecret (nothing is
+   * issued for them today). Enforced in `app upload` (see validateAuthShape),
+   * not here, so unrelated commands that merely read config keep working on a
+   * half-edited file.
+   *
+   * Caution: an `auth.type` key existed twice historically — briefly as an
+   * *interim distribution* carrier ('private' | 'public'), then as the UI-app
+   * marker `'none'`. The read path folds distribution values into
+   * `distribution_type` and drops every `type`, so dev-era configs migrate to
+   * the empty shape on their next write.
+   */
   auth: {
-    type: string;
-    scopes: string[];
-    redirectUrls?: string[];
+    scopes?: string[];
+    // Absent for UI apps: an action link has no OAuth callback to register.
+    // OAuth apps still require at least one (enforced in `app upload`).
+    redirectUris?: string[];
   };
-  distribution: string;
-  permittedUrls: {
-    fetch: string[];
-    img: string[];
-    iframe: string[];
-    js: string[];
-    css: string[];
-  };
-  support: {
-    supportEmail: string;
-    documentationUrl: string;
-    supportUrl: string;
-    supportPhone: string;
-  };
+  /**
+   * Present only for UI apps (BEX-290). Its presence is the discriminator
+   * between the two app types — there is no separate `appType` key, matching
+   * the UIApp Support Spec's config examples. Use {@link isUiAppConfig}
+   * rather than testing for the key directly.
+   */
+  ui_app?: UiApp;
 }
 
 const PROJECT_CONFIG_FILE = 'app-config.json';
 
 export function readProjectConfig(): ProjectConfig | null {
+  return readProjectConfigAt(process.cwd());
+}
+
+/**
+ * Normalize appId at the boundary: accept strings (trimmed) and finite numeric IDs from
+ * legacy configs, reject anything else. Downstream callers can treat `config.appId` as a
+ * guaranteed non-empty string.
+ *
+ * Returning `undefined` is what makes "has a file called app-config.json" and "is a
+ * project" different questions — see {@link readProjectConfigAt}.
+ */
+function readNormalizedAppId(raw: Record<string, unknown>): string | undefined {
+  const rawAppId = raw.appId;
+  if (typeof rawAppId === 'string') {
+    return rawAppId.trim() || undefined;
+  }
+  if (typeof rawAppId === 'number' && Number.isFinite(rawAppId)) {
+    return String(rawAppId);
+  }
+  return undefined;
+}
+
+/**
+ * Normalize the `auth` block, or `undefined` to leave the file's own block untouched.
+ *
+ * Three migrations, applied in order to one copy of the block.
+ */
+function buildAuthOverride(rawAuth: unknown): Record<string, unknown> | undefined {
+  if (!rawAuth || typeof rawAuth !== 'object') return undefined;
+  const auth = rawAuth as Record<string, unknown>;
+  let override: Record<string, unknown> | undefined;
+
+  // Normalize auth.scopes silently — split on commas/whitespace so an entry like
+  // "crm:read, campaigns:read" written by a user editing the JSON by hand becomes two
+  // scopes. Strict charset validation is enforced later, in the upload command, so
+  // unrelated commands that just happen to read config aren't broken by a malformed scope.
+  //
+  // A bare string is accepted as well as an array: the field is typed string[], but a
+  // hand-edited file can carry `"crm:read, crm:write"`, and `splitScopes` handles both.
+  // Gating on Array.isArray alone let the string through unnormalized, and the upload
+  // validator then iterated it one character at a time and rejected `":"` as a scope.
+  const scopes = auth.scopes;
+  if (Array.isArray(scopes) || typeof scopes === 'string') {
+    override = { ...auth, scopes: splitScopes(scopes as string | string[]) };
+  }
+
+  // Redirect URLs were renamed auth.redirectUrls → auth.redirectUris to track the wire key
+  // (redirect_uris, BEX-355/366). Read the legacy key when the new one is absent and drop
+  // it from the returned config, so callers that write the object back to disk (upload.ts,
+  // start.ts) migrate old projects on their next write.
+  //
+  // Downgrade caveat, and it is NOT a loud one: releases up to 2.0.2 read only the legacy
+  // key, so a migrated file reads there as an app with no redirect URLs at all. `app start
+  // oauth` then offers to register `http://localhost:<port>/auth/callback` (confirm prompt,
+  // default yes) and PATCHes `redirect_uris` with just that one URL — the old write path
+  // replaces the list rather than merging it, so the app's real redirect URLs are dropped
+  // server-side with no error. Only reachable when a new and an old CLI share one project
+  // directory (a teammate or CI left behind); a downgrade caveat, not a same-machine one.
+  if ('redirectUrls' in auth) {
+    override = override ?? { ...auth };
+    const legacyRedirects = auth.redirectUrls;
+    if (!Array.isArray(override.redirectUris) && Array.isArray(legacyRedirects)) {
+      override.redirectUris = legacyRedirects;
+    }
+    delete override.redirectUrls;
+  }
+
+  // Legacy auth.type is always dropped: the interim distribution carrier
+  // ('private'/'public') is folded into distribution_type by `readDistributionType`, and
+  // the dev-era UI-app marker 'none' is obsolete — a UI app's auth is now the empty object
+  // `{}` (the `ui_app` block alone discriminates the app type). Callers that write the
+  // config back to disk migrate old files on their next write.
+  if (override && 'type' in override) {
+    delete override.type;
+  } else if ('type' in auth) {
+    override = { ...auth };
+    delete override.type;
+  }
+
+  return override;
+}
+
+/**
+ * distribution_type has moved twice: originally a top-level `distribution` key (still the
+ * shape of every currently-published scaffold), briefly `auth.type` (an interim design that
+ * never shipped), now a top-level `distribution_type` key. Backfill from whichever legacy
+ * shape is present, preferring the new key when it already exists.
+ */
+function readDistributionType(
+  rawRecord: Record<string, unknown>,
+  rawAuth: unknown,
+): 'private' | 'public' {
+  const newDistributionType = rawRecord.distribution_type;
+  if (typeof newDistributionType === 'string' && newDistributionType.trim()) {
+    return newDistributionType.trim() as 'private' | 'public';
+  }
+
+  const legacyAuthType =
+    rawAuth && typeof rawAuth === 'object' ? (rawAuth as Record<string, unknown>).type : undefined;
+  if (
+    typeof legacyAuthType === 'string' &&
+    legacyAuthType.trim() &&
+    legacyAuthType !== 'none' // 'none' is the UI-app auth marker, not a distribution
+  ) {
+    return legacyAuthType.trim() as 'private' | 'public';
+  }
+
+  const legacyDistribution = rawRecord.distribution;
+  if (typeof legacyDistribution === 'string' && legacyDistribution.trim()) {
+    return legacyDistribution.trim() as 'private' | 'public';
+  }
+
+  return 'private';
+}
+
+/**
+ * `readProjectConfig` for an arbitrary directory.
+ *
+ * Exists for {@link findEnclosingProjectDir}, which has to ask the same "is this a
+ * project?" question of a directory that is not cwd. Kept as the one implementation
+ * rather than a second parser so an ancestor is judged a project by exactly the rules
+ * every command already applies to cwd — most importantly the appId normalization
+ * in {@link readNormalizedAppId}, which is what makes "has a file called
+ * app-config.json" and "is a project" different questions.
+ */
+export function readProjectConfigAt(dir: string): ProjectConfig | null {
   try {
-    const raw = JSON.parse(
-      fs.readFileSync(path.resolve(process.cwd(), PROJECT_CONFIG_FILE), 'utf-8'),
-    );
+    const raw = JSON.parse(fs.readFileSync(path.resolve(dir, PROJECT_CONFIG_FILE), 'utf-8'));
     if (!raw || typeof raw !== 'object') return null;
-    // Normalize appId at the boundary: accept strings (trimmed) and finite
-    // numeric IDs from legacy configs, reject anything else. Downstream
-    // callers can treat `config.appId` as a guaranteed non-empty string.
-    const rawAppId = (raw as Record<string, unknown>).appId;
-    let appId: string | undefined;
-    if (typeof rawAppId === 'string') {
-      const trimmed = rawAppId.trim();
-      if (trimmed) appId = trimmed;
-    } else if (typeof rawAppId === 'number' && Number.isFinite(rawAppId)) {
-      appId = String(rawAppId);
-    }
+    const rawRecord = raw as Record<string, unknown>;
+
+    const appId = readNormalizedAppId(rawRecord);
     if (!appId) return null;
-    // Normalize auth.scopes silently — split on commas/whitespace so an entry
-    // like "crm:read, campaigns:read" written by a user editing the JSON by
-    // hand becomes two scopes. Strict charset validation is enforced later,
-    // in the update command, so unrelated commands that just happen to read
-    // config aren't broken by a malformed scope.
-    const rawAuth = (raw as Record<string, unknown>).auth;
-    let authOverride: object | undefined;
-    if (rawAuth && typeof rawAuth === 'object') {
-      const scopes = (rawAuth as Record<string, unknown>).scopes;
-      if (Array.isArray(scopes)) {
-        authOverride = { ...rawAuth, scopes: splitScopes(scopes as string[]) };
-      }
+
+    // `auth` normalization and the distribution backfill are independent: the backfill
+    // reads the RAW auth block, never the normalized one, so neither can see the other's
+    // work and the order between them does not matter.
+    const rawAuth = rawRecord.auth;
+    const authOverride = buildAuthOverride(rawAuth);
+    const distributionType = readDistributionType(rawRecord, rawAuth);
+
+    // Drop the legacy top-level `distribution` key from the returned config —
+    // it's already folded into distribution_type above. `permittedUrls` and
+    // `support` were scaffolded into every config but never read by anything;
+    // they're dropped the same way. Callers that write this object back to
+    // disk (upload.ts, start.ts) then naturally migrate old projects to the
+    // new shape on their next write, instead of round-tripping stray keys
+    // forever.
+    const {
+      distribution: _legacyDistribution,
+      permittedUrls: _permittedUrls,
+      support: _support,
+      ...rawWithoutLegacyDistribution
+    } = rawRecord;
+    // `ui_app` (BEX-290) is passed through structurally intact — the spread
+    // above already carries it — but a non-object value is dropped so callers
+    // can trust `config.ui_app` is an object whenever it is present. Field-level
+    // validation is deliberately *not* done here: unrelated commands that merely
+    // read the config must not fail because the block is half-written. `app
+    // upload` is the enforcement point (see validateUiApp).
+    const rawUiApp = rawWithoutLegacyDistribution.ui_app;
+    if ('ui_app' in rawWithoutLegacyDistribution && (!rawUiApp || typeof rawUiApp !== 'object')) {
+      delete rawWithoutLegacyDistribution.ui_app;
     }
-    return { ...raw, appId, ...(authOverride ? { auth: authOverride } : {}) };
+    return {
+      ...rawWithoutLegacyDistribution,
+      appId,
+      distribution_type: distributionType,
+      ...(authOverride ? { auth: authOverride } : {}),
+    } as ProjectConfig;
   } catch {
     return null;
   }
@@ -471,7 +621,133 @@ export function hasLocalApp(): boolean {
   return cfg?.appId != null && cfg.appId !== '';
 }
 
+/**
+ * The nearest ANCESTOR directory of cwd that is itself a project, or null.
+ *
+ * Guards `brevo app scaffold`'s no-config branch. `readProjectConfig` reads cwd and
+ * deliberately does not walk up — every other command wants exactly that, because it
+ * keeps "which app am I acting on" a property of the directory you are standing in.
+ * But it means a directory one level inside a project looks identical to an empty
+ * directory outside one, and the two must not get the same answer: offering to
+ * materialize a project into `myapp/src/` would leave a second `app-config.json`
+ * nested in the first, after which `app upload` from that directory pushes the wrong
+ * app with no warning.
+ *
+ * cwd itself is excluded. The only caller has already established that cwd holds no
+ * usable config, and counting cwd would make every ordinary in-project run report
+ * itself as nested.
+ *
+ * Stops at the filesystem root. Unreadable or appId-less ancestors are skipped rather
+ * than treated as a hit, so the walk agrees with `readProjectConfig` on what counts
+ * as a project — a stray malformed file cannot wedge the command.
+ */
+export function findEnclosingProjectDir(): string | null {
+  let dir = path.dirname(process.cwd());
+  // `path.dirname('/') === '/'`, which is how the walk terminates. Compare against the
+  // previous value rather than testing for a literal separator so this holds on Windows
+  // drive roots too.
+  for (;;) {
+    if (readProjectConfigAt(dir)) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
+ * Whether a project config describes a UI app rather than an OAuth app.
+ *
+ * Thin re-export: the predicate itself lives in `src/app-types/ui/detect.ts`, beside the app
+ * type it describes, so the registry and every command agree by construction. Kept exported
+ * here because a good number of call sites (and their test mocks) already import it from this
+ * module. See that file for why the logic must not live behind this one.
+ */
+export function isUiAppConfig(config: Pick<ProjectConfig, 'ui_app'> | null | undefined): boolean {
+  return isUiAppConfigShape(config);
+}
+
+/**
+ * Whether a *server* app record describes a UI app. The record counterpart to
+ * {@link isUiAppConfig}, and the same thin re-export — see `app-types/ui/detect.ts` for the
+ * fallback it applies and why it requires both an empty client_id and no callbacks.
+ */
+export function isUiAppRecord(
+  app: Pick<OAuthApp, 'ui_app' | 'client_id' | 'redirect_uris'> | null | undefined,
+): boolean {
+  return isUiAppRecordShape(app);
+}
+
 export function writeProjectConfig(config: ProjectConfig): void {
   const configPath = path.resolve(process.cwd(), PROJECT_CONFIG_FILE);
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+}
+
+function isNonEmptyString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
+ * Converge a legacy `app-config.json` in the current directory toward the
+ * current config shape by backfilling fields that were absent when it was
+ * scaffolded — mirroring the migration `brevo app upload` already performs, but
+ * from a read-only command (`brevo app credentials`) so projects that are never
+ * uploaded still catch up.
+ *
+ * Backfill is strictly fill-when-missing: a field the file already carries (in
+ * any historical shape) is never overwritten with the server's value, even when
+ * they differ. Guarded by an appId match so it only ever touches the config for
+ * the app the caller actually resolved.
+ *
+ * @returns the names of the fields written (`'version'`, `'distribution_type'`),
+ *          or `[]` when there is no matching local config or nothing was missing
+ *          (in which case the file is left byte-for-byte untouched).
+ */
+export function backfillProjectConfigFromServer(
+  appId: string,
+  server: { version?: string; distribution_type?: 'public' | 'private' },
+): string[] {
+  const configPath = path.resolve(process.cwd(), PROJECT_CONFIG_FILE);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    return [];
+  }
+  if (!raw || typeof raw !== 'object') return [];
+
+  const normalized = readProjectConfig();
+  if (normalized?.appId !== appId) return [];
+
+  const rawRecord = raw as Record<string, unknown>;
+  const backfilled: string[] = [];
+  const next: ProjectConfig = { ...normalized };
+
+  // `version` is optional: only backfill when the file lacks a usable value and
+  // the server actually returned one.
+  if (!isNonEmptyString(rawRecord.version) && isNonEmptyString(server.version)) {
+    next.version = server.version;
+    backfilled.push('version');
+  }
+
+  // `distribution_type` is required in the current shape. It is "missing" only
+  // when none of its historical carriers is present on disk (new top-level key,
+  // the oldest top-level `distribution`, or the interim `auth.type`). When
+  // missing, prefer the server's value, falling back to the normalized default.
+  const rawAuth = rawRecord.auth;
+  const legacyAuthType =
+    rawAuth && typeof rawAuth === 'object' ? (rawAuth as Record<string, unknown>).type : undefined;
+  const hasDistribution =
+    isNonEmptyString(rawRecord.distribution_type) ||
+    isNonEmptyString(rawRecord.distribution) ||
+    // auth.type carried the distribution only in its interim shape — 'none'
+    // was the dev-era UI-app auth marker and says nothing about distribution.
+    (isNonEmptyString(legacyAuthType) && legacyAuthType !== 'none');
+  if (!hasDistribution) {
+    next.distribution_type = server.distribution_type ?? normalized.distribution_type;
+    backfilled.push('distribution_type');
+  }
+
+  if (backfilled.length === 0) return [];
+  writeProjectConfig(next);
+  return backfilled;
 }

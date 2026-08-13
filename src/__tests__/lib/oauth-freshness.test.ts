@@ -7,6 +7,7 @@ import {
   OauthFreshnessDeps,
 } from '../../lib/oauth-freshness';
 import { AuthCred, OauthTokensToStore } from '../../lib/config';
+import { AuthExpiredError } from '../../lib/errors';
 
 const NOW = 1_800_000_000_000;
 
@@ -199,6 +200,59 @@ describe('ensureFreshOauthToken', () => {
     await expect(ensureFreshOauthToken(deps)).resolves.toBe(true);
     expect(refresh).toHaveBeenCalledTimes(1);
   });
+
+  // A refused refresh token is the one failure that is not best-effort: nothing
+  // later in the run can recover it, so it has to stop the command here rather
+  // than let an interactive flow collect answers it is going to throw away.
+  describe('a refused refresh token', () => {
+    const refused = new Error('Token refresh failed (401).');
+
+    function terminalDeps(overrides: Partial<OauthFreshnessDeps> = {}) {
+      const onTerminal = jest.fn();
+      const { deps, persist, onError } = makeDeps({
+        refresh: jest.fn().mockRejectedValue(refused),
+        isTerminal: (err) => err === refused,
+        onTerminal,
+        ...overrides,
+      });
+      return { deps, persist, onError, onTerminal };
+    }
+
+    it('should clear the credentials and throw AuthExpiredError', async () => {
+      const { deps, persist, onTerminal } = terminalDeps();
+
+      await expect(ensureFreshOauthToken(deps)).rejects.toBeInstanceOf(AuthExpiredError);
+      expect(onTerminal).toHaveBeenCalledTimes(1);
+      expect(persist).not.toHaveBeenCalled();
+    });
+
+    it('should not report a terminal failure as a swallowed one', async () => {
+      const { deps, onError } = terminalDeps();
+
+      await expect(ensureFreshOauthToken(deps)).rejects.toBeInstanceOf(AuthExpiredError);
+      expect(onError).not.toHaveBeenCalled();
+    });
+
+    it('should keep swallowing every other failure', async () => {
+      const transient = new Error('login service unreachable');
+      const { deps, onError, onTerminal } = terminalDeps({
+        refresh: jest.fn().mockRejectedValue(transient),
+      });
+
+      await expect(ensureFreshOauthToken(deps)).resolves.toBe(false);
+      expect(onTerminal).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(transient);
+    });
+
+    // Without the predicate the module cannot tell the two apart, so it must
+    // stay best-effort — the behaviour every existing caller was written against.
+    it('should stay best-effort when no isTerminal predicate is injected', async () => {
+      const { deps, onError } = makeDeps({ refresh: jest.fn().mockRejectedValue(refused) });
+
+      await expect(ensureFreshOauthToken(deps)).resolves.toBe(false);
+      expect(onError).toHaveBeenCalledWith(refused);
+    });
+  });
 });
 
 describe('installProactiveOauthRefresh', () => {
@@ -248,5 +302,22 @@ describe('installProactiveOauthRefresh', () => {
       runHook(['node', 'brevo', 'app', 'list'], mockCommand('list', 'app'), deps),
     ).resolves.toBeUndefined();
     expect(persist).not.toHaveBeenCalled();
+  });
+
+  // The hook is the only check that runs before the command body, so it is the
+  // only place that can beat `app create`'s first prompt.
+  it('should stop the command before it runs when the refresh token is refused', async () => {
+    const refused = new Error('Token refresh failed (401).');
+    const onTerminal = jest.fn();
+    const { deps } = makeDeps({
+      refresh: jest.fn().mockRejectedValue(refused),
+      isTerminal: (err) => err === refused,
+      onTerminal,
+    });
+
+    await expect(
+      runHook(['node', 'brevo', 'app', 'create'], mockCommand('create', 'app'), deps),
+    ).rejects.toBeInstanceOf(AuthExpiredError);
+    expect(onTerminal).toHaveBeenCalledTimes(1);
   });
 });

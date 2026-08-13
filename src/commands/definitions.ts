@@ -1,11 +1,12 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import {
-  parseAppId,
-  parsePositiveInt,
-  collectUrls,
-  collectScopes,
-  validateUrl,
-} from '../lib/validators';
+import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
+import { isFeatureAvailable } from '../lib/preview';
+import { createDescription, distributionValues } from '../lib/help';
+// The gated subcommands are referenced only through this binding, and only from behind
+// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their five handler
+// modules — from a published build. Importing any of those handlers directly here would
+// make them live references again and ship the whole surface. See ./preview-definitions.ts.
+import { previewAppCommands } from './preview-definitions';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -14,7 +15,7 @@ import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
-import { updateCommand } from './app/update';
+import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
@@ -66,20 +67,34 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'create',
-      description: 'Create a new OAuth app',
+      description: createDescription(),
+      // The `--distribution public` example is filtered out while public distribution
+      // is pre-GA (BEX-405) — `brevo app create --help` must not advertise a value the
+      // command will refuse. Filtered from the same table the refusal reads, so GA
+      // restores it without an edit here.
       examples: [
         'brevo app create',
         'brevo app create --name "My App" --distribution private',
+        ...(isFeatureAvailable('public-distribution')
+          ? ['brevo app create --name "My App" --distribution public']
+          : []),
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
       ],
+      // A UI app is authored entirely through the interactive prompts (BEX-290) —
+      // there is deliberately no `--type` or per-field flag. Every flag below
+      // applies to an OAuth app, which is what a non-interactive run always
+      // creates.
       options: [
         { flags: '--name <name>', description: 'App name' },
-        { flags: '--distribution <type>', description: 'Distribution type (private|public)' },
+        {
+          flags: '--distribution <type>',
+          description: `Distribution type (${distributionValues()})`,
+        },
         {
           flags: '--redirect-uri <url>',
-          description: 'Redirect URI (repeatable)',
+          description: 'Redirect URI (repeatable, OAuth apps only)',
           parser: collectUrls,
         },
         {
@@ -132,55 +147,15 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         }),
     },
     {
-      name: 'update',
-      description: 'Update an app name, redirect URLs, scopes, or logo URL',
-      examples: [
-        'brevo app update',
-        'brevo app update --name "My New Name"',
-        'brevo app update --redirect-uri https://myapp.com/callback',
-        'brevo app update --name "My App" --redirect-uri https://myapp.com/callback',
-        'brevo app update --app-id 42 --name "My App"',
-        'brevo app update --app-id 42 --redirect-uri https://myapp.com/callback --json',
-        'brevo app update --logo-uri https://example.com/logo.png',
-        'brevo app update --scope crm:write',
-        'brevo app update --scope contacts:read --scope crm:write',
-      ],
+      name: 'upload',
+      description: 'Push app-config.json to Brevo, validated and synced with the server',
+      examples: ['brevo app upload', 'brevo app upload --yes', 'brevo app upload --json'],
       options: [
-        {
-          flags: '--app-id <id>',
-          description: 'App ID (uses app-config.json if omitted)',
-          parser: (v) => parseAppId(v),
-        },
-        { flags: '--name <name>', description: 'New app name' },
-        {
-          flags: '--redirect-uri <url>',
-          description: 'Redirect URI to append (repeatable)',
-          parser: collectUrls,
-        },
-        {
-          flags: '--scope <scope>',
-          description:
-            'OAuth scope to append (repeatable; comma- or whitespace-separated values are split)',
-          parser: collectScopes,
-        },
-        {
-          flags: '--logo-uri <url>',
-          description: 'App logo URL (http or https)',
-          parser: (v: string) => {
-            validateUrl(v, 'logo URL');
-            return v;
-          },
-        },
         { flags: '--yes', description: 'Skip confirmation prompt' },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
-        updateCommand({
-          appId: opts.appId,
-          name: opts.name,
-          redirectUri: opts.redirectUri,
-          logoUri: opts.logoUri,
-          scope: opts.scope,
+        uploadCommand({
           yes: Boolean(opts.yes),
           json: Boolean(opts.json),
         }),
@@ -207,18 +182,37 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'scaffold',
-      description: 'Generate starter code for an app',
-      examples: ['brevo app scaffold', 'brevo app scaffold --app-id 42'],
+      // Two modes, selected by whether cwd holds an app-config.json: inside a project it
+      // adds a feature to the linked app; in a directory with none it sets that directory
+      // up for an app that already exists — picked interactively, or named by --app-id
+      // when there is no terminal to prompt on.
+      description:
+        'Add a feature to the app in this directory, or set an empty directory up for an existing app',
+      examples: [
+        'brevo app scaffold',
+        'brevo app scaffold --app-id 42',
+        'brevo app scaffold --overwrite',
+        'brevo app scaffold --json',
+        'brevo app scaffold --app-id 42 --json',
+      ],
       options: [
         {
           flags: '--app-id <id>',
-          description: 'App ID',
+          description: 'Set an empty directory up for an app you already have',
           parser: (v) => parseAppId(v),
+        },
+        {
+          flags: '--overwrite',
+          description: 'Overwrite existing feature files instead of merging (skips the prompt)',
         },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
-        scaffoldCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
+        scaffoldCommand({
+          appId: opts.appId as string | undefined,
+          json: Boolean(opts.json),
+          overwrite: Boolean(opts.overwrite),
+        }),
     },
     {
       name: 'available-scopes',
@@ -252,6 +246,16 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           port: opts.port as number | undefined,
         }),
     },
+    // ELIMINATION SITE — the raw global rather than `isFeatureAvailable()` on purpose:
+    // esbuild substitutes the global here, folds the ternary to `[]`, and can then drop
+    // `previewAppCommands` and the five handler modules only it imports. Importing the
+    // constant instead leaves a runtime ternary and ships the whole gated surface. See
+    // src/globals.d.ts.
+    //
+    // Appended, not interleaved, so the spread is one foldable expression. Ordering in
+    // `brevo app --help` is unaffected in a public build (there is nothing to order);
+    // a preview build simply lists these five last.
+    ...(__BREVO_PREVIEW__ ? previewAppCommands : []),
   ],
 };
 

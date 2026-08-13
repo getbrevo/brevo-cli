@@ -55,28 +55,25 @@ Brevo OAuth integration for testing and implementing app authorization flows, sc
 
 ## Updating your app
 
-Push changes to Brevo directly from the CLI:
+`brevo app upload` has no edit flags — it always pushes the full contents of `app-config.json`. To change something, edit the file, then run:
 
 ```bash
-brevo app update --name "New Name"
-brevo app update --redirect-url https://myapp.com/callback
-brevo app update --name "New Name" --redirect-url https://myapp.com/callback
-brevo app update --logo-uri https://example.com/logo.png
+brevo app upload
 ```
 
-`--redirect-url` is repeatable and **appends** to existing URLs.
-
-To avoid unintentionally accumulating stale redirect URLs over time:
-
-- Periodically review your redirect list and remove obsolete entries in `app-config.json`.
-- Run `brevo app update` **without flags** to replace the remote configuration with the local file.
-- When flags are provided, the local `app-config.json` is updated automatically after a successful API call.
-
-Outside this project directory, target an app by ID:
+For example, to rename the app or add a redirect URL, edit `appName` or `auth.redirectUris` in `app-config.json`:
 
 ```bash
-brevo app update --app-id {{APP_ID}} --name "New Name"
+# 1. Edit app-config.json (e.g. change "appName", or append to "auth.redirectUris")
+# 2. Push the change
+brevo app upload
 ```
+
+`brevo app upload` always fetches the current server state first and shows a diff before pushing — review it before confirming (or pass `--yes` to skip the prompt).
+
+To avoid unintentionally accumulating stale redirect URLs over time, periodically review `auth.redirectUris` in `app-config.json` and remove obsolete entries before running `brevo app upload`.
+
+`brevo app upload` has no `--app-id` flag — it always resolves the app from this directory's `app-config.json`. To manage a different app, `cd` into that app's project directory (or use `brevo app credentials --app-id <id>` to inspect it without editing).
 
 ## Docs
 
