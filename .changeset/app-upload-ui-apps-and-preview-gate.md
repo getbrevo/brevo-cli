@@ -156,6 +156,24 @@ measured out of the width and carried across the break, so a wrapped coloured va
 leak its colour onto the border. Piped or redirected output has no width to respect and
 falls back to 80 columns.
 
+**Fixed: the scaffold file count no longer reads `(0 files)` above a file tree.** It
+reported files actually written, so choosing **Merge** on an existing directory — which
+keeps what is there and adds only what is missing — announced `Project structure created
+(0 files)` directly above a five-file tree. It now reports the pair: `created (5 files)`
+when everything was written, `already in place (5 files, nothing rewritten)` when nothing
+was, and `created (2 of 5 files written)` in between. Same three forms for the feature
+scaffold's own count.
+
+**Fixed: the first row of a printed file tree was indented two columns deeper than the
+rest.** The tree was handed to the logger as a single multi-line string, so the CLI's
+output gutter landed on the string rather than on each line.
+
+**Fixed: `brevo init` no longer tells a UI app to run the OAuth test server.** Its closing
+line named `brevo app start oauth` whatever was just created — a command a UI app has no
+way to run (an action link has no OAuth flow and no local server), and one that
+contradicted the *Next steps* box printed immediately above it. A UI app now closes by
+pointing at those next steps and `brevo --help`; OAuth apps are unchanged.
+
 **The UI-app record-page prompt shows the registry's own page names.** It used to render
 `contactDetails` as `contact` through a CLI-owned map, with a strip-`Details` guess for any
 page the map didn't know — so the prompt could disagree with the platform, and every page

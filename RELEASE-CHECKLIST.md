@@ -2964,3 +2964,49 @@ move — no logic edited.
       whether it stays as defence (current choice, documented at both sites) or goes. Do not
       delete it on the strength of this entry alone — it is the only thing standing between
       a blockless record and an `app-config.json` that silently reads as OAuth.
+
+### Four output defects in the `app create` → `init` tail (2026-08-13)
+
+**Change:** all four were found in a single real UI-app run and are independent of one
+another. Reported together because that run is the evidence for all of them.
+
+1. **`printBox` sizes to the terminal and wraps.** It sized to its longest line and left
+   the *terminal* to wrap, which wraps text without the frame — so the tail of an
+   over-long line carried no borders and every `│` after it landed mid-row. A created-app
+   box with a six-parameter example URL measured 147 columns and shredded itself in a
+   127-column window. Lines are now wrapped to the window first: word break where one is
+   available, mid-string where none is (a URL), continuation rows indented under their
+   label. Width is measured on visible text and an open colour is closed at each row edge.
+2. **The file count reports written *and* total.** `written` counts files put on disk, so
+   a merge that kept everything printed `Project structure created (0 files)` above a
+   five-file tree. `scaffoldFileCount` in `lang/en.ts` now phrases the three cases.
+3. **The file tree is printed a row at a time.** It went through `logInfo` as one
+   multi-line string, so the CLI's gutter landed on the string and only the first row got
+   it — that row sat two columns deeper than its siblings. `printFileTree` prints each row;
+   `formatFileTree` drops to a two-column prefix to compensate.
+4. **`init` stops sending UI apps to the OAuth test server.** Its closing line named
+   `brevo app start oauth` unconditionally — a command a UI app cannot run, contradicting
+   the *Next steps* box printed directly above it. `initDoneMessage()` reads the config the
+   run left in cwd and picks `INIT_DONE_UI_APP` for a UI app.
+
+**Must hold true:**
+
+- [x] No box row can exceed the window, every row is one width, and a pipe (no `columns`)
+      falls back to 80. Covered in `__tests__/lib/ui.test.ts`, including the colour case.
+- [x] The box stops shrinking at a 24-column content floor rather than degenerating into
+      fragments in a very narrow window.
+- [x] `create.test.ts` pins `process.stdout.columns` to 200 and restores it. Its box
+      assertions are about content; **width belongs only to `ui.test.ts`**. Without the pin
+      they wrapped mid-URL under jest's absent terminal, which is a real failure of the
+      test's setup rather than of the code it covers.
+- [x] `INIT_DONE_UI_APP` lives in core `lang/en.ts`, not `preview-messages.ts`: `init` is
+      not a gated command and a hand-edited `ui_app` block reaches that line in a published
+      build.
+- [x] `yarn test` (57 suites / 1221 tests), `yarn lint`, `yarn format:check`,
+      `npx tsc --noEmit`, `yarn build`, `yarn build:preview` green (172.2 kB public /
+      203.4 kB preview).
+- [ ] **Manual:** run `brevo init` → UI app on a real TTY at 80, 120 and 200 columns, and
+      resize mid-box. Confirm the frame holds at each width, the example URL stays readable
+      when broken, and the closing line no longer mentions `app start oauth`.
+- [ ] **Manual:** re-run `brevo app create` into an existing directory and choose Merge —
+      confirm the count line reads "already in place" rather than "created (0 files)".
