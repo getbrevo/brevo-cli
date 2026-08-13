@@ -182,6 +182,12 @@ the registry gained needed a second name kept in step by hand. The prompt now sh
 *contact*): the pages are the registry's answer, so the CLI doesn't nominate one. Picking
 at least one is still required.
 
+**The logo-URL prompt fits an 80-column terminal.** It carried an example URL, which made
+it 83 columns with inquirer's prefix — and inquirer wraps a prompt without indenting the
+continuation, so `skip):` landed alone and flush-left on a standard 80-column terminal. It
+now reads `App logo URL (optional — leave blank to skip):`; the example moved to the
+validation error, which is shown exactly when the format is wrong.
+
 **Selection prompts are indented into the CLI's output gutter.** Every `list` and
 `checkbox` prompt — the login method, `init`'s next action, distribution, app type,
 scaffold's overwrite/merge conflicts, and the UI-app authoring questions — used to render

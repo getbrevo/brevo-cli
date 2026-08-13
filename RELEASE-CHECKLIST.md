@@ -2786,9 +2786,11 @@ would cost the user a logo prompt first.
       interactive prompt *order* — both describe `--logo-uri` and the `app-config.json`
       `logoUri` field, which are unchanged. `AGENTS.md`'s one ordering sentence ("asks for
       the name before the OAuth prompts") is still true.
-- [ ] **Manual:** run `PREVIEW=1 yarn link:dev` then `brevo app create` on a TTY with no
-      flags and walk both branches — confirm the four opening questions read naturally in
-      this order.
+- [x] **Verified 2026-08-13** by rendering the four opening questions through the real
+      inquirer, in order, using the real message strings at 80 columns. They read as one
+      sequence: name → logo → distribution → app type, then the branch's own prompt.
+      **This found a real defect, fixed in the same pass** — see the logo-prompt width entry
+      below.
 
 ### The gated questions are asked in every build, with only their usable choices (2026-08-13)
 
@@ -2832,12 +2834,12 @@ Consequences worth knowing:
       against `dist/bin/index.js`, not the mocks. Public 169.6 → 169.8 kB.
 - [x] `yarn test` (56 suites / 1204 tests), `yarn lint`, `yarn format:check`, `yarn build`,
       `yarn build:preview` green.
-- [ ] **Manual:** `brevo app create` from a *published* build (`yarn build`) on a TTY —
-      confirm both one-item lists render sensibly and Enter-through works, and that neither
-      reveals a gated choice. The *choices we pass* are asserted in tests and were rendered
-      through a `listRender` mirror on 2026-08-13 (they read fine); what is left is
-      inquirer's own output for a single-item list — notably whether it still prints
-      *(Use arrow keys)* when there is nothing to arrow to.
+- [x] **Verified 2026-08-13 against the real inquirer.** Both one-item lists render as one
+      choice with the pointer on it, and no gated choice appears. **inquirer does still print
+      *(Use arrow keys)* on a single-item list** — there is nothing to arrow to, so it is
+      slightly silly, but it is inquirer's own hint text and suppressing it would mean
+      reaching into the library. Left as-is deliberately; noted here so it isn't
+      rediscovered as a bug.
 
 ### Selection prompts sit in the CLI's output gutter (2026-08-13)
 
@@ -2881,13 +2883,14 @@ structure this adds and would be split from its own label by the indent.
       for the wrong reason. All three now trim before comparing.
 - [x] `yarn test` (56 suites / 1208 tests), `yarn lint`, `yarn format:check`,
       `npx tsc --noEmit`, `yarn build`, `yarn build:preview` green. Public 169.8 → 170.2 kB.
-- [ ] **Manual:** walk `brevo app create`, `brevo login`, `brevo init` and a scaffold
-      conflict on a real TTY and confirm the indent reads better than flush-left, including
-      when the terminal is narrow enough to wrap a long label. Rendering the choices through
-      a re-implementation of inquirer 8's `listRender` looks right, but that is a mirror of
-      the library, not the library — what it cannot answer is how inquirer itself wraps an
-      over-long *choice* (`printBox`'s wrapping does not apply to prompts) and whether the
-      pointer sitting at column 0 while labels start at column 4 reads as intended.
+- [x] **Verified 2026-08-13 against the real inquirer**, driven through a fake TTY
+      (`PassThrough` streams with `isTTY`/`columns` set) rather than a `listRender` mirror,
+      so this is the library's own output. Every prompt and choice fits an 80-column
+      terminal on one line; see the width test in `__tests__/lang/en.test.ts`.
+- [ ] Reviewer: the pointer sits at column 0 while labels start at column 4 (inquirer owns
+      the pointer — see `indentChoices`). Confirm that reads as a margin marker and not as
+      detached. This is a taste call, not a defect, and it is the one thing a render cannot
+      settle.
 
 ### The record-page prompt shows the registry's own page names (2026-08-13)
 
@@ -3127,3 +3130,36 @@ the refresh, got the 401, and **swallowed it** — every failure was best-effort
       the IdP/proxy, not the CLI, and this change only improves how it is reported.
 - [ ] **Manual:** walk the mid-flow recovery — start `app create`, expire the session
       during the prompts, and confirm the re-login offer re-sends the answers.
+
+### The logo prompt wrapped on an 80-column terminal (2026-08-13)
+
+**Found by** rendering the opening of `app create` through the real inquirer at 80 columns
+while closing out this branch's manual checks — not by a test, and not by reading the
+string.
+
+`App logo URL (e.g. https://example.com/logo.png, optional — leave blank to skip):` is 81
+characters, 83 with inquirer's `? ` prefix. **inquirer wraps a prompt without indenting the
+continuation**, so on an 80-column terminal — the standard default — `skip):` landed alone
+and flush-left on its own line. This was the second question in the flow, having just been
+moved there, so it was the most visible line in the command.
+
+Fixed by shortening the prompt to `App logo URL (optional — leave blank to skip):` (47
+columns with the prefix). The example URL was not deleted, it moved to where it is actually
+useful: `APP_CREATE_LOGO_INVALID` already reads *"Must be a valid https:// URL (e.g.
+https://example.com/logo.png)"*, which is shown exactly when someone types the wrong shape.
+
+**Must hold true:**
+
+- [x] Re-rendered at 80 columns: the whole opening now fits one line per question.
+- [x] A width test in `__tests__/lang/en.test.ts` asserts every interactive prompt is
+      `≤ 80` columns **including inquirer's 2-character prefix**, so the next long prompt
+      fails a test instead of reaching a terminal. It covers name, logo, distribution, app
+      type, redirect and the scaffold conflict.
+- [x] The old *"prompt advertises https"* assertion was re-pointed at the validation error
+      rather than deleted — the format is still asserted to be advertised, just where it is
+      now shown.
+- [x] Choice *labels* were measured too and all fit 80 columns (longest is the OAuth app
+      type at 76 with pointer and indent). Note inquirer wraps those flush-left as well, so
+      the same rule applies to them: keep them short.
+- [x] `yarn test` (58 suites / 1244 tests), `yarn lint`, `yarn format:check`,
+      `npx tsc --noEmit` green.

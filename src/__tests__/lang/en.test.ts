@@ -98,9 +98,31 @@ describe('messages (lang/en)', () => {
     expect(messages.APP_UPLOAD_INVALID_REDIRECT_PROTOCOL('ftp://bad')).toContain('ftp://bad');
   });
 
-  it('should advertise https for the logo URL', () => {
-    expect(messages.APP_CREATE_LOGO_PROMPT).toContain('https://');
+  // The prompt used to carry the example URL too, which pushed it past 80 columns —
+  // where inquirer wraps it and leaves `skip):` alone and flush-left. The format is
+  // advertised by the validation error instead, which is when a user needs it.
+  it('should advertise https for the logo URL, in the error rather than the prompt', () => {
     expect(messages.APP_CREATE_LOGO_INVALID).toContain('https://');
+    expect(messages.APP_CREATE_LOGO_INVALID).toContain('example.com/logo.png');
+  });
+
+  // Every interactive prompt has to fit an 80-column terminal once inquirer's own `? `
+  // prefix is counted, because inquirer wraps a prompt without indenting the
+  // continuation — the tail lands flush-left and reads as a separate line.
+  it('keeps interactive prompts inside 80 columns including inquirer’s prefix', () => {
+    const PREFIX = 2; // '? '
+    const prompts: Array<[string, string]> = [
+      ['APP_CREATE_NAME_PROMPT', messages.APP_CREATE_NAME_PROMPT],
+      ['APP_CREATE_LOGO_PROMPT', messages.APP_CREATE_LOGO_PROMPT],
+      ['APP_CREATE_TYPE_PROMPT', messages.APP_CREATE_TYPE_PROMPT],
+      ['APP_CREATE_APP_TYPE_PROMPT', messages.APP_CREATE_APP_TYPE_PROMPT],
+      ['APP_CREATE_REDIRECT_PROMPT', messages.APP_CREATE_REDIRECT_PROMPT],
+      ['APP_SCAFFOLD_FEATURE_EXISTS', messages.APP_SCAFFOLD_FEATURE_EXISTS],
+    ];
+    for (const [name, text] of prompts) {
+      expect([...text].length + PREFIX).toBeLessThanOrEqual(80);
+      expect(name && text).toBeTruthy();
+    }
   });
 
   it('should have proper WHOAMI messages', () => {
