@@ -552,14 +552,25 @@ pair to cache.
 - [ ] **Manual, blocking — this is a wire-shape fix, so mocks cannot confirm it.**
       Run `brevo app create --name "..." --distribution private --json` against
       staging and confirm `clientId` and `redirectUri` are both present and correct.
-- [ ] **Manual, blocking:** run the same create interactively and confirm the box
-      prints a real `Client ID:` and one `Redirect URL n:` line per callback.
-- [ ] **Manual:** create a UI app interactively and confirm the box shows no
-      credential rows, and that `~/.brevo/credentials.json` gains no `apps` entry
-      for it.
-- [ ] **Manual:** confirm the scaffold read-back fallback path still works — it
-      reads `client_id` / `redirect_uris` off the same response
-      (`scaffold.ts:137,144,145`) and was silently degrading to placeholders.
+- [x] **Manual, blocking — done 2026-08-13** (published build, production, real TTY).
+      An interactive private OAuth create printed a real 32-hex `Client ID:`, one
+      `Redirect URL 1:` line for the single callback, `App version: 0.0.1` and the
+      four default scopes. The regression's signature — a blank or missing value on
+      either row — was absent. See the *Manual QA sweep* entry at the end of this
+      section.
+- [ ] **Manual — box half done 2026-08-13** (preview build, production, real TTY; see
+      *Manual QA sweep 2*). An interactive UI-app create printed a box carrying App name,
+      App ID, extension type, placement, label, more info, redirect link and version —
+      and **no `Client ID` or `Client secret` row**, which is the assertion here. Still
+      open: `~/.brevo/credentials.json` was not inspected, so "gains no `apps` entry"
+      is unverified.
+- [x] **Manual — done 2026-08-13.** The scaffolded `src/oauth/.env.local` carries the
+      real `CLIENT_ID` / `CLIENT_SECRET` / `REDIRECT_URI`, not placeholders, and
+      `brevo app start oauth` completed a full authorization round trip against
+      `oauth.brevo.com` — access token *and* refresh token received. A degraded
+      read-back cannot produce that: the token exchange is the end-to-end proof the
+      values landed. (The code moved with the split — it is
+      `project-writer.ts`'s `fetchAppContext` now, not `scaffold.ts:137`.)
 
 ### BEX-355 — `app create` stops sending `source: 'cli'` (2026-08-07)
 
@@ -591,6 +602,13 @@ backend still identifies the caller from the structured `User-Agent`
       key gone, run `brevo app create --distribution private` against staging and
       confirm it still succeeds and the app is attributed to the CLI (the platform
       reads `User-Agent`; confirm it actually does for *create*, not just upload).
+
+      **Half done (2026-08-13):** the create itself succeeds — an interactive private
+      create against production returned an app with credentials and `version: 0.0.1`
+      (see the *Manual QA sweep* entry). **Attribution is still unconfirmed** and is
+      the half that needs someone with server-side visibility; a terminal cannot see
+      it. Note the source key is not what attribution would read anyway —
+      `POST /cli/apps` overwrites `payload.Source` before validating.
 - [x] **Manual, blocking:** run `brevo app create --distribution public` against
       staging and record what the platform now does with an absent `source`. Three
       outcomes, and they need different follow-ups: still `400` (guard keys on
@@ -673,6 +691,15 @@ future change makes the field optional on the wire.
 - [x] `yarn lint && yarn format:check && yarn tsc --noEmit && yarn test` green.
 - [ ] **Manual:** `brevo app create --distribution public` against staging now prints
       the mapped message and the quoted server text, and still exits non-zero.
+
+      **Not reachable on the account this branch is being QA'd from (2026-08-13):** a
+      public create from a preview build *succeeded* there and was uploaded to
+      `version: 0.0.2` — which is the `app-store-bo-be-public-apps` allowance working
+      exactly as this entry describes, not a gate failure. Confirming the translation
+      needs an account **without** the flag; until someone runs it there, this stays
+      open. It is also the one live confirmation that the refusal is per-account, so
+      the anti-local-guard argument above is now evidenced rather than only read off
+      the handler.
 - [ ] **Manual:** `brevo app create --distribution public --json` writes the mapped
       message inside the single `{"error": {...}}` document on stdout (the global
       `emitJsonError` path — this branch deliberately doesn't call `jsonOutput` itself,
@@ -1151,8 +1178,13 @@ chosen extension type can't be hosted on are filtered client-side.
       a local copy can only lag the registry, and it failed in both directions. Upload now
       pre-flights nothing and lets the endpoint's `checkExtensionPoints` 400. Only
       `EXTENSION_PLACE_LABELS` remains, as CLI-owned display text.
-- [ ] Reviewer: no fixture, example or seed anywhere uses a context field name
-      outside `recordId`, `recordName`, `userId`, `locale`, `accountId`.
+- [ ] Reviewer: no fixture, example or seed anywhere uses an *implausible* context field
+      name. **Revised 2026-08-13 — this item used to name those five as the allowed set,
+      and that was wrong**: a live create against `company-details-header-menu` seeded
+      `clientId` as a sixth. The registry row's `allowed_context_field` is the authority
+      and the CLI checks no names at all, so this is a plausibility review, not a
+      conformance one — do not "fix" a fixture for using a name off the old list. See
+      *Manual QA sweep 2*.
 
 ### Public-apps-not-available notice
 
@@ -1612,13 +1644,16 @@ the changeset no longer claims the field is absent from the request.
 - [ ] Sequencing: pre-BEX-355 server builds bind strictly and expect the old
       `auth.distribution_type` nesting — this CLI must not release before the
       server change deploys (note it in the PR).
-- [ ] Manual: `brevo app upload` with matching `distribution_type` succeeds
-      against the BEX-355 server build (top-level field in the request body).
-- [ ] Manual: edit `distribution_type` in a real project's `app-config.json` to
-      the other value and run `brevo app upload` — expect the CLI immutability
-      error naming both values, exit non-zero, and no server call after the
-      initial fetch. (Server 422 is the backstop if the guard is ever bypassed,
-      e.g. remote fetch reports no distribution.)
+- [x] Manual — **done 2026-08-13** against production. Three uploads with a matching
+      `distribution_type` succeeded (name change, scope additions, logo), each
+      printing `Distribution:  private` unchanged in the summary and bumping the
+      version: `0.0.1 → 0.0.2 → 0.0.3 → 0.0.4`.
+- [x] Manual — **done 2026-08-13.** `distribution_type` hand-edited `private` →
+      `public` in a live project: the CLI refused with *"distribution_type cannot be
+      changed via upload — this app is "private" on Brevo, but app-config.json says
+      "public""*, naming both values, before printing the diff or prompting. Exit
+      non-zero, nothing pushed. The server 422 backstop was never reached, which is
+      the point.
 
 ### Upload `auth` block renames `redirect_urls` → `redirect_uris`
 
@@ -1671,7 +1706,10 @@ read only `redirectUrls`, so a migrated file fails loudly there
 - [ ] Manual: in a project whose `app-config.json` still says `redirectUrls`,
       run `brevo app upload` — upload succeeds and the file afterwards says
       `redirectUris` with the same values.
-- [ ] Manual: fresh `brevo app create` scaffold writes `redirectUris`.
+- [x] Manual — **done 2026-08-13.** A freshly created project's `app-config.json`
+      carries `auth.redirectUris` (and no `redirectUrls`, no `cliVersion`, no
+      `permittedUrls`/`support`), alongside top-level `version`, `logoUri` and
+      `distribution_type`.
 
 ### Drop `cli_version` from request bodies and `cliVersion` from app-config.json
 
@@ -1693,12 +1731,11 @@ var, `ProjectConfig.cliVersion` type all removed — nothing ever read the field
 - [x] Template vars no longer include `{{CLI_VERSION}}` and the scaffolded
       `app-config.json` has no `cliVersion` line. Covered by `scaffold.test.ts`.
 - [x] Full suite green: 730/730, lint clean, `tsc --noEmit` clean.
-- [ ] Manual: `brevo app upload` against a strict server build (one that rejects
-      unknown keys) succeeds where it previously 400'd. Blocked on access to a
-      server build with the BEX-355 contract merged.
-- [ ] Manual: `brevo app create` still succeeds against the current backend (which
-      tolerated `cli_version`) — i.e. removing the key is backward-compatible with
-      lenient builds too.
+- [x] Manual — **done 2026-08-13.** Four uploads against production (the BEX-355
+      contract is deployed) all succeeded; no 400 on an unknown key.
+- [x] Manual — **done 2026-08-13.** `brevo app create` succeeds against production
+      with no `cli_version` in the body, and the written `app-config.json` carries no
+      `cliVersion` field.
 - [x] Reviewer: confirm with the upload-service owners that nothing *requires*
       `cli_version` in the body (telemetry should read the `User-Agent` header,
       which is unchanged and covered by `telemetry.test.ts` / `client.test.ts`).
@@ -1732,8 +1769,11 @@ everywhere (see the rename entry below).
       Covered by `captures the new version when the upload response names it
       'app_version'`.
 - [x] Full suite green: 733/733, lint clean.
-- [ ] Manual: `brevo app upload` against a real backend — confirm the printed
-      and persisted version match the server's bumped `version` value.
+- [x] Manual — **done 2026-08-13** against production, and the persistence half is
+      confirmed by the *next* run rather than by reading the file: each upload printed
+      `✓ App uploaded. Version: N` and the following `brevo app upload` opened its
+      summary at exactly that N (`0.0.2` → `0.0.3` → `0.0.4`). A write-back that
+      dropped the bumped value would have shown the stale one there.
 
 ### UI apps: `auth: { "type": "none" }` and slimmer app-config.json
 
@@ -2887,10 +2927,12 @@ structure this adds and would be split from its own label by the indent.
       (`PassThrough` streams with `isTTY`/`columns` set) rather than a `listRender` mirror,
       so this is the library's own output. Every prompt and choice fits an 80-column
       terminal on one line; see the width test in `__tests__/lang/en.test.ts`.
-- [ ] Reviewer: the pointer sits at column 0 while labels start at column 4 (inquirer owns
+- [x] Reviewer: the pointer sits at column 0 while labels start at column 4 (inquirer owns
       the pointer — see `indentChoices`). Confirm that reads as a margin marker and not as
       detached. This is a taste call, not a defect, and it is the one thing a render cannot
-      settle.
+      settle. **Settled 2026-08-13** on a real terminal across four prompts (`login` auth
+      method, `create` distribution, `create` app type, the feature confirm): it reads as a
+      margin marker. No change requested.
 
 ### The record-page prompt shows the registry's own page names (2026-08-13)
 
@@ -3079,6 +3121,12 @@ take the primitives without the flow, which it does.
       `brevo app scaffold --app-id <id>` into a populated directory, and confirm the
       conflict question appears for the second and not the first.
 
+      **Accept-half done (2026-08-13):** `brevo app create` → *Scaffold the Test OAuth
+      App?* → yes wrote the six feature files into a directory it had just created,
+      with **no** conflict question — the `create` side of the assertion. Still to
+      walk: **declining** the feature, and the `scaffold` side (a populated
+      directory), which is where the question must appear.
+
 ### BEX-341 (follow-up) — a dead session is reported before the prompts, not after (2026-08-13)
 
 **Reported:** `brevo app create` asked all six questions, then answered
@@ -3163,3 +3211,288 @@ https://example.com/logo.png)"*, which is shown exactly when someone types the w
       the same rule applies to them: keep them short.
 - [x] `yarn test` (58 suites / 1244 tests), `yarn lint`, `yarn format:check`,
       `npx tsc --noEmit` green.
+
+### Manual QA sweep — the OAuth happy path, end to end (2026-08-13)
+
+**What was run**, in one sitting, on a real TTY against **production**: `brevo login`
+(browser) → `brevo app create` (interactive, private, OAuth app) → `yarn --cwd src/oauth`
+→ `brevo app start oauth` (a full authorization round trip) → `brevo app update` (the
+removal signpost) → `brevo app upload` ×4 (no-op, name, scopes, logo) plus two refusals →
+`brevo app available-scopes` (with and without `--web`) → `brevo app credentials` (with
+and without `--reveal-secret`) → both root help screens.
+
+**Which build.** Everything above ran on a **published** build: the root help listed
+neither the review-lifecycle nor the deployment commands, and `app create` offered
+`Private` / `OAuth app` only. A preview build was linked partway through and its help
+screen checked (all five gated commands present, `withdraw` correctly absent), and a
+**public** app was created and uploaded from it later the same afternoon — artifact on
+disk carries `distribution_type: "public"`, `version: "0.0.2"`. That is the per-account
+`app-store-bo-be-public-apps` allowance behaving as the *public-app refusal* entry above
+describes, not a hole in the gate.
+
+**Caveat on coverage: the sweep ran one commit behind `HEAD`.** The logo prompt still
+showed the pre-`b75315c` 81-column string, so the 80-column fix is *not* covered by it —
+that entry's own render check is still the only evidence for it.
+
+**What it settles** — ticked in place above rather than restated here: the create box's
+credential rows (nested-`auth` fix), the scaffold read-back, upload with a matching
+`distribution_type`, the immutability refusal, the version write-back, the strict-body
+upload, `redirectUris` on a fresh scaffold, and the prompt-gutter taste call.
+
+**Must hold true:**
+
+- [x] `brevo app update`, bare, prints the removal signpost — not `unknown command
+      'update'`, and not `(Did you mean create?)`. The near-miss suggester still works for
+      names that *aren't* registered: `brevo app uplaod` answered `(Did you mean upload?)`.
+      Only the bare form was run; `--help`, `app help update`, the old flags, `--json` and
+      the logged-out path are covered by the built-artifact check in that entry.
+- [x] `brevo app upload` with nothing changed prints `Already up to date at version
+      0.0.1.` and pushes nothing; the scope diff marks additions `(new)`; a logo added to
+      the file appears as a `Logo URL:` row.
+- [x] Secrets stay hidden by default. `brevo app credentials` printed `Client secret:
+      [hidden — run \`brevo app credentials --reveal-secret\`]`; the value appeared only
+      after `--reveal-secret` *and* an explicit confirm. The created-app box was the same.
+- [x] `brevo app available-scopes` lists the ten categories; `--web` additionally serves
+      the catalog on a `127.0.0.1` loopback port and shuts down cleanly on `Ctrl+C`.
+      `brevo app start oauth` shuts down cleanly the same way.
+- [ ] **Finding, not a regression — a hand-edited `version` is pushed, and the server's
+      refusal doesn't say so.** With `version` bumped by hand to `0.0.2` while the server
+      held `0.0.1`, the summary showed `Version: 0.0.1 → 0.0.2` like any other authored
+      field, the upload was confirmed, and the platform answered *"app version is
+      outdated; pull the latest version of the app before uploading"* — exit non-zero,
+      nothing written. Reverting the file to the server's value uploaded fine. Two things
+      to decide, neither done here: (a) `version` is **server-owned**, like `link_target`,
+      so arguably it should be sent from the server's value and kept out of the diff
+      rather than presented as editable; (b) the server's copy tells the user to "pull the
+      latest version", which is not a command this CLI has — worth mapping in
+      `src/lang/en.ts` to say *edit `version` in `app-config.json` back to the server's,
+      or run `brevo app upload` again after a successful one*. Belongs in `docs.md` →
+      *Part 2*, which lives on its own branch (`cf7905d`), so it is parked here until the
+      two are rejoined.
+- [x] **Not covered by this sweep** — most of it was picked up by the second sweep below,
+      which ran `app init`, `app delete`, `app scaffold` in both modes, the feature-prompt
+      decline, and a UI app end to end. **Still uncovered after both:** `--json` /
+      non-TTY paths, `app list`, and `app deploy` / `app rollback`.
+
+### Manual QA sweep 2 — `init`, `delete`, both scaffold modes, and a UI app (2026-08-13)
+
+**What was run**, in one sitting, on a real TTY against **production**, on a **preview**
+build (`PREVIEW=1 yarn link:dev`) — which is what makes this sweep complementary to the
+one above rather than a repeat of it: `brevo app credentials` (with and without
+`--reveal-secret`) → the root help screen → `brevo app init` (interactive, **public**,
+OAuth app) → `yarn --cwd src/oauth` → `brevo app start oauth` (a full authorization round
+trip) → `brevo app status` and `brevo app submit` **before** uploading → `brevo app
+upload` → `brevo app status` again → `brevo app submit` ×2 → `brevo app create` in a
+linked directory (refusal) → `brevo app scaffold` with existing feature files (Overwrite)
+→ `brevo app delete` (app **and** local folder) → `brevo app create` → **UI app** (private,
+`actionLink`, `companyDetails`, header menu) → `brevo app upload` on it → `brevo app
+scaffold` bootstrap ×2 (declining, then accepting, the feature confirm).
+
+**Why a preview build.** Everything gated by BEX-405 is reachable here and nowhere else:
+the root help listed all of `submit` / `status` / `deploy` / `rollback` (and correctly
+**not** `withdraw`), the distribution prompt offered `Public`, and the app-type prompt
+offered `UI app`. The public app created here is the per-account
+`app-store-bo-be-public-apps` allowance again, not a hole in the gate.
+
+**What it settles** — ticked in place above and in `QA-TESTCASES.md` rather than restated:
+the UI-app created-box having no credential rows (the nested-`auth` entry's open manual
+tick), `POST /apps` persisting `ui_app` observed from a terminal rather than read off the
+handler, the scaffold bootstrap's directory behaviour in both branches, and the
+`app create`-in-a-linked-directory refusal.
+
+**Must hold true:**
+
+- [x] **A UI app created and then immediately uploaded reports `Already up to date at
+      version 0.0.1` and pushes nothing.** This is the drift regression that matters: the
+      read-back echoes a `link_target` the file does not carry, and the diff must not
+      report it. It also confirms live that create *stores* the block — the claim in
+      `CLAUDE.md` → *A created app is immediately readable as a UI app*, previously
+      evidenced only by reading `persistCreateResultTx`.
+- [x] The `UI app created` box carries **no `Client ID` / `Client secret` rows and no
+      `Redirect URL` lines**, and the upload summary carries **no `Redirect URLs` row and
+      no `Link target:` row**. Both are the intended shapes for a UI app.
+- [x] The `app upload` summary's `UI app:` block renders extension type, the placement
+      with its context list, label, more info and redirect link.
+- [x] `brevo app scaffold` with no `app-config.json` **offers the bootstrap** on a TTY,
+      writes into `./<slugified app name>` by default, asks the feature confirm *after*
+      listing the base files, and leaves the shell in the original directory. Declining
+      the feature exits `0` with the base files intact.
+- [x] `brevo app create` in a linked directory refuses immediately, naming the app, with
+      no prompt and no API call.
+- [x] `brevo app delete` gates the app on a confirm naming it, then offers the local
+      folder as a **separate** question showing its absolute path.
+- [x] Secrets stay hidden by default — the 64-hex client secret appeared only after
+      `--reveal-secret` **and** an explicit confirm. (Re-confirms sweep 1.)
+- [x] A **public** OAuth app's scaffold completes a real authorization round trip —
+      access token *and* refresh token — so the scaffolded `.env.local` carried true
+      credentials.
+- [ ] **Finding, and the one thing here worth fixing before merge — `app status` and
+      `app submit` surface a raw, misleading server message on a never-uploaded app.**
+      Both answered, verbatim:
+
+      ```
+      ✗ Please ensure your app is correctly configured with the following required data: name, logo_uri, scopes and redirect_uris
+      ```
+
+      Two defects in one line. **(a) It is unmapped server copy** — nothing in
+      `apiCodeMessages` (`src/api/client.ts`) or `src/lang/en.ts` covers it, so it reaches
+      the user as the platform wrote it, which is exactly what `en.ts` exists to prevent.
+      **(b) It is misleading**: all four named fields were present — the upload seconds
+      later showed a name, a server-defaulted `logo_uri`, four scopes and one redirect
+      URI. The real precondition is *"has never been uploaded"*, i.e. no `app_versions`
+      row for the state endpoint to read; one `brevo app upload` made the same command
+      answer `◇ Configured`.
+
+      **It also makes a documented case unreachable.** `QA-TESTCASES.md` TC-6.3 expects a
+      friendly `App status: Unknown` card here, and it never renders: `statusCommand`
+      normalizes `state ?? 'unknown'` only when `fetchAppState` **resolves**, and this call
+      rejects, so `withCommandHandler` prints the `ApiError` instead. So either the empty
+      state is reachable some other way, or that path is dead code and the case's
+      precondition is wrong — **decide which**, don't just map the string. Mapping it is
+      the smaller half: point the user at `brevo app upload` rather than at four fields
+      they already have.
+- [ ] **Finding — `app submit` never changes state, which blocks three suites.** It is a
+      signpost to a Google Form, not an API submission: it printed *"No configuration
+      mismatch detected"*, previewed the config, confirmed, opened the form and said the
+      app is submitted only once the form is completed. Run twice, it behaved identically
+      and `app status` still reported `◇ Configured`. That is correct behaviour, but it
+      means **no app can be driven into `submitted` / `in_review` from the CLI**, so
+      `QA-TESTCASES.md` Suite 7 (`withdraw`), TC-5.13–5.16 (upload blocked under review)
+      and TC-6.2's review states are **blocked rather than merely unrun**. Reaching them
+      needs the form completed or the state set server-side — worth deciding whether that
+      is in scope for this branch's sign-off.
+- [ ] **Correction to land in the agent docs — the context-field list is wrong in three
+      places.** A live create against `company-details-header-menu` seeded **six** context
+      fields: `recordId`, `recordName`, `userId`, `locale`, `accountId`, **`clientId`**.
+      But `agent-context/SKILL.md:108` and `agent-context/AGENTS.md:100` both state *"the
+      only names the registry allows are `recordId`, `recordName`, `userId`, `locale`,
+      `accountId`"*, and `QA-TESTCASES.md` said the same and that anything else is
+      *"refused at upload"*. All three are wrong, and the second claim is wrong twice over:
+      the CLI refuses **nothing** by name — `validateUiAppContext` is non-empty-and-unique
+      only, deliberately, because the allow-list is the registry row's
+      `allowed_context_field`. **All three are corrected** — `QA-TESTCASES.md`,
+      `agent-context/SKILL.md` and `agent-context/AGENTS.md`, in this change, per
+      `CLAUDE.md` → *Keep agent docs in sync*. The enumeration was replaced with the
+      registry-is-authority framing rather than changing five to six: a hard-coded list is
+      the mistake that got the extension-point mirror deleted, and `clientId` is only
+      what *one* slot's default happened to carry. Both docs now also say the CLI checks
+      no names, so an agent doesn't expect a local error for an unregistered one.
+- [x] **Partially answers the open registry-seeding question** under *Before UI-apps GA*
+      ("confirm the target environment's registry is actually seeded, and that
+      `location_name` is populated on every row"). Production **is** seeded and
+      `location_name` is populated for at least `companyDetails`: the page prompt offered
+      it by that name and the narrowed placement read resolved a row carrying a
+      `Header "More" (•••) menu — menu entry` slot with a six-field default context. Only
+      one page was picked, so *every* row is still unconfirmed — leaving that item open.
+- [ ] **Not covered by either sweep**, and each is a separate line elsewhere in this
+      section: `--json` / non-TTY paths anywhere, `app list`, `app deploy` / `app
+      rollback`, the whole of backward compatibility (`QA-TESTCASES.md` Suite 9), any
+      hand-edited `ui_app` (so no `app-config.json` was ever opened to check the block's
+      keys on disk), and any non-interactive `app create`.
+
+### The prerelease publish is gated on a smoke run (2026-08-13)
+
+**Change:** `.github/workflows/pre-release.yaml` gained a `smoke` job, and the
+`prerelease` job now declares `needs: smoke`. A red smoke run means nothing is versioned
+and nothing reaches npm. Pure addition — 55 lines, no existing line touched.
+
+**Why.** `release-*` was the only shipping path with no smoke coverage in either
+direction. Before the publish, the workflow ran `yarn build` + `yarn test` and nothing
+else — `push.yaml` and `smoke-pre-merge.yml` are both `main`-only. After it,
+`smoke-post-merge.yml` fires on `release: published` but cannot cover an alpha: its
+propagation gate polls `npm view @getbrevo/cli@latest version` and a prerelease publishes
+under the `alpha` dist-tag, so it retries for five minutes and aborts — and
+`--against=published` installs `@getbrevo/cli@latest` (`scripts/smoke/core.ts:665`), i.e.
+the previous *stable*, not the alpha just cut.
+
+**Three shape decisions, each load-bearing:**
+
+- **In this workflow, not `smoke-pre-merge.yml`.** A separate workflow cannot gate one —
+  the two would race on the same push. An earlier pass added `release-*` to
+  `smoke-pre-merge.yml`'s triggers and was reverted for exactly this reason; don't
+  restore it, it would only duplicate the run.
+- **A separate job, not a step inside `prerelease`.** That job carries `id-token: write`
+  and the `npm-prerelease` environment; the smoke does real API work against a robot
+  account and has no business running with publish credentials in scope. The smoke job
+  takes `contents: read` and no environment. Running first also means a failure costs no
+  reviewer approval, since the environment gate sits on the job below.
+- **Unconditional.** It runs on every `release-*` push, including the versioning pushes
+  that publish nothing. It *cannot* be conditioned on the publish condition: a skipped
+  `needs:` dependency skips the dependent job, which would take the "Create prerelease
+  PR" step down with it. The cost is one extra smoke run per release branch push.
+
+**Must hold true:**
+
+- [x] YAML parses; `jobs` is `[smoke, prerelease]`, `prerelease.needs == 'smoke'`.
+- [x] The publish job is unchanged: `environment: npm-prerelease`, `id-token: write`,
+      `NPM_CONFIG_PROVENANCE`, no `NPM_TOKEN`, `persist-credentials: false`. The diff is
+      additions only (`git diff` shows no `-` lines).
+- [x] The smoke job has `contents: read`, no environment, and **no**
+      `continue-on-error` — that absence is the gate.
+- [ ] **Manual, first release branch:** push to `release-*` and confirm the smoke job
+      starts, that `secrets.BREVO_TEST_API_KEY` resolves outside an environment (it is a
+      repo secret, as `smoke-pre-merge.yml` already relies on), and that `prerelease`
+      waits for it rather than starting in parallel.
+- [ ] **Manual:** confirm a deliberately failing smoke actually blocks — the publish step
+      is already double-gated on `pre.json` + a `Version Packages` commit message, so a
+      green run proves less than a red one does.
+- [ ] **Reviewer (CODEOWNERS):** this is a publishing-workflow edit, so it needs
+      code-owner review per `CLAUDE.md` → *Workflow / publishing changes*.
+- [ ] Still open, deliberately: an alpha is never smoke-tested *as published*. Fix is
+      dist-tag awareness in `smoke-post-merge.yml` (poll and install `@alpha`) or gating
+      that job on `github.event.release.prerelease == false` so it stops failing on every
+      prerelease. Not started.
+
+### A bootstrap into a directory that already has a project is a refresh (2026-08-13)
+
+**Change:** `app scaffold`'s bootstrap mode now reads the config in the directory it was
+pointed at. Same app → the drift diff + consent the feature-add mode already runs, then a
+full base overwrite. Different app → refused (`APP_SCAFFOLD_TARGET_LINKED_ELSEWHERE`). No
+drift → `app-config.json` left alone with `APP_SCAFFOLD_BASE_IN_SYNC`. The diff-and-confirm
+half of `resolveScaffoldPlan` is extracted as `resolveBaseRefresh` and shared by both modes.
+
+**Why.** Answering **Merge** at `Directory already exists…` set `baseMergeOnly`, and
+`writeScaffoldFiles` implements merge by skipping any path that exists. `app-config.json`
+always exists in this case, so the *one file the bootstrap is for* was skipped: the command
+fetched the app, discarded every field, wrote nothing, and printed the *Next steps* box
+anyway. `resolveBootstrapPlan` sets `refreshBase` unconditionally precisely because writing
+that file is the whole mode — the merge flag was silently overruling it. Reported from a
+real run whose `app-config.json` was still a v1.0.0-era file (`auth.redirectUrls`,
+`scopes: ["all"]`, no `version` — so `assertUploadedBeforeDeploy` would have refused a
+deploy from it) after a scaffold that claimed success.
+
+**Two things here are deliberate:**
+
+- **The merge answer still governs a target with files but no config** (a fresh clone, an
+  empty git repo). `app-config.json` doesn't exist there, so it is written either way and
+  the user's own files stay untouched. Only the already-a-project case overrides it.
+- **The interactive bootstrap's base write is now conditional on `refreshBase`.** It used
+  to write unconditionally, which was safe only while `refreshBase` was always true in this
+  mode. Left as-is, an in-sync target would regenerate `README.md`/`CLAUDE.md`/`AGENTS.md`
+  over the user's edits in order to report that nothing needed changing.
+
+**Must hold true:**
+
+- [x] `yarn jest` — 58 suites, 1252 tests green. Four new tests under *when the target
+      directory already holds a project*: confirmed refresh writes `app-config.json`,
+      decline writes nothing and says `Scaffold cancelled.`, in-sync writes no base but
+      still writes the feature, different app throws naming both IDs.
+- [x] The config is read from the **target** directory: asserted as
+      `readProjectConfigAt(path.resolve(target))`, not cwd. cwd having no config is what
+      selects this branch, so reading it again would skip the refresh every time.
+- [x] `yarn lint` and `tsc --noEmit` clean; `PREVIEW=1 yarn build` succeeds.
+- [x] `agent-context/SKILL.md` and `agent-context/AGENTS.md` both updated (changed prompt
+      behaviour + a new refusal are user-visible per `CLAUDE.md`).
+- [ ] **Manual, needs a live session** (`brevo login` — the session expired mid-fix, so
+      this was verified by test only): from a directory with no `app-config.json`, run
+      `brevo app scaffold --app-id <id>` pointing at a folder that already holds that app's
+      project, answer **Merge**, and confirm the drift question appears and
+      `app-config.json` is rewritten with `auth.redirectUris` + `version`. The reproducing
+      fixture is `brevo-cli-apps/test1-0-0` (backed up to the session scratchpad before
+      the attempt; the run aborted on the expired session, so nothing was written).
+- [ ] **Manual:** point the same command at a folder holding a *different* app's project
+      and confirm the refusal names both app IDs and writes nothing.
+- [ ] Still open, deliberately: a config that is legacy in *shape* but matches the server
+      in every diffed field is not rewritten, so it stays legacy on disk. Pre-existing and
+      identical in the feature-add path (`diffLocalConfig` compares migrated values, not
+      the on-disk spelling). Logged in `docs.md` → Part 2.
