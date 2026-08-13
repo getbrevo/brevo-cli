@@ -490,9 +490,15 @@ function buildAuthOverride(rawAuth: unknown): Record<string, unknown> | undefine
   // Redirect URLs were renamed auth.redirectUrls → auth.redirectUris to track the wire key
   // (redirect_uris, BEX-355/366). Read the legacy key when the new one is absent and drop
   // it from the returned config, so callers that write the object back to disk (upload.ts,
-  // start.ts) migrate old projects on their next write. Downgrade caveat: older CLI
-  // releases read only the legacy key, so a migrated file fails loudly there ("no redirect
-  // URLs"), never silently.
+  // start.ts) migrate old projects on their next write.
+  //
+  // Downgrade caveat, and it is NOT a loud one: releases up to 2.0.2 read only the legacy
+  // key, so a migrated file reads there as an app with no redirect URLs at all. `app start
+  // oauth` then offers to register `http://localhost:<port>/auth/callback` (confirm prompt,
+  // default yes) and PATCHes `redirect_uris` with just that one URL — the old write path
+  // replaces the list rather than merging it, so the app's real redirect URLs are dropped
+  // server-side with no error. Only reachable when a new and an old CLI share one project
+  // directory (a teammate or CI left behind); a downgrade caveat, not a same-machine one.
   if ('redirectUrls' in auth) {
     override = override ?? { ...auth };
     const legacyRedirects = auth.redirectUrls;
