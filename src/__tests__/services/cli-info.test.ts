@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { fetchCliInfo } from '../../services/cli-info';
 import { CliInfoQuery } from '../../types';
 
@@ -15,6 +18,21 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
     json: async () => body,
   } as unknown as Response;
 }
+
+// A fresh scratch dir per test, pointed at via BREVO_CONFIG_HOME, so no test
+// can read another test's cache file and nothing ever touches the developer's
+// real ~/.brevo directory.
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-cli-info-test-'));
+  process.env.BREVO_CONFIG_HOME = tmpDir;
+});
+
+afterEach(() => {
+  delete process.env.BREVO_CONFIG_HOME;
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
 
 describe('fetchCliInfo', () => {
   it('returns the upgrade message', async () => {
@@ -180,5 +198,121 @@ describe('is_blocked', () => {
 
   it('does not block when the field is absent entirely', async () => {
     await expect(call({ upgrade_message: 'hi' })).resolves.toMatchObject({ isBlocked: false });
+  });
+});
+
+describe('caching', () => {
+  const FIFTEEN_MIN_MS = 15 * 60 * 1000;
+
+  it('serves a second call within the TTL from cache, without refetching', async () => {
+    const fetchImpl = jest.fn(async () =>
+      jsonResponse({ upgrade_message: 'first', is_blocked: false }),
+    );
+    let now = 1_000_000;
+
+    const first = await fetchCliInfo(QUERY, {
+      baseUrl: BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: () => now,
+    });
+    now += 1000;
+    const second = await fetchCliInfo(QUERY, {
+      baseUrl: BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: () => now,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  it('refetches once the cache entry is older than the TTL', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ upgrade_message: 'first', is_blocked: false }))
+      .mockResolvedValueOnce(jsonResponse({ upgrade_message: 'second', is_blocked: true }));
+    let now = 1_000_000;
+
+    await fetchCliInfo(QUERY, {
+      baseUrl: BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: () => now,
+    });
+    now += FIFTEEN_MIN_MS + 1;
+    const second = await fetchCliInfo(QUERY, {
+      baseUrl: BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: () => now,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(second).toEqual({ upgradeMessage: 'second', isBlocked: true });
+  });
+
+  it('ignores a fresh cache entry written for a different cliVersion', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ upgrade_message: 'old version', is_blocked: false }))
+      .mockResolvedValueOnce(jsonResponse({ upgrade_message: 'new version', is_blocked: false }));
+    const now = 1_000_000;
+
+    await fetchCliInfo(
+      { cliVersion: '1.0.0', reason: 'startup' },
+      { baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch, now: () => now },
+    );
+    const upgraded = await fetchCliInfo(
+      { cliVersion: '2.0.0', reason: 'startup' },
+      { baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch, now: () => now },
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(upgraded).toEqual({ upgradeMessage: 'new version', isBlocked: false });
+  });
+
+  it('does not cache a failed response, so the next call retries', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, false, 500))
+      .mockResolvedValueOnce(jsonResponse({ upgrade_message: 'ok', is_blocked: false }));
+    const now = 1_000_000;
+
+    const failed = await fetchCliInfo(QUERY, {
+      baseUrl: BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: () => now,
+    });
+    const recovered = await fetchCliInfo(QUERY, {
+      baseUrl: BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: () => now,
+    });
+
+    expect(failed).toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(recovered).toEqual({ upgradeMessage: 'ok', isBlocked: false });
+  });
+
+  it('honours an explicit ttlMs override', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ upgrade_message: 'first', is_blocked: false }))
+      .mockResolvedValueOnce(jsonResponse({ upgrade_message: 'second', is_blocked: false }));
+    let now = 1_000_000;
+
+    await fetchCliInfo(QUERY, {
+      baseUrl: BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: () => now,
+      ttlMs: 5000,
+    });
+    now += 5001;
+    await fetchCliInfo(QUERY, {
+      baseUrl: BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: () => now,
+      ttlMs: 5000,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });

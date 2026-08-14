@@ -5,7 +5,7 @@ Command-line tool to create, manage, and test [Brevo](https://www.brevo.com/) OA
 > 📖 Full command and option documentation: **[Brevo CLI reference](https://developers.brevo.com/docs/cli-reference)**
 
 > [!WARNING]
-> **Upgrade to v2.0.0.** All versions from **1.1.1** up to (but not including) **2.0.0** should be migrated to **2.0.0**. The `2.0.0` release introduces **breaking changes**, so some CLI commands may not work as expected on older versions.
+> **Upgrade to the latest released version.** All versions from **1.1.1** up to (but not including) **2.0.0** should be migrated. The `2.0.0` release introduced **breaking changes**, so some CLI commands may not work as expected on older versions. **`2.1.0` and above** contain no further breaking changes on top of `2.0.0`.
 >
 > Upgrade with `npm install -g @getbrevo/cli@latest` (or `yarn global add @getbrevo/cli@latest`, or `brew upgrade brevo`), then confirm with `brevo --version`.
 

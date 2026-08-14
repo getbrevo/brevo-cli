@@ -308,7 +308,7 @@ describe('startUpdateCheck', () => {
   it('fetches and updates cache when stale (older than TTL)', async () => {
     const cachePath = makeCachePath();
     const now = 1_700_000_000_000;
-    const ttlMs = 24 * 60 * 60 * 1000;
+    const ttlMs = 12 * 60 * 60 * 1000;
     writeCache(cachePath, { latest: '1.0.0', lastChecked: now - ttlMs - 1 });
     const fetchImpl = jest.fn().mockResolvedValue({
       ok: true,
@@ -358,7 +358,7 @@ describe('startUpdateCheck', () => {
   it('updates handle.cachedLatest with the freshly fetched version on stale cache', async () => {
     const cachePath = makeCachePath();
     const now = 1_700_000_000_000;
-    const ttlMs = 24 * 60 * 60 * 1000;
+    const ttlMs = 12 * 60 * 60 * 1000;
     writeCache(cachePath, { latest: '1.0.0', lastChecked: now - ttlMs - 1 });
     const fetchImpl = jest.fn().mockResolvedValue({
       ok: true,

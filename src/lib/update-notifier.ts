@@ -7,7 +7,7 @@ import { color, COLOR_RED } from './logger';
 const REGISTRY_URL = (name: string): string =>
   `https://registry.npmjs.org/${encodeURIComponent(name).replace('%40', '@')}/latest`;
 
-const TTL_MS = 24 * 60 * 60 * 1000;
+const TTL_MS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 2000;
 const NOTIFY_WAIT_MS = 1500;
 

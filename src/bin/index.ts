@@ -33,7 +33,7 @@ import { createHelpFormatter } from '../lib/help';
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
 const version: string = pkg.version;
 
-// Version update check — async, non-blocking. Cached at ~/.brevo/update-check.json (24h TTL).
+// Version update check — async, non-blocking. Cached at ~/.brevo/update-check.json (12h TTL).
 // Skipped in CI, non-TTY, or when --no-update-notifier / BREVO_NO_UPDATE_NOTIFIER=1 is set.
 // This covers npm detection only. The banner's notice line, and whether the
 // version is blocked outright, come from GET /cli/info — see applyCliInfo below.
@@ -170,8 +170,10 @@ const isHelpOrVersion =
 // ──────────────── API version gate (BEX-370) ────────────────
 //
 // GET /cli/info on the app-store service, called directly — no gateway, no
-// credentials — on every run and never cached, so a reworded message or a new
-// block takes effect immediately rather than after a TTL.
+// credentials. Cached at ~/.brevo/cli-info-cache.json for 15m (see
+// services/cli-info.ts), keyed to the running cliVersion, so a reworded
+// message or a new block reaches users within minutes rather than after the
+// old 12h npm-style TTL, without hitting the service on every single command.
 //
 // It runs *before* the command because a block has to prevent the command, not
 // report on it afterwards. `--help` / `--version` stay exempt so a blocked CLI
@@ -229,9 +231,9 @@ applyCliInfo()
     process.exit(0);
   })
   .catch(async (err) => {
-    emitJsonError(err);
     // A deliberate Ctrl-C is not a failure — exit immediately rather than making
     // the user wait on the update check for a banner they didn't ask for.
+    emitJsonError(err);
     if (err instanceof AbortError) {
       logInfo(`\n  ${messages.ABORTED}`);
       process.exit(EXIT_CODES.ABORTED);
