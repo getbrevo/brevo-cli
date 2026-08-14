@@ -384,6 +384,22 @@ describe('validateUiApp', () => {
     ).not.toThrow();
   });
 
+  it('accepts an entry-level size beside context (BEX-416)', () => {
+    expect(() =>
+      validateUiApp({
+        ...VALID,
+        surface_point_list: [
+          {
+            surface_point_name: 'contact-details-header-menu',
+            context: ['recordId'],
+            size: { width: 280, height: 160 },
+          },
+          { surface_point_name: 'deal-details-header-menu' },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
   // The handover to the server, asserted so it cannot be undone by accident: an
   // unregistered slot name passes the local pre-flight and travels, and the upload
   // endpoint's `checkExtensionPoints` is what answers 400 naming it. Re-adding a local
@@ -412,6 +428,45 @@ describe('validateUiApp', () => {
         surface_point_list: [
           { surface_point_name: 'contact-details-header-menu' },
           { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+        ],
+      },
+    ],
+    [
+      'a size that is not an object',
+      {
+        ...VALID,
+        surface_point_list: [
+          { surface_point_name: 'contact-details-header-menu', size: '280x160' },
+        ],
+      },
+    ],
+    [
+      'a size missing an axis',
+      {
+        ...VALID,
+        surface_point_list: [
+          { surface_point_name: 'contact-details-header-menu', size: { width: 280 } },
+        ],
+      },
+    ],
+    [
+      'a size with a zero axis',
+      {
+        ...VALID,
+        surface_point_list: [
+          { surface_point_name: 'contact-details-header-menu', size: { width: 280, height: 0 } },
+        ],
+      },
+    ],
+    [
+      'a size with a non-integer axis',
+      {
+        ...VALID,
+        surface_point_list: [
+          {
+            surface_point_name: 'contact-details-header-menu',
+            size: { width: 280.5, height: 160 },
+          },
         ],
       },
     ],

@@ -450,10 +450,39 @@ function validateSurfacePointList(entries: unknown): void {
         throw new CliError(`ui_app.surface_point_list["${name}"].context: ${contextCheck}`);
       }
     }
+
+    // Same authored-or-absent contract as `context`, one level down: absent means the host
+    // slot's default card size applies; authored, both axes must be positive integers (px).
+    // Shape only, like everything else here — there is no platform ceiling to check yet.
+    if (row.size !== undefined) {
+      const sizeCheck = validateSurfacePointSize(row.size);
+      if (sizeCheck !== true) {
+        throw new CliError(`ui_app.surface_point_list["${name}"].size: ${sizeCheck}`);
+      }
+    }
   }
   if (new Set(names).size !== names.length) {
     throw new CliError('ui_app.surface_point_list contains duplicate extension points.');
   }
+}
+
+/**
+ * Validate one entry's authored card size: an object with integer `width` and `height`,
+ * both positive (px). Both axes are deliberately required — the platform refuses a
+ * half-authored object for the same reason (a one-axis default is the host page's to
+ * express), so accepting one here would only defer the 400 to `app upload`.
+ */
+function validateSurfacePointSize(size: unknown): true | string {
+  if (!size || typeof size !== 'object' || Array.isArray(size)) {
+    return 'must be an object, e.g. { "width": 280, "height": 160 } (px).';
+  }
+  const { width, height } = size as Record<string, unknown>;
+  const isPositiveInt = (v: unknown): boolean =>
+    typeof v === 'number' && Number.isInteger(v) && v > 0;
+  if (!isPositiveInt(width) || !isPositiveInt(height)) {
+    return 'width and height must both be positive integers (px), e.g. { "width": 280, "height": 160 }.';
+  }
+  return true;
 }
 
 function validateActionLinkFields(block: Record<string, unknown>): void {
