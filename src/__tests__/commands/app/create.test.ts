@@ -319,7 +319,7 @@ describe('app/create', () => {
       questionNamed(name).choices.map((choice: { value: string }) => choice.value);
 
     expect(valuesOf('distribution')).toEqual(['private', 'public']);
-    expect(valuesOf('appType')).toEqual(['oauth', 'ui']);
+    expect(valuesOf('appType')).toEqual(['oauth', 'ui', 'function']);
   });
 
   describe('feature scaffolding', () => {
@@ -2540,10 +2540,14 @@ describe('app/create', () => {
       // assertion below is a `not.toContain`, which an unnoticed indent would satisfy
       // vacuously, quietly turning the gate's own test green for the wrong reason.
       const labels = appTypeQuestion.choices.map((choice: { name: string }) => choice.name.trim());
-      expect(labels).toEqual([messages.APP_CREATE_APP_TYPE_OAUTH]);
+      expect(labels).toEqual([
+        messages.APP_CREATE_APP_TYPE_OAUTH,
+        messages.APP_CREATE_APP_TYPE_FUNCTION,
+      ]);
       expect(labels).not.toContain(messages.APP_CREATE_APP_TYPE_UI);
       expect(appTypeQuestion.choices.map((choice: { value: string }) => choice.value)).toEqual([
         'oauth',
+        'function',
       ]);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];

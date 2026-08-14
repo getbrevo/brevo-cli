@@ -103,6 +103,8 @@ export interface AppContext {
    * Absent for OAuth apps.
    */
   uiApp?: UiApp;
+  /** True when the app is a Brevo Function. Drives `brevo_function: {}` in app-config.json. */
+  isBrevoFunction?: boolean;
 }
 
 export function computeSlug(name: string | undefined): string {
@@ -456,6 +458,9 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
     // Empty for OAuth apps — its emptiness is what selects the `oauth`
     // conditional branch in templates (see resolveTemplateFlags).
     '{{UI_APP_JSON}}': renderUiAppJson(ctx.uiApp),
+    // Non-empty for Brevo Function apps — rendered as `"brevo_function": {}`
+    // in app-config.json so the app type is preserved in the local snapshot.
+    '{{BREVO_FUNCTION_JSON}}': ctx.isBrevoFunction ? '{}' : '',
   };
 
   return { vars, scopes, legacyAllSubstituted };

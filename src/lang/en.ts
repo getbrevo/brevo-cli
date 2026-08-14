@@ -92,8 +92,11 @@ const coreMessages = {
   APP_CREATE_TYPE_PROMPT: 'Distribution type?',
   APP_CREATE_APP_TYPE_PROMPT: 'What type of app are you building?',
   APP_CREATE_APP_TYPE_OAUTH:
-    'OAuth app  (Authorize against Brevo and call the API on a user’s behalf)',
-  APP_CREATE_APP_TYPE_UI: 'UI app     (Render inside Brevo — opens your app from a record)',
+    'OAuth app       (Authorize against Brevo and call the API on a user’s behalf)',
+  APP_CREATE_APP_TYPE_UI:
+    'UI app          (Render inside Brevo \u2014 opens your app from a record)',
+  APP_CREATE_APP_TYPE_FUNCTION:
+    'Brevo Function  (Serverless function running on Brevo’s infrastructure)',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   // Shown only after every prompt has been answered — hence the reassurance:
@@ -185,6 +188,16 @@ const coreMessages = {
   // with a raw ERR_USE_AFTER_CLOSE readline stack instead of anything readable.
   APP_SELECT_NON_INTERACTIVE: (command: string) =>
     `Cannot show the app picker in non-interactive mode. Name the app instead:\n\n      ${command}\n\n  \`${CLI.APP_LIST}\` shows the IDs.`,
+
+  // Function list
+  FUNCTION_LIST_HEADER: 'Your Brevo Functions:',
+  FUNCTION_LIST_EMPTY: 'No Brevo Functions found. You have not created any Brevo Functions yet.',
+  FUNCTION_LIST_DRAFT_HEADER: 'Your draft Brevo Functions:',
+  FUNCTION_LIST_DRAFT_EMPTY: 'No draft Brevo Functions found.',
+
+  // Function get
+  FUNCTION_GET_HEADER: 'Brevo Function details:',
+  FUNCTION_GET_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
 
   // App credentials
   APP_CREDENTIALS_REVEAL_CONFIRM: 'Are you sure you want to reveal the client secret?',

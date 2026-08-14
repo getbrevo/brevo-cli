@@ -1,7 +1,12 @@
 import { Command } from 'commander';
 import { createHelpFormatter } from '../../lib/help';
 import { registerAll } from '../../lib/command-registry';
-import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../../commands/definitions';
+import {
+  topLevelCommands,
+  appCommandGroup,
+  skillCommandGroup,
+  functionCommandGroup,
+} from '../../commands/definitions';
 
 // Build the real command tree the same way bin/index.ts does, so these assertions
 // run against the actual registered options rather than a stand-in.
@@ -13,7 +18,11 @@ function buildProgram(): Command {
     .version('0.0.0-test')
     .option('--debug', 'Enable debug logging')
     .configureHelp({ formatHelp: createHelpFormatter(program) });
-  registerAll(program, topLevelCommands, [appCommandGroup, skillCommandGroup]);
+  registerAll(program, topLevelCommands, [
+    appCommandGroup,
+    skillCommandGroup,
+    functionCommandGroup,
+  ]);
   return program;
 }
 
@@ -52,6 +61,7 @@ describe('help formatting', () => {
       expect(out).toContain('App-deployment commands (UI apps only):');
       expect(out).toContain('App-review commands (public apps only):');
       expect(out).toContain('Skill commands:');
+      expect(out).toContain('Function commands:');
       expect(out).toContain('Run `brevo <command> --help` for details on a specific command.');
     });
 
@@ -100,7 +110,7 @@ describe('help formatting', () => {
 
     it('gives every registered subcommand its own usage line', () => {
       const program = buildProgram();
-      const groups = [appCommandGroup, skillCommandGroup];
+      const groups = [appCommandGroup, skillCommandGroup, functionCommandGroup];
 
       for (const group of groups) {
         for (const cmd of group.commands) {

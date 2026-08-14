@@ -22,6 +22,8 @@ import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
+import { listFunctionCommand } from './function/list';
+import { getFunctionCommand } from './function/get';
 
 export const topLevelCommands: CommandDefinition[] = [
   {
@@ -277,6 +279,36 @@ export const skillCommandGroup: SubcommandGroupDefinition = {
       examples: ['brevo skill:cli uninstall', 'brevo skill:cli uninstall --json'],
       options: [{ flags: '--json', description: 'Output as JSON' }],
       handler: (opts) => skillUninstallCommand({ json: Boolean(opts.json) }),
+    },
+  ],
+};
+
+export const functionCommandGroup: SubcommandGroupDefinition = {
+  name: 'function',
+  description: 'Manage Brevo Functions',
+  commands: [
+    {
+      name: 'list',
+      description: 'List all Brevo Functions in your account',
+      examples: [
+        'brevo function list',
+        'brevo function list --draft',
+        'brevo function list --json',
+      ],
+      options: [
+        { flags: '--draft', description: 'List only draft functions' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        listFunctionCommand({ json: Boolean(opts.json), draft: Boolean(opts.draft) }),
+    },
+    {
+      name: 'get',
+      description: 'Show details of a Brevo Function',
+      arguments: [{ name: '<id>', description: 'Function ID' }],
+      examples: ['brevo function get fn-001', 'brevo function get fn-001 --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts, id) => getFunctionCommand({ id: id as string, json: Boolean(opts.json) }),
     },
   ],
 };

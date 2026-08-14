@@ -48,13 +48,17 @@ import {
 import { privateAppSuite } from './smoke/private-app';
 import { publicAppSuite } from './smoke/public-app';
 import { initWizardSuite } from './smoke/init-wizard';
+import { functionSuite } from './smoke/function';
 
 // Suite registry. `--suite=<name[,name]>` picks from these; the init wizard is
-// opt-in because it drives interactive prompts through scripted stdin.
+// opt-in because it drives interactive prompts through scripted stdin, and the
+// function suite is opt-in because it exercises read-only endpoints that may
+// return empty results on a fresh account.
 const SUITES: Record<string, Suite> = {
   private: privateAppSuite,
   public: publicAppSuite,
   init: initWizardSuite,
+  function: functionSuite,
 };
 
 const DEFAULT_SUITES = ['private', 'public'];
@@ -169,6 +173,7 @@ Flags:
                                private  private-app lifecycle + client guardrails
                                public   public-app submission/review lifecycle
                                init     'brevo app init' wizard (interactive, opt-in)
+                               function Brevo Function list/get commands (read-only, opt-in)
                                all      every suite
                                Default: private,public
   --with-init                  Append the init suite (same as adding 'init').

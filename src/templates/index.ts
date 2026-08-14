@@ -32,10 +32,12 @@ export type Distribution = 'public' | 'private';
  *   OAuth flow).
  * - `oauth` / `ui_app` — the app *type* (BEX-290). Exactly one is always set,
  *   so a template can carry OAuth-only and UI-app-only sections side by side.
+ * - `brevo_function` — set when the app is a Brevo Function. Orthogonal to
+ *   `oauth` (a Function app is also an OAuth app on the wire).
  */
-export type TemplateFlag = 'public' | 'private' | 'oauth' | 'ui_app';
+export type TemplateFlag = 'public' | 'private' | 'oauth' | 'ui_app' | 'brevo_function';
 
-const IF_OPEN_RE = /^\s*\{\{#if (public|private|oauth|ui_app)\}\}\s*$/;
+const IF_OPEN_RE = /^\s*\{\{#if (public|private|oauth|ui_app|brevo_function)\}\}\s*$/;
 const IF_CLOSE_RE = /^\s*\{\{\/if\}\}\s*$/;
 
 /**
@@ -174,7 +176,10 @@ export const FEATURE_LABELS: Record<FeatureType, string> = {
 function resolveTemplateFlags(vars: Record<string, string>): Set<TemplateFlag> {
   const distribution: Distribution = vars['{{DISTRIBUTION}}'] === 'public' ? 'public' : 'private';
   const isUiApp = !!vars['{{UI_APP_JSON}}'];
-  return new Set<TemplateFlag>([distribution, isUiApp ? 'ui_app' : 'oauth']);
+  const isBrevoFunction = !!vars['{{BREVO_FUNCTION_JSON}}'];
+  const flags = new Set<TemplateFlag>([distribution, isUiApp ? 'ui_app' : 'oauth']);
+  if (isBrevoFunction) flags.add('brevo_function');
+  return flags;
 }
 
 function loadManifest(

@@ -17,7 +17,12 @@ import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
 import { client } from '../container';
 import { registerAll } from '../lib/command-registry';
-import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
+import {
+  topLevelCommands,
+  appCommandGroup,
+  skillCommandGroup,
+  functionCommandGroup,
+} from '../commands/definitions';
 import {
   formatBlockedBanner,
   startUpdateCheck,
@@ -105,7 +110,7 @@ client.setEnsureFresh(async () => {
 
 // ──────────────── Register all commands ────────────────
 
-registerAll(program, topLevelCommands, [appCommandGroup, skillCommandGroup]);
+registerAll(program, topLevelCommands, [appCommandGroup, skillCommandGroup, functionCommandGroup]);
 
 // ──────────────── Re-auth handler ────────────────
 

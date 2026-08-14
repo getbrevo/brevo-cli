@@ -478,3 +478,48 @@ export interface CliInfoQuery {
   cliVersion: string;
   reason: string;
 }
+
+// ──────────────── Brevo Functions ────────────────
+
+export interface DpFunction {
+  id: string;
+  name: string;
+  description: string;
+  explanation: string;
+  formula: string;
+  category?: string;
+  attribute_id?: string;
+  attribute_type?: string;
+  version: number;
+  is_active: boolean;
+  is_global: boolean;
+  created_at: string;
+  updated_at: string;
+  last_recalculated_at?: string;
+}
+
+export interface DpFunctionListResponse {
+  functions: DpFunction[];
+  total: number;
+  max: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export interface DpDraftFunction {
+  id: string;
+  description: string;
+  explanation: string;
+  formula: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface DpDraftFunctionListResponse {
+  drafts: DpDraftFunction[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
