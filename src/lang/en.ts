@@ -30,6 +30,11 @@ const coreMessages = {
     `Update required: v${current} is no longer supported (latest v${latest}).`,
   FORCE_UPDATE_HINT: 'Update to continue using the Brevo CLI:',
 
+  // Shown above the update box, never inside it. Replaced by the API's wording
+  // when /cli/info returns a usable upgrade_message; must stand on its own when
+  // it does not.
+  CLI_VERSION_NOTICE_FALLBACK: 'A newer version of the Brevo CLI is available.',
+
   // Auth
   AUTH_WELCOME: 'Welcome to Brevo CLI',
   AUTH_PROMPT_METHOD: 'How would you like to authenticate?',

@@ -5,9 +5,13 @@ const isTTY = (): boolean => process.stdout.isTTY === true;
 const useColor = (): boolean =>
   process.env.NO_COLOR === undefined && (process.env.FORCE_COLOR !== undefined || isTTY());
 
-function color(code: string, text: string): string {
+// Exported so other renderers (e.g. the update banner) colour text through the
+// same NO_COLOR / FORCE_COLOR / TTY rules rather than emitting raw escapes.
+export function color(code: string, text: string): string {
   return useColor() ? `\x1b[${code}m${text}\x1b[0m` : text;
 }
+
+export const COLOR_RED = '31';
 
 const SENSITIVE_KEYS = new Set([
   'api-key',
@@ -104,4 +108,6 @@ export function logWarn(message: string): void {
   process.stdout.write(`  ${color('33', '⚠')} ${message}\n`);
 }
 
-export { isDebug, isTTY, useColor, color };
+// `color` is not re-exported here — it is exported at its declaration above, so
+// listing it again is a redeclaration.
+export { isDebug, isTTY, useColor };

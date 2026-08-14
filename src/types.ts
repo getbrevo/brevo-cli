@@ -449,3 +449,32 @@ export interface UploadAppResponse {
   // app-config.json the one field the file is not supposed to carry.
   ui_app?: UiApp;
 }
+
+// ──────────────── CLI update notice (BEX-370) ────────────────
+
+/** Raw v1 body of `GET /cli/info`. Every field is untrusted. */
+export interface CliInfoResponse {
+  upgrade_message?: string;
+  is_blocked?: boolean;
+}
+
+/** The validated form of that body. */
+export interface CliInfo {
+  /** Sanitized display line, or undefined when nothing usable came back. */
+  upgradeMessage?: string;
+  /**
+   * True only when the API explicitly said so. Anything else — absent, a
+   * non-boolean, a failed request — is false, so the CLI can only ever be
+   * blocked by a deliberate answer, never by a mistake or an outage.
+   */
+  isBlocked: boolean;
+}
+
+/**
+ * Query sent to `/cli/info`. Informational only — the CLI has already decided an
+ * update is available by the time it asks, so nothing here drives the response.
+ */
+export interface CliInfoQuery {
+  cliVersion: string;
+  reason: string;
+}

@@ -2,11 +2,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { messages } from '../lang/en';
+import { color, COLOR_RED } from './logger';
 
 const REGISTRY_URL = (name: string): string =>
   `https://registry.npmjs.org/${encodeURIComponent(name).replace('%40', '@')}/latest`;
 
-const TTL_MS = 24 * 60 * 60 * 1000;
+const TTL_MS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 2000;
 const NOTIFY_WAIT_MS = 1500;
 
@@ -200,28 +201,91 @@ function renderBox(lines: string[]): string {
   return ['', `  ${top}`, ...lines.map((l) => `  │${pad(l)}│`), `  ${bot}`, ''].join('\n');
 }
 
-export function formatBanner(current: string, latest: string, name: string): string {
-  return renderBox([
-    messages.UPDATE_AVAILABLE(current, latest),
-    messages.UPDATE_RUN(name),
-    messages.UPDATE_RUN_YARN(name),
-    messages.UPDATE_RUN_BREW,
-  ]);
+// The notice line sits *outside* the box on purpose. It is the one dynamic
+// line — server-supplied when /cli/info answered, local wording otherwise —
+// while everything inside the box is fixed, locally-owned text. Keeping the two
+// apart means the box never changes width because of what a server returned.
+//
+// Colour goes through logger.color, so it is dropped under NO_COLOR or when the
+// stream is not a terminal. The message is already sanitized to a single
+// escape-free clamped line, so wrapping it in a colour code cannot let it break
+// out of the sequence.
+function withNotice(box: string, serverMessage?: string): string {
+  const line = serverMessage ?? messages.CLI_VERSION_NOTICE_FALLBACK;
+  return `\n  ${color(COLOR_RED, line)}\n${box}`;
 }
 
-export function formatForceUpdateBanner(current: string, latest: string, name: string): string {
-  return renderBox([
-    messages.FORCE_UPDATE_REQUIRED(current, latest),
-    messages.FORCE_UPDATE_HINT,
-    messages.UPDATE_RUN(name),
-    messages.UPDATE_RUN_YARN(name),
-    messages.UPDATE_RUN_BREW,
-  ]);
+export function formatBanner(
+  current: string,
+  latest: string,
+  name: string,
+  serverMessage?: string,
+): string {
+  return withNotice(
+    renderBox([
+      messages.UPDATE_AVAILABLE(current, latest),
+      messages.UPDATE_RUN(name),
+      messages.UPDATE_RUN_YARN(name),
+      messages.UPDATE_RUN_BREW,
+    ]),
+    serverMessage,
+  );
+}
+
+export function formatForceUpdateBanner(
+  current: string,
+  latest: string,
+  name: string,
+  serverMessage?: string,
+): string {
+  return withNotice(
+    renderBox([
+      messages.FORCE_UPDATE_REQUIRED(current, latest),
+      messages.FORCE_UPDATE_HINT,
+      messages.UPDATE_RUN(name),
+      messages.UPDATE_RUN_YARN(name),
+      messages.UPDATE_RUN_BREW,
+    ]),
+    serverMessage,
+  );
+}
+
+/**
+ * Banner for a run the API has blocked. When the npm check knows the latest
+ * version this is the ordinary force-update banner; otherwise it drops the
+ * version line, since there is no honest value to put in it. Either way every
+ * line inside the box is one the CLI already showed.
+ */
+export function formatBlockedBanner(
+  current: string,
+  latest: string | undefined,
+  name: string,
+  serverMessage?: string,
+): string {
+  if (latest) return formatForceUpdateBanner(current, latest, name, serverMessage);
+  return withNotice(
+    renderBox([
+      messages.FORCE_UPDATE_HINT,
+      messages.UPDATE_RUN(name),
+      messages.UPDATE_RUN_YARN(name),
+      messages.UPDATE_RUN_BREW,
+    ]),
+    serverMessage,
+  );
 }
 
 export interface UpdateCheckHandle {
   cachedLatest?: string;
   pending: Promise<void>;
+  /** Set once a banner has been written, so repeat calls are no-ops. */
+  notified?: boolean;
+  /**
+   * The notice line to render above the box, set by the caller from the API
+   * response. Deliberately in-memory only and never persisted: the wording is
+   * fetched fresh on every run, so a reworded message reaches users immediately
+   * rather than after a cache expires.
+   */
+  notice?: string;
 }
 
 export function startUpdateCheck(opts: UpdateNotifierOptions): UpdateCheckHandle {
@@ -256,19 +320,24 @@ export function startUpdateCheck(opts: UpdateNotifierOptions): UpdateCheckHandle
   return handle;
 }
 
+// Idempotent: safe to call from every exit path. The first call that actually
+// writes the banner marks the handle, and later calls become no-ops.
 export async function notifyUpdate(
   handle: UpdateCheckHandle,
   pkg: PkgInfo,
   output: NodeJS.WriteStream = process.stderr,
   waitMs: number = NOTIFY_WAIT_MS,
 ): Promise<void> {
+  if (handle.notified) return;
+
   await Promise.race([
     handle.pending,
     new Promise<void>((resolve) => setTimeout(resolve, waitMs).unref?.()),
   ]);
 
   if (handle.cachedLatest && isNewer(pkg.version, handle.cachedLatest)) {
-    output.write(formatBanner(pkg.version, handle.cachedLatest, pkg.name) + '\n');
+    handle.notified = true;
+    output.write(formatBanner(pkg.version, handle.cachedLatest, pkg.name, handle.notice) + '\n');
   }
 }
 
@@ -292,7 +361,9 @@ export async function enforceMinVersion(
   ]);
 
   if (handle.cachedLatest && isMajorBehind(pkg.version, handle.cachedLatest)) {
-    output.write(formatForceUpdateBanner(pkg.version, handle.cachedLatest, pkg.name) + '\n');
+    output.write(
+      formatForceUpdateBanner(pkg.version, handle.cachedLatest, pkg.name, handle.notice) + '\n',
+    );
     return true;
   }
   return false;

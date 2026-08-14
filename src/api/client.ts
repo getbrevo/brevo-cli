@@ -73,7 +73,8 @@ export function sanitizeErrorMessage(msg: string): string {
 // Detect HTML bodies returned by auth gateways (Cloudflare Access, SSO proxies).
 // Matches case-insensitively and runs regardless of response status, since
 // gateways frequently return HTML on 401/403 as well as 2xx.
-function looksLikeHtml(s: string): boolean {
+// Exported so the update notice can apply the same guard to /cli/info.
+export function looksLikeHtml(s: string): boolean {
   const lower = s.toLowerCase();
   return lower.includes('<!doctype html') || lower.includes('<html');
 }

@@ -19,20 +19,24 @@ import { client } from '../container';
 import { registerAll } from '../lib/command-registry';
 import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
 import {
+  formatBlockedBanner,
   startUpdateCheck,
   notifyUpdate,
   enforceMinVersion,
   shouldShowBannerBefore,
 } from '../lib/update-notifier';
 import { skillService } from '../services/skill';
+import { fetchCliInfo } from '../services/cli-info';
 import { emitJsonError } from '../lib/json-output';
 import { createHelpFormatter } from '../lib/help';
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'));
 const version: string = pkg.version;
 
-// Version update check — async, non-blocking. Cached at ~/.brevo/update-check.json (24h TTL).
+// Version update check — async, non-blocking. Cached at ~/.brevo/update-check.json (12h TTL).
 // Skipped in CI, non-TTY, or when --no-update-notifier / BREVO_NO_UPDATE_NOTIFIER=1 is set.
+// This covers npm detection only. The banner's notice line, and whether the
+// version is blocked outright, come from GET /cli/info — see applyCliInfo below.
 const updateCheck = startUpdateCheck({ pkg, argv: process.argv });
 // For long interactive flows (`app init`, `app create`), surface the banner
 // before the command runs so the user sees it up front instead of after a
@@ -163,21 +167,61 @@ const args = new Set(process.argv.slice(2));
 const isHelpOrVersion =
   args.has('--help') || args.has('-h') || args.has('--version') || args.has('-V');
 
-const forceGate = isHelpOrVersion
-  ? Promise.resolve()
-  : enforceMinVersion(updateCheck, { name: pkg.name, version }).then((mustUpdate) => {
-      if (mustUpdate) process.exit(EXIT_CODES.ERROR);
-    });
+// ──────────────── API version gate (BEX-370) ────────────────
+//
+// GET /cli/info on the app-store service, called directly — no gateway, no
+// credentials. Cached at ~/.brevo/cli-info-cache.json for 15m (see
+// services/cli-info.ts), keyed to the running cliVersion, so a reworded
+// message or a new block reaches users within minutes rather than after the
+// old 12h npm-style TTL, without hitting the service on every single command.
+//
+// It runs *before* the command because a block has to prevent the command, not
+// report on it afterwards. `--help` / `--version` stay exempt so a blocked CLI
+// can still identify itself.
+//
+// Fails open in every direction: a timeout, a non-2xx, an unparseable body or
+// any other error leaves `info` undefined and the command proceeds. Only an
+// explicit `is_blocked: true` stops anything.
+//
+// A block is not a notice, so it deliberately ignores the notice opt-outs
+// (BREVO_NO_UPDATE_NOTIFIER, --no-update-notifier, CI, non-TTY): a suppressed
+// banner should never mean a suppressed block.
+async function applyCliInfo(): Promise<void> {
+  if (isHelpOrVersion) return;
 
-forceGate
+  const info = await fetchCliInfo({ cliVersion: version, reason: 'startup' });
+  if (!info) return;
+
+  // Carried in memory only, for whichever banner ends up rendering.
+  updateCheck.notice = info.upgradeMessage;
+  if (!info.isBlocked) return;
+
+  process.stderr.write(
+    formatBlockedBanner(version, updateCheck.cachedLatest, pkg.name, info.upgradeMessage) + '\n',
+  );
+  process.exit(EXIT_CODES.ERROR);
+}
+
+// Kept lazy rather than started at module load: it now runs behind applyCliInfo,
+// and an eagerly-created promise would sit with no rejection handler attached
+// until that resolved. Costs nothing to defer — the npm request it awaits was
+// already kicked off by startUpdateCheck above.
+async function forceGate(): Promise<void> {
+  if (isHelpOrVersion) return;
+  const mustUpdate = await enforceMinVersion(updateCheck, { name: pkg.name, version });
+  if (mustUpdate) process.exit(EXIT_CODES.ERROR);
+}
+
+applyCliInfo()
+  .then(forceGate)
   .then(() =>
     showBannerEarly ? notifyUpdate(updateCheck, { name: pkg.name, version }) : undefined,
   )
   .then(() => program.parseAsync(process.argv))
   .then(async () => {
-    if (!showBannerEarly) {
-      await notifyUpdate(updateCheck, { name: pkg.name, version });
-    }
+    // notifyUpdate is idempotent, so the early-banner path above suppresses this
+    // one on its own — no need to branch on showBannerEarly.
+    await notifyUpdate(updateCheck, { name: pkg.name, version });
     // Local skill catalog check — sync, no network. Silently refreshes any
     // installed skill that's behind the bundled catalog so the AI tool always
     // sees the latest primer. Opt out with BREVO_NO_SKILL_AUTOREFRESH=1.
@@ -186,16 +230,25 @@ forceGate
     // prevent the process from exiting when running against local servers.
     process.exit(0);
   })
-  .catch((err) => {
+  .catch(async (err) => {
+    // A deliberate Ctrl-C is not a failure — exit immediately rather than making
+    // the user wait on the update check for a banner they didn't ask for.
     emitJsonError(err);
     if (err instanceof AbortError) {
       logInfo(`\n  ${messages.ABORTED}`);
       process.exit(EXIT_CODES.ABORTED);
     }
+
+    const exitCode = err instanceof CliError ? err.exitCode : EXIT_CODES.ERROR;
     if (err instanceof CliError) {
       logError(err.message);
-      process.exit(err.exitCode);
+    } else {
+      logError(err.message, err);
     }
-    logError(err.message, err);
-    process.exit(EXIT_CODES.ERROR);
+
+    // A failed command is exactly when knowing about a newer CLI matters most —
+    // the upgrade may be the fix. The banner goes after the error so the error
+    // stays the first thing the user reads, and the exit code is unchanged.
+    await notifyUpdate(updateCheck, { name: pkg.name, version });
+    process.exit(exitCode);
   });

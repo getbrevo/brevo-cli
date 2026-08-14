@@ -11,6 +11,7 @@ import {
   writeCache,
   formatBanner,
   formatForceUpdateBanner,
+  formatBlockedBanner,
   fetchLatestVersion,
   startUpdateCheck,
   notifyUpdate,
@@ -307,7 +308,7 @@ describe('startUpdateCheck', () => {
   it('fetches and updates cache when stale (older than TTL)', async () => {
     const cachePath = makeCachePath();
     const now = 1_700_000_000_000;
-    const ttlMs = 24 * 60 * 60 * 1000;
+    const ttlMs = 12 * 60 * 60 * 1000;
     writeCache(cachePath, { latest: '1.0.0', lastChecked: now - ttlMs - 1 });
     const fetchImpl = jest.fn().mockResolvedValue({
       ok: true,
@@ -357,7 +358,7 @@ describe('startUpdateCheck', () => {
   it('updates handle.cachedLatest with the freshly fetched version on stale cache', async () => {
     const cachePath = makeCachePath();
     const now = 1_700_000_000_000;
-    const ttlMs = 24 * 60 * 60 * 1000;
+    const ttlMs = 12 * 60 * 60 * 1000;
     writeCache(cachePath, { latest: '1.0.0', lastChecked: now - ttlMs - 1 });
     const fetchImpl = jest.fn().mockResolvedValue({
       ok: true,
@@ -446,6 +447,32 @@ describe('notifyUpdate', () => {
       0,
     );
     expect(output).toHaveLength(0);
+  });
+
+  it('writes the banner only once across repeated calls', async () => {
+    const { stream, output } = makeStream();
+    const handle = { cachedLatest: '1.2.0', pending: Promise.resolve() };
+    const pkg = { name: '@getbrevo/cli', version: '1.0.0' };
+
+    await notifyUpdate(handle, pkg, stream, 0);
+    await notifyUpdate(handle, pkg, stream, 0);
+
+    expect(output).toHaveLength(1);
+  });
+
+  it('still writes on a later call when the first found nothing to report', async () => {
+    const { stream, output } = makeStream();
+    const handle: { cachedLatest?: string; pending: Promise<void> } = {
+      pending: Promise.resolve(),
+    };
+    const pkg = { name: '@getbrevo/cli', version: '1.0.0' };
+
+    await notifyUpdate(handle, pkg, stream, 0);
+    expect(output).toHaveLength(0);
+
+    handle.cachedLatest = '1.2.0';
+    await notifyUpdate(handle, pkg, stream, 0);
+    expect(output).toHaveLength(1);
   });
 
   it('does not block beyond the wait timeout', async () => {
@@ -544,5 +571,177 @@ describe('enforceMinVersion', () => {
     );
     expect(mustUpdate).toBe(false);
     expect(Date.now() - start).toBeLessThan(500);
+  });
+});
+
+// ──────────────── /cli/info notice line (BEX-370) ────────────────
+
+describe('server-supplied notice line', () => {
+  const pkg = { name: '@getbrevo/cli', version: '2.0.1' };
+  const notice = 'Server supplied copy.';
+
+  function sink(): { out: NodeJS.WriteStream; text: () => string } {
+    let buf = '';
+    return {
+      out: { write: (s: string) => ((buf += s), true) } as unknown as NodeJS.WriteStream,
+      text: () => buf,
+    };
+  }
+
+  it('renders the server message above the box, not inside it', async () => {
+    const s = sink();
+    await notifyUpdate(
+      { cachedLatest: '2.4.0', pending: Promise.resolve(), notice },
+      pkg,
+      s.out,
+      0,
+    );
+    const lines = s.text().split('\n');
+    const msgIdx = lines.findIndex((l) => l.includes('Server supplied copy.'));
+    const topIdx = lines.findIndex((l) => l.includes('╭'));
+    expect(msgIdx).toBeGreaterThanOrEqual(0);
+    expect(msgIdx).toBeLessThan(topIdx);
+    expect(lines.filter((l) => l.includes('│')).join('\n')).not.toContain('Server supplied copy.');
+  });
+
+  it('falls back to local wording when no notice is available', async () => {
+    const s = sink();
+    await notifyUpdate({ cachedLatest: '2.4.0', pending: Promise.resolve() }, pkg, s.out, 0);
+    expect(s.text()).toContain('A newer version of the Brevo CLI is available.');
+  });
+
+  // The box must not resize because of what a server returned.
+  it('box width is unaffected by the length of the server message', async () => {
+    const widths = async (message?: string): Promise<number[]> => {
+      const s = sink();
+      await notifyUpdate(
+        { cachedLatest: '2.4.0', pending: Promise.resolve(), notice: message },
+        pkg,
+        s.out,
+        0,
+      );
+      return s
+        .text()
+        .split('\n')
+        .filter((l) => l.includes('│'))
+        .map((l) => l.length);
+    };
+    expect(await widths('x'.repeat(200))).toEqual(await widths('hi'));
+  });
+
+  // /cli/info is cosmetic — a failure costs wording, never the banner.
+  it('adds the notice to the force-update banner too', async () => {
+    const s = sink();
+    const blocked = await enforceMinVersion(
+      { cachedLatest: '3.0.0', pending: Promise.resolve(), notice },
+      pkg,
+      s.out,
+      0,
+    );
+    expect(blocked).toBe(true);
+    expect(s.text()).toContain('Server supplied copy.');
+    expect(s.text()).toContain('Update required');
+  });
+});
+
+// ──────────────── box content is frozen ────────────────
+
+// The API supplies the line ABOVE the box and nothing else. These pin the box
+// itself so a future change to the notice cannot quietly alter what has always
+// been shown inside it.
+describe('box content is unaffected by the notice', () => {
+  const pkg = { name: '@getbrevo/cli', version: '2.0.1' };
+  const boxLines = (out: string): string[] =>
+    out
+      .split('\n')
+      .filter((l) => l.includes('│'))
+      .map((l) => l.replace(/^\s*│\s*/, '').replace(/\s*│\s*$/, ''));
+
+  it('soft update box shows exactly the four original lines', () => {
+    expect(boxLines(formatBanner('2.0.1', '2.4.0', pkg.name, 'Server copy.'))).toEqual([
+      'Update available: 2.0.1 → 2.4.0',
+      'Run: npm install -g @getbrevo/cli',
+      'Or:  yarn global add @getbrevo/cli',
+      'Or:  brew upgrade brevo',
+    ]);
+  });
+
+  it('force-update box shows exactly the five original lines', () => {
+    expect(boxLines(formatForceUpdateBanner('2.0.1', '3.0.0', pkg.name, 'Server copy.'))).toEqual([
+      'Update required: v2.0.1 is no longer supported (latest v3.0.0).',
+      'Update to continue using the Brevo CLI:',
+      'Run: npm install -g @getbrevo/cli',
+      'Or:  yarn global add @getbrevo/cli',
+      'Or:  brew upgrade brevo',
+    ]);
+  });
+
+  it('box is byte-identical whether or not the API answered', () => {
+    const withServer = formatBanner('2.0.1', '2.4.0', pkg.name, 'Server copy.');
+    const withLocal = formatBanner('2.0.1', '2.4.0', pkg.name);
+    expect(boxLines(withServer)).toEqual(boxLines(withLocal));
+    // …and the server text lives outside it
+    expect(boxLines(withServer).join('\n')).not.toContain('Server copy.');
+    expect(withServer).toContain('Server copy.');
+  });
+});
+
+describe('formatBlockedBanner', () => {
+  // `color()` is TTY-gated and Jest's stdout is not a TTY, so the ANSI codes
+  // are stripped here. Position is what these assert; the red styling itself is
+  // covered by the logger's own tests.
+  it('puts the server message on its own line above the box', () => {
+    const lines = formatBlockedBanner('1.0.0', '2.0.0', 'pkg', 'Upgrade now.').split('\n');
+    expect(lines[0]).toBe('');
+    expect(lines[1]).toBe('  Upgrade now.');
+    expect(lines[3]).toMatch(/^\s*\u256d/);
+  });
+
+  // The server is not required to send text, and a block must still be legible
+  // without it — otherwise a terse API answer produces a bare box with no
+  // explanation of why the command refused to run.
+  it('falls back to local wording when no server message is supplied', () => {
+    const lines = formatBlockedBanner('1.0.0', '2.0.0', 'pkg').split('\n');
+    expect(lines[1]).toBe('  A newer version of the Brevo CLI is available.');
+    expect(lines[3]).toMatch(/^\s*\u256d/);
+  });
+
+  // The npm check runs in the background; a block can land before it resolves.
+  it('renders without a known latest version', () => {
+    const out = formatBlockedBanner('1.0.0', undefined, 'pkg', 'Upgrade now.');
+    expect(out).toContain('Upgrade now.');
+    expect(out).toContain('npm install -g pkg');
+  });
+});
+
+describe('the /cli/info response is never persisted', () => {
+  // The whole point of dropping the notice cache: wording and block state must
+  // take effect on the next run, not after a TTL. A cache write that smuggled
+  // either one back onto disk would silently restore the stale-message bug.
+  it('writes only npm data to the cache file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-cache-'));
+    const file = path.join(dir, 'update-check.json');
+    try {
+      writeCache(file, { latest: '2.0.0', lastChecked: 123 });
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      expect(Object.keys(raw).sort()).toEqual(['lastChecked', 'latest']);
+      expect(readCache(file)).toEqual({ latest: '2.0.0', lastChecked: 123 });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores a notice left behind by an older CLI version', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-cache-'));
+    const file = path.join(dir, 'update-check.json');
+    try {
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ latest: '2.0.0', lastChecked: 123, notice: 'stale wording' }),
+      );
+      expect(readCache(file)).not.toHaveProperty('notice');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

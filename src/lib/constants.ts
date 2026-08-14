@@ -69,6 +69,35 @@ function resolveOauthProxyUrl(): string {
 
 export const OAUTH_PROXY_URL = resolveOauthProxyUrl();
 
+/**
+ * Base URL of the app-store service.
+ *
+ * The update-notice endpoint is called here **directly**, not through the v3
+ * API gateway: the gateway enforces authentication on every path it fronts, and
+ * this notice has to render while the user is logged out, mid-`brevo login`, or
+ * holding expired credentials — exactly when telling them their CLI is stale
+ * matters most. The service serves it unauthenticated.
+ *
+ * Override with BREVO_APP_STORE_URL to point at a non-production environment.
+ */
+function resolveAppStoreUrl(): string {
+  const raw = process.env.BREVO_APP_STORE_URL || 'https://app-store-bo-be.brevo.com';
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new CliError(`Invalid BREVO_APP_STORE_URL: "${raw}" is not a valid URL.`);
+  }
+  if (parsed.protocol !== 'https:' && !isLocalHttpAllowed(parsed)) {
+    throw new CliError(
+      `BREVO_APP_STORE_URL must use HTTPS. Got: ${raw}\n  HTTP is only allowed for localhost/127.0.0.1.`,
+    );
+  }
+  return parsed.origin;
+}
+
+export const APP_STORE_BASE = resolveAppStoreUrl();
+
 // Header identifying the CLI on every API request. The backend parses it to
 // emit product-tracking events (e.g. "CLI installed") on the `cli` Kafka topic.
 // Format: `brevo-cli/<version> (<os>[; auth=<method>])` — see lib/telemetry.ts.
@@ -90,6 +119,9 @@ export const ENDPOINTS = {
   CORPORATE_SUB_ACCOUNTS: '/v3/corporate/subAccount',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
+  // Served by the app-store service directly (APP_STORE_BASE), not via the v3
+  // gateway — see resolveAppStoreUrl above and services/cli-info.ts.
+  CLI_INFO: '/cli/info',
   APP_STATE: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/state`,
   APP_STORE_APP_UPLOAD: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/upload`,
   APP_STORE_APP_WITHDRAW: (appId: string) =>
