@@ -392,9 +392,22 @@ describe('validateUiApp', () => {
           {
             surface_point_name: 'contact-details-header-menu',
             context: ['recordId'],
-            size: { width: 280, height: 160 },
+            size: { width: '280px', height: '160px' },
           },
           { surface_point_name: 'deal-details-header-menu' },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  // A single-axis size is valid — the omitted axis stays on the host slot's default — and
+  // % sizes the axis relative to the host slot's box (1-100).
+  it('accepts a single-axis percentage size (BEX-416)', () => {
+    expect(() =>
+      validateUiApp({
+        ...VALID,
+        surface_point_list: [
+          { surface_point_name: 'contact-details-header-menu', size: { height: '50%' } },
         ],
       }),
     ).not.toThrow();
@@ -441,32 +454,45 @@ describe('validateUiApp', () => {
       },
     ],
     [
-      'a size missing an axis',
+      'an empty size object',
+      {
+        ...VALID,
+        surface_point_list: [{ surface_point_name: 'contact-details-header-menu', size: {} }],
+      },
+    ],
+    [
+      'a unitless size axis',
       {
         ...VALID,
         surface_point_list: [
-          { surface_point_name: 'contact-details-header-menu', size: { width: 280 } },
+          { surface_point_name: 'contact-details-header-menu', size: { width: '280' } },
         ],
       },
     ],
     [
-      'a size with a zero axis',
+      'a numeric size axis (the pre-revision shape)',
       {
         ...VALID,
         surface_point_list: [
-          { surface_point_name: 'contact-details-header-menu', size: { width: 280, height: 0 } },
+          { surface_point_name: 'contact-details-header-menu', size: { width: 280, height: 160 } },
         ],
       },
     ],
     [
-      'a size with a non-integer axis',
+      'a zero size axis',
       {
         ...VALID,
         surface_point_list: [
-          {
-            surface_point_name: 'contact-details-header-menu',
-            size: { width: 280.5, height: 160 },
-          },
+          { surface_point_name: 'contact-details-header-menu', size: { height: '0px' } },
+        ],
+      },
+    ],
+    [
+      'a percentage axis over 100',
+      {
+        ...VALID,
+        surface_point_list: [
+          { surface_point_name: 'contact-details-header-menu', size: { height: '120%' } },
         ],
       },
     ],

@@ -151,16 +151,18 @@ export interface SurfacePointEntry {
   surface_point_name: string;
   context?: string[];
   /**
-   * Optional card size (px) for the widget card THIS placement renders, at the same level
+   * Optional card size for the widget card THIS placement renders, at the same level
    * as `context` for the same reason: per placement, so two slots can size their cards
-   * differently. Both axes are required when authored at all — a one-axis default is the
-   * host page's to express, not a half-authored object's.
+   * differently. Each axis is a CSS length string — "<positive integer>px" sizes the axis
+   * absolutely, "<1-100>%" sizes it relative to the host slot's box. At least one axis is
+   * required when the object is authored at all; an omitted axis stays on the host slot's
+   * default.
    *
    * A request to SHRINK, never to grow: the record page clamps the card to its column
    * (max-width 100%), so this can reduce the card's footprint but never overflow the host
-   * layout. Absent means the host slot's default size applies (BEX-416).
+   * layout. Absent means the host slot's default size applies entirely (BEX-416).
    */
-  size?: { width: number; height: number };
+  size?: { width?: string; height?: string };
 }
 
 /**

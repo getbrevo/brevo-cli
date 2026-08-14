@@ -452,8 +452,9 @@ function validateSurfacePointList(entries: unknown): void {
     }
 
     // Same authored-or-absent contract as `context`, one level down: absent means the host
-    // slot's default card size applies; authored, both axes must be positive integers (px).
-    // Shape only, like everything else here — there is no platform ceiling to check yet.
+    // slot's default card size applies; authored, each axis is a px or % CSS length and at
+    // least one must be present. Shape only, like everything else here — there is no
+    // platform per-slot ceiling to check yet.
     if (row.size !== undefined) {
       const sizeCheck = validateSurfacePointSize(row.size);
       if (sizeCheck !== true) {
@@ -466,21 +467,37 @@ function validateSurfacePointList(entries: unknown): void {
   }
 }
 
+// One authored size axis: a positive integer with an explicit px or % unit. The unit is
+// mandatory — a bare number is refused rather than defaulted, so the authored value is
+// always a CSS length the record page can apply verbatim.
+const SIZE_AXIS_PATTERN = /^([1-9][0-9]*)(px|%)$/;
+
 /**
- * Validate one entry's authored card size: an object with integer `width` and `height`,
- * both positive (px). Both axes are deliberately required — the platform refuses a
- * half-authored object for the same reason (a one-axis default is the host page's to
- * express), so accepting one here would only defer the 400 to `app upload`.
+ * Validate one entry's authored card size: an object with `width` and/or `height`, each a
+ * CSS length string — "<positive integer>px" (absolute) or "<1-100>%" (relative to the host
+ * slot's box). At least one axis is required when the object is authored at all — an empty
+ * object authors nothing; an omitted axis stays on the host slot's default. Percentages are
+ * capped at 100: the design is shrink-only, and a >100% axis is a request to grow past the
+ * slot. The platform enforces the same grammar, so accepting more here would only defer the
+ * 400 to `app upload`.
  */
 function validateSurfacePointSize(size: unknown): true | string {
   if (!size || typeof size !== 'object' || Array.isArray(size)) {
-    return 'must be an object, e.g. { "width": 280, "height": 160 } (px).';
+    return 'must be an object, e.g. { "width": "280px", "height": "160px" }.';
   }
   const { width, height } = size as Record<string, unknown>;
-  const isPositiveInt = (v: unknown): boolean =>
-    typeof v === 'number' && Number.isInteger(v) && v > 0;
-  if (!isPositiveInt(width) || !isPositiveInt(height)) {
-    return 'width and height must both be positive integers (px), e.g. { "width": 280, "height": 160 }.';
+  if (width === undefined && height === undefined) {
+    return 'author at least one of width or height, e.g. { "height": "50%" }.';
+  }
+  for (const [axis, value] of Object.entries({ width, height })) {
+    if (value === undefined) continue;
+    const match = typeof value === 'string' ? SIZE_AXIS_PATTERN.exec(value) : null;
+    if (!match) {
+      return `${axis} must be a positive integer with a px or % unit, e.g. "280px" or "50%".`;
+    }
+    if (match[2] === '%' && Number(match[1]) > 100) {
+      return `${axis} "${String(value)}" is out of range — a % axis must be between 1% and 100%.`;
+    }
   }
   return true;
 }
