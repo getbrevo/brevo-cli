@@ -56,13 +56,12 @@ describe('CLI', () => {
     expect(CLI.HELP).toBe('brevo --help');
     expect(CLI.APP_CREATE).toBe('brevo app create');
     expect(CLI.APP_LIST).toBe('brevo app list');
-    expect(CLI.APP_UPDATE).toBe('brevo app update');
+    expect(CLI.APP_UPLOAD).toBe('brevo app upload');
     expect(CLI.APP_DELETE).toBe('brevo app delete');
   });
 
-  it('should define dynamic APP_SCAFFOLD', () => {
-    expect(CLI.APP_SCAFFOLD('5')).toBe('brevo app scaffold --app-id 5');
-    expect(CLI.APP_SCAFFOLD()).toBe('brevo app scaffold --app-id <id>');
+  it('should define APP_SCAFFOLD', () => {
+    expect(CLI.APP_SCAFFOLD).toBe('brevo app scaffold');
   });
 
   it('should define dynamic APP_CREDENTIALS', () => {
@@ -188,9 +187,8 @@ describe('OAUTH_SCOPES_URL', () => {
 });
 
 describe('CLI scope helpers', () => {
-  it('exposes APP_SCOPES and APP_UPDATE_SCOPE strings', () => {
+  it('exposes the APP_SCOPES string', () => {
     expect(CLI.APP_SCOPES).toBe('brevo app available-scopes');
-    expect(CLI.APP_UPDATE_SCOPE).toBe('brevo app update --scope');
   });
 });
 

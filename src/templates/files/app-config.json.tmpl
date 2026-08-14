@@ -1,25 +1,16 @@
 {
   "appId": "{{APP_ID}}",
   "appName": "{{APP_NAME}}",
+  "version": "{{APP_VERSION}}",
   "logoUri": "{{LOGO_URI}}",
-  "cliVersion": "{{CLI_VERSION}}",
+  "distribution_type": "{{DISTRIBUTION}}",
+{{#if ui_app}}
+  "ui_app": {{UI_APP_JSON}},
+{{/if}}
   "auth": {
-    "type": "private",
+{{#if oauth}}
     "scopes": {{SCOPES_JSON}},
-    "redirectUrls": {{REDIRECT_URLS_JSON}}
-  },
-  "distribution": "private",
-  "permittedUrls": {
-    "fetch": [],
-    "img": [],
-    "iframe": [],
-    "js": [],
-    "css": []
-  },
-  "support": {
-    "supportEmail": "",
-    "documentationUrl": "",
-    "supportUrl": "",
-    "supportPhone": ""
+    "redirectUris": {{REDIRECT_URLS_JSON}}
+{{/if}}
   }
 }

@@ -108,4 +108,6 @@ export function logWarn(message: string): void {
   process.stdout.write(`  ${color('33', '⚠')} ${message}\n`);
 }
 
-export { isDebug, isTTY };
+// `color` is not re-exported here — it is exported at its declaration above, so
+// listing it again is a redeclaration.
+export { isDebug, isTTY, useColor };

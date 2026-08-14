@@ -1,5 +1,5 @@
 import { ApiClient, parseRetryAfter, sanitizeErrorMessage } from '../../api/client';
-import { ErrorCode } from '../../lib/errors';
+import { AuthExpiredError, ErrorCode } from '../../lib/errors';
 import { messages } from '../../lang/en';
 import { CLI_VERSION } from '../../lib/cli-version';
 import { USER_AGENT_HEADER } from '../../lib/constants';
@@ -137,6 +137,77 @@ describe('api client', () => {
       );
     });
 
+    // app-store-bo-be's `gateUIApp` answers 403 `ui_app_not_enabled` for an account
+    // without the public-apps flag, on both `app create` and `app upload`. Its own
+    // copy — `ui_app is not enabled for this account` — names a wire key, so it is
+    // replaced here rather than in either command. Note the server sends the text
+    // under `error`, not `message`.
+    it('replaces the raw ui_app_not_enabled copy with actionable text', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 403,
+        headers: new Map(),
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              code: 'ui_app_not_enabled',
+              error: 'ui_app is not enabled for this account',
+            }),
+          ),
+      });
+
+      const err: Error = await client
+        .post('/v3/app-store/apps', {})
+        .then(() => {
+          throw new Error('expected the request to be refused');
+        })
+        .catch((e: Error) => e);
+
+      expect(err.message).toBe(messages.ERR_UI_APP_NOT_ENABLED);
+      expect(err.message).toMatch(/UI apps aren't enabled for this Brevo account yet/);
+      // The wire key must not reach the user.
+      expect(err.message).not.toMatch(/ui_app is not enabled/);
+      // Scripts keep a stable identifier even though the prose changed.
+      expect(err).toMatchObject({ apiCode: 'ui_app_not_enabled', statusCode: 403 });
+    });
+
+    it('should surface the `error` field when the API omits `message`', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 422,
+        headers: new Map(),
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              error: 'distribution_type cannot be changed via upload',
+              code: 'unprocessable_entity',
+            }),
+          ),
+      });
+
+      await expect(client.put('/v3/app-store/apps/1', {})).rejects.toMatchObject({
+        message: 'distribution_type cannot be changed via upload',
+        apiCode: 'unprocessable_entity',
+      });
+    });
+
+    it('should prefer `message` over `error` when both are present', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        headers: new Map(),
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              message: 'primary message',
+              error: 'secondary error',
+            }),
+          ),
+      });
+
+      await expect(client.get('/v3/app-store/apps')).rejects.toThrow('primary message');
+    });
+
     it('should fall back to API message for unknown apiCode', async () => {
       mockFetch.mockResolvedValue({
         ok: false,
@@ -223,6 +294,26 @@ describe('api client', () => {
       expect(mockFetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ method: 'DELETE' }),
+      );
+    });
+
+    // The app-store installs resource identifies the install by a body field,
+    // not a path segment, so DELETE has to be able to carry one.
+    it('should send a body when one is passed', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 204,
+        headers: new Map(),
+        text: () => Promise.resolve(''),
+      });
+
+      await client.delete('/v3/app-store/apps/1/installs', { deploy_client_id: 99999 });
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          method: 'DELETE',
+          body: JSON.stringify({ deploy_client_id: 99999 }),
+        }),
       );
     });
   });
@@ -490,6 +581,168 @@ describe('api client', () => {
 
       expect(authHandler).toHaveBeenCalledTimes(1);
       expect(result.email).toBe('test@example.com');
+    });
+  });
+
+  // Covers a token that expires between the command starting and the request
+  // going out — the gap that is the whole of `app create`'s prompt sequence.
+  describe('setEnsureFresh', () => {
+    const okResponse = {
+      ok: true,
+      status: 200,
+      headers: new Map(),
+      text: () => Promise.resolve(JSON.stringify({ email: 'test@example.com' })),
+    };
+
+    it('should run before an authenticated request, and before the headers are built', async () => {
+      const order: string[] = [];
+      const getAuthHeader = jest.fn(() => {
+        order.push('headers');
+        return { Authorization: 'Bearer token-test' };
+      });
+      const freshClient = new ApiClient({ baseUrl: 'https://api.brevo.com', getAuthHeader });
+      freshClient.setEnsureFresh(async () => {
+        order.push('ensureFresh');
+      });
+      mockFetch.mockResolvedValue(okResponse);
+
+      await freshClient.get('/v3/account');
+
+      expect(order).toEqual(['ensureFresh', 'headers']);
+    });
+
+    it('should skip requests that carry their own credential', async () => {
+      const ensureFresh = jest.fn().mockResolvedValue(undefined);
+      client.setEnsureFresh(ensureFresh);
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.getWithKey('/v3/account', 'xkeysib-test-key');
+      await client.getWithBearer('/v3/account', 'access-token-test');
+
+      expect(ensureFresh).not.toHaveBeenCalled();
+    });
+
+    it('should propagate a refused session instead of sending the request', async () => {
+      client.setEnsureFresh(jest.fn().mockRejectedValue(new AuthExpiredError()));
+      mockFetch.mockResolvedValue(okResponse);
+
+      await expect(client.get('/v3/account')).rejects.toBeInstanceOf(AuthExpiredError);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should re-check before a retried request', async () => {
+      const ensureFresh = jest.fn().mockResolvedValue(undefined);
+      client.setEnsureFresh(ensureFresh);
+      client.setOnAuthFailure(jest.fn().mockResolvedValue(undefined));
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          headers: new Map(),
+          text: () => Promise.resolve(JSON.stringify({ message: 'Unauthorized' })),
+        })
+        .mockResolvedValueOnce(okResponse);
+
+      await client.get('/v3/account');
+
+      expect(ensureFresh).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // The request body is logged before the fetch, so a payload the server rejects
+  // (or never answers) is visible next to the response line under --debug.
+  describe('debug request/response logging', () => {
+    const okResponse = {
+      ok: true,
+      status: 200,
+      headers: new Map(),
+      text: () => Promise.resolve(JSON.stringify({})),
+    };
+
+    beforeEach(() => {
+      process.env.BREVO_DEBUG = '1';
+    });
+
+    afterEach(() => {
+      delete process.env.BREVO_DEBUG;
+    });
+
+    function debugLines(): string[] {
+      return stderrSpy.mock.calls.map((c) => String(c[0]));
+    }
+
+    it('logs the request body with the method and path', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.post('/v3/app-store/apps', { name: 'testlink', distribution_type: 'private' });
+
+      const line = debugLines().find((l) => l.includes('[debug] request'));
+      expect(line).toContain('POST /v3/app-store/apps');
+      expect(line).toContain('"name":"testlink"');
+      expect(line).toContain('"distribution_type":"private"');
+    });
+
+    it('redacts sensitive keys in the request body', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.post('/v3/app-store/apps', { name: 'x', client_secret: 'shhh' });
+
+      const line = debugLines().find((l) => l.includes('[debug] request'));
+      expect(line).toContain('[REDACTED]');
+      expect(line).not.toContain('shhh');
+    });
+
+    it('logs nothing for a bodyless request', async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await client.get('/v3/account');
+
+      expect(debugLines().some((l) => l.includes('[debug] request'))).toBe(false);
+    });
+
+    it('logs the body even when the request never comes back', async () => {
+      mockFetch.mockRejectedValue(new Error('socket hang up'));
+
+      await expect(client.post('/v3/app-store/apps', { name: 'testlink' })).rejects.toThrow();
+
+      const line = debugLines().find((l) => l.includes('[debug] request'));
+      expect(line).toContain('"name":"testlink"');
+    });
+
+    // Request and response carry the same `<method> <path>` so the two halves of
+    // one call can be paired by eye (or by grep) in a busy debug log.
+    it('labels the response with the same method and path as the request', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        text: () => Promise.resolve(JSON.stringify({ id: 'app-1' })),
+      });
+
+      await client.post('/v3/app-store/apps', { name: 'testlink' });
+
+      const request = debugLines().find((l) => l.includes('[debug] request'));
+      const response = debugLines().find((l) => l.includes('[debug] response'));
+      expect(request).toContain('POST /v3/app-store/apps');
+      expect(response).toContain('POST /v3/app-store/apps');
+      expect(response).toContain('"id":"app-1"');
+    });
+
+    it('redacts sensitive keys in the response body', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        text: () => Promise.resolve(JSON.stringify({ client_id: 'abc', client_secret: 'shhh' })),
+      });
+
+      await client.get('/v3/app-store/apps/app-1/credentials');
+
+      const line = debugLines().find((l) => l.includes('[debug] response'));
+      expect(line).toContain('"client_id":"abc"');
+      expect(line).toContain('[REDACTED]');
+      expect(line).not.toContain('shhh');
     });
   });
 });

@@ -38,7 +38,9 @@ const REVEAL_SCRIPT =
   '<script>document.querySelectorAll(".reveal-btn").forEach(function(btn){btn.addEventListener("click",function(){btn.parentElement.querySelector(".token-value").classList.add("revealed");btn.classList.add("hidden")})});</script>';
 
 const CLIENT_ID = process.env.CLIENT_ID;
+{{#if private}}
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
+{{/if}}
 const REDIRECT_URI = process.env.REDIRECT_URI || '{{REDIRECT_URI}}';
 const OAUTH_BASE = process.env.OAUTH_BASE || '{{OAUTH_BASE}}';
 const OAUTH_REALM = process.env.OAUTH_REALM || '{{OAUTH_REALM}}';
@@ -55,19 +57,48 @@ try {
   console.warn('Warning: Could not read app-config.json — defaulting scopes to "all".');
 }
 
-// Step 1: Redirect user to authorization page
-router.get('/login', (req, res) => {
-  const state = require('crypto').randomBytes(16).toString('hex');
-  tokenStore.setState(state);
-
-  const authUrl = `${realmPath}/authorize?` +
+// Build the OAuth authorization URL. Extracted so /auth/login and the
+// server.js landing page render the exact same URL — no drift between the two.
+{{#if public}}
+// `codeChallenge` is the PKCE (RFC 7636) S256 challenge. Base64url output is
+// already URL-safe, so it is not re-encoded (matching the `state` treatment).
+function buildAuthorizeUrl({ state, codeChallenge }) {
+{{/if}}
+{{#if private}}
+function buildAuthorizeUrl({ state }) {
+{{/if}}
+  let authUrl = `${realmPath}/authorize?` +
     `response_type=code` +
     `&client_id=${encodeURIComponent(CLIENT_ID)}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
     `&state=${state}` +
     `&scope=${encodeURIComponent(SCOPES)}`;
+{{#if public}}
+  authUrl += `&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+{{/if}}
+  return authUrl;
+}
 
-  res.redirect(authUrl);
+// Step 1: Redirect user to authorization page
+router.get('/login', (req, res) => {
+  const crypto = require('crypto');
+  const state = crypto.randomBytes(16).toString('hex');
+  tokenStore.setState(state);
+{{#if public}}
+
+  // PKCE (RFC 7636): create a high-entropy verifier, keep it server-side, and
+  // send only its SHA-256 (S256) hash on the authorize request. The verifier
+  // itself is presented only later, on the token exchange in /auth/callback.
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+  tokenStore.setVerifier(codeVerifier);
+
+  res.redirect(buildAuthorizeUrl({ state, codeChallenge }));
+{{/if}}
+{{#if private}}
+
+  res.redirect(buildAuthorizeUrl({ state }));
+{{/if}}
 });
 
 // Step 2: Handle the OAuth callback
@@ -94,7 +125,14 @@ router.get('/callback', async (req, res) => {
       new URLSearchParams({
         grant_type: 'authorization_code',
         client_id: CLIENT_ID,
+{{#if private}}
         client_secret: CLIENT_SECRET,
+{{/if}}
+{{#if public}}
+        // PKCE (RFC 7636): prove possession of the verifier generated in /login.
+        // Public clients hold no secret, so this replaces client_secret entirely.
+        code_verifier: tokenStore.getVerifier(),
+{{/if}}
         code,
         redirect_uri: REDIRECT_URI,
       }),
@@ -165,7 +203,9 @@ router.get('/refresh', async (req, res) => {
       new URLSearchParams({
         grant_type: 'refresh_token',
         client_id: CLIENT_ID,
+{{#if private}}
         client_secret: CLIENT_SECRET,
+{{/if}}
         refresh_token: refreshToken,
       }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
@@ -204,3 +244,5 @@ router.get('/refresh', async (req, res) => {
 });
 
 module.exports = router;
+// Exposed so server.js renders the same authorize URL the /login redirect uses.
+module.exports.buildAuthorizeUrl = buildAuthorizeUrl;

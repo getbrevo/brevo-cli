@@ -9,9 +9,8 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { isPortAvailable } from '../../lib/port';
 import { DEFAULT_PORT } from '../../lib/constants';
 import { readProjectConfig, writeProjectConfig, ProjectConfig } from '../../lib/config';
-import { createSpinner } from '../../lib/ui';
-import { appService } from '../../container';
 import { containsLegacyAllScope } from '../../lib/validators';
+import { uploadProjectConfig } from './upload';
 
 /**
  * Feature registry — maps feature names to their entry files.
@@ -29,8 +28,8 @@ const FEATURES: Record<string, { entry: string; description: string }> = {
  * (host = localhost or 127.0.0.1) on the given port, or undefined.
  * Unparseable URLs are skipped.
  */
-function findMatchingLocalRedirect(redirectUrls: string[], port: number): string | undefined {
-  return redirectUrls.find((url) => {
+function findMatchingLocalRedirect(redirectUris: string[], port: number): string | undefined {
+  return redirectUris.find((url) => {
     try {
       const parsed = new URL(url);
       const hostMatches = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
@@ -43,10 +42,11 @@ function findMatchingLocalRedirect(redirectUrls: string[], port: number): string
 
 /**
  * If the resolved port has no matching localhost redirect URL on the app,
- * offer to register one. Approval pushes the new URL to the remote app and
- * writes it back into app-config.json so the next run is silent. Decline
- * continues with a warning. Non-TTY hard-fails because there's no way to
- * confirm a remote-mutating operation.
+ * offer to register one. Approval writes the new URL into app-config.json
+ * (the source of truth) and then syncs the server from the config via the
+ * upload flow, so the next run is silent. Decline continues with a warning.
+ * Non-TTY hard-fails because there's no way to confirm a remote-mutating
+ * operation.
  *
  * Returns the resolved localhost redirect URL (existing or newly registered),
  * or undefined when the user declined registration.
@@ -55,8 +55,8 @@ async function ensureRedirectRegistered(
   config: ProjectConfig,
   port: number,
 ): Promise<string | undefined> {
-  const redirectUrls = config.auth?.redirectUrls ?? [];
-  const existing = findMatchingLocalRedirect(redirectUrls, port);
+  const redirectUris = config.auth?.redirectUris ?? [];
+  const existing = findMatchingLocalRedirect(redirectUris, port);
   if (existing) return existing;
 
   const newRedirectUrl = `http://localhost:${port}/auth/callback`;
@@ -80,18 +80,22 @@ async function ensureRedirectRegistered(
     return undefined;
   }
 
-  const updatedUrls = [...redirectUrls, newRedirectUrl];
-  const spinner = createSpinner(messages.APP_START_REDIRECT_REGISTERING);
+  // app-config.json is the source of truth: write the URL there first, then
+  // sync the server from the config through the regular upload flow — the
+  // single write path for app state. Never PATCH fields directly (BEX-366).
+  const updatedConfig: ProjectConfig = {
+    ...config,
+    auth: { ...config.auth, redirectUris: [...redirectUris, newRedirectUrl] },
+  };
+  writeProjectConfig(updatedConfig);
+
   try {
-    await appService.updateApp(config.appId, { redirect_uris: updatedUrls });
-  } finally {
-    spinner.stop();
+    await uploadProjectConfig(updatedConfig);
+  } catch (err) {
+    logWarn(messages.APP_START_REDIRECT_UPLOAD_FAILED(newRedirectUrl));
+    throw err;
   }
 
-  writeProjectConfig({
-    ...config,
-    auth: { ...config.auth, redirectUrls: updatedUrls },
-  });
   logSuccess(messages.APP_START_REDIRECT_REGISTERED(newRedirectUrl));
   return newRedirectUrl;
 }
@@ -124,7 +128,7 @@ function resolveFeatureEntry(feature: string | undefined): string {
 
 function resolvePort(config: ProjectConfig | null, optionsPort?: number): number {
   if (optionsPort) return optionsPort;
-  const redirectUrl = config?.auth?.redirectUrls?.[0];
+  const redirectUrl = config?.auth?.redirectUris?.[0];
   if (!redirectUrl) return DEFAULT_PORT;
   try {
     const parsed = new URL(redirectUrl);

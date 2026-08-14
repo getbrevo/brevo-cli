@@ -1,6 +1,9 @@
 import { listCommand } from '../../../commands/app/list';
 
+// Only the name-cache accessors are stubbed (they touch ~/.brevo). The app-type
+// discriminator is pure logic, so the real one is exercised here.
 jest.mock('../../../lib/config', () => ({
+  ...jest.requireActual('../../../lib/config'),
   getAppNames: jest.fn().mockReturnValue({}),
   deleteAppName: jest.fn(),
 }));
@@ -63,6 +66,7 @@ describe('app/list', () => {
           client_secret: 'secret',
           redirect_uris: ['http://localhost:3000'],
           scopes: ['all'],
+          version: '0.0.1',
           created_at: '2026-01-01',
           updated_at: '2026-01-01',
         },
@@ -77,6 +81,45 @@ describe('app/list', () => {
       expect(output).toContain('http://localhost:3000');
       expect(output).toContain('Scopes:');
       expect(output).toContain('all');
+      expect(output).toContain('Version:       0.0.1');
+    });
+
+    it('should show (none) for version when the app has none', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+        {
+          app_id: 1,
+          name: 'Test App',
+          client_id: 'cli-123',
+          redirect_uris: [],
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ]);
+
+      await listCommand({ json: false });
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('Version:       (none)');
+    });
+
+    it('should include version in --json output', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+        {
+          app_id: 1,
+          name: 'Test',
+          client_id: 'cli-123',
+          redirect_uris: [],
+          version: '0.0.1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ]);
+
+      await listCommand({ json: true });
+
+      const output = stdoutSpy.mock.calls[0][0];
+      const parsed = JSON.parse(output);
+      expect(parsed[0].version).toBe('0.0.1');
     });
 
     it('should output JSON without client_secret when --json', async () => {
@@ -193,6 +236,189 @@ describe('app/list', () => {
         const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
         expect(parsed[0].legacy_all_scope).toBe(true);
         expect(parsed[1]).not.toHaveProperty('legacy_all_scope');
+      });
+    });
+
+    // The app-store list endpoint returns `null` (not `[]`, not absent) for
+    // redirect_uris/scopes on any app with no OAuth block. Dereferencing either
+    // one crashed the command. Covered separately from the UI-app cases below so
+    // the guard is still asserted if app-type detection ever changes.
+    describe('null OAuth collections', () => {
+      it('renders (none) when redirect_uris comes back null', async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+          {
+            app_id: 'a1',
+            name: 'Nulled',
+            client_id: 'cli-123',
+            redirect_uris: null,
+            scopes: null,
+            created_at: '2026-01-01',
+            updated_at: '2026-01-01',
+          },
+        ]);
+
+        await listCommand({ json: false });
+
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(output).toContain('Redirect URLs: (none)');
+        expect(output).toContain('Scopes:        (none)');
+      });
+
+      it('survives a null redirect_uris in --json output', async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+          {
+            app_id: 'a1',
+            name: 'Nulled',
+            client_id: 'cli-123',
+            redirect_uris: null,
+            scopes: null,
+            created_at: '2026-01-01',
+            updated_at: '2026-01-01',
+          },
+        ]);
+
+        await listCommand({ json: true });
+
+        const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
+        expect(parsed[0].redirect_uris).toBeNull();
+        expect(parsed[0]).not.toHaveProperty('legacy_all_scope');
+      });
+    });
+
+    describe('UI apps', () => {
+      const uiApp = {
+        app_id: 'ui-1',
+        name: 'My UI App',
+        // A UI app sends no `auth` block, so the server stores no OAuth
+        // material and echoes these back empty/null.
+        client_id: '',
+        redirect_uris: null,
+        scopes: null,
+        version: '0.0.1',
+        ui_app: {
+          extension_type: 'actionLink',
+          surface_point_list: [{ surface_point_name: 'contact-details-header-menu' }],
+          label: 'Sync to Acme',
+          more_info: 'Push this contact to Acme',
+          redirect_link: 'https://example.com/sync',
+        },
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      };
+
+      it('labels the app type on both kinds of app', async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+          uiApp,
+          {
+            app_id: 'oauth-1',
+            name: 'My OAuth App',
+            client_id: 'cli-123',
+            redirect_uris: ['http://localhost:3000'],
+            scopes: ['contacts:read'],
+            created_at: '2026-01-01',
+            updated_at: '2026-01-01',
+          },
+        ]);
+
+        await listCommand({ json: false });
+
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(output).toContain('Type:          UI app');
+        expect(output).toContain('Type:          OAuth app');
+      });
+
+      it('renders the ui_app block when the server echoes it', async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([uiApp]);
+
+        await listCommand({ json: false });
+
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(output).toContain('Extension:     actionLink');
+        expect(output).toContain('Placement:     contact-details-header-menu');
+        expect(output).toContain('Label:         Sync to Acme');
+        expect(output).toContain('More info:     Push this contact to Acme');
+        expect(output).toContain('Link:          https://example.com/sync');
+      });
+
+      it('omits the OAuth-only rows for a UI app', async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([uiApp]);
+
+        await listCommand({ json: false });
+
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(output).not.toContain('Client ID:');
+        expect(output).not.toContain('Redirect URL');
+        expect(output).not.toContain('Scopes:');
+      });
+
+      it('prints each placement on its own row with its context', async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+          {
+            ...uiApp,
+            ui_app: {
+              ...uiApp.ui_app,
+              surface_point_list: [
+                { surface_point_name: 'contact-details-header-menu', context: ['email', 'id'] },
+                { surface_point_name: 'deal-details-header-menu' },
+              ],
+            },
+          },
+        ]);
+
+        await listCommand({ json: false });
+
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(output).toContain(
+          'Placement:     contact-details-header-menu  (context: email, id)',
+        );
+        expect(output).toContain('               deal-details-header-menu\n');
+      });
+
+      // The list endpoint does not echo ui_app today, so the type has to be
+      // inferred from the absence of every OAuth field.
+      it('still recognises a UI app when the response omits the ui_app block', async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+          {
+            app_id: 'ui-2',
+            name: 'Echoless',
+            client_id: '',
+            redirect_uris: null,
+            scopes: null,
+            version: '0.0.1',
+            created_at: '2026-01-01',
+            updated_at: '2026-01-01',
+          },
+        ]);
+
+        await listCommand({ json: false });
+
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(output).toContain('Type:          UI app');
+        expect(output).toContain('Version:       0.0.1');
+        expect(output).not.toContain('Client ID:');
+        expect(output).not.toContain('Redirect URL');
+      });
+
+      // An OAuth app is only ever a UI app if it has NO OAuth material at all —
+      // a client_id with empty callbacks is a half-configured OAuth app.
+      it('does not mistake an OAuth app with no callbacks for a UI app', async () => {
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+          {
+            app_id: 'oauth-2',
+            name: 'Half configured',
+            client_id: 'cli-123',
+            redirect_uris: [],
+            scopes: [],
+            created_at: '2026-01-01',
+            updated_at: '2026-01-01',
+          },
+        ]);
+
+        await listCommand({ json: false });
+
+        const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+        expect(output).toContain('Type:          OAuth app');
+        expect(output).toContain('Redirect URLs: (none)');
       });
     });
 

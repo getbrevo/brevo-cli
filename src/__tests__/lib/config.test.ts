@@ -17,7 +17,10 @@ import {
   getAppCredentials,
   getCredentialsPath,
   readProjectConfig,
+  writeProjectConfig,
+  backfillProjectConfigFromServer,
   hasLocalApp,
+  findEnclosingProjectDir,
 } from '../../lib/config';
 
 function writeRawCredentials(data: object): void {
@@ -316,7 +319,7 @@ describe('config', () => {
       expect(getEmail()).toBe('custom@test.com');
     });
 
-    it('should strip redirectUrls from app credentials during migration', () => {
+    it('should strip redirectUris from app credentials during migration', () => {
       writeRawCredentials({
         profiles: { default: { apiKey: 'key-1', accountEmail: 'a@b.com' } },
         activeProfile: 'default',
@@ -324,17 +327,17 @@ describe('config', () => {
           '1': {
             clientId: 'c1',
             clientSecret: 's1',
-            redirectUrls: ['http://localhost:3000'],
+            redirectUris: ['http://localhost:3000'],
           },
         },
       });
 
       const app = getAppCredentials('1');
       expect(app).toEqual({ clientId: 'c1', clientSecret: 's1' });
-      expect((app as unknown as Record<string, unknown>)?.redirectUrls).toBeUndefined();
+      expect((app as unknown as Record<string, unknown>)?.redirectUris).toBeUndefined();
     });
 
-    it('should strip redirectUrls from app credentials on normal read', () => {
+    it('should strip redirectUris from app credentials on normal read', () => {
       writeRawCredentials({
         apiKey: 'key-1',
         accountEmail: 'a@b.com',
@@ -342,7 +345,7 @@ describe('config', () => {
           '1': {
             clientId: 'c1',
             clientSecret: 's1',
-            redirectUrls: ['http://localhost:3000'],
+            redirectUris: ['http://localhost:3000'],
           },
         },
       });
@@ -390,16 +393,30 @@ describe('config', () => {
       it('splits a comma-embedded scope entry into individual tokens', () => {
         writeConfig({
           appId: '42',
-          auth: { type: 'private', scopes: ['crm:read', 'crm:write, campaigns:read'] },
+          auth: { scopes: ['crm:read', 'crm:write, campaigns:read'] },
         });
         const cfg = readProjectConfig();
         expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write', 'campaigns:read']);
       });
 
+      // `auth.scopes` is typed as string[], but a user editing app-config.json by
+      // hand can leave a bare string there. `splitScopes` has always handled that
+      // shape; the call site used to gate on Array.isArray and drop it, so the
+      // string reached the upload validator and was iterated character by
+      // character ("Invalid scope: \":\"").
+      it('splits a bare comma-separated scope string into individual tokens', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: 'crm:read, campaigns:read' },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth?.scopes).toEqual(['crm:read', 'campaigns:read']);
+      });
+
       it('leaves well-formed scope arrays untouched', () => {
         writeConfig({
           appId: '42',
-          auth: { type: 'private', scopes: ['crm:read', 'crm:write'] },
+          auth: { scopes: ['crm:read', 'crm:write'] },
         });
         const cfg = readProjectConfig();
         expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write']);
@@ -408,7 +425,7 @@ describe('config', () => {
       it('deduplicates scopes', () => {
         writeConfig({
           appId: '42',
-          auth: { type: 'private', scopes: ['crm:read', 'crm:read', 'crm:write'] },
+          auth: { scopes: ['crm:read', 'crm:read', 'crm:write'] },
         });
         const cfg = readProjectConfig();
         expect(cfg?.auth?.scopes).toEqual(['crm:read', 'crm:write']);
@@ -417,16 +434,483 @@ describe('config', () => {
       it('does not throw on malformed scope chars (charset is enforced later, at update time)', () => {
         writeConfig({
           appId: '42',
-          auth: { type: 'private', scopes: ['crm;read'] },
+          auth: { scopes: ['crm;read'] },
         });
         expect(() => readProjectConfig()).not.toThrow();
       });
+    });
+
+    describe('version field', () => {
+      const originalCwd = process.cwd();
+      let projectDir: string;
+
+      beforeEach(() => {
+        projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-project-'));
+        process.chdir(projectDir);
+      });
+
+      afterEach(() => {
+        process.chdir(originalCwd);
+        if (fs.existsSync(projectDir)) {
+          fs.rmSync(projectDir, { recursive: true, force: true });
+        }
+      });
+
+      function writeConfig(config: object): void {
+        fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+      }
+
+      it('round-trips the version field when present', () => {
+        writeConfig({
+          appId: '42',
+          version: '0.0.1',
+          auth: { scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.version).toBe('0.0.1');
+      });
+
+      it('leaves version undefined for a legacy config that predates the field', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.version).toBeUndefined();
+      });
+    });
+
+    describe('distribution_type backward compatibility', () => {
+      // distribution_type has moved twice: originally a top-level `distribution`
+      // key (still the shape of every currently-published scaffold), briefly
+      // `auth.type` (an interim design that never shipped), now a top-level
+      // `distribution_type` key.
+      const originalCwd = process.cwd();
+      let projectDir: string;
+
+      beforeEach(() => {
+        projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-project-'));
+        process.chdir(projectDir);
+      });
+
+      afterEach(() => {
+        process.chdir(originalCwd);
+        if (fs.existsSync(projectDir)) {
+          fs.rmSync(projectDir, { recursive: true, force: true });
+        }
+      });
+
+      function writeConfig(config: object): void {
+        fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+      }
+
+      it('backfills distribution_type from the oldest legacy top-level distribution key', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'], redirectUris: [] },
+          distribution: 'public',
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.distribution_type).toBe('public');
+      });
+
+      it('backfills distribution_type from the interim auth.type key', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'public', scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.distribution_type).toBe('public');
+      });
+
+      it('prefers top-level distribution_type over both legacy shapes when all are present', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'public',
+          auth: { type: 'private', scopes: ['crm:read'] },
+          distribution: 'private',
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.distribution_type).toBe('public');
+      });
+
+      it('prefers the interim auth.type over the oldest legacy distribution key', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'public', scopes: ['crm:read'] },
+          distribution: 'private',
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.distribution_type).toBe('public');
+      });
+
+      it('defaults distribution_type to private when no shape is present', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.distribution_type).toBe('private');
+      });
+
+      it('reads a new-format config with a top-level distribution_type directly', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'private',
+          auth: { scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.distribution_type).toBe('private');
+      });
+
+      it('does not carry the legacy distribution key forward in the returned config', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+          distribution: 'public',
+        });
+        const cfg = readProjectConfig();
+        expect(cfg).not.toHaveProperty('distribution');
+      });
+
+      // `auth.type: "none"` was the dev-era UI-app auth marker. It is dropped
+      // on read (a UI app's auth is now the empty object) but must never be
+      // misread as a distribution value.
+      it('drops auth.type none and does not treat it as a distribution', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'none' },
+          ui_app: { extension_type: 'actionLink' },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth).toEqual({});
+        expect(cfg?.distribution_type).toBe('private');
+      });
+
+      // permittedUrls/support were scaffolded into every config but never read;
+      // the read path drops them so the next write migrates old files.
+      it('drops the removed permittedUrls and support sections', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+          permittedUrls: { fetch: [], img: [], iframe: [], js: [], css: [] },
+          support: { supportEmail: 'user@example.com' },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg).not.toHaveProperty('permittedUrls');
+        expect(cfg).not.toHaveProperty('support');
+      });
+
+      // auth.redirectUrls → auth.redirectUris (renamed to track the wire key
+      // redirect_uris). The legacy key is read when the new one is absent and
+      // dropped from the returned config, so any write-back migrates the file.
+      it('reads redirect URLs from the legacy auth.redirectUrls key', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'private',
+          auth: { scopes: ['crm:read'], redirectUrls: ['https://example.com/cb'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth.redirectUris).toEqual(['https://example.com/cb']);
+        expect(cfg?.auth).not.toHaveProperty('redirectUrls');
+      });
+
+      it('prefers auth.redirectUris over the legacy key when both are present', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'private',
+          auth: {
+            scopes: ['crm:read'],
+            redirectUris: ['https://new.example.com/cb'],
+            redirectUrls: ['https://old.example.com/cb'],
+          },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth.redirectUris).toEqual(['https://new.example.com/cb']);
+        expect(cfg?.auth).not.toHaveProperty('redirectUrls');
+      });
+
+      it('migrates the legacy redirect key on write-back (writeProjectConfig round-trip)', () => {
+        writeConfig({
+          appId: '42',
+          distribution_type: 'private',
+          auth: { scopes: ['crm:read'], redirectUrls: ['https://example.com/cb'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg).not.toBeNull();
+        writeProjectConfig(cfg as NonNullable<typeof cfg>);
+        const onDisk = JSON.parse(
+          fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'),
+        );
+        expect(onDisk.auth.redirectUris).toEqual(['https://example.com/cb']);
+        expect(onDisk.auth).not.toHaveProperty('redirectUrls');
+      });
+
+      it('does not carry the interim auth.type key forward in the returned config', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'public', scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        expect(cfg?.auth).not.toHaveProperty('type');
+      });
+
+      it('migrates the oldest legacy config to the new shape on the next write', () => {
+        writeConfig({
+          appId: '42',
+          auth: { scopes: ['crm:read'] },
+          distribution: 'public',
+        });
+        const cfg = readProjectConfig();
+        writeProjectConfig(cfg!);
+        const onDisk = JSON.parse(
+          fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'),
+        );
+        expect(onDisk).not.toHaveProperty('distribution');
+        expect(onDisk.auth).not.toHaveProperty('type');
+        expect(onDisk.distribution_type).toBe('public');
+      });
+
+      it('migrates an interim auth.type config to the new shape on the next write', () => {
+        writeConfig({
+          appId: '42',
+          auth: { type: 'public', scopes: ['crm:read'] },
+        });
+        const cfg = readProjectConfig();
+        writeProjectConfig(cfg!);
+        const onDisk = JSON.parse(
+          fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'),
+        );
+        expect(onDisk.auth).not.toHaveProperty('type');
+        expect(onDisk.distribution_type).toBe('public');
+      });
+    });
+  });
+
+  describe('backfillProjectConfigFromServer', () => {
+    const originalCwd = process.cwd();
+    let projectDir: string;
+
+    beforeEach(() => {
+      projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-project-'));
+      process.chdir(projectDir);
+    });
+
+    afterEach(() => {
+      process.chdir(originalCwd);
+      if (fs.existsSync(projectDir)) {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+    function writeConfig(config: object): void {
+      fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+    }
+
+    function readOnDisk(): Record<string, unknown> {
+      return JSON.parse(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'));
+    }
+
+    it('backfills a missing version from the server value', () => {
+      writeConfig({ appId: '42', distribution_type: 'private', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', { version: '1.4.0' });
+      expect(changed).toEqual(['version']);
+      expect(readOnDisk().version).toBe('1.4.0');
+    });
+
+    it('backfills a missing distribution_type from the server value', () => {
+      writeConfig({ appId: '42', version: '1.0.0', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', { distribution_type: 'public' });
+      expect(changed).toEqual(['distribution_type']);
+      expect(readOnDisk().distribution_type).toBe('public');
+    });
+
+    it('backfills both missing fields at once', () => {
+      writeConfig({ appId: '42', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', {
+        version: '2.0.0',
+        distribution_type: 'public',
+      });
+      expect(changed).toEqual(['version', 'distribution_type']);
+      const onDisk = readOnDisk();
+      expect(onDisk.version).toBe('2.0.0');
+      expect(onDisk.distribution_type).toBe('public');
+    });
+
+    it('defaults distribution_type to private when both file and server lack it', () => {
+      writeConfig({ appId: '42', version: '1.0.0', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', {});
+      expect(changed).toEqual(['distribution_type']);
+      expect(readOnDisk().distribution_type).toBe('private');
+    });
+
+    it('does not overwrite an existing version (fill only when missing)', () => {
+      writeConfig({
+        appId: '42',
+        version: '1.2.0',
+        distribution_type: 'private',
+        auth: { scopes: [] },
+      });
+      const changed = backfillProjectConfigFromServer('42', { version: '1.5.0' });
+      expect(changed).toEqual([]);
+      expect(readOnDisk().version).toBe('1.2.0');
+    });
+
+    it('does not overwrite an existing distribution_type (fill only when missing)', () => {
+      writeConfig({
+        appId: '42',
+        version: '1.0.0',
+        distribution_type: 'private',
+        auth: { scopes: [] },
+      });
+      const changed = backfillProjectConfigFromServer('42', { distribution_type: 'public' });
+      expect(changed).toEqual([]);
+      expect(readOnDisk().distribution_type).toBe('private');
+    });
+
+    it('treats a legacy distribution key as present and preserves its value, migrating shape only when another field triggers a write', () => {
+      writeConfig({ appId: '42', distribution: 'public', auth: { scopes: [] } });
+      // version is missing → a write is triggered; server says the app is
+      // private, but the legacy local value must win (never overwritten).
+      const changed = backfillProjectConfigFromServer('42', {
+        version: '1.0.0',
+        distribution_type: 'private',
+      });
+      expect(changed).toEqual(['version']);
+      const onDisk = readOnDisk();
+      expect(onDisk).not.toHaveProperty('distribution');
+      expect(onDisk.distribution_type).toBe('public');
+      expect(onDisk.version).toBe('1.0.0');
+    });
+
+    it('does not backfill version when the server has none', () => {
+      writeConfig({ appId: '42', distribution_type: 'private', auth: { scopes: [] } });
+      const changed = backfillProjectConfigFromServer('42', {});
+      expect(changed).toEqual([]);
+      expect(readOnDisk()).not.toHaveProperty('version');
+    });
+
+    it('returns [] and writes nothing when the appId does not match', () => {
+      writeConfig({ appId: '42', auth: { scopes: [] } });
+      const before = fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8');
+      const changed = backfillProjectConfigFromServer('99', {
+        version: '1.0.0',
+        distribution_type: 'public',
+      });
+      expect(changed).toEqual([]);
+      expect(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8')).toBe(before);
+    });
+
+    it('returns [] when no app-config.json exists', () => {
+      const changed = backfillProjectConfigFromServer('42', {
+        version: '1.0.0',
+        distribution_type: 'public',
+      });
+      expect(changed).toEqual([]);
+      expect(fs.existsSync(path.join(projectDir, 'app-config.json'))).toBe(false);
+    });
+
+    it('returns [] and leaves the file untouched when nothing is missing', () => {
+      writeConfig({
+        appId: '42',
+        version: '1.0.0',
+        distribution_type: 'public',
+        auth: { scopes: [] },
+      });
+      const before = fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8');
+      const changed = backfillProjectConfigFromServer('42', {
+        version: '9.9.9',
+        distribution_type: 'private',
+      });
+      expect(changed).toEqual([]);
+      expect(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8')).toBe(before);
     });
   });
 
   describe('hasLocalApp', () => {
     it('should return false when no project config exists', () => {
       expect(hasLocalApp()).toBe(false);
+    });
+  });
+
+  // The guard behind `brevo app scaffold`'s no-config branch. `readProjectConfig`
+  // deliberately does not walk up, so without this a scaffold run one directory
+  // below a real project would silently offer to create a SECOND project nested
+  // inside it — and the next `app upload` from there would push the wrong app.
+  describe('findEnclosingProjectDir', () => {
+    const originalCwd = process.cwd();
+    let projectDir: string;
+
+    beforeEach(() => {
+      projectDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-enclosing-')));
+    });
+
+    afterEach(() => {
+      process.chdir(originalCwd);
+      if (fs.existsSync(projectDir)) {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+    function writeConfigAt(dir: string, config: object): void {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'app-config.json'), JSON.stringify(config));
+    }
+
+    it('returns null when no ancestor holds an app-config.json', () => {
+      const nested = path.join(projectDir, 'src', 'oauth');
+      fs.mkdirSync(nested, { recursive: true });
+      process.chdir(nested);
+      expect(findEnclosingProjectDir()).toBeNull();
+    });
+
+    it('returns the ancestor directory that holds the project config', () => {
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      const nested = path.join(projectDir, 'src', 'oauth');
+      fs.mkdirSync(nested, { recursive: true });
+      process.chdir(nested);
+      expect(findEnclosingProjectDir()).toBe(projectDir);
+    });
+
+    it('finds the nearest ancestor when several are nested', () => {
+      const inner = path.join(projectDir, 'inner');
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      writeConfigAt(inner, { appId: '99', auth: { scopes: [] } });
+      const nested = path.join(inner, 'src');
+      fs.mkdirSync(nested, { recursive: true });
+      process.chdir(nested);
+      expect(findEnclosingProjectDir()).toBe(inner);
+    });
+
+    // cwd is the caller's own case: it only asks this question once it already
+    // knows cwd has no usable config. Counting cwd would make every ordinary
+    // in-project run look like a nested one.
+    it('ignores a config in the current directory', () => {
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      process.chdir(projectDir);
+      expect(findEnclosingProjectDir()).toBeNull();
+    });
+
+    // An ancestor file that readProjectConfig would reject (no appId, or
+    // unparseable) is not a project — walking must continue past it rather
+    // than refuse on a file nothing else in the CLI would honour.
+    it('walks past an ancestor config that carries no appId', () => {
+      const inner = path.join(projectDir, 'inner');
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      writeConfigAt(inner, { auth: { scopes: [] } });
+      const nested = path.join(inner, 'src');
+      fs.mkdirSync(nested, { recursive: true });
+      process.chdir(nested);
+      expect(findEnclosingProjectDir()).toBe(projectDir);
+    });
+
+    it('walks past an ancestor config that is not valid JSON', () => {
+      const inner = path.join(projectDir, 'inner');
+      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      fs.mkdirSync(inner, { recursive: true });
+      fs.writeFileSync(path.join(inner, 'app-config.json'), '{ not json');
+      process.chdir(inner);
+      expect(findEnclosingProjectDir()).toBe(projectDir);
     });
   });
 });

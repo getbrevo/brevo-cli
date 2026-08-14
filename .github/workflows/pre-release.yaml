@@ -8,8 +8,68 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
+  # Hard gate on the prerelease publish: `prerelease` declares `needs: smoke`,
+  # so a red smoke run means nothing is versioned and nothing reaches npm.
+  #
+  # It lives in this workflow rather than in `smoke-pre-merge.yml` because a
+  # separate workflow cannot block one — the two would race on the same push.
+  # It runs `--against=local`, i.e. the branch build, which is exactly the
+  # artifact the publish step is about to pack. (`smoke-post-merge.yml` cannot
+  # cover an alpha: it waits on the `latest` dist-tag and installs
+  # `@getbrevo/cli@latest`, while a prerelease publishes under `alpha`.)
+  #
+  # Deliberately a separate job, not a step inside `prerelease`: that job holds
+  # `id-token: write` and the npm-prerelease environment, and the smoke does
+  # real API work against a robot account — it has no business running with
+  # publish credentials in scope. Running first also means a failure costs no
+  # reviewer approval, since the environment gate is on the job below.
+  #
+  # Note this runs on *every* push to `release-*`, including the versioning
+  # pushes that publish nothing. It cannot be conditioned on the publish
+  # condition: a skipped `needs:` dependency skips the dependent job, which
+  # would take the "Create prerelease PR" step down with it.
+  smoke:
+    name: Smoke test (release branch build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # 20.15.0, not the 20.19.0 the publish job pins: this exercises the
+      # `engines.node` floor, which is the version a user is most likely to
+      # hit the artifact with. Matches `smoke-pre-merge.yml`.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20.15.0
+          cache: yarn
+
+      # `--ignore-scripts`: this job installs the dependency tree on a runner that
+      # goes on to hold a publish secret, so no dependency's lifecycle script gets
+      # to run. Safe for the build — esbuild resolves its binary from the
+      # `@esbuild/<platform>` optional dependency, not from its postinstall — and
+      # the project's own `prepare` (husky) was already neutralised by `HUSKY: 0`.
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --ignore-scripts
+        env:
+          HUSKY: 0
+
+      # No `continue-on-error` here — unlike `smoke-pre-merge.yml`, this run is
+      # the gate. If it goes red the publish below never starts.
+      - name: Run smoke test against release branch build
+        run: yarn smoke --ci --against=local --report=smoke-report.json
+        env:
+          BREVO_API_KEY: ${{ secrets.BREVO_TEST_API_KEY }}
+
   prerelease:
     name: Changesets Prerelease
+    needs: smoke
     runs-on: ubuntu-latest
 
     # Gates the prerelease publish behind required reviewers, scoped to

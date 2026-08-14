@@ -9,6 +9,7 @@ jest.mock('../../../lib/config', () => ({
   getAppCredentials: jest.fn(),
   saveAppCredentials: jest.fn(),
   saveAppName: jest.fn(),
+  backfillProjectConfigFromServer: jest.fn().mockReturnValue([]),
 }));
 
 jest.mock('../../../container', () => ({
@@ -31,8 +32,10 @@ jest.mock('../../../container', () => ({
 
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
+import { backfillProjectConfigFromServer } from '../../../lib/config';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
+const mockBackfill = backfillProjectConfigFromServer as jest.Mock;
 
 function mockApp(overrides = {}) {
   return {
@@ -61,6 +64,10 @@ describe('app/credentials', () => {
     stdoutSpy.mockRestore();
     stderrSpy.mockRestore();
   });
+
+  function withTTY(value: boolean): void {
+    Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true });
+  }
 
   it('should display credentials fetched from API', async () => {
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(mockApp());
@@ -127,6 +134,7 @@ describe('app/credentials', () => {
     expect(parsed.clientId).toBe('cli-123');
     expect(parsed.clientSecret).toBe('[hidden]');
     expect(parsed.redirectUris).toEqual(['http://localhost:3000', 'https://example.com/cb']);
+    // The old key must not appear — credentials JSON has always said redirectUris.
     expect(parsed.redirectUrls).toBeUndefined();
   });
 
@@ -143,6 +151,8 @@ describe('app/credentials', () => {
   });
 
   it('should prompt app picker when no appId provided', async () => {
+    const originalIsTTY = process.stdin.isTTY;
+    withTTY(true);
     (appService.pickApp as jest.Mock).mockResolvedValue('5');
     (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(
       mockApp({ app_id: '5', client_id: 'cli-picked' }),
@@ -152,6 +162,32 @@ describe('app/credentials', () => {
 
     expect(appService.pickApp).toHaveBeenCalled();
     expect(appService.resolveAppCredentials).toHaveBeenCalledWith('5');
+    withTTY(originalIsTTY as boolean);
+  });
+
+  // The picker writes its choice list — including app ids and client ids — to
+  // stdout, so reaching it under --json corrupts the JSON document, and off a
+  // TTY inquirer dies on a raw ERR_USE_AFTER_CLOSE readline stack.
+  it('refuses instead of opening the picker under --json', async () => {
+    const originalIsTTY = process.stdin.isTTY;
+    withTTY(true);
+
+    await expect(credentialsCommand({ json: true })).rejects.toThrow(/--app-id/);
+
+    expect(appService.pickApp).not.toHaveBeenCalled();
+    expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
+    withTTY(originalIsTTY as boolean);
+  });
+
+  it('refuses instead of opening the picker off a TTY', async () => {
+    const originalIsTTY = process.stdin.isTTY;
+    withTTY(false);
+
+    await expect(credentialsCommand({})).rejects.toThrow(/--app-id/);
+
+    expect(appService.pickApp).not.toHaveBeenCalled();
+    expect(appService.resolveAppCredentials).not.toHaveBeenCalled();
+    withTTY(originalIsTTY as boolean);
   });
 
   it('should accept a UUID app-id', async () => {
@@ -172,6 +208,51 @@ describe('app/credentials', () => {
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('(none)');
+  });
+
+  it('backfills a missing version/distribution_type into the local app-config.json', async () => {
+    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(
+      mockApp({ version: '1.4.0', distribution_type: 'public' }),
+    );
+    mockBackfill.mockReturnValueOnce(['version', 'distribution_type']);
+
+    await credentialsCommand({ appId: '1' });
+
+    expect(mockBackfill).toHaveBeenCalledWith('1', {
+      version: '1.4.0',
+      distribution_type: 'public',
+    });
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).toContain('app-config.json');
+  });
+
+  it('prints no backfill note when nothing was missing', async () => {
+    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(mockApp());
+    mockBackfill.mockReturnValueOnce([]);
+
+    await credentialsCommand({ appId: '1' });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).not.toContain('app-config.json');
+  });
+
+  it('keeps --json output clean even when a backfill occurs', async () => {
+    (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(
+      mockApp({ version: '1.4.0', distribution_type: 'public' }),
+    );
+    mockBackfill.mockReturnValueOnce(['version', 'distribution_type']);
+
+    await credentialsCommand({ appId: '1', json: true });
+
+    // Backfill still runs (writes the file), but the JSON payload is the only
+    // thing on stdout and remains parseable.
+    expect(mockBackfill).toHaveBeenCalledWith('1', {
+      version: '1.4.0',
+      distribution_type: 'public',
+    });
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(() => JSON.parse(output)).not.toThrow();
+    expect(output).not.toContain('Backfilled');
   });
 
   it('should warn and prompt to update when local credentials differ', async () => {
