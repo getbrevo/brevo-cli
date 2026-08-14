@@ -46,13 +46,18 @@ jobs:
           # any later step that shells out can no longer reuse it.
           persist-credentials: false
 
+      # No `registry-url`/`scope`: those inputs exist only to write a
+      # token-auth .npmrc (`_authToken=${NODE_AUTH_TOKEN}`), and this repo
+      # deliberately has no NODE_AUTH_TOKEN — publish auth is OIDC Trusted
+      # Publishing, and `publishConfig` in package.json pins the registry.
+      # setup-node@v7 stopped injecting a dummy token when the env var is
+      # absent, so that .npmrc makes Yarn 1 fail on the unexpandable env
+      # ref during the action's own `yarn cache dir` call.
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 20.19.0
           cache: yarn
-          registry-url: https://registry.npmjs.org/
-          scope: "@getbrevo"
 
       # npm Trusted Publishing (OIDC) requires npm >= 11.5.1, which in
       # turn requires Node ^20.17.0 || >=22.9.0. Node 20.19.0 ships with
