@@ -413,6 +413,17 @@ describe('validateUiApp', () => {
     ).not.toThrow();
   });
 
+  // Both axes are optional, so an empty size object is valid too — it authors nothing and
+  // the server stores it as no size at all, same as omitting the key.
+  it('accepts an empty size object (BEX-416)', () => {
+    expect(() =>
+      validateUiApp({
+        ...VALID,
+        surface_point_list: [{ surface_point_name: 'contact-details-header-menu', size: {} }],
+      }),
+    ).not.toThrow();
+  });
+
   // The handover to the server, asserted so it cannot be undone by accident: an
   // unregistered slot name passes the local pre-flight and travels, and the upload
   // endpoint's `checkExtensionPoints` is what answers 400 naming it. Re-adding a local
@@ -451,13 +462,6 @@ describe('validateUiApp', () => {
         surface_point_list: [
           { surface_point_name: 'contact-details-header-menu', size: '280x160' },
         ],
-      },
-    ],
-    [
-      'an empty size object',
-      {
-        ...VALID,
-        surface_point_list: [{ surface_point_name: 'contact-details-header-menu', size: {} }],
       },
     ],
     [

@@ -475,20 +475,17 @@ const SIZE_AXIS_PATTERN = /^([1-9][0-9]*)(px|%)$/;
 /**
  * Validate one entry's authored card size: an object with `width` and/or `height`, each a
  * CSS length string — "<positive integer>px" (absolute) or "<1-100>%" (relative to the host
- * slot's box). At least one axis is required when the object is authored at all — an empty
- * object authors nothing; an omitted axis stays on the host slot's default. Percentages are
- * capped at 100: the design is shrink-only, and a >100% axis is a request to grow past the
- * slot. The platform enforces the same grammar, so accepting more here would only defer the
- * 400 to `app upload`.
+ * slot's box). Both axes are optional: an omitted axis stays on the host slot's default, and
+ * an empty object authors nothing at all — the server stores it as no size, same as omitting
+ * the key. Percentages are capped at 100: the design is shrink-only, and a >100% axis is a
+ * request to grow past the slot. The platform enforces the same grammar, so accepting more
+ * here would only defer the 400 to `app upload`.
  */
 function validateSurfacePointSize(size: unknown): true | string {
   if (!size || typeof size !== 'object' || Array.isArray(size)) {
     return 'must be an object, e.g. { "width": "280px", "height": "160px" }.';
   }
   const { width, height } = size as Record<string, unknown>;
-  if (width === undefined && height === undefined) {
-    return 'author at least one of width or height, e.g. { "height": "50%" }.';
-  }
   for (const [axis, value] of Object.entries({ width, height })) {
     if (value === undefined) continue;
     const match = typeof value === 'string' ? SIZE_AXIS_PATTERN.exec(value) : null;
