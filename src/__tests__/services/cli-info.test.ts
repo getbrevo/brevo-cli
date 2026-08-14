@@ -316,3 +316,68 @@ describe('caching', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('the cache is keyed to the service it came from', () => {
+  const PROD = 'https://app-store.example.com';
+  const STAGING = 'https://app-store-staging.example.com';
+
+  const server = (message?: string) =>
+    jest.fn(async () =>
+      jsonResponse(message === undefined ? { is_blocked: false } : { upgrade_message: message }),
+    );
+
+  // Without baseUrl in the key, a run against one environment is served the
+  // answer the other gave moments earlier — which presents as "staging works,
+  // production doesn't" while curl against both says the reverse.
+  it('does not serve one environment answer for another', async () => {
+    const cachePath = path.join(tmpDir, 'cli-info-cache.json');
+    const staging = server(undefined);
+
+    await expect(
+      fetchCliInfo(QUERY, {
+        baseUrl: PROD,
+        cachePath,
+        fetchImpl: server('PROD MESSAGE') as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ upgradeMessage: 'PROD MESSAGE' });
+
+    // Same CLI version, same instant — only the target differs.
+    await expect(
+      fetchCliInfo(QUERY, {
+        baseUrl: STAGING,
+        cachePath,
+        fetchImpl: staging as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ upgradeMessage: undefined });
+
+    expect(staging).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reuses the entry when the base URL is unchanged', async () => {
+    const cachePath = path.join(tmpDir, 'cli-info-cache.json');
+    const prod = server('PROD MESSAGE');
+    const opts = { baseUrl: PROD, cachePath, fetchImpl: prod as unknown as typeof fetch };
+    await fetchCliInfo(QUERY, opts);
+    await fetchCliInfo(QUERY, opts);
+    expect(prod).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores an entry written before baseUrl was part of the key', async () => {
+    const cachePath = path.join(tmpDir, 'cli-info-cache.json');
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({
+        cliVersion: QUERY.cliVersion,
+        info: { upgradeMessage: 'STALE', isBlocked: false },
+        lastChecked: Date.now(),
+      }),
+    );
+    await expect(
+      fetchCliInfo(QUERY, {
+        baseUrl: PROD,
+        cachePath,
+        fetchImpl: server('LIVE MESSAGE') as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ upgradeMessage: 'LIVE MESSAGE' });
+  });
+});
