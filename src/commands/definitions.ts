@@ -3,10 +3,10 @@ import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/v
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
 // The gated subcommands are referenced only through this binding, and only from behind
-// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their five handler
-// modules — from a published build. Importing any of those handlers directly here would
-// make them live references again and ship the whole surface. See ./preview-definitions.ts.
-import { previewAppCommands } from './preview-definitions';
+// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their handler modules —
+// from a published build. Importing any of those handlers directly here would make them
+// live references again and ship the whole surface. See ./preview-definitions.ts.
+import { previewAppCommands, previewFunctionGroup } from './preview-definitions';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -22,8 +22,6 @@ import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
-import { listFunctionCommand } from './function/list';
-import { getFunctionCommand } from './function/get';
 
 export const topLevelCommands: CommandDefinition[] = [
   {
@@ -283,32 +281,12 @@ export const skillCommandGroup: SubcommandGroupDefinition = {
   ],
 };
 
-export const functionCommandGroup: SubcommandGroupDefinition = {
-  name: 'function',
-  description: 'Manage Brevo Functions',
-  commands: [
-    {
-      name: 'list',
-      description: 'List all Brevo Functions in your account',
-      examples: [
-        'brevo function list',
-        'brevo function list --draft',
-        'brevo function list --json',
-      ],
-      options: [
-        { flags: '--draft', description: 'List only draft functions' },
-        { flags: '--json', description: 'Output as JSON' },
-      ],
-      handler: (opts) =>
-        listFunctionCommand({ json: Boolean(opts.json), draft: Boolean(opts.draft) }),
-    },
-    {
-      name: 'get',
-      description: 'Show details of a Brevo Function',
-      arguments: [{ name: '<id>', description: 'Function ID' }],
-      examples: ['brevo function get fn-001', 'brevo function get fn-001 --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts, id) => getFunctionCommand({ id: id as string, json: Boolean(opts.json) }),
-    },
-  ],
-};
+// ELIMINATION SITE — same pattern as previewAppCommands above: the raw global lets
+// esbuild fold this to `undefined` in a published build and tree-shake the function
+// handler modules only `previewFunctionGroup` references. `isFeatureAvailable` is
+// still consulted at runtime (for the help screen, via `gatedSection`), so flipping
+// `FEATURE_STAGE['brevo-function-type']` to `'ga'` releases the group without
+// touching this line.
+export const functionCommandGroup: SubcommandGroupDefinition | undefined = __BREVO_PREVIEW__
+  ? previewFunctionGroup
+  : undefined;

@@ -114,10 +114,14 @@ function formatRootHelp(description: string): string {
     `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
     `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,
     ``,
-    `Function commands:`,
-    `  brevo function list         [--draft] [--json]        List all Brevo Functions in your account`,
-    `  brevo function get <id>     [--json]                  Show details of a Brevo Function`,
-    ``,
+    ...(__BREVO_PREVIEW__
+      ? gatedSection('brevo-function-type', [
+          `Function commands:`,
+          `  brevo function list         [--draft] [--json]        List all Brevo Functions in your account`,
+          `  brevo function get <id>     [--json]                  Show details of a Brevo Function`,
+          ``,
+        ])
+      : []),
     `Scope commands:`,
     `  brevo app available-scopes  [--web] [--json]          List OAuth scopes supported by the IdP`,
     `                                                        (--web opens the catalog in a browser)`,

@@ -31,6 +31,7 @@ describe('lib/preview', () => {
         'review-lifecycle': 'preview',
         'ui-app-type': 'preview',
         'public-distribution': 'preview',
+        'brevo-function-type': 'preview',
       });
     });
   });

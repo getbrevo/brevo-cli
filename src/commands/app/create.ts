@@ -136,9 +136,14 @@ async function resolveAppType(interactive: boolean, distribution?: string): Prom
   if (__BREVO_PREVIEW__ && isFeatureAvailable('ui-app-type')) {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' });
   }
-  // Brevo Function is offered only for private apps — not behind __BREVO_PREVIEW__,
-  // since it ships in the published build.
-  if (distribution === 'private') {
+  // ELIMINATION SITE — same pattern as the UI-app choice: the raw global lets esbuild
+  // fold this branch away in a published build. `isFeatureAvailable` is still consulted
+  // so flipping `FEATURE_STAGE['brevo-function-type']` to `'ga'` releases the choice.
+  if (
+    __BREVO_PREVIEW__ &&
+    isFeatureAvailable('brevo-function-type') &&
+    distribution === 'private'
+  ) {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_FUNCTION, value: 'function' });
   }
   const answer = await inquirer.prompt([
