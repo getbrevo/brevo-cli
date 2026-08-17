@@ -172,4 +172,19 @@ export const previewMessages = {
   APP_WITHDRAW_SUBMIT_HINT: (id: string) => `Submit it first: ${CLI.APP_SUBMIT(id)}`,
   APP_SUBMIT_NOT_PUBLIC: (appId: string): string =>
     `App ${appId} is private. Private apps cannot be submitted for review. Only public apps are eligible for the approval process. Please make your app public before submitting it for review.`,
+
+  // Function activate
+  FUNCTION_ACTIVATE_SUCCESS: (id: string) => `Brevo Function "${id}" activated.`,
+  FUNCTION_ACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+
+  // Function deactivate
+  FUNCTION_DEACTIVATE_SUCCESS: (id: string) => `Brevo Function "${id}" deactivated.`,
+  FUNCTION_DEACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+
+  // Function delete
+  FUNCTION_DELETE_CONFIRM: (id: string) =>
+    `Are you sure you want to delete Brevo Function "${id}"? This cannot be undone.`,
+  FUNCTION_DELETE_SUCCESS: (id: string) => `Brevo Function "${id}" deleted.`,
+  FUNCTION_DELETE_CANCELLED: 'Deletion cancelled.',
+  FUNCTION_DELETE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
 } as const;

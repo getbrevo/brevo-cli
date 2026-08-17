@@ -116,4 +116,88 @@ describe('services/function', () => {
       await expect(service.fetchFunction('fn-999')).rejects.toThrow('Not found');
     });
   });
+
+  describe('activateFunction', () => {
+    it('should call client.patch with is_active: true', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue(undefined);
+
+      await service.activateFunction('fn-001');
+
+      expect(mockClient.patch).toHaveBeenCalledWith('/v3/dp-functions/functions/fn-001', {
+        is_active: true,
+      });
+    });
+
+    it('should encode the function ID in the URL', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue(undefined);
+
+      await service.activateFunction('fn/special id');
+
+      expect(mockClient.patch).toHaveBeenCalledWith(
+        '/v3/dp-functions/functions/fn%2Fspecial%20id',
+        { is_active: true },
+      );
+    });
+
+    it('should propagate API errors', async () => {
+      (mockClient.patch as jest.Mock).mockRejectedValue(new Error('Forbidden'));
+
+      await expect(service.activateFunction('fn-001')).rejects.toThrow('Forbidden');
+    });
+  });
+
+  describe('deactivateFunction', () => {
+    it('should call client.patch with is_active: false', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deactivateFunction('fn-001');
+
+      expect(mockClient.patch).toHaveBeenCalledWith('/v3/dp-functions/functions/fn-001', {
+        is_active: false,
+      });
+    });
+
+    it('should encode the function ID in the URL', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deactivateFunction('fn/special id');
+
+      expect(mockClient.patch).toHaveBeenCalledWith(
+        '/v3/dp-functions/functions/fn%2Fspecial%20id',
+        { is_active: false },
+      );
+    });
+
+    it('should propagate API errors', async () => {
+      (mockClient.patch as jest.Mock).mockRejectedValue(new Error('Forbidden'));
+
+      await expect(service.deactivateFunction('fn-001')).rejects.toThrow('Forbidden');
+    });
+  });
+
+  describe('deleteFunction', () => {
+    it('should call client.delete with the function endpoint', async () => {
+      (mockClient.delete as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deleteFunction('fn-001');
+
+      expect(mockClient.delete).toHaveBeenCalledWith('/v3/dp-functions/functions/fn-001');
+    });
+
+    it('should encode the function ID in the URL', async () => {
+      (mockClient.delete as jest.Mock).mockResolvedValue(undefined);
+
+      await service.deleteFunction('fn/special id');
+
+      expect(mockClient.delete).toHaveBeenCalledWith(
+        '/v3/dp-functions/functions/fn%2Fspecial%20id',
+      );
+    });
+
+    it('should propagate API errors', async () => {
+      (mockClient.delete as jest.Mock).mockRejectedValue(new Error('Forbidden'));
+
+      await expect(service.deleteFunction('fn-001')).rejects.toThrow('Forbidden');
+    });
+  });
 });
