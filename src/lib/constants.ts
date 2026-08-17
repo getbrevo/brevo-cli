@@ -192,6 +192,9 @@ export const CLI = {
   APP_SCOPES: 'brevo app available-scopes',
   FUNCTION_LIST: 'brevo function list',
   FUNCTION_GET: 'brevo function get',
+  FUNCTION_ACTIVATE: 'brevo function activate',
+  FUNCTION_DEACTIVATE: 'brevo function deactivate',
+  FUNCTION_DELETE: 'brevo function delete',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;

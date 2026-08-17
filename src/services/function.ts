@@ -17,6 +17,18 @@ export function createFunctionService(client: ApiClient) {
     async fetchFunction(id: string): Promise<DpFunction> {
       return client.get<DpFunction>(ENDPOINTS.DP_FUNCTION(id));
     },
+
+    async activateFunction(id: string): Promise<void> {
+      await client.patch<void>(ENDPOINTS.DP_FUNCTION(id), { is_active: true });
+    },
+
+    async deactivateFunction(id: string): Promise<void> {
+      await client.patch<void>(ENDPOINTS.DP_FUNCTION(id), { is_active: false });
+    },
+
+    async deleteFunction(id: string): Promise<void> {
+      await client.delete<void>(ENDPOINTS.DP_FUNCTION(id));
+    },
   };
 }
 
