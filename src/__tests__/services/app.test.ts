@@ -601,7 +601,7 @@ describe('services/app', () => {
     });
   });
 
-  describe('deployApp / rollbackApp', () => {
+  describe('installApp / uninstallApp', () => {
     beforeEach(() => {
       (getOrganizationId as jest.Mock).mockReturnValue('12345');
     });
@@ -609,7 +609,7 @@ describe('services/app', () => {
     it('should POST an install with the account ID coerced to a number', async () => {
       (mockClient.post as jest.Mock).mockResolvedValue(undefined);
 
-      await service.deployApp(UUID, '99999', 'Invoice Manager');
+      await service.installApp(UUID, '99999', 'Invoice Manager');
 
       expect(mockClient.post).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
         client_id: 12345,
@@ -622,7 +622,7 @@ describe('services/app', () => {
     it('should DELETE the same install resource with the same body', async () => {
       (mockClient.delete as jest.Mock).mockResolvedValue(undefined);
 
-      await service.rollbackApp(UUID, '99999', 'Invoice Manager');
+      await service.uninstallApp(UUID, '99999', 'Invoice Manager');
 
       expect(mockClient.delete).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
         client_id: 12345,
@@ -633,13 +633,13 @@ describe('services/app', () => {
     });
 
     // `client_id` is the account that owns the app; `deploy_client_id` is the account
-    // it lands in. They differ for a corporate deploy into a sub-account, and the
+    // it lands in. They differ for a corporate install into a sub-account, and the
     // server resolves the app against the former — so they must not be collapsed.
-    it('should send the caller organization ID and the deploy target separately', async () => {
+    it('should send the caller organization ID and the install target separately', async () => {
       (getOrganizationId as jest.Mock).mockReturnValue('12345');
       (mockClient.post as jest.Mock).mockResolvedValue(undefined);
 
-      await service.deployApp(UUID, '67890', 'Invoice Manager');
+      await service.installApp(UUID, '67890', 'Invoice Manager');
 
       expect(mockClient.post).toHaveBeenCalledWith(
         expect.any(String),
@@ -659,19 +659,19 @@ describe('services/app', () => {
       (getOrganizationId as jest.Mock).mockReturnValue(organizationId);
       (mockClient.post as jest.Mock).mockResolvedValue(undefined);
 
-      await service.deployApp(UUID, '99999', 'Invoice Manager');
+      await service.installApp(UUID, '99999', 'Invoice Manager');
 
       const body = (mockClient.post as jest.Mock).mock.calls[0][1];
       expect(body).not.toHaveProperty('client_id');
       expect(body).toMatchObject({ deploy_client_id: 99999, is_developer: true });
     });
 
-    // A non-numeric target only arises for a plain account deploying into itself, and
+    // A non-numeric target only arises for a plain account installing into itself, and
     // the server defaults an absent deploy_client_id to the caller — the same account.
     it('should omit deploy_client_id when the target is not numeric', async () => {
       (mockClient.post as jest.Mock).mockResolvedValue(undefined);
 
-      await service.deployApp(UUID, '550e8400-e29b-41d4-a716-446655440002', 'Invoice Manager');
+      await service.installApp(UUID, '550e8400-e29b-41d4-a716-446655440002', 'Invoice Manager');
 
       const body = (mockClient.post as jest.Mock).mock.calls[0][1];
       expect(body).not.toHaveProperty('deploy_client_id');
@@ -684,7 +684,7 @@ describe('services/app', () => {
       (getOrganizationId as jest.Mock).mockReturnValue('org-1');
       (mockClient.post as jest.Mock).mockResolvedValue(undefined);
 
-      await service.deployApp(UUID, 'acct-2', 'x');
+      await service.installApp(UUID, 'acct-2', 'x');
 
       const body = (mockClient.post as jest.Mock).mock.calls[0][1];
       expect(JSON.stringify(body)).not.toContain('null');
@@ -696,7 +696,7 @@ describe('services/app', () => {
     it('should match the staging DELETE payload shape', async () => {
       (mockClient.delete as jest.Mock).mockResolvedValue(undefined);
 
-      await service.rollbackApp(UUID, '12', 'My App Installation');
+      await service.uninstallApp(UUID, '12', 'My App Installation');
 
       expect(mockClient.delete).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/installs`, {
         client_id: 12345,
@@ -706,29 +706,29 @@ describe('services/app', () => {
       });
     });
 
-    it('should rethrow a 404 on deploy as a friendly not-found error', async () => {
+    it('should rethrow a 404 on install as a friendly not-found error', async () => {
       (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
 
-      await expect(service.deployApp('999', '1', 'x')).rejects.toThrow('App 999 not found.');
+      await expect(service.installApp('999', '1', 'x')).rejects.toThrow('App 999 not found.');
     });
 
-    // Unlike every other verb, rollback must NOT collapse 404 into "app not found":
+    // Unlike every other verb, uninstall must NOT collapse 404 into "app not found":
     // the uninstall route answers 404 for a missing install too, and the command
-    // reports that as the informational not-deployed path.
-    it('should propagate a 404 on rollback unchanged', async () => {
+    // reports that as the informational not-installed path.
+    it('should propagate a 404 on uninstall unchanged', async () => {
       (mockClient.delete as jest.Mock).mockRejectedValue(new ApiError('nope', 404));
 
-      await expect(service.rollbackApp('999', '1', 'x')).rejects.toMatchObject({
+      await expect(service.uninstallApp('999', '1', 'x')).rejects.toMatchObject({
         statusCode: 404,
       });
     });
 
-    // The command maps 422 itself — deploy to "upload first" — so the service
+    // The command maps 422 itself — install to "upload first" — so the service
     // must not swallow it.
     it('should propagate a 422 ApiError unchanged', async () => {
       (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('not configured', 422));
 
-      await expect(service.deployApp('42', '1', 'x')).rejects.toMatchObject({ statusCode: 422 });
+      await expect(service.installApp('42', '1', 'x')).rejects.toMatchObject({ statusCode: 422 });
     });
   });
 

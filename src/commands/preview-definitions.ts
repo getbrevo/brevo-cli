@@ -19,8 +19,8 @@
 import type { CommandDefinition } from '../lib/command-registry';
 import { parseAppId } from '../lib/validators';
 
-import { deployCommand } from './app/deploy';
-import { rollbackCommand } from './app/rollback';
+import { appInstallCommand } from './app/install';
+import { appUninstallCommand } from './app/uninstall';
 import { statusCommand } from './app/status';
 import { submitCommand } from './app/submit';
 import { withdrawCommand } from './app/withdraw';
@@ -48,9 +48,9 @@ export const previewAppCommands: CommandDefinition[] = [
       statusCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
   },
   {
-    name: 'deploy',
+    name: 'install',
     requires: 'account-install',
-    description: 'Make an app available in a Brevo account',
+    description: 'Install an app into a Brevo account',
     arguments: [
       {
         name: '[account-id]',
@@ -58,10 +58,10 @@ export const previewAppCommands: CommandDefinition[] = [
       },
     ],
     examples: [
-      'brevo app deploy',
-      'brevo app deploy 99999',
-      'brevo app deploy 99999 --app-id 42',
-      'brevo app deploy 99999 --force --json',
+      'brevo app install',
+      'brevo app install 99999',
+      'brevo app install 99999 --app-id 42',
+      'brevo app install 99999 --force --json',
     ],
     options: [
       {
@@ -73,7 +73,7 @@ export const previewAppCommands: CommandDefinition[] = [
       { flags: '--json', description: 'Output as JSON' },
     ],
     handler: (opts, accountId) =>
-      deployCommand({
+      appInstallCommand({
         accountId: accountId as string | undefined,
         appId: opts.appId as string | undefined,
         force: Boolean(opts.force),
@@ -81,9 +81,9 @@ export const previewAppCommands: CommandDefinition[] = [
       }),
   },
   {
-    name: 'rollback',
+    name: 'uninstall',
     requires: 'account-install',
-    description: 'Roll back an app from a Brevo account',
+    description: 'Uninstall an app from a Brevo account',
     arguments: [
       {
         name: '[account-id]',
@@ -91,10 +91,10 @@ export const previewAppCommands: CommandDefinition[] = [
       },
     ],
     examples: [
-      'brevo app rollback',
-      'brevo app rollback 99999',
-      'brevo app rollback 99999 --app-id 42',
-      'brevo app rollback 99999 --force --json',
+      'brevo app uninstall',
+      'brevo app uninstall 99999',
+      'brevo app uninstall 99999 --app-id 42',
+      'brevo app uninstall 99999 --force --json',
     ],
     options: [
       {
@@ -106,7 +106,7 @@ export const previewAppCommands: CommandDefinition[] = [
       { flags: '--json', description: 'Output as JSON' },
     ],
     handler: (opts, accountId) =>
-      rollbackCommand({
+      appUninstallCommand({
         accountId: accountId as string | undefined,
         appId: opts.appId as string | undefined,
         force: Boolean(opts.force),

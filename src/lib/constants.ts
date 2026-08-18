@@ -114,8 +114,8 @@ export const ENDPOINTS = {
   ACCOUNT: '/v3/account/info',
   // Sub-accounts of a master (corporate) account — `{ count, subAccounts: [...] }`.
   // `offset` and `limit` are both required (there is no "return everything" call),
-  // so `count` is the paging terminator. `app deploy` / `app rollback` read this to
-  // resolve a deploy target when no <account-id> was given.
+  // so `count` is the paging terminator. `app install` / `app uninstall` read this to
+  // resolve a target account when no <account-id> was given.
   CORPORATE_SUB_ACCOUNTS: '/v3/corporate/subAccount',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
@@ -132,14 +132,15 @@ export const ENDPOINTS = {
   //
   // Both verbs take the same body — `client_id` (the *caller's* organization ID,
   // which the server uses to resolve the app, and which it falls back to as the
-  // install target), `deploy_client_id` (the numeric account being deployed to),
-  // `name`, `is_developer`. Note the `deploy` / `rollback` *commands* are named
-  // for the partner-facing verb, not the resource; the resource is an install.
+  // install target), `deploy_client_id` (the numeric account being installed into),
+  // `name`, `is_developer`. The `install` / `uninstall` *commands* are named for
+  // the resource itself; `deploy_client_id` is the one wire field that still
+  // carries the old server-side vocabulary — never rename it.
   //
   // DELETE resolves the install from this body rather than from an installation ID
   // (BEX-364) — the developer never sees one — so it answers 404 both for an unknown
-  // app and for an install that isn't there. `app rollback` reads either as
-  // "not deployed"; see the comment on its catch block.
+  // app and for an install that isn't there. `app uninstall` reads either as
+  // "not installed"; see the comment on its catch block.
   APP_STORE_APP_INSTALLS: (appId: string) =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/installs`,
   APP_STORE_SURFACE_POINTS: '/v3/app-store/surface-points',
@@ -176,10 +177,10 @@ export const CLI = {
   APP_UPLOAD: 'brevo app upload',
   // The account ID is optional — omitted, both commands resolve the target from the
   // authenticated account. The no-argument form is the one to show in guidance copy.
-  APP_DEPLOY: (accountId?: string) =>
-    accountId ? `brevo app deploy ${accountId}` : 'brevo app deploy',
-  APP_ROLLBACK: (accountId?: string) =>
-    accountId ? `brevo app rollback ${accountId}` : 'brevo app rollback',
+  APP_INSTALL: (accountId?: string) =>
+    accountId ? `brevo app install ${accountId}` : 'brevo app install',
+  APP_UNINSTALL: (accountId?: string) =>
+    accountId ? `brevo app uninstall ${accountId}` : 'brevo app uninstall',
   APP_DELETE: 'brevo app delete',
   APP_WITHDRAW: (appId?: string) =>
     appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',

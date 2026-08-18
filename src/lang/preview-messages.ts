@@ -5,7 +5,7 @@ import { CLI } from '../lib/constants';
  *
  * Split out of `en.ts` for a build reason, not a tidiness one. `messages` is a single
  * object literal, and esbuild cannot prune properties from one — so with these inline,
- * every string for `app deploy`, `app rollback`, `app submit`, `app status`,
+ * every string for `app install`, `app uninstall`, `app submit`, `app status`,
  * `app withdraw` and UI-app authoring shipped in the published bundle even though no
  * surviving code referenced them: `strings` on the binary read back the whole
  * unreleased feature set. As a separate module spread in behind `__BREVO_PREVIEW__`,
@@ -82,31 +82,31 @@ export const previewMessages = {
   // hand-written `surface_point_list` entry carrying its own label and destination.
   APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
 
-  // App deploy / rollback — per-account availability for UI apps (BEX-290)
-  APP_DEPLOY_SELECT: 'Select an app to deploy:',
-  APP_DEPLOY_CONFIRM: (name: string, appId: string, accountId: string) =>
-    `Deploy app "${name}" (${appId}) to account ${accountId}?`,
-  APP_DEPLOY_CANCELLED: 'Deploy cancelled.',
-  APP_DEPLOY_SUCCESS: (appId: string, accountId: string) =>
-    `App ${appId} deployed to account ${accountId}.`,
-  // Sub-account resolution, shared by deploy and rollback. Only a master (corporate)
+  // App install / uninstall — per-account availability for UI apps (BEX-290)
+  APP_INSTALL_SELECT: 'Select an app to install:',
+  APP_INSTALL_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Install app "${name}" (${appId}) into account ${accountId}?`,
+  APP_INSTALL_CANCELLED: 'Install cancelled.',
+  APP_INSTALL_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} installed into account ${accountId}.`,
+  // Sub-account resolution, shared by install and uninstall. Only a master (corporate)
   // account ever reaches these: a plain account resolves to itself with no prompt.
-  APP_DEPLOY_SELECT_ACCOUNT: 'Select the account to deploy to:',
-  APP_DEPLOY_ACCOUNT_ID_REQUIRED: `This is a corporate account, so the target account can't be resolved automatically.\n\n  Pass it explicitly: ${CLI.APP_DEPLOY('<account-id>')}\n  (Choosing one from a list requires an interactive terminal.)`,
-  APP_DEPLOY_NO_SUB_ACCOUNTS: `No active sub-accounts found on this corporate account.\n\n  Pass the target account explicitly: ${CLI.APP_DEPLOY('<account-id>')}`,
-  // The spec's installation flow requires deploy to refuse until the config has
+  APP_INSTALL_SELECT_ACCOUNT: 'Select the account to install into:',
+  APP_INSTALL_ACCOUNT_ID_REQUIRED: `This is a corporate account, so the target account can't be resolved automatically.\n\n  Pass it explicitly: ${CLI.APP_INSTALL('<account-id>')}\n  (Choosing one from a list requires an interactive terminal.)`,
+  APP_INSTALL_NO_SUB_ACCOUNTS: `No active sub-accounts found on this corporate account.\n\n  Pass the target account explicitly: ${CLI.APP_INSTALL('<account-id>')}`,
+  // The spec's installation flow requires install to refuse until the config has
   // been validated by an upload. `version` is only ever written by a successful
   // upload, so its absence is a reliable local signal.
-  APP_DEPLOY_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
-  APP_ROLLBACK_SELECT: 'Select an app to roll back:',
-  APP_ROLLBACK_CONFIRM: (name: string, appId: string, accountId: string) =>
-    `Roll back app "${name}" (${appId}) from account ${accountId}?`,
-  APP_ROLLBACK_CANCELLED: 'Rollback cancelled.',
-  APP_ROLLBACK_SUCCESS: (appId: string, accountId: string) =>
-    `App ${appId} rolled back from account ${accountId}.`,
-  APP_ROLLBACK_NOT_DEPLOYED: (appId: string, accountId: string) =>
-    `App ${appId} is not deployed to account ${accountId}.`,
-  APP_DEPLOY_NON_INTERACTIVE:
+  APP_INSTALL_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
+  APP_UNINSTALL_SELECT: 'Select an app to uninstall:',
+  APP_UNINSTALL_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Uninstall app "${name}" (${appId}) from account ${accountId}?`,
+  APP_UNINSTALL_CANCELLED: 'Uninstall cancelled.',
+  APP_UNINSTALL_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} uninstalled from account ${accountId}.`,
+  APP_UNINSTALL_NOT_INSTALLED: (appId: string, accountId: string) =>
+    `App ${appId} is not installed in account ${accountId}.`,
+  APP_INSTALL_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
 
   // App submit (BEX-221)

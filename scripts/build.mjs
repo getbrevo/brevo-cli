@@ -110,9 +110,9 @@ fs.chmodSync(outfile, builtMode | ((builtMode & 0o444) >> 2));
 // WHAT THIS CANNOT CATCH, and why it is not a bug in the list: esbuild cannot prune
 // individual properties from an object literal, so anything reached as `OBJECT.KEY`
 // survives at zero references. Three such objects still carry gated names in a public
-// build — `CLI.APP_DEPLOY`/`APP_ROLLBACK`/`APP_SUBMIT`/`APP_WITHDRAW` and the
+// build — `CLI.APP_INSTALL`/`APP_UNINSTALL`/`APP_SUBMIT`/`APP_WITHDRAW` and the
 // `/withdraw` + `/installs` entries in `ENDPOINTS` (both `lib/constants.ts`), and the
-// `deployApp`/`rollbackApp`/`withdrawApp` methods on the `appService` literal
+// `installApp`/`uninstallApp`/`withdrawApp` methods on the `appService` literal
 // (`services/app.ts`). They are inert: no command reaches them and no help lists them.
 // `lang/en.ts` had the same problem and was fixed by moving the gated strings into
 // `lang/preview-messages.ts` and spreading that in behind the build flag — the same
@@ -126,12 +126,12 @@ fs.chmodSync(outfile, builtMode | ((builtMode & 0o444) >> 2));
 // it asserts on names that must be ABSENT from a public build's surviving code.
 const LEAK_MARKERS = [
   'previewAppCommands', // commands/preview-definitions.ts
-  'deployCommand', // commands/app/deploy.ts
-  'rollbackCommand', // commands/app/rollback.ts
+  'appInstallCommand', // commands/app/install.ts
+  'appUninstallCommand', // commands/app/uninstall.ts
   'submitCommand', // commands/app/submit.ts
   'statusCommand', // commands/app/status.ts
   'withdrawCommand', // commands/app/withdraw.ts
-  'resolveDeploymentTarget', // commands/app/account-deployment.ts
+  'resolveInstallTarget', // commands/app/account-install.ts
 ];
 
 // The INVERSE leak, and the one `LEAK_MARKERS` is structurally blind to: not a gated

@@ -2,7 +2,7 @@ jest.mock('inquirer', () => ({ prompt: jest.fn() }));
 
 jest.mock('../../../container', () => ({
   appService: {
-    rollbackApp: jest.fn(),
+    uninstallApp: jest.fn(),
     fetchAppsList: jest.fn(),
   },
   accountService: {
@@ -17,7 +17,7 @@ jest.mock('../../../lib/config', () => ({
 }));
 
 import inquirer from 'inquirer';
-import { rollbackCommand } from '../../../commands/app/rollback';
+import { appUninstallCommand } from '../../../commands/app/uninstall';
 import { appService, accountService } from '../../../container';
 import { readProjectConfig, getOrganizationId } from '../../../lib/config';
 import { ApiError } from '../../../lib/errors';
@@ -33,7 +33,7 @@ const LINKED_CONFIG = {
   ui_app: { type: 'link' as const },
 };
 
-describe('app/rollback', () => {
+describe('app/uninstall', () => {
   let stdoutSpy: jest.SpyInstance;
   const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
 
@@ -45,8 +45,8 @@ describe('app/rollback', () => {
       value: true,
     });
     jest.clearAllMocks();
-    // See the note in deploy.test.ts — implementations survive clearAllMocks().
-    (appService.rollbackApp as jest.Mock).mockResolvedValue(undefined);
+    // See the note in install.test.ts — implementations survive clearAllMocks().
+    (appService.uninstallApp as jest.Mock).mockResolvedValue(undefined);
     (readProjectConfig as jest.Mock).mockReturnValue(LINKED_CONFIG);
     // Default identity: a plain (non-corporate) account whose own ID is 12345.
     (accountService.getAccount as jest.Mock).mockResolvedValue({ type: 'user' });
@@ -63,17 +63,17 @@ describe('app/rollback', () => {
   });
 
   it('rolls back the linked app from the given account', async () => {
-    await rollbackCommand({ accountId: '99999', force: true });
+    await appUninstallCommand({ accountId: '99999', force: true });
 
-    expect(appService.rollbackApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
+    expect(appService.uninstallApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
   });
 
-  // Account resolution is shared with deploy (resolveDeploymentTarget), so the full
-  // matrix lives in deploy.test.ts. These two cover that rollback inherits it.
+  // Account resolution is shared with install (resolveInstallTarget), so the full
+  // matrix lives in install.test.ts. These two cover that uninstall inherits it.
   it('defaults to the caller own account when no account ID is given', async () => {
-    await rollbackCommand({ force: true });
+    await appUninstallCommand({ force: true });
 
-    expect(appService.rollbackApp).toHaveBeenCalledWith('42', '12345', 'Invoice Manager');
+    expect(appService.uninstallApp).toHaveBeenCalledWith('42', '12345', 'Invoice Manager');
   });
 
   it('prompts a corporate account for a sub-account', async () => {
@@ -83,64 +83,64 @@ describe('app/rollback', () => {
     ]);
     mockPrompt.mockResolvedValueOnce({ selectedSubAccount: 4043629 });
 
-    await rollbackCommand({ force: true });
+    await appUninstallCommand({ force: true });
 
-    expect(appService.rollbackApp).toHaveBeenCalledWith('42', '4043629', 'Invoice Manager');
+    expect(appService.uninstallApp).toHaveBeenCalledWith('42', '4043629', 'Invoice Manager');
   });
 
-  // Unlike deploy, rollback has no upload gate — an app deployed by an older CLI
-  // version must still be rollback-able.
+  // Unlike install, uninstall has no upload gate — an app installed by an older CLI
+  // version must still be uninstallable.
   it('does not require the app to have been uploaded', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({ ...LINKED_CONFIG, version: '' });
 
-    await rollbackCommand({ accountId: '99999', force: true });
+    await appUninstallCommand({ accountId: '99999', force: true });
 
-    expect(appService.rollbackApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
+    expect(appService.uninstallApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
   });
 
   // The uninstall route resolves the install from the request body, so it answers 404
-  // for a missing install as well as an unknown app. Both read as "not deployed".
-  it('treats "not deployed" (404) as informational, not a failure', async () => {
-    (appService.rollbackApp as jest.Mock).mockRejectedValue(
+  // for a missing install as well as an unknown app. Both read as "not installed".
+  it('treats "not installed" (404) as informational, not a failure', async () => {
+    (appService.uninstallApp as jest.Mock).mockRejectedValue(
       new ApiError('Installation ID does not exist', 404, undefined),
     );
 
-    await expect(rollbackCommand({ accountId: '99999', force: true })).resolves.toBeUndefined();
-    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/is not deployed/i);
+    await expect(appUninstallCommand({ accountId: '99999', force: true })).resolves.toBeUndefined();
+    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/is not installed/i);
   });
 
   // Deliberate: a 404 naming the app takes the same path. The CLI does not match on
   // the server's error copy, and failing an idempotent teardown is the worse outcome.
-  it('treats an unknown-app 404 as not deployed too', async () => {
-    (appService.rollbackApp as jest.Mock).mockRejectedValue(
+  it('treats an unknown-app 404 as not installed too', async () => {
+    (appService.uninstallApp as jest.Mock).mockRejectedValue(
       new ApiError('App ID does not exist', 404, undefined),
     );
 
-    await expect(rollbackCommand({ accountId: '99999', force: true })).resolves.toBeUndefined();
-    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/is not deployed/i);
+    await expect(appUninstallCommand({ accountId: '99999', force: true })).resolves.toBeUndefined();
+    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/is not installed/i);
   });
 
-  it('reports NOT_DEPLOYED in JSON mode without failing', async () => {
-    (appService.rollbackApp as jest.Mock).mockRejectedValue(
+  it('reports NOT_INSTALLED in JSON mode without failing', async () => {
+    (appService.uninstallApp as jest.Mock).mockRejectedValue(
       new ApiError('Installation ID does not exist', 404, undefined),
     );
 
-    await rollbackCommand({ accountId: '99999', json: true });
+    await appUninstallCommand({ accountId: '99999', json: true });
 
     const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
     expect(parsed).toMatchObject({
-      rolledBack: false,
-      reason: 'NOT_DEPLOYED',
+      uninstalled: false,
+      reason: 'NOT_INSTALLED',
       accountId: '99999',
     });
   });
 
   it('propagates errors other than 404', async () => {
-    (appService.rollbackApp as jest.Mock).mockRejectedValue(
+    (appService.uninstallApp as jest.Mock).mockRejectedValue(
       new ApiError('Server error', 500, undefined),
     );
 
-    await expect(rollbackCommand({ accountId: '99999', force: true })).rejects.toThrow(
+    await expect(appUninstallCommand({ accountId: '99999', force: true })).rejects.toThrow(
       /Server error/,
     );
   });
@@ -148,16 +148,18 @@ describe('app/rollback', () => {
   it('does nothing when the confirmation is declined', async () => {
     mockPrompt.mockResolvedValueOnce({ confirmed: false });
 
-    await rollbackCommand({ accountId: '99999' });
+    await appUninstallCommand({ accountId: '99999' });
 
-    expect(appService.rollbackApp).not.toHaveBeenCalled();
-    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/Rollback cancelled/i);
+    expect(appService.uninstallApp).not.toHaveBeenCalled();
+    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(
+      /Uninstall cancelled/i,
+    );
   });
 
   it('emits JSON on success', async () => {
-    await rollbackCommand({ accountId: '99999', json: true });
+    await appUninstallCommand({ accountId: '99999', json: true });
 
     const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
-    expect(parsed).toEqual({ rolledBack: true, appId: '42', accountId: '99999' });
+    expect(parsed).toEqual({ uninstalled: true, appId: '42', accountId: '99999' });
   });
 });

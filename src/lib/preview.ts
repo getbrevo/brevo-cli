@@ -40,7 +40,7 @@ import { CliError } from './errors';
 import { messages } from '../lang/en';
 
 export type PreviewFeature =
-  /** `app deploy` / `app rollback`. Also a `Capability`. */
+  /** `app install` / `app uninstall`. Also a `Capability`. */
   | 'account-install'
   /** `app submit` / `app status` / `app withdraw`. Also a `Capability`. */
   | 'review-lifecycle'

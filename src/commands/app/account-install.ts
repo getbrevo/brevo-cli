@@ -11,14 +11,14 @@ import { SubAccount } from '../../types';
 import { promptAppSelection } from './select-app';
 
 /**
- * Shared resolution for `app deploy` and `app rollback` (BEX-290).
+ * Shared resolution for `app install` and `app uninstall` (BEX-290).
  *
  * The two commands are mirror operations on the same target — an (app, account)
  * pair — so target resolution, the upload gate, and confirmation live here rather
  * than being duplicated (and drifting) across both files.
  */
 
-export interface DeploymentTarget {
+export interface InstallTarget {
   appId: string;
   appLabel: string;
   accountId: string;
@@ -30,7 +30,7 @@ const CORPORATE_ACCOUNT_TYPE = 'corporate';
 /**
  * List the master account's sub-accounts and ask which one to act on.
  *
- * Only sub-accounts that are not explicitly deactivated are offered — deploying into
+ * Only sub-accounts that are not explicitly deactivated are offered — installing into
  * a deactivated account is almost certainly a mistake, and the explicit `[account-id]`
  * positional stays available for the rare case where it isn't. The test is
  * `active !== false` rather than `active === true` so a response that omits the field
@@ -55,14 +55,14 @@ async function promptSubAccountSelection(): Promise<string> {
     (sub) => sub.active !== false && Number.isInteger(sub.id) && sub.id > 0,
   );
   if (selectable.length === 0) {
-    throw new CliError(messages.APP_DEPLOY_NO_SUB_ACCOUNTS);
+    throw new CliError(messages.APP_INSTALL_NO_SUB_ACCOUNTS);
   }
 
   const { selectedSubAccount } = await inquirer.prompt([
     {
       type: 'rawlist',
       name: 'selectedSubAccount',
-      message: messages.APP_DEPLOY_SELECT_ACCOUNT,
+      message: messages.APP_INSTALL_SELECT_ACCOUNT,
       // "Account ID", deliberately not "User ID": `whoami` already prints an
       // unrelated `user_id` under that name, and reusing it here would put two
       // different numbers behind one label.
@@ -76,7 +76,7 @@ async function promptSubAccountSelection(): Promise<string> {
 }
 
 /**
- * Resolve the account to deploy into when the positional was omitted.
+ * Resolve the account to install into when the positional was omitted.
  *
  * A plain account has exactly one answer — itself — so it resolves with no prompt and
  * stays usable non-interactively (piped stdin, `--json`, CI). Only a master account
@@ -100,7 +100,7 @@ async function resolveTargetAccountId(json?: boolean): Promise<string> {
   }
 
   if (json || !process.stdin.isTTY) {
-    throw new CliError(messages.APP_DEPLOY_ACCOUNT_ID_REQUIRED);
+    throw new CliError(messages.APP_INSTALL_ACCOUNT_ID_REQUIRED);
   }
   return promptSubAccountSelection();
 }
@@ -118,11 +118,11 @@ async function resolveTargetAccountId(json?: boolean): Promise<string> {
  * there is always an escape hatch for an account the listing won't show — notably a
  * deactivated sub-account.
  */
-export async function resolveDeploymentTarget(
+export async function resolveInstallTarget(
   accountIdArg: string | undefined,
   options: { appId?: string; json?: boolean },
   selectPrompt: string,
-): Promise<DeploymentTarget> {
+): Promise<InstallTarget> {
   const accountId = accountIdArg
     ? parseAccountId(accountIdArg)
     : await resolveTargetAccountId(options.json);
@@ -146,14 +146,14 @@ export async function resolveDeploymentTarget(
 
 /**
  * Enforce the installation-flow gate: an app must be validated by
- * `brevo app upload` before it can be deployed.
+ * `brevo app upload` before it can be installed.
  *
  * **This is the only gate that exists.** It was written as a pre-flight, on the
  * assumption that the server would reject an unconfigured app with a 422 and was
  * therefore the real authority. That assumption is false: the installs handler
  * (`POST /apps/{id}/installs`, app-store-backend `http_create_integration_details.go`)
  * resolves the app by UUID, checks the plan, and inserts — there is no configured/
- * uploaded check anywhere on the path, so deploying a never-uploaded app answers
+ * uploaded check anywhere on the path, so installing a never-uploaded app answers
  * `201` and renders nothing. Verified against `origin/main` (prod image 1.5.0).
  *
  * So the gate has to hold for every resolution path, not just the linked-project
@@ -163,14 +163,14 @@ export async function resolveDeploymentTarget(
  * server-side `version`, which the same upload is what creates.
  *
  * A read failure is deliberately NOT fatal: this is a guard against a silent
- * no-op, and refusing to deploy because a GET was unavailable would be a worse
+ * no-op, and refusing to install because a GET was unavailable would be a worse
  * failure than the one being prevented.
  */
-export async function assertUploadedBeforeDeploy(appId?: string): Promise<void> {
+export async function assertUploadedBeforeInstall(appId?: string): Promise<void> {
   const projectConfig = readProjectConfig();
   if (projectConfig) {
     if (!projectConfig.version?.trim()) {
-      throw new CliError(messages.APP_DEPLOY_NOT_UPLOADED);
+      throw new CliError(messages.APP_INSTALL_NOT_UPLOADED);
     }
     return;
   }
@@ -183,15 +183,15 @@ export async function assertUploadedBeforeDeploy(appId?: string): Promise<void> 
     return;
   }
   if (app && !app.version?.trim()) {
-    throw new CliError(messages.APP_DEPLOY_NOT_UPLOADED);
+    throw new CliError(messages.APP_INSTALL_NOT_UPLOADED);
   }
 }
 
 /**
- * Confirm a deploy/remove unless `--force` was passed. Returns false when the
+ * Confirm an install/uninstall unless `--force` was passed. Returns false when the
  * user declines, in which case the caller returns without acting (exit 0).
  */
-export async function confirmDeployment(
+export async function confirmInstallAction(
   confirmMessage: string,
   cancelledMessage: string,
   options: { force?: boolean; json?: boolean },
@@ -199,7 +199,7 @@ export async function confirmDeployment(
   if (options.force || options.json) return true;
 
   if (!process.stdin.isTTY) {
-    throw new CliError(messages.APP_DEPLOY_NON_INTERACTIVE);
+    throw new CliError(messages.APP_INSTALL_NON_INTERACTIVE);
   }
 
   const { confirmed } = await inquirer.prompt([

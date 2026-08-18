@@ -122,7 +122,7 @@ function toNumericIdentifier(value: string | undefined): number | undefined {
 /**
  * The caller's own account identifier, as a display/target string.
  *
- * Unlike the wire fields this keeps a UUID intact — it is what `app deploy` labels the
+ * Unlike the wire fields this keeps a UUID intact — it is what `app install` labels the
  * target with and what a plain account resolves to when no `[account-id]` was given.
  * Only an absent or blank value throws, since that means the credentials carry no
  * account at all and re-authenticating is the fix.
@@ -130,7 +130,7 @@ function toNumericIdentifier(value: string | undefined): number | undefined {
 export function getCallerAccountId(): string {
   const organizationId = getOrganizationId()?.trim();
   if (!organizationId) {
-    throw new CliError(messages.APP_DEPLOY_MISSING_CLIENT_ID);
+    throw new CliError(messages.APP_INSTALL_MISSING_CLIENT_ID);
   }
   return organizationId;
 }
@@ -149,11 +149,11 @@ export function getCallerAccountId(): string {
  *   when it is a number, never worth a 400 when it isn't.
  * - `deploy_client_id` is the target the install lands in, and the server defaults it
  *   to the caller when absent. That default is exactly right for a plain account
- *   deploying into itself, which is the only case that can produce a non-numeric value
+ *   installing into itself, which is the only case that can produce a non-numeric value
  *   here (an explicit `[account-id]` is numeric by `parseAccountId`, and a sub-account
  *   `id` is numeric by construction).
  *
- * The two are not interchangeable: they differ whenever a corporate account deploys
+ * The two are not interchangeable: they differ whenever a corporate account installs
  * into a sub-account, and collapsing them 404s the app lookup.
  */
 function buildInstallPayload(accountId: string, name: string) {
@@ -452,7 +452,7 @@ export function createAppService(client: ApiClient) {
      * the app itself. Everything else (notably the "not yet uploaded" rejection)
      * propagates for the command to map.
      */
-    async deployApp(appId: string, accountId: string, name: string): Promise<void> {
+    async installApp(appId: string, accountId: string, name: string): Promise<void> {
       try {
         await client.post(
           ENDPOINTS.APP_STORE_APP_INSTALLS(appId),
@@ -465,17 +465,17 @@ export function createAppService(client: ApiClient) {
 
     /**
      * Withdraw a UI app's availability from a single account — deletes the
-     * install created by {@link deployApp}. Same resource, same body, DELETE.
+     * install created by {@link installApp}. Same resource, same body, DELETE.
      *
      * Deliberately no `rethrowNotFound` here, unlike every other verb. The developer
      * uninstall route (BEX-364) has no `installation_id` to delete by, so it resolves
      * the install from the same details the install was created with — and answers 404
      * for *both* "app doesn't exist" and "no such install", distinguishable only by the
      * error copy. Collapsing them into "App not found" would report a hard failure for
-     * the ordinary already-rolled-back case, so the ApiError reaches the command intact
-     * and `rollback` maps any 404 to its informational not-deployed path.
+     * the ordinary already-uninstalled case, so the ApiError reaches the command intact
+     * and `uninstall` maps any 404 to its informational not-installed path.
      */
-    async rollbackApp(appId: string, accountId: string, name: string): Promise<void> {
+    async uninstallApp(appId: string, accountId: string, name: string): Promise<void> {
       await client.delete(
         ENDPOINTS.APP_STORE_APP_INSTALLS(appId),
         buildInstallPayload(accountId, name),

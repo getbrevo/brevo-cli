@@ -2,7 +2,7 @@ jest.mock('inquirer', () => ({ prompt: jest.fn() }));
 
 jest.mock('../../../container', () => ({
   appService: {
-    deployApp: jest.fn(),
+    installApp: jest.fn(),
     fetchAppsList: jest.fn(),
     fetchApp: jest.fn(),
   },
@@ -18,7 +18,7 @@ jest.mock('../../../lib/config', () => ({
 }));
 
 import inquirer from 'inquirer';
-import { deployCommand } from '../../../commands/app/deploy';
+import { appInstallCommand } from '../../../commands/app/install';
 import { appService, accountService } from '../../../container';
 import { readProjectConfig, getOrganizationId } from '../../../lib/config';
 import { ApiError } from '../../../lib/errors';
@@ -26,7 +26,7 @@ import { ApiError } from '../../../lib/errors';
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
 // A project that has been through a successful `app upload` — `version` is only
-// ever written by one, which is what the deploy gate keys off.
+// ever written by one, which is what the install gate keys off.
 const UPLOADED_CONFIG = {
   appId: '42',
   appName: 'Invoice Manager',
@@ -36,7 +36,7 @@ const UPLOADED_CONFIG = {
   ui_app: { type: 'link' as const },
 };
 
-describe('app/deploy', () => {
+describe('app/install', () => {
   let stdoutSpy: jest.SpyInstance;
   const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
 
@@ -51,7 +51,7 @@ describe('app/deploy', () => {
     // clearAllMocks() clears calls but NOT implementations set via
     // mockRejectedValue/mockResolvedValue in an earlier test (this repo's jest
     // config doesn't enable resetMocks), so re-assert the happy path here.
-    (appService.deployApp as jest.Mock).mockResolvedValue(undefined);
+    (appService.installApp as jest.Mock).mockResolvedValue(undefined);
     (readProjectConfig as jest.Mock).mockReturnValue(UPLOADED_CONFIG);
     // Default identity: a plain (non-corporate) account whose own ID is 12345.
     (accountService.getAccount as jest.Mock).mockResolvedValue({ type: 'user' });
@@ -67,24 +67,24 @@ describe('app/deploy', () => {
     }
   });
 
-  it('deploys the linked app to the given account', async () => {
-    await deployCommand({ accountId: '99999', force: true });
+  it('installs the linked app into the given account', async () => {
+    await appInstallCommand({ accountId: '99999', force: true });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
+    expect(appService.installApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
   });
 
   it('prefers an explicit --app-id over the linked config', async () => {
-    await deployCommand({ accountId: '99999', appId: '7', force: true });
+    await appInstallCommand({ accountId: '99999', appId: '7', force: true });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('7', '99999', '7');
+    expect(appService.installApp).toHaveBeenCalledWith('7', '99999', '7');
   });
 
   // A plain account has exactly one possible target — itself — so omitting the
   // positional resolves deterministically and never prompts.
   it('defaults to the caller own account when no account ID is given', async () => {
-    await deployCommand({ force: true });
+    await appInstallCommand({ force: true });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('42', '12345', 'Invoice Manager');
+    expect(appService.installApp).toHaveBeenCalledWith('42', '12345', 'Invoice Manager');
     expect(accountService.fetchSubAccounts).not.toHaveBeenCalled();
   });
 
@@ -95,19 +95,19 @@ describe('app/deploy', () => {
       value: false,
     });
 
-    await deployCommand({ json: true });
+    await appInstallCommand({ json: true });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('42', '12345', 'Invoice Manager');
+    expect(appService.installApp).toHaveBeenCalledWith('42', '12345', 'Invoice Manager');
   });
 
-  // A plain account's own identifier becomes the deploy target, and it may be a UUID
+  // A plain account's own identifier becomes the install target, and it may be a UUID
   // rather than a number — it must survive resolution intact.
   it('defaults to a UUID organization ID unchanged', async () => {
     (getOrganizationId as jest.Mock).mockReturnValue('550e8400-e29b-41d4-a716-446655440001');
 
-    await deployCommand({ force: true });
+    await appInstallCommand({ force: true });
 
-    expect(appService.deployApp).toHaveBeenCalledWith(
+    expect(appService.installApp).toHaveBeenCalledWith(
       '42',
       '550e8400-e29b-41d4-a716-446655440001',
       'Invoice Manager',
@@ -117,8 +117,8 @@ describe('app/deploy', () => {
   it('surfaces a missing organization ID rather than labelling the target "undefined"', async () => {
     (getOrganizationId as jest.Mock).mockReturnValue(undefined);
 
-    await expect(deployCommand({ force: true })).rejects.toThrow(/organization ID/i);
-    expect(appService.deployApp).not.toHaveBeenCalled();
+    await expect(appInstallCommand({ force: true })).rejects.toThrow(/organization ID/i);
+    expect(appService.installApp).not.toHaveBeenCalled();
   });
 
   describe('corporate account', () => {
@@ -133,9 +133,9 @@ describe('app/deploy', () => {
       ]);
       mockPrompt.mockResolvedValueOnce({ selectedSubAccount: 4043630 });
 
-      await deployCommand({ accountId: undefined, force: true });
+      await appInstallCommand({ accountId: undefined, force: true });
 
-      expect(appService.deployApp).toHaveBeenCalledWith('42', '4043630', 'Invoice Manager');
+      expect(appService.installApp).toHaveBeenCalledWith('42', '4043630', 'Invoice Manager');
     });
 
     it('does not offer deactivated sub-accounts', async () => {
@@ -145,7 +145,7 @@ describe('app/deploy', () => {
       ]);
       mockPrompt.mockResolvedValueOnce({ selectedSubAccount: 4043630 });
 
-      await deployCommand({ force: true });
+      await appInstallCommand({ force: true });
 
       const choices = mockPrompt.mock.calls[0]![0][0].choices as { value: number }[];
       expect(choices.map((c) => c.value)).toEqual([4043630]);
@@ -156,42 +156,42 @@ describe('app/deploy', () => {
         { id: 4043629, companyName: 'Company1', active: false },
       ]);
 
-      await expect(deployCommand({ force: true })).rejects.toThrow(/no active sub-accounts/i);
+      await expect(appInstallCommand({ force: true })).rejects.toThrow(/no active sub-accounts/i);
       expect(mockPrompt).not.toHaveBeenCalled();
     });
 
     // The one branch that genuinely cannot resolve without a terminal — it has a real
     // choice to make. Point at the positional rather than failing opaquely.
     it('demands an explicit account ID in JSON mode', async () => {
-      await expect(deployCommand({ json: true })).rejects.toThrow(/corporate account/i);
+      await expect(appInstallCommand({ json: true })).rejects.toThrow(/corporate account/i);
       expect(accountService.fetchSubAccounts).not.toHaveBeenCalled();
     });
 
     it('uses an explicit account ID without touching the sub-account listing', async () => {
-      await deployCommand({ accountId: '99999', force: true });
+      await appInstallCommand({ accountId: '99999', force: true });
 
-      expect(appService.deployApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
+      expect(appService.installApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
       expect(accountService.getAccount).not.toHaveBeenCalled();
       expect(accountService.fetchSubAccounts).not.toHaveBeenCalled();
     });
   });
 
   it('rejects a non-numeric account ID', async () => {
-    await expect(deployCommand({ accountId: 'abc', force: true })).rejects.toThrow(
+    await expect(appInstallCommand({ accountId: 'abc', force: true })).rejects.toThrow(
       /not a numeric Brevo account ID/i,
     );
-    expect(appService.deployApp).not.toHaveBeenCalled();
+    expect(appService.installApp).not.toHaveBeenCalled();
   });
 
-  // The spec's installation flow: deploy must refuse until `app upload` has
+  // The spec's installation flow: install must refuse until `app upload` has
   // validated the configuration.
-  it('refuses to deploy an app that has never been uploaded', async () => {
+  it('refuses to install an app that has never been uploaded', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({ ...UPLOADED_CONFIG, version: '' });
 
-    await expect(deployCommand({ accountId: '99999', force: true })).rejects.toThrow(
+    await expect(appInstallCommand({ accountId: '99999', force: true })).rejects.toThrow(
       /brevo app upload/i,
     );
-    expect(appService.deployApp).not.toHaveBeenCalled();
+    expect(appService.installApp).not.toHaveBeenCalled();
   });
 
   // The gate used to stop at the linked-project check, on the belief that the
@@ -207,25 +207,25 @@ describe('app/deploy', () => {
       (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '' });
 
       await expect(
-        deployCommand({ accountId: '99999', appId: 'app-1', force: true }),
+        appInstallCommand({ accountId: '99999', appId: 'app-1', force: true }),
       ).rejects.toThrow(/brevo app upload/i);
-      expect(appService.deployApp).not.toHaveBeenCalled();
+      expect(appService.installApp).not.toHaveBeenCalled();
     });
 
-    it('deploys an --app-id app that has been uploaded', async () => {
+    it('installs an --app-id app that has been uploaded', async () => {
       (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '3' });
 
-      await deployCommand({ accountId: '99999', appId: 'app-1', force: true });
-      expect(appService.deployApp).toHaveBeenCalledWith('app-1', '99999', 'app-1');
+      await appInstallCommand({ accountId: '99999', appId: 'app-1', force: true });
+      expect(appService.installApp).toHaveBeenCalledWith('app-1', '99999', 'app-1');
     });
 
     // Guarding against a silent no-op must not itself become a new way to fail:
-    // an unavailable read leaves the deploy to proceed.
-    it('still deploys when the version read fails', async () => {
+    // an unavailable read leaves the install to proceed.
+    it('still installs when the version read fails', async () => {
       (appService.fetchApp as jest.Mock).mockRejectedValue(new ApiError('boom', 500, undefined));
 
-      await deployCommand({ accountId: '99999', appId: 'app-1', force: true });
-      expect(appService.deployApp).toHaveBeenCalled();
+      await appInstallCommand({ accountId: '99999', appId: 'app-1', force: true });
+      expect(appService.installApp).toHaveBeenCalled();
     });
 
     // A linked project is still answered locally — the whole point of keeping the
@@ -233,17 +233,17 @@ describe('app/deploy', () => {
     it('does not read the app when a linked project answers the question', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(UPLOADED_CONFIG);
 
-      await deployCommand({ accountId: '99999', force: true });
+      await appInstallCommand({ accountId: '99999', force: true });
       expect(appService.fetchApp).not.toHaveBeenCalled();
     });
   });
 
   it('maps the server 422 to the same upload-first message', async () => {
-    (appService.deployApp as jest.Mock).mockRejectedValue(
+    (appService.installApp as jest.Mock).mockRejectedValue(
       new ApiError('Unprocessable', 422, undefined),
     );
 
-    await expect(deployCommand({ accountId: '99999', force: true })).rejects.toThrow(
+    await expect(appInstallCommand({ accountId: '99999', force: true })).rejects.toThrow(
       /brevo app upload/i,
     );
   });
@@ -251,18 +251,18 @@ describe('app/deploy', () => {
   it('asks for confirmation and does nothing when declined', async () => {
     mockPrompt.mockResolvedValueOnce({ confirmed: false });
 
-    await deployCommand({ accountId: '99999' });
+    await appInstallCommand({ accountId: '99999' });
 
-    expect(appService.deployApp).not.toHaveBeenCalled();
-    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/Deploy cancelled/i);
+    expect(appService.installApp).not.toHaveBeenCalled();
+    expect(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('')).toMatch(/Install cancelled/i);
   });
 
-  it('deploys after an accepted confirmation', async () => {
+  it('installs after an accepted confirmation', async () => {
     mockPrompt.mockResolvedValueOnce({ confirmed: true });
 
-    await deployCommand({ accountId: '99999' });
+    await appInstallCommand({ accountId: '99999' });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
+    expect(appService.installApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
   });
 
   it('refuses to prompt in a non-TTY run without --force or --json', async () => {
@@ -272,16 +272,16 @@ describe('app/deploy', () => {
       value: false,
     });
 
-    await expect(deployCommand({ accountId: '99999' })).rejects.toThrow(/non-interactive/i);
-    expect(appService.deployApp).not.toHaveBeenCalled();
+    await expect(appInstallCommand({ accountId: '99999' })).rejects.toThrow(/non-interactive/i);
+    expect(appService.installApp).not.toHaveBeenCalled();
   });
 
   it('emits JSON and skips the prompt under --json', async () => {
-    await deployCommand({ accountId: '99999', json: true });
+    await appInstallCommand({ accountId: '99999', json: true });
 
     expect(mockPrompt).not.toHaveBeenCalled();
     const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
-    expect(parsed).toEqual({ deployed: true, appId: '42', accountId: '99999' });
+    expect(parsed).toEqual({ installed: true, appId: '42', accountId: '99999' });
   });
 
   it('falls back to the app picker outside a project directory', async () => {
@@ -291,8 +291,8 @@ describe('app/deploy', () => {
     ]);
     mockPrompt.mockResolvedValueOnce({ selectedApp: '9' });
 
-    await deployCommand({ accountId: '99999', force: true });
+    await appInstallCommand({ accountId: '99999', force: true });
 
-    expect(appService.deployApp).toHaveBeenCalledWith('9', '99999', 'Picked App');
+    expect(appService.installApp).toHaveBeenCalledWith('9', '99999', 'Picked App');
   });
 });

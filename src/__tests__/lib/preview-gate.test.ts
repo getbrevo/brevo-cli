@@ -85,8 +85,8 @@ function render(cmd: Command): string {
 }
 
 /** Every command the pre-GA gate covers, and the section heading it sits under. */
-const GATED = ['deploy', 'rollback', 'submit', 'status', 'withdraw'];
-const GATED_HEADINGS = ['App-deployment commands', 'App-review commands'];
+const GATED = ['install', 'uninstall', 'submit', 'status', 'withdraw'];
+const GATED_HEADINGS = ['App-install commands', 'App-review commands'];
 
 /**
  * The gated commands a preview build actually advertises.

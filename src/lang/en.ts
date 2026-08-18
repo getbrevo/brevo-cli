@@ -165,7 +165,7 @@ const coreMessages = {
   APP_CREATE_UI_NEXT: (cdDir?: string): string[] => [
     ...(cdDir ? [`1. cd ${cdDir}`] : []),
     `${cdDir ? 2 : 1}. ${CLI.APP_UPLOAD}              (validate and save your configuration)`,
-    `${cdDir ? 3 : 2}. ${CLI.APP_DEPLOY()}   (make it available in an account)`,
+    `${cdDir ? 3 : 2}. ${CLI.APP_INSTALL()}   (make it available in an account)`,
   ],
 
   // App list
@@ -261,7 +261,7 @@ const coreMessages = {
   // cached by a successful login. Numeric and UUID values are both forwarded as-is;
   // only an absent or blank one lands here, meaning the credentials predate the field
   // or were written by a partial login — re-authenticating rewrites them.
-  APP_DEPLOY_MISSING_CLIENT_ID: `Could not determine your Brevo account's organization ID.\n\n  Run \`${CLI.LOGIN}\` to re-authenticate.`,
+  APP_INSTALL_MISSING_CLIENT_ID: `Could not determine your Brevo account's organization ID.\n\n  Run \`${CLI.LOGIN}\` to re-authenticate.`,
   APP_UPLOAD_DISTRIBUTION_IMMUTABLE: (current: string, next: string) =>
     `distribution_type cannot be changed via upload — this app is "${current}" on Brevo, but app-config.json says "${next}".\n  Edit \`distribution_type\` in app-config.json back to "${current}", or create a new ${next} app with \`${CLI.APP_CREATE}\`.`,
   LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_START('oauth')}\`.`,
@@ -278,6 +278,8 @@ const coreMessages = {
 
   // App delete
   APP_DELETE_SELECT: 'Select an app to delete:',
+  APP_DELETE_WARNING: (name: string, id: string) =>
+    `Deleting "${name}" (${id}) will also remove it from every account where it is installed or published.\n  Installs and credentials cannot be recovered after this.`,
   APP_DELETE_CONFIRM: (name: string, id: string) =>
     `Delete app "${name}" (${id})? This cannot be undone.`,
   APP_DELETE_SUCCESS: (id: string) => `App ${id} deleted.`,
@@ -384,7 +386,7 @@ const coreMessages = {
     `App ${appId} was created but could not be read back from the server. Scaffolding from the create response instead — run \`${CLI.APP_SCAFFOLD}\` later to refresh app-config.json from the server.`,
   APP_SCAFFOLD_SUCCESS: (written: number, total: number) =>
     `Feature ${scaffoldFileCount('scaffolded', written, total)}`,
-  APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_DEPLOY()}\`.`,
+  APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_INSTALL()}\`.`,
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
   APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
   // The directory was already there and the user has just said how to handle it —
@@ -475,7 +477,7 @@ const coreMessages = {
   // `init` ends by naming the obvious next command, and for a UI app that is not
   // `app start oauth`: an action link has no OAuth flow and no local server to run,
   // so the OAuth line pointed at a command that would fail. It also contradicted the
-  // Next steps box printed directly above it, which already said upload → deploy.
+  // Next steps box printed directly above it, which already said upload → install.
   // Deliberately in core rather than `preview-messages`: `init` is not a gated command,
   // and a hand-edited `ui_app` block can reach this line in a published build.
   INIT_DONE_UI_APP: `All set! Follow the next steps above, or run \`${CLI.HELP}\` to see all commands.`,
