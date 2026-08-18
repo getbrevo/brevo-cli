@@ -45,7 +45,7 @@ jobs:
       # 20.15.0, not the 20.19.0 the publish job pins: this exercises the
       # `engines.node` floor, which is the version a user is most likely to
       # hit the artifact with. Matches `smoke-pre-merge.yml`.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 20.15.0
           cache: yarn
@@ -95,11 +95,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      # No `registry-url`/`scope` — same reasoning as release.yaml: they
+      # only write a token-auth .npmrc, publish auth here is OIDC (no
+      # NODE_AUTH_TOKEN exists), and under setup-node@v7 that .npmrc makes
+      # Yarn 1 fail on the unset env ref during the cache step.
+      - uses: actions/setup-node@v7
         with:
           node-version: 20.19.0
-          registry-url: "https://registry.npmjs.org/"
-          scope: "@getbrevo"
           cache: yarn
 
       # npm Trusted Publishing (OIDC) requires npm >= 11.5.1, which in

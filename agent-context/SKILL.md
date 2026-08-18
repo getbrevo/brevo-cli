@@ -134,6 +134,8 @@ The update banner's first line comes from the app-store service (`GET /cli/info`
 
 The same response may carry `"is_blocked": true`. When it does, every command except `--help` / `--version` prints a banner to stderr and exits `1` **without running** — a separate mechanism from the major-version gate above, and one the server can turn on without shipping a new CLI.
 
+Those two are exempt from the **block**, not from the lookup: they still call `/cli/info` and still render the server's wording on their update banner. They simply never exit non-zero because of it, so a blocked CLI can always still report what version it is.
+
 Two things to know when you hit this:
 
 - **The notice opt-outs do not apply.** `BREVO_NO_UPDATE_NOTIFIER=1`, `--no-update-notifier`, CI, and a non-TTY all suppress the *notice*; none of them suppress a block. Don't suggest them as a workaround — the only fix is upgrading the CLI.

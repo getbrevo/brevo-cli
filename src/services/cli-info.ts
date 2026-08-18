@@ -24,6 +24,12 @@ const CLI_INFO_CACHE_FILE = 'cli-info-cache.json';
 
 interface CliInfoCache {
   cliVersion: string;
+  // The service the entry came from. Part of the key, not just a record: the
+  // base URL is overridable per-invocation via BREVO_APP_STORE_URL, so without
+  // this a run against staging is served the answer production gave a moment
+  // earlier (and vice versa) — which reads as "staging works, production
+  // doesn't" while curl against both says the opposite.
+  baseUrl: string;
   info: CliInfo;
   lastChecked: number;
 }
@@ -40,6 +46,7 @@ function readCliInfoCache(cachePath: string): CliInfoCache | undefined {
       raw &&
       typeof raw === 'object' &&
       typeof raw.cliVersion === 'string' &&
+      typeof raw.baseUrl === 'string' &&
       typeof raw.lastChecked === 'number' &&
       Number.isFinite(raw.lastChecked) &&
       raw.info &&
@@ -48,6 +55,7 @@ function readCliInfoCache(cachePath: string): CliInfoCache | undefined {
     ) {
       return {
         cliVersion: raw.cliVersion,
+        baseUrl: raw.baseUrl,
         lastChecked: raw.lastChecked,
         info: {
           isBlocked: raw.info.isBlocked,
@@ -145,8 +153,15 @@ export async function fetchCliInfo(
   const now = opts.now ? opts.now() : Date.now();
   const ttlMs = opts.ttlMs ?? CLI_INFO_CACHE_TTL_MS;
 
+  const baseUrl = opts.baseUrl ?? APP_STORE_BASE;
+
   const cached = readCliInfoCache(cachePath);
-  if (cached && cached.cliVersion === query.cliVersion && now - cached.lastChecked <= ttlMs) {
+  if (
+    cached &&
+    cached.cliVersion === query.cliVersion &&
+    cached.baseUrl === baseUrl &&
+    now - cached.lastChecked <= ttlMs
+  ) {
     return cached.info;
   }
 
@@ -154,7 +169,7 @@ export async function fetchCliInfo(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? CLI_INFO_TIMEOUT_MS);
   try {
-    const res = await fetchImpl(buildUrl(opts.baseUrl ?? APP_STORE_BASE, query), {
+    const res = await fetchImpl(buildUrl(baseUrl, query), {
       method: 'GET',
       signal: controller.signal,
       headers: { Accept: 'application/json' },
@@ -175,7 +190,7 @@ export async function fetchCliInfo(
       isBlocked: body.is_blocked === true,
     };
 
-    writeCliInfoCache(cachePath, { cliVersion: query.cliVersion, info, lastChecked: now });
+    writeCliInfoCache(cachePath, { cliVersion: query.cliVersion, baseUrl, info, lastChecked: now });
 
     return info;
   } catch {

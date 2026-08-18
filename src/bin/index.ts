@@ -178,13 +178,13 @@ const isHelpOrVersion =
 //
 // GET /cli/info on the app-store service, called directly — no gateway, no
 // credentials. Cached at ~/.brevo/cli-info-cache.json for 15m (see
-// services/cli-info.ts), keyed to the running cliVersion, so a reworded
-// message or a new block reaches users within minutes rather than after the
-// old 12h npm-style TTL, without hitting the service on every single command.
+// services/cli-info.ts), keyed to the running cliVersion and the service it
+// came from, so a reworded message or a new block reaches users within minutes
+// rather than after the old 12h npm-style TTL, without hitting the service on
+// every single command.
 //
 // It runs *before* the command because a block has to prevent the command, not
-// report on it afterwards. `--help` / `--version` stay exempt so a blocked CLI
-// can still identify itself.
+// report on it afterwards.
 //
 // Fails open in every direction: a timeout, a non-2xx, an unparseable body or
 // any other error leaves `info` undefined and the command proceeds. Only an
@@ -194,13 +194,18 @@ const isHelpOrVersion =
 // (BREVO_NO_UPDATE_NOTIFIER, --no-update-notifier, CI, non-TTY): a suppressed
 // banner should never mean a suppressed block.
 async function applyCliInfo(): Promise<void> {
-  if (isHelpOrVersion) return;
-
   const info = await fetchCliInfo({ cliVersion: version, reason: 'startup' });
   if (!info) return;
 
   // Carried in memory only, for whichever banner ends up rendering.
   updateCheck.notice = info.upgradeMessage;
+
+  // `--help` / `--version` are exempt from the *block* so a blocked CLI can
+  // still say what it is — but not from the *wording*. Those are two different
+  // concerns, and skipping the whole call to achieve the first used to discard
+  // the second, which meant the two commands people most often run to check
+  // their version were the only ones that could never explain why it mattered.
+  if (isHelpOrVersion) return;
   if (!info.isBlocked) return;
 
   process.stderr.write(
