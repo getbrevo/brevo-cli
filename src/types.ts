@@ -263,6 +263,13 @@ export interface RawSurfacePointRow extends Partial<SurfacePointRow> {
   place?: string;
   kind?: string;
   supported_extension_types?: string[];
+  /**
+   * What the endpoint actually serves since BEX-422: the `extension_type` values currently
+   * authorable on the slot (the registry's `enabled_extension_types` column — never empty
+   * on the wire, a slot with an empty list is disabled and not served at all). Normalized
+   * onto `extension_type_list`, the CLI's own field for the same fact.
+   */
+  enabled_extension_types?: string[];
 }
 
 /** Wire shape of GET /v3/app-store/surface-points (BEX-361). */

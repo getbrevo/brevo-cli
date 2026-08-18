@@ -222,11 +222,18 @@ export function createAppService(client: ApiClient) {
      * Tolerates a bare array alongside the wrapped shape, and drops non-string, blank and
      * duplicate entries, so callers can trust every value they get.
      *
+     * `extensionType` narrows to the pages that still have at least one slot enabled for
+     * that type (`?extension_type=`, BEX-422), so the page prompt cannot offer a page whose
+     * every placement the row read then hides. A server predating the filter ignores the
+     * parameter and answers unnarrowed, which the row read's own type check absorbs.
+     *
      * Errors propagate — the caller owns the actionable message, same as below.
      */
-    async fetchSurfacePointLocations(): Promise<string[]> {
+    async fetchSurfacePointLocations(extensionType?: string): Promise<string[]> {
+      const type = String(extensionType ?? '').trim();
+      const query = type ? `?extension_type=${encodeURIComponent(type)}` : '';
       const res = await client.get<SurfacePointLocationsResponse | string[] | null>(
-        ENDPOINTS.APP_STORE_SURFACE_POINT_LOCATIONS,
+        `${ENDPOINTS.APP_STORE_SURFACE_POINT_LOCATIONS}${query}`,
       );
       const raw = Array.isArray(res) ? res : (res?.locations ?? []);
       const locations = new Set<string>();
@@ -247,9 +254,11 @@ export function createAppService(client: ApiClient) {
      * for the whole registry, which the create flow only falls back to when the narrowed
      * read doesn't cover the picked pages.
      *
-     * There is deliberately NO extension-type filter. Both extension types render on both
-     * kinds, so filtering server-side would hide authorable placements; the create flow
-     * checks each row's own `extension_type_list` instead.
+     * `extensionType` narrows server-side to the slots enabled for that type
+     * (`?extension_type=`, BEX-422). The server owns the enable/disable state — a disabled
+     * slot is absent from the catalogue entirely, filter or no filter — but the create flow
+     * STILL checks each row's own `extension_type_list`: a server predating the filter
+     * ignores the parameter, and the unfiltered retry path deliberately drops it.
      *
      * The backend route is specified (app-store-bo-be GET /cli/surface-points) but not
      * built yet; only the public /v3 mapping is assumed. See RELEASE-CHECKLIST.md → Before
@@ -258,12 +267,22 @@ export function createAppService(client: ApiClient) {
      *
      * Normalization: rows are keyed on `extension_point_name`, falling back to the pre-BEX-361
      * `extension_point` spelling, and the three decomposed segments accept either naming
-     * (see RawSurfacePointRow for why both are tolerated). Rows with no usable name are
+     * (see RawSurfacePointRow for why both are tolerated). The type list accepts THREE
+     * namings for the same reason: `enabled_extension_types` (what the endpoint serves since
+     * BEX-422), the CLI's own `extension_type_list`, and the pre-BEX-361 draft's
+     * `supported_extension_types` — newest spelling wins. Rows with no usable name are
      * dropped and duplicates deduped, so callers can trust every row's identity.
      */
-    async fetchSurfacePoints(locations?: readonly string[]): Promise<SurfacePointRow[]> {
+    async fetchSurfacePoints(
+      locations?: readonly string[],
+      extensionType?: string,
+    ): Promise<SurfacePointRow[]> {
       const filter = (locations ?? []).map((l) => String(l).trim()).filter(Boolean);
-      const query = filter.length ? `?location=${encodeURIComponent(filter.join(','))}` : '';
+      const type = String(extensionType ?? '').trim();
+      const params = new URLSearchParams();
+      if (filter.length) params.set('location', filter.join(','));
+      if (type) params.set('extension_type', type);
+      const query = params.size ? `?${params.toString()}` : '';
       const res = await client.get<SurfacePointsResponse | RawSurfacePointRow[] | null>(
         `${ENDPOINTS.APP_STORE_SURFACE_POINTS}${query}`,
       );
@@ -281,17 +300,17 @@ export function createAppService(client: ApiClient) {
           place: legacyPlace,
           kind: legacyKind,
           supported_extension_types: legacySupportedTypes,
+          enabled_extension_types: enabledTypes,
           ...rest
         } = row;
+        const typeList = enabledTypes ?? row.extension_type_list ?? legacySupportedTypes;
         normalized.push({
           ...rest,
           extension_point_name: name,
           ...pick('location_name', firstNonEmptyString(row.location_name, legacyLocation)),
           ...pick('section_name', firstNonEmptyString(row.section_name, legacyPlace)),
           ...pick('component_type', firstNonEmptyString(row.component_type, legacyKind)),
-          ...((row.extension_type_list ?? legacySupportedTypes)
-            ? { extension_type_list: row.extension_type_list ?? legacySupportedTypes }
-            : {}),
+          ...(typeList ? { extension_type_list: typeList } : {}),
         });
       }
       return normalized;
