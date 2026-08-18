@@ -68,9 +68,6 @@ describe('services/app', () => {
       status: 'active',
     };
 
-    // No extensionType filter: both extension types render on both kinds, so filtering
-    // server-side would hide authorable placements. The create flow checks each row's
-    // own extension_type_list instead.
     it('GETs the unfiltered endpoint when no locations are given', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [ROW], count: 1 });
       const result = await service.fetchSurfacePoints();
@@ -84,6 +81,54 @@ describe('services/app', () => {
       expect(mockClient.get).toHaveBeenCalledWith(
         '/v3/app-store/surface-points?location=contactDetails%2CdealDetails',
       );
+    });
+
+    // The server filters by type since BEX-422: a disabled slot is absent from the
+    // catalogue entirely, and ?extension_type= narrows to the slots enabled for the type.
+    // The create flow still re-checks extension_type_list locally for older servers.
+    it('passes the extension type as an extension_type filter', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [ROW] });
+      await service.fetchSurfacePoints(undefined, 'actionLink');
+      expect(mockClient.get).toHaveBeenCalledWith(
+        '/v3/app-store/surface-points?extension_type=actionLink',
+      );
+    });
+
+    it('composes the location and extension_type filters', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ surface_points: [ROW] });
+      await service.fetchSurfacePoints(['contactDetails'], 'actionLink');
+      expect(mockClient.get).toHaveBeenCalledWith(
+        '/v3/app-store/surface-points?location=contactDetails&extension_type=actionLink',
+      );
+    });
+
+    // What the endpoint actually serves since BEX-422. Normalized onto the CLI's own
+    // extension_type_list so everything downstream (rowSupportsExtensionType) keys off
+    // one field regardless of which server build answered.
+    it('normalizes enabled_extension_types onto extension_type_list', async () => {
+      const { extension_type_list: _list, ...withoutList } = ROW;
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        surface_points: [{ ...withoutList, enabled_extension_types: ['actionLink'] }],
+      });
+      expect(await service.fetchSurfacePoints()).toEqual([
+        { ...withoutList, extension_type_list: ['actionLink'] },
+      ]);
+    });
+
+    it('prefers enabled_extension_types over the older spellings', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        surface_points: [
+          {
+            ...ROW,
+            extension_type_list: ['legacyComponent'],
+            supported_extension_types: ['legacyComponent'],
+            enabled_extension_types: ['actionLink'],
+          },
+        ],
+      });
+      expect(await service.fetchSurfacePoints()).toEqual([
+        { ...ROW, extension_type_list: ['actionLink'] },
+      ]);
     });
 
     it('omits the filter for an empty or blank location list', async () => {
@@ -182,6 +227,16 @@ describe('services/app', () => {
     it('tolerates a bare-array response', async () => {
       (mockClient.get as jest.Mock).mockResolvedValue(['contactDetails']);
       expect(await service.fetchSurfacePointLocations()).toEqual(['contactDetails']);
+    });
+
+    // Same BEX-422 narrowing as the row read: the page prompt must not offer a page whose
+    // every slot the catalogue then hides for the chosen type.
+    it('passes the extension type as an extension_type filter', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({ locations: ['contactDetails'] });
+      await service.fetchSurfacePointLocations('actionLink');
+      expect(mockClient.get).toHaveBeenCalledWith(
+        '/v3/app-store/surface-points/locations?extension_type=actionLink',
+      );
     });
 
     // Callers build prompt choices straight off these values, so a blank, a non-string or a

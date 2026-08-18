@@ -37,9 +37,10 @@ import { formatPlacementLines } from './fields';
 //     redirect-URL step for UI apps. Prompt order, and why:
 //
 //       1. link or iframe   → sets `extension_type`. Asked FIRST because it is the
-//                             decision a partner arrives with, and because it decides
-//                             which single URL question is asked at the end. It does NOT
-//                             filter the placement list.
+//                             decision a partner arrives with, because it decides which
+//                             single URL question is asked at the end, and because both
+//                             registry reads narrow by it (`?extension_type=`, BEX-422) —
+//                             only pages and slots enabled for the chosen type are offered.
 //       2. record page      → single-select of the registry's own location list.
 //       3. placement        → single-select of real registry rows on that page.
 //       4. label            → menu entry text / card CTA, for THAT placement.
@@ -130,11 +131,13 @@ function toUsableRows(rows: SurfacePointRow[]): UsableSurfacePoint[] {
 /**
  * Whether a registry row can actually host the chosen extension type.
  *
- * Checked CLIENT-side rather than by asking the server to filter, because both extension
- * types render on both kinds and a server-side type filter would hide authorable
- * placements. `extension_type_list` and `status` are each honoured only when the row
- * declares them: a registry seeded before either column existed must stay usable, and
- * treating a missing column as a rejection would empty the prompt.
+ * The server filters too since BEX-422 (`?extension_type=` on both registry reads, and a
+ * disabled slot is absent from the catalogue entirely), but this CLIENT-side check stays:
+ * a server predating the filter ignores the parameter, and the unfiltered retry in
+ * `fetchSurfacePointsForPages` deliberately drops it. `extension_type_list` (fed by the
+ * wire's `enabled_extension_types` since BEX-422) and `status` are each honoured only when
+ * the row declares them: a registry seeded before either column existed must stay usable,
+ * and treating a missing column as a rejection would empty the prompt.
  *
  * Without this check the unfiltered fetch reintroduces exactly the failure the whole flow
  * exists to prevent — a partner authors a slot that cannot serve their type, upload 200s,
@@ -161,16 +164,17 @@ function rowSupportsExtensionType(row: SurfacePointRow, extensionType: string): 
  * rather than falling back to a local list — offering a page the platform doesn't actually
  * have would reproduce exactly the silent-drop failure this flow exists to prevent.
  *
- * The chosen extension type is deliberately NOT consulted here, and could not be: a list
- * of location names carries no `extension_type_list` to check. A page whose every
- * placement is un-hostable therefore reaches this prompt and is dropped — with a warning —
- * once the rows are read. See `promptSurfacePointList`.
+ * The chosen extension type IS consulted here since BEX-422: `?extension_type=` narrows
+ * the answer to the pages that still have at least one slot enabled for it, so the prompt
+ * cannot offer a page whose every placement the row read then hides. A server predating
+ * the filter ignores the parameter — the row read's own type check still catches that
+ * case, one prompt later than ideal but never wrongly.
  */
-async function fetchRecordPageLocations(): Promise<string[]> {
+async function fetchRecordPageLocations(extensionType: string): Promise<string[]> {
   const spinner = createSpinner(messages.APP_CREATE_UI_PAGES_SPINNER);
   let locations: string[];
   try {
-    locations = await appService.fetchSurfacePointLocations();
+    locations = await appService.fetchSurfacePointLocations(extensionType);
   } catch {
     throw new CliError(messages.APP_CREATE_UI_POINTS_FETCH_FAILED);
   } finally {
@@ -186,9 +190,10 @@ async function fetchRecordPageLocations(): Promise<string[]> {
 /** The registry read, narrowed or not, reduced to `null` on failure so callers can retry. */
 async function readSurfacePointRows(
   locations?: readonly string[],
+  extensionType?: string,
 ): Promise<SurfacePointRow[] | null> {
   try {
-    return await appService.fetchSurfacePoints(locations);
+    return await appService.fetchSurfacePoints(locations, extensionType);
   } catch {
     return null;
   }
@@ -201,8 +206,10 @@ async function readSurfacePointRows(
  * locally, so an endpoint that ignores the filter needs no special case.
  *
  * A read that fails, or that covers fewer of the picked pages than were asked for, is
- * RETRIED unfiltered. Both are symptoms of the filter rather than of an empty registry —
- * an early build may 400 on `?location=` or honour only the first CSV value — and the
+ * RETRIED unfiltered — no location AND no extension_type filter, so a build that 400s on
+ * either parameter is absorbed the same way. Both symptoms point at the filter rather
+ * than at an empty registry — an early build may 400 on `?location=` or honour only the
+ * first CSV value — and the
  * location list this run was built from already proved those pages exist. Aborting instead
  * would throw away the page answer the partner just gave, which they cannot be re-asked
  * for. The retry's rows are filtered to the picked pages too, so nothing broader leaks
@@ -220,7 +227,7 @@ async function fetchSurfacePointsForPages(
   const spinner = createSpinner(messages.APP_CREATE_UI_POINTS_SPINNER);
   let usable: UsableSurfacePoint[];
   try {
-    const narrowed = await readSurfacePointRows(locations);
+    const narrowed = await readSurfacePointRows(locations, extensionType);
     usable = onPickedPages(narrowed ?? []);
     if (narrowed === null || pagesCovered(usable) < locations.length) {
       const unfiltered = await readSurfacePointRows();
@@ -368,7 +375,7 @@ export async function resolveUiApp(): Promise<UiApp> {
   // Integration type first: it is the decision a partner arrives with, and it decides
   // which registry rows can host the app at all.
   const extensionType = await promptIntegrationType();
-  const locations = await fetchRecordPageLocations();
+  const locations = await fetchRecordPageLocations(extensionType);
   const selectedRows = await promptSurfacePoint(locations, extensionType);
 
   const { label } = await inquirer.prompt([

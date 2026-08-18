@@ -1784,8 +1784,11 @@ describe('app/create', () => {
       await createCommand(CLI_OPTIONS);
 
       expect(appService.fetchSurfacePointLocations).toHaveBeenCalledTimes(1);
+      // Both reads narrow by the chosen extension type (BEX-422): the pages offered and the
+      // rows fetched are only the ones enabled for it.
+      expect(appService.fetchSurfacePointLocations).toHaveBeenCalledWith('actionLink');
       expect(appService.fetchSurfacePoints).toHaveBeenCalledTimes(1);
-      expect(appService.fetchSurfacePoints).toHaveBeenCalledWith(['dealDetails']);
+      expect(appService.fetchSurfacePoints).toHaveBeenCalledWith(['dealDetails'], 'actionLink');
     });
 
     // The page choices are the locations endpoint's answer, not a reduction of the rows:
@@ -1831,8 +1834,14 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(1, ['contactDetails']);
-      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(2, undefined);
+      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(
+        1,
+        ['contactDetails'],
+        'actionLink',
+      );
+      // The retry drops BOTH filters — location and extension_type — so a build that 400s
+      // on either parameter is absorbed the same way; the rows are re-narrowed locally.
+      expect(appService.fetchSurfacePoints).toHaveBeenNthCalledWith(2, undefined, undefined);
       expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
     });
 
