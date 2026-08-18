@@ -47,10 +47,6 @@ export const previewMessages = {
   // grouped multi-select that briefly followed it.
   APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
     `Where should it appear on the ${page} page?`,
-  // Suffixes on each placement choice, so the shape a slot renders as is visible while
-  // choosing rather than a surprise afterwards.
-  APP_CREATE_UI_PLACEMENT_MENU_SUFFIX: 'menu entry',
-  APP_CREATE_UI_PLACEMENT_CARD_SUFFIX: 'card',
   // Integration type — asked SECOND, before any placement, because it is the decision a
   // partner arrives with. Only Link is selectable; Iframe is shown disabled so the
   // roadmap is visible where the choice is being made rather than hidden.

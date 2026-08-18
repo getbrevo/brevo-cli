@@ -13,13 +13,7 @@
  * only correct in the order this flow calls them.
  */
 import inquirer from 'inquirer';
-import {
-  EXTENSION_KIND_ACTION,
-  EXTENSION_KIND_WIDGET,
-  EXTENSION_PLACE_LABELS,
-  EXTENSION_TYPE_ACTION_LINK,
-  EXTENSION_TYPE_IFRAME,
-} from '../../lib/constants';
+import { EXTENSION_TYPE_ACTION_LINK, EXTENSION_TYPE_IFRAME } from '../../lib/constants';
 import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import {
@@ -256,18 +250,23 @@ async function fetchSurfacePointsForPages(
   return hostable;
 }
 
-/** Partner-facing label for one placement: the page region, plus the shape it renders as. */
+/**
+ * Label for one placement: the registry's own `section_name` and `component_type`,
+ * joined and otherwise untouched.
+ *
+ * Deliberately NOT prettified. A CLI-owned map used to turn `headerMenu` into
+ * `Header "More" (•••) menu` and `action` into `menu entry`, which meant every row the
+ * registry gained had a second, CLI-owned name to keep in step — and an unmapped one fell
+ * back to the raw token anyway, so the prompt mixed two vocabularies. Showing the API's
+ * own values is what makes the choice verifiable against the registry. Same reasoning as
+ * the page prompt above, which shows `location_name` verbatim; do not reintroduce a map
+ * for either.
+ *
+ * NOT row.surface_point_name — that column holds the authoring slug
+ * (`contact-details-header-menu`), which is the choice's VALUE, not its label.
+ */
 function placementLabel(row: UsableSurfacePoint): string {
-  // NOT row.surface_point_name — that column holds an authoring slug
-  // (`contactDetails.header.menu`), not display text. See EXTENSION_PLACE_LABELS.
-  const place = EXTENSION_PLACE_LABELS[row.section_name] ?? row.section_name;
-  if (row.component_type === EXTENSION_KIND_ACTION) {
-    return `${place} — ${messages.APP_CREATE_UI_PLACEMENT_MENU_SUFFIX}`;
-  }
-  if (row.component_type === EXTENSION_KIND_WIDGET) {
-    return `${place} — ${messages.APP_CREATE_UI_PLACEMENT_CARD_SUFFIX}`;
-  }
-  return `${place} — ${row.component_type}`;
+  return `${row.section_name} — ${row.component_type}`;
 }
 
 /**

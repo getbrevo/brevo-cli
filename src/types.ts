@@ -221,7 +221,7 @@ export interface SurfacePointRow {
   /**
    * The registry's own identifier for the slot — an authoring SLUG
    * (`contactDetails.header.menu`), NOT display text. Never render it to a partner: the
-   * prompt labels come from `EXTENSION_PLACE_LABELS` in `lib/constants.ts`.
+   * prompt labels each row as `section_name — component_type`, the registry's own values.
    *
    * This is the AUTHORING identity: the value `app create` writes into a
    * `surface_point_list` entry — under this same key, which is the point — and the only

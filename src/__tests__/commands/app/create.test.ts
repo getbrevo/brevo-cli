@@ -1953,10 +1953,12 @@ describe('app/create', () => {
       expect(appService.createApp).not.toHaveBeenCalled();
     });
 
-    // Labels are CLI-owned. `surface_point_name` on the registry is a kebab-case SLUG
-    // (`contactdetails-headermenu` in these fixtures), not display text, so it must never
-    // reach a partner.
-    it('labels placements from the local label map, never from surface_point_name', async () => {
+    // Labels are the registry's own `section_name` and `component_type`, joined and
+    // otherwise untouched — there is no local prettifying map (see the note in
+    // `lib/constants.ts`). `surface_point_name` is a kebab-case authoring SLUG
+    // (`contactdetails-headermenu` in these fixtures) and is the choice's VALUE, so it
+    // must never reach the label.
+    it('labels placements section_name — component_type, never from surface_point_name', async () => {
       await createCommand(CLI_OPTIONS);
 
       const names = (
@@ -1970,10 +1972,10 @@ describe('app/create', () => {
         // is presentation. This test is about the label's *content*.
         .map((choice) => String(choice.name).trim());
       expect(names).toEqual([
-        'Header "More" (•••) menu — menu entry',
-        'Main column — card',
-        'Sidebar — card',
-        'Attributes panel — card',
+        'headerMenu — action',
+        'overviewMain — widget',
+        'overviewSidebar — widget',
+        'overviewAttributes — widget',
       ]);
       expect(names.join(' ')).not.toContain('contactdetails-headermenu');
     });

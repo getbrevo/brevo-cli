@@ -55,7 +55,8 @@ describe('services/app', () => {
 
   describe('fetchSurfacePoints', () => {
     // The registry's own column names. `surface_point_name` is a kebab-case SLUG, not
-    // display text — the CLI never renders it (see EXTENSION_PLACE_LABELS).
+    // display text — the CLI never renders it (the prompt labels rows section_name —
+    // component_type).
     const ROW = {
       extension_point_name: 'contactDetails.headerMenu.action',
       surface_point_name: 'contact-details-header-menu',

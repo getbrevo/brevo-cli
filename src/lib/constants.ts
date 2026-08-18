@@ -238,41 +238,18 @@ export const DEFAULT_SCOPES: readonly string[] = [
  */
 
 /**
- * The `kind` segment. Both extension types render on both kinds — a widget slot gets a
- * card, an action slot a menu entry — so kind is a placement choice, not a consequence
- * of the extension type.
- */
-export const EXTENSION_KIND_ACTION = 'action';
-export const EXTENSION_KIND_WIDGET = 'widget';
-
-/**
- * Friendly labels for the placement prompt — partners think in page regions, the wire
- * wants the `place` segment (served as `section_name`).
+ * There is deliberately no friendly-name map for record pages OR for placements, and no
+ * default page.
  *
- * These are CLI-OWNED and stay that way. An earlier version of this comment claimed they
- * mirror `extension_points.surface_point_name`, "the platform's own display text" — that
- * is false: the seeded values of that column are authoring slugs
- * (`contactDetails.header.menu`), so rendering them to a partner would be worse than
- * these. The registry exposes no display-name column, so until it does, this map is the
- * only source of partner-facing placement labels.
- */
-export const EXTENSION_PLACE_LABELS: Readonly<Record<string, string>> = {
-  headerMenu: 'Header "More" (•••) menu',
-  overviewMain: 'Main column',
-  overviewSidebar: 'Sidebar',
-  overviewAttributes: 'Attributes panel',
-} as const;
-
-/**
- * There is deliberately no friendly-name map for record pages, and no default page.
- *
- * `app create`'s record-page prompt shows the registry's own `location_name` values
- * verbatim (`contactDetails`, …) and pre-selects none of them. A local `contact →
- * contactDetails` map used to sit here: it gave every page a second, CLI-owned name that
- * had to be kept in step with the platform, needed a strip-`Details` guess for any page
- * the map didn't know, and let the prompt show something the API never said. Do not
- * reintroduce it. `EXTENSION_PLACE_LABELS` above is not a counter-example: it labels a
- * fixed segment of the BEX-350 grammar, not a server-supplied identifier.
+ * `app create`'s prompts show the registry's own values verbatim: `location_name`
+ * (`contactDetails`, …) for the page, then `section_name — component_type`
+ * (`headerMenu — action`) for the placement on it. Two local maps used to sit here — a
+ * `contact → contactDetails` page map, and an `EXTENSION_PLACE_LABELS` placement map that
+ * rendered `headerMenu` as `Header "More" (•••) menu` and the kind segment as
+ * `menu entry` / `card`. Both are gone for the same reason: each gave a server-supplied
+ * identifier a second, CLI-owned name that had to be kept in step with the platform,
+ * needed a guess for anything the map didn't know (so the prompt mixed two vocabularies),
+ * and let the prompt show something the API never said. Do not reintroduce either.
  */
 
 /**
