@@ -253,15 +253,13 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   const changed = canonicalizeUiApp(next) !== canonicalizeUiApp(current);
   logInfo(`  ${messages.APP_UPLOAD_UI_APP_SUMMARY}${changed ? ' (changed)' : ''}`);
   logInfo(`    Extension type: ${next.extension_type}`);
-  // Each placement prints its own context, because the two are per-entry now: a
-  // partner targeting a contact page and a deal page can be forwarded different
-  // fields on each, and one shared row would hide that.
+  // Each placement prints its own context, label and destination, because all of them
+  // are per-entry now (BEX-426): a partner targeting a contact page and a deal page can
+  // label each differently and deep-link each somewhere else, and shared rows would
+  // hide that.
   formatPlacementLines(next).forEach((line, i) => {
     logInfo(`    ${i === 0 ? 'Placement:      ' : '                '}${line}`);
   });
-  logInfo(`    Label:          ${next.label ?? ''}`);
-  if (next.more_info) logInfo(`    More info:      ${next.more_info}`);
-  logInfo(`    Redirect link:  ${next.redirect_link ?? ''}`);
   // No link_target row: app-config.json does not carry the field, so printing a value
   // for it only sends a partner looking for one to edit. `_blank` is still injected
   // into an actionLink's payload — see the payload build.

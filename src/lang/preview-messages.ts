@@ -36,18 +36,17 @@ export const previewMessages = {
   // waiting for a seed.
   APP_CREATE_UI_POINTS_NONE_FOR_TYPE: (extensionType: string) =>
     `None of the available placements can host a "${extensionType}" extension. This environment's extension-point registry may predate it — try again later.`,
-  APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
-  APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
-  // One single-select prompt PER picked page: an app takes exactly one spot on a page.
+  // Single-select (BEX-426): the interactive flow authors exactly one placement, because
+  // the CTA fields (label, more_info, destination) live per placement now and asking them
+  // per page would multiply the prompt count. More placements are added by hand as further
+  // `surface_point_list` entries in app-config.json — the box hint says so.
+  APP_CREATE_UI_SURFACE_PROMPT: 'Which record page should it appear on?',
+  // The placement prompt on the picked page: an app takes exactly one spot on a page.
   // Replaces the old kind-then-place pair (kind is a property of the slot, not a question
   // — a partner picking "Header menu" has already said they want a menu entry) and the
   // grouped multi-select that briefly followed it.
   APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
     `Where should it appear on the ${page} page?`,
-  // Printed BEFORE the prompt, as a warning, when the registry offers no spot on a page
-  // that was picked. It cannot be a prompt rule: no answer would satisfy one.
-  APP_CREATE_UI_PLACEMENT_PAGES_DROPPED: (pages: string[]) =>
-    `No placements are available on: ${pages.join(', ')}. Those pages are skipped — the registry offers no spot there for this integration type.`,
   // Suffixes on each placement choice, so the shape a slot renders as is visible while
   // choosing rather than a surprise afterwards.
   APP_CREATE_UI_PLACEMENT_MENU_SUFFIX: 'menu entry',
@@ -79,7 +78,9 @@ export const previewMessages = {
   APP_CREATE_UI_BOX_EXAMPLE_URL_LABEL: 'Brevo will open, for example:',
   APP_CREATE_UI_BOX_EXAMPLE_URL_NOTE:
     'Values are placeholders. Read them as query parameters — the path is never templated.',
-  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this, then run \`${CLI.APP_UPLOAD}\`.`,
+  // Also the pointer to MORE placements: the flow authors one, and each further one is a
+  // hand-written `surface_point_list` entry carrying its own label and destination.
+  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
 
   // App deploy / rollback — per-account availability for UI apps (BEX-290)
   APP_DEPLOY_SELECT: 'Select an app to deploy:',

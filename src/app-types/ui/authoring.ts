@@ -20,7 +20,6 @@ import {
   EXTENSION_TYPE_ACTION_LINK,
   EXTENSION_TYPE_IFRAME,
 } from '../../lib/constants';
-import { logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import {
@@ -41,21 +40,33 @@ import { formatPlacementLines } from './fields';
 //                             decision a partner arrives with, and because it decides
 //                             which single URL question is asked at the end. It does NOT
 //                             filter the placement list.
-//       2. record pages     → multi-select of the registry's own location list.
-//       3. placements       → ONE prompt of real registry rows, grouped by page.
-//       4. label            → menu entry text / card CTA.
-//       5. more_info        → optional supporting line.
-//       6. redirect link    → the destination.
+//       2. record page      → single-select of the registry's own location list.
+//       3. placement        → single-select of real registry rows on that page.
+//       4. label            → menu entry text / card CTA, for THAT placement.
+//       5. more_info        → optional supporting line, for THAT placement.
+//       6. redirect link    → the destination, for THAT placement.
 //
 //     Five questions, one optional, and two registry reads that ask for different things:
 //     `surface-points/locations` for the pages, then `surface-points?location=<csv>` for
-//     the placements on the pages that were picked. The pages are never derived from a full
-//     row read — the registry answers that question directly. The old kind-then-place pair is
-//     gone: kind is a property of a slot, not a question — a partner picking "Header
-//     menu" has already said they want a menu entry — and asking it up front made cards
-//     and menu entries mutually exclusive within one app, which the platform does not
-//     require. The record-context prompt is gone too: context is seeded per placement
-//     from that row's `default_context_field`.
+//     the placements on the page that was picked. The pages are never derived from a full
+//     row read — the registry answers that question directly.
+//
+//     ONE page, ONE placement (BEX-426). The CTA fields — label, more_info and the
+//     destination URL — live on each `surface_point_list` entry now, so authoring N
+//     placements interactively would mean re-asking three questions per placement.
+//     The flow instead authors exactly one complete entry and the created-app box points
+//     at `app-config.json` for more: additional placements are added by hand as further
+//     `surface_point_list` entries (each with its own label/URL) and pushed with
+//     `brevo app upload`, whose endpoint validates every entry against the registry.
+//     The old page multi-select (and the per-page prompt loop it fanned into) went with
+//     this change; so did the dropped-pages warning, which existed only because several
+//     picked pages could each turn out to offer nothing for the chosen type.
+//
+//     The old kind-then-place pair is also gone: kind is a property of a slot, not a
+//     question — a partner picking "Header menu" has already said they want a menu entry
+//     — and asking it up front made cards and menu entries mutually exclusive within one
+//     app, which the platform does not require. The record-context prompt is gone too:
+//     context is seeded per placement from that row's `default_context_field`.
 //
 //     Placement choices are read from the platform's extension-point registry (BEX-361),
 //     fetch-only with NO local-mirror fallback, so a partner can never author a slot the
@@ -69,9 +80,9 @@ import { formatPlacementLines } from './fields';
 //     renders.
 
 /**
- * Question-name prefix for the per-page placement prompts: one prompt per picked page,
- * each named `placement:<location>`. Naming them apart is what keeps a page's answer on
- * that page — the flow answers by question name throughout.
+ * Question name for the placement prompt, kept in the `placement:<location>` shape it had
+ * when there was one prompt per picked page — the flow answers by question name, and the
+ * name still says which page the answer belongs to.
  */
 const PLACEMENT_QUESTION_PREFIX = 'placement:';
 
@@ -253,24 +264,24 @@ function placementLabel(row: UsableSurfacePoint): string {
 }
 
 /**
- * Ask which record pages the app appears on, then — one single-select prompt per page —
- * where on each of them it appears.
+ * Ask which record page the app appears on, then where on that page it appears —
+ * both single-selects, so the flow authors exactly ONE placement (BEX-426).
  *
- * ONE placement per page: an app takes a single spot on a record page, so the per-page
- * prompt is a `list`, not a `checkbox`. That makes the rule structural rather than a
- * validation message, and it is why this asks N prompts instead of one grouped
- * multi-select (which is what it did before, and which let one page collect several
- * spots). Note the PLATFORM does not enforce this — its upload only rejects a duplicate
- * slot — so a hand-edited config listing two spots on one page still uploads. The rule is
- * the CLI's authoring model, not a wire constraint.
+ * One page because the CTA fields are per-entry now (see the module comment): each
+ * additional placement would cost its own label/URL round of questions, so extra
+ * placements are hand-authored in `app-config.json` instead, where all the fields sit
+ * together in one entry. One placement per page remains the CLI's authoring model —
+ * the PLATFORM does not enforce it (its upload only rejects a duplicate slot), so a
+ * hand-edited config listing two spots on one page still uploads.
  *
  * Every choice is a real registry row and the answer maps straight back to it, so the
- * authored values are never string-composed client-side. Page choices are the registry's
- * `location_name` verbatim, label and value alike. Placement choice VALUES are the row's
- * `surface_point_name` slug — the authoring identity (see `buildSurfacePointList`) —
- * while their visible label is built from the decomposed segments.
+ * authored values are never string-composed client-side. The page choice is the
+ * registry's `location_name` verbatim, label and value alike. Placement choice VALUES
+ * are the row's `surface_point_name` slug — the authoring identity (see
+ * `buildSurfacePointList`) — while their visible label is built from the decomposed
+ * segments.
  */
-async function promptSurfacePointList(
+async function promptSurfacePoint(
   locations: readonly string[],
   extensionType: string,
 ): Promise<UsableSurfacePoint[]> {
@@ -280,73 +291,43 @@ async function promptSurfacePointList(
   // disagree with the platform and every page the registry gains had a second, CLI-owned
   // name to keep in step. Showing the registry's own token is what makes the choice
   // verifiable against the API.
-  const { surfaces } = await inquirer.prompt([
+  const { surface } = await inquirer.prompt([
     {
-      type: 'checkbox',
-      name: 'surfaces',
+      type: 'list',
+      name: 'surface',
       message: messages.APP_CREATE_UI_SURFACE_PROMPT,
       choices: indentChoices(locations.map((location) => ({ name: location, value: location }))),
-      // Nothing pre-selected — the pages are the registry's answer, so the CLI has no
-      // business nominating one of them. `validate` below is what stops an empty answer.
-      validate: (picked: unknown[]) => picked.length > 0 || messages.APP_CREATE_UI_SURFACE_REQUIRED,
     },
   ]);
-  // Filtered from the registry's list rather than taken as answered, so the picked pages
-  // keep server order and nothing that isn't a real location can reach the row read.
-  const pickedSurfaces = new Set((surfaces as string[]) ?? []);
-  const pickedLocations = locations.filter((location) => pickedSurfaces.has(location));
+  // Resolved against the registry's list rather than taken as answered, so nothing that
+  // isn't a real location can reach the row read.
+  const page = locations.find((location) => location === String(surface ?? '').trim());
+  const rows = await fetchSurfacePointsForPages(page ? [page] : [], extensionType);
+  // The picked page produced no offerable rows: `fetchSurfacePointsForPages` has already
+  // thrown the precise error (none-for-type vs empty registry), so this line is
+  // unreachable in practice — it only guards a stubbed fetch in tests.
+  const forPage = rows.filter((row) => row.location_name === page);
 
-  const rows = await fetchSurfacePointsForPages(pickedLocations, extensionType);
-
-  // One group per picked page that the registry actually offers a spot on — each becomes
-  // its own prompt below.
-  const grouped: Array<{ location: string; rows: UsableSurfacePoint[] }> = [];
-  for (const location of pickedLocations) {
-    const forLocation = rows.filter((row) => row.location_name === location);
-    if (forLocation.length > 0) grouped.push({ location, rows: forLocation });
-  }
-  // A picked page the narrowed read produced no rows for is REPORTED and dropped, never
-  // enforced. Enforcing it made the prompt unsatisfiable: `validate` demanded a spot on a
-  // page with no choice to tick, so every answer was refused — including ticking nothing —
-  // and Ctrl-C was the only way out, discarding the name, distribution and type answers
-  // already given. This happens for real when the endpoint honours only the first value of
-  // the `location` CSV, or when a page's rows all come back inactive.
-  const dropped = pickedLocations.filter(
-    (location) => !grouped.some((group) => group.location === location),
-  );
-  if (dropped.length > 0) {
-    logWarn(messages.APP_CREATE_UI_PLACEMENT_PAGES_DROPPED(dropped));
-  }
-
-  // One prompt per page, each named for its location so an answer can never land on the
-  // wrong page — the same reason the rest of this flow answers by question name.
-  const picked = new Set<string>();
-  for (const group of grouped) {
-    const question = `${PLACEMENT_QUESTION_PREFIX}${group.location}`;
-    const answer = await inquirer.prompt([
-      {
-        type: 'list',
-        name: question,
-        message: messages.APP_CREATE_UI_PLACEMENT_PAGE_PROMPT(group.location),
-        // A page offering one placement still asks, rather than being chosen silently:
-        // it is a single keypress either way, and the partner sees where the app lands.
-        choices: indentChoices(
-          group.rows.map((row) => ({
-            name: placementLabel(row),
-            value: row.surface_point_name,
-          })),
-        ),
-      },
-    ]);
-    const chosen = String(answer[question] ?? '').trim();
-    // A `list` always resolves to one of its choices, so there is no empty case to guard
-    // in a real run — this only skips a stubbed prompt that answered nothing.
-    if (chosen) picked.add(chosen);
-  }
-
-  // Registry order, not answer order, so the authored list is deterministic and the upload
-  // diff doesn't churn on a re-run that picked the same slots in a different sequence.
-  return rows.filter((row) => picked.has(row.surface_point_name));
+  const question = `${PLACEMENT_QUESTION_PREFIX}${page}`;
+  const answer = await inquirer.prompt([
+    {
+      type: 'list',
+      name: question,
+      message: messages.APP_CREATE_UI_PLACEMENT_PAGE_PROMPT(page ?? ''),
+      // A page offering one placement still asks, rather than being chosen silently:
+      // it is a single keypress either way, and the partner sees where the app lands.
+      choices: indentChoices(
+        forPage.map((row) => ({
+          name: placementLabel(row),
+          value: row.surface_point_name,
+        })),
+      ),
+    },
+  ]);
+  const chosen = String(answer[question] ?? '').trim();
+  // A `list` always resolves to one of its choices, so there is no empty case to guard
+  // in a real run — this only skips a stubbed prompt that answered nothing.
+  return forPage.filter((row) => row.surface_point_name === chosen);
 }
 
 /**
@@ -388,7 +369,7 @@ export async function resolveUiApp(): Promise<UiApp> {
   // which registry rows can host the app at all.
   const extensionType = await promptIntegrationType();
   const locations = await fetchRecordPageLocations();
-  const selectedRows = await promptSurfacePointList(locations, extensionType);
+  const selectedRows = await promptSurfacePoint(locations, extensionType);
 
   const { label } = await inquirer.prompt([
     {
@@ -419,20 +400,22 @@ export async function resolveUiApp(): Promise<UiApp> {
 
   const uiApp: UiApp = {
     extension_type: extensionType,
-    // One entry per selected placement, deduplicated by slot name, each seeded from
-    // THAT row's `default_context_field`. Not prompted: the allow-list and its default
+    // One entry for the selected placement, seeded from THAT row's
+    // `default_context_field`. Context is not prompted: the allow-list and its default
     // are properties of the registry row, chosen by the platform, and asking a partner
     // to pick from a list they can only narrow was a question with no good wrong answer.
     // A row that declares no default gets no `context` key, which means "no narrowing".
-    surface_point_list: buildSurfacePointList(
-      selectedRows,
-      (row) => row.default_context_field ?? [],
-    ),
-    label: String(label ?? '').trim(),
-    // Omitted rather than written empty: the kit only renders it when set, and an
-    // empty string would show up as a spurious diff on every upload.
-    ...(String(more_info ?? '').trim() ? { more_info: String(more_info).trim() } : {}),
-    redirect_link: String(url ?? '').trim(),
+    //
+    // The CTA answers land ON the entry (BEX-426): label, more_info and the destination
+    // are per-placement fields, so the block's root carries only `extension_type`.
+    // `more_info` is omitted rather than written empty — the kit only renders it when
+    // set, and an empty string would show up as a spurious diff on every upload.
+    surface_point_list: buildSurfacePointList(selectedRows, {
+      contextFor: (row) => row.default_context_field ?? [],
+      label: String(label ?? '').trim(),
+      more_info: String(more_info ?? '').trim(),
+      redirect_link: String(url ?? '').trim(),
+    }),
     // No link_target: `brevo app upload` injects `_blank`. See the field's note in
     // types.ts — the server refuses `_self`, so a field in the file would only
     // invite a partner to edit it into a value that 400s.
@@ -464,22 +447,37 @@ export async function resolveUiApp(): Promise<UiApp> {
  *
  * `contextFor` decides each entry's own context; an empty result omits the key rather
  * than writing `[]`, which would read as "narrow to nothing" instead of "no narrowing".
+ *
+ * The CTA fields land on every entry (BEX-426) — in practice the flow selects one
+ * placement, but the same answers on each would also be the right seed for several: a
+ * partner who wants them to differ edits the entries in `app-config.json`, which is the
+ * documented path to more placements anyway. `more_info` is omitted when blank, same
+ * contract as `context`.
  */
 function buildSurfacePointList(
   rows: UsableSurfacePoint[],
-  contextFor: (row: UsableSurfacePoint) => string[],
+  fields: {
+    contextFor: (row: UsableSurfacePoint) => string[];
+    label: string;
+    more_info: string;
+    redirect_link: string;
+  },
 ): SurfacePointEntry[] {
   const entries: SurfacePointEntry[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
     if (seen.has(row.surface_point_name)) continue;
     seen.add(row.surface_point_name);
-    const context = contextFor(row)
+    const context = fields
+      .contextFor(row)
       .map((field) => String(field).trim())
       .filter(Boolean);
     entries.push({
       surface_point_name: row.surface_point_name,
       ...(context.length ? { context } : {}),
+      label: fields.label,
+      ...(fields.more_info ? { more_info: fields.more_info } : {}),
+      redirect_link: fields.redirect_link,
     });
   }
   return entries;
@@ -514,16 +512,18 @@ function buildExampleContextUrl(redirectLink: string, context: readonly string[]
 /**
  * The example-URL lines for the created-app box, or none at all.
  *
- * Built from the FIRST placement that declares a context: entries can differ, but they are
- * seeded from the registry and in practice all carry the same fields, so one example makes
- * the point without turning the box into a list. Nothing is printed when no placement
- * declares a context — the plain `redirect_link` row above already says everything there
- * is to say in that case.
+ * Built from the FIRST placement that declares both a context and its own
+ * `redirect_link` (the two live on the same entry since BEX-426): entries can differ,
+ * but one example makes the point without turning the box into a list. Nothing is
+ * printed when no placement declares a context — the entry's plain `redirect link` line
+ * above already says everything there is to say in that case.
  */
 function renderExampleContextUrlLines(uiApp: UiApp): string[] {
-  const withContext = uiApp.surface_point_list.find((entry) => entry.context?.length);
-  if (!withContext || !uiApp.redirect_link) return [];
-  const example = buildExampleContextUrl(uiApp.redirect_link, withContext.context ?? []);
+  const withContext = uiApp.surface_point_list.find(
+    (entry) => entry.context?.length && entry.redirect_link,
+  );
+  if (!withContext) return [];
+  const example = buildExampleContextUrl(withContext.redirect_link!, withContext.context ?? []);
   if (!example) return [];
   return [
     '',
@@ -549,16 +549,14 @@ export function renderCreatedUiApp(
     // `Client ID: undefined` next to a hidden-secret placeholder for a secret that
     // does not exist — a credential form with nothing in it.
     `Extension type: ${uiApp.extension_type}`,
-    // Each placement carries its own record context, so they print together — a
-    // single shared "Record context" row would hide that they can differ. The value
-    // formatting is shared with the upload diff and `app list` (see ./fields); only the
-    // label and the continuation padding are this box's own.
+    // Each placement carries its own record context, label and destination (BEX-426),
+    // so everything per-entry prints together under the placement — shared "Label:" /
+    // "Redirect link:" rows would hide that entries can differ. The value formatting is
+    // shared with the upload diff and `app list` (see ./fields); only the label and the
+    // continuation padding are this box's own.
     ...formatPlacementLines(uiApp).map(
       (line, i) => `${i === 0 ? 'Placement:      ' : '                '}${line}`,
     ),
-    `Label:          ${uiApp.label ?? ''}`,
-    ...(uiApp.more_info ? [`More info:      ${uiApp.more_info}`] : []),
-    `Redirect link:  ${uiApp.redirect_link ?? ''}`,
     ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
     // Record context reaches the partner's endpoint as query parameters and nothing
@@ -566,7 +564,7 @@ export function renderCreatedUiApp(
     // them to discover it from a request log after the fact.
     ...renderExampleContextUrlLines(uiApp),
     '',
-    messages.APP_CREATE_UI_BOX_LABEL_NOTE(uiApp.label ?? '', appName),
+    messages.APP_CREATE_UI_BOX_LABEL_NOTE(uiApp.surface_point_list[0]?.label ?? '', appName),
     messages.APP_CREATE_UI_BOX_HINT,
   ];
   printBox(messages.APP_CREATE_UI_BOX_TITLE, boxLines);

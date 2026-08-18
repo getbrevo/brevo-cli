@@ -151,6 +151,31 @@ export interface SurfacePointEntry {
   surface_point_name: string;
   context?: string[];
   /**
+   * The entry's own text: the menu entry's label on an `.action` slot, the card's CTA
+   * button text on a `.widget` slot. Per placement since BEX-426 — an app on three slots
+   * can label each differently. Required in practice (`validateUiApp` refuses an empty
+   * one on every entry) but optional at the type level because the read path tolerates
+   * a partial block.
+   */
+  label?: string;
+  /**
+   * Supporting text: the menu entry's `subText`, the card's description. Optional —
+   * the kit renders it only when set. Per placement since BEX-426.
+   */
+  more_info?: string;
+  /**
+   * Destination for an `actionLink` — per placement since BEX-426, because a different
+   * slot usually wants a different deep link. Required on every entry of an `actionLink`
+   * app; refused on an `iframeExtension` (see the validator for why the two URLs cannot
+   * coexist).
+   */
+  redirect_link?: string;
+  /**
+   * `iframeExtension` only — the URL the modal embeds. Per placement since BEX-426.
+   * Refused on an `actionLink`, where the kit would silently drop it.
+   */
+  modal_iframe_url?: string;
+  /**
    * Optional card size for the widget card THIS placement renders, at the same level
    * as `context` for the same reason: per placement, so two slots can size their cards
    * differently. Each axis is a CSS length string — "<positive integer>px" sizes the axis
@@ -269,28 +294,13 @@ export interface UiApp {
    */
   surface_point_list: SurfacePointEntry[];
   /**
-   * The app's own text: the menu entry's label on an `.action` slot, the card's CTA
-   * button text on a `.widget` slot. Required in practice — `validateUiApp` refuses an
-   * empty one — but optional at the type level because the read path tolerates a
-   * partial block (the backend degrades a malformed snapshot rather than erroring).
+   * NOTE (BEX-426): `label`, `more_info`, `redirect_link` and `modal_iframe_url` are
+   * deliberately NOT fields of this block any more — they live on each
+   * `surface_point_list` entry, so two placements can carry different copy and different
+   * destinations. `validateUiApp` refuses the root spellings by name with a migration
+   * hint. Only `extension_type` (the validation-spec selector for the whole block) and
+   * the two server-managed keys below stay at the root.
    */
-  label?: string;
-  /**
-   * Supporting text: the menu entry's `subText` on an `.action` slot, the card's
-   * description on a `.widget` slot. Optional — the kit renders it only when set.
-   *
-   * Not a hover tooltip: `ActionListItem` in the design system destructures a fixed
-   * prop list with no rest-spread, so a native `title` attribute never reaches the DOM.
-   * It is always-visible second-line text, which is also the accessible choice.
-   */
-  more_info?: string;
-  /**
-   * Destination for an `actionLink`. Non-http(s) values are dropped by the kit.
-   * Refused on an `iframeExtension`: the widget-card path opens `modal_iframe_url`
-   * while the header-menu path routes on `redirect_link` first, so an app carrying
-   * both behaves differently depending on which slot renders it.
-   */
-  redirect_link?: string;
   /**
    * `actionLink` only, and NOT authored into `app-config.json` (BEX-290): `brevo app
    * upload` injects `_blank` into the payload, and `brevo app create` never writes it.
@@ -303,8 +313,6 @@ export interface UiApp {
    * reported as local drift.
    */
   link_target?: LinkTarget;
-  /** `iframeExtension` only — dropped by the kit for any other type. */
-  modal_iframe_url?: string;
   /** Snapshot version, surfaced at the manifest item root. Server-managed. */
   version?: string;
 }

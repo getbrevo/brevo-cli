@@ -362,19 +362,16 @@ export function validateUiApp(uiApp: unknown): void {
   }
 
   rejectPreBex290Fields(block);
+  rejectRootCtaFields(block);
 
-  validateSurfacePointList(block.surface_point_list);
+  validateSurfacePointList(block.surface_point_list, extensionType);
 
-  const labelCheck = validateUiAppLabel(asText(block.label));
-  if (labelCheck !== true) throw new CliError(`ui_app.label: ${labelCheck}`);
-
-  const moreInfoCheck = validateUiAppMoreInfo(asText(block.more_info));
-  if (moreInfoCheck !== true) throw new CliError(`ui_app.more_info: ${moreInfoCheck}`);
-
+  // `link_target` is the one CTA-adjacent field still at the root (it is server-owned,
+  // not partner-authored — see types.ts), so its two per-type rules stay root-level.
   if (extensionType === EXTENSION_TYPE_IFRAME) {
-    validateIframeExtensionFields(block);
+    validateIframeLinkTarget(block);
   } else {
-    validateActionLinkFields(block);
+    validateActionLinkTarget(block);
   }
 }
 
@@ -412,15 +409,52 @@ function rejectPreBex290Fields(block: Record<string, unknown>): void {
 }
 
 /**
+ * Refuse the four CTA fields at the `ui_app` root with a migration hint (BEX-426).
+ *
+ * `label`, `more_info`, `redirect_link` and `modal_iframe_url` moved into each
+ * `surface_point_list` entry so an app on three slots can label each differently and
+ * deep-link each somewhere else — the same move `context` and `size` already made, for
+ * the same reason. Hard move, no root fallback: a root value silently mirrored onto
+ * every entry would be a second placement for the same fact, and the server refuses
+ * the root spellings by name too, so accepting them here would only defer the 400.
+ *
+ * Named refusals rather than "unknown field" because a config written by an earlier
+ * build is wrong in a very specific way — the value IS there, one level up — and the
+ * per-entry "label cannot be empty" it would otherwise hit points at the wrong thing.
+ */
+function rejectRootCtaFields(block: Record<string, unknown>): void {
+  const moved: ReadonlyArray<[key: string, hint: string]> = [
+    ['label', '"label": "Open in Acme"'],
+    ['more_info', '"more_info": "See this record in Acme"'],
+    ['redirect_link', '"redirect_link": "https://example.com/open"'],
+    ['modal_iframe_url', '"modal_iframe_url": "https://example.com/embed"'],
+  ];
+  for (const [key, hint] of moved) {
+    if (block[key] !== undefined) {
+      throw new CliError(
+        `ui_app.${key} moved into each surface_point_list entry (each placement carries its own) — e.g. [{ "surface_point_name": "contact-details-header-menu", ${hint} }]. Move it in app-config.json.`,
+      );
+    }
+  }
+}
+
+/**
  * Validate the slot list. Both extension types render on both kinds — a widget slot gets
  * a card, an action slot a menu entry — so the rules are that the list is non-empty, every
  * entry is an object naming a slot, no slot repeats, and each entry's `context` (when
  * present) is a well-formed list of field names.
  *
+ * Since BEX-426 each entry also carries its own CTA fields, so the per-type rules run
+ * per entry (`extensionType` selects which set): an `actionLink` entry needs `label` and
+ * `redirect_link` and must not carry `modal_iframe_url`; an `iframeExtension` entry needs
+ * `label` and `modal_iframe_url` and must not carry `redirect_link`. Every message names
+ * the offending entry — "ui_app.redirect_link is required" is useless once there are
+ * three of them.
+ *
  * Shape only: whether a name is registered, and whether its context is within that slot's
  * allow-list, are both the upload endpoint's answer to give (see `validateSurfacePoint`).
  */
-function validateSurfacePointList(entries: unknown): void {
+function validateSurfacePointList(entries: unknown, extensionType: string): void {
   if (!Array.isArray(entries) || entries.length === 0) {
     throw new CliError(
       'ui_app.surface_point_list must list at least one placement (e.g. [{ "surface_point_name": "contact-details-header-menu", "context": ["recordId"] }]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
@@ -461,6 +495,8 @@ function validateSurfacePointList(entries: unknown): void {
         throw new CliError(`ui_app.surface_point_list["${name}"].size: ${sizeCheck}`);
       }
     }
+
+    validateEntryCtaFields(row, name, extensionType);
   }
   if (new Set(names).size !== names.length) {
     throw new CliError('ui_app.surface_point_list contains duplicate extension points.');
@@ -499,10 +535,54 @@ function validateSurfacePointSize(size: unknown): true | string {
   return true;
 }
 
-function validateActionLinkFields(block: Record<string, unknown>): void {
-  const urlCheck = validateUiAppUrl(asText(block.redirect_link));
-  if (urlCheck !== true) throw new CliError(`ui_app.redirect_link: ${urlCheck}`);
+/**
+ * Validate one entry's CTA fields — its own label, supporting text and destination
+ * (BEX-426). Runs per entry because the fields live per entry: an app on three slots
+ * shows three labels and opens three URLs, and each violation must name its entry.
+ */
+function validateEntryCtaFields(
+  row: Record<string, unknown>,
+  name: string,
+  extensionType: string,
+): void {
+  const at = (field: string) => `ui_app.surface_point_list["${name}"].${field}`;
 
+  const labelCheck = validateUiAppLabel(asText(row.label));
+  if (labelCheck !== true) throw new CliError(`${at('label')}: ${labelCheck}`);
+
+  const moreInfoCheck = validateUiAppMoreInfo(asText(row.more_info));
+  if (moreInfoCheck !== true) throw new CliError(`${at('more_info')}: ${moreInfoCheck}`);
+
+  if (extensionType === EXTENSION_TYPE_IFRAME) {
+    const urlCheck = validateUiAppUrl(asText(row.modal_iframe_url));
+    if (urlCheck !== true) throw new CliError(`${at('modal_iframe_url')}: ${urlCheck}`);
+
+    // Refused because the two delivery paths disagree about which URL wins: the
+    // widget-card path pairs strictly by extension_type and opens the modal, while the
+    // header-menu path routes on redirect_link first and never opens it. The same entry
+    // would behave differently depending on the kind of slot it names.
+    if (isPresentField(row.redirect_link)) {
+      throw new CliError(
+        `${at('redirect_link')} cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the modal, while a card would open the modal. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
+      );
+    }
+    return;
+  }
+
+  const urlCheck = validateUiAppUrl(asText(row.redirect_link));
+  if (urlCheck !== true) throw new CliError(`${at('redirect_link')}: ${urlCheck}`);
+
+  // The UI kit keeps `modal_iframe_url` only for an `iframeExtension` item, so one
+  // carried by an actionLink entry is dropped without a word. Reject rather than let a
+  // partner ship a URL that will never open.
+  if (isPresentField(row.modal_iframe_url)) {
+    throw new CliError(
+      `${at('modal_iframe_url')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
+    );
+  }
+}
+
+function validateActionLinkTarget(block: Record<string, unknown>): void {
   // _self is refused server-side for now, so accepting it here would only move the
   // failure to upload time. See UPLOADABLE_LINK_TARGETS.
   if (
@@ -513,31 +593,9 @@ function validateActionLinkFields(block: Record<string, unknown>): void {
       `Invalid ui_app.link_target "${asText(block.link_target)}". Must be one of: ${UPLOADABLE_LINK_TARGETS.join(', ')}.`,
     );
   }
-
-  // The UI kit keeps `modal_iframe_url` only for an `iframeExtension` item, so one
-  // carried by an actionLink is dropped without a word. Reject rather than let a
-  // partner ship a URL that will never open.
-  if (isPresentField(block.modal_iframe_url)) {
-    throw new CliError(
-      `ui_app.modal_iframe_url is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
-    );
-  }
 }
 
-function validateIframeExtensionFields(block: Record<string, unknown>): void {
-  const urlCheck = validateUiAppUrl(asText(block.modal_iframe_url));
-  if (urlCheck !== true) throw new CliError(`ui_app.modal_iframe_url: ${urlCheck}`);
-
-  // Refused because the two delivery paths disagree about which URL wins: the
-  // widget-card path pairs strictly by extension_type and opens the modal, while the
-  // header-menu path routes on redirect_link first and never opens it. The same app would
-  // behave differently depending on the slot it rendered on.
-  if (isPresentField(block.redirect_link)) {
-    throw new CliError(
-      `ui_app.redirect_link cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the modal, while a card would open the modal. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
-    );
-  }
-
+function validateIframeLinkTarget(block: Record<string, unknown>): void {
   // link_target only governs where a redirect_link opens; a modal embeds its URL.
   if (isPresentField(block.link_target)) {
     throw new CliError(
