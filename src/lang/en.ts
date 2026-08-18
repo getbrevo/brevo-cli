@@ -16,6 +16,29 @@ function scaffoldFileCount(done: string, written: number, total: number): string
   return `${done} (${written} of ${total} files written)`;
 }
 
+/**
+ * Numbered "Next steps" lines, with each step's parenthetical note aligned.
+ *
+ * The note column is derived from the widest command in the list rather than hard-coded
+ * per line. It was hard-coded, and the two commands in the UI-app box differ in length by
+ * one character while their padding differed by eleven — so `brevo app upload`'s note sat
+ * ten columns right of `brevo app install`'s inside the same box.
+ *
+ * `cdDir` prepends `1. cd <dir>` and shifts the numbering. It is deliberately outside the
+ * alignment: it carries no note, so padding it to the command column would only widen the
+ * box for nothing.
+ */
+function numberedSteps(cdDir: string | undefined, steps: Array<[string, string]>): string[] {
+  const commandWidth = Math.max(...steps.map(([command]) => command.length));
+  const offset = cdDir ? 1 : 0;
+  return [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    ...steps.map(
+      ([command, note], i) => `${i + 1 + offset}. ${command.padEnd(commandWidth)}   (${note})`,
+    ),
+  ];
+}
+
 const coreMessages = {
   // Update notifier
   UPDATE_AVAILABLE: (current: string, latest: string): string =>
@@ -151,10 +174,8 @@ const coreMessages = {
   // as a failure. See `scaffoldFileCount`, which both scaffold reports share.
   APP_CREATE_BASE_SUCCESS: (written: number, total: number) =>
     `Project structure ${scaffoldFileCount('created', written, total)}`,
-  APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] => [
-    ...(cdDir ? [`1. cd ${cdDir}`] : []),
-    `${cdDir ? 2 : 1}. ${CLI.APP_SCAFFOLD}   (add a feature — e.g. the OAuth test server)`,
-  ],
+  APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] =>
+    numberedSteps(cdDir, [[CLI.APP_SCAFFOLD, 'add a feature — e.g. the OAuth test server']]),
   APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS: (dir: string) =>
     `Skipped scaffold: directory already exists (${dir}). cd into it and run \`${CLI.APP_SCAFFOLD}\` to add a feature.`,
   APP_CREATE_DIR_EXISTS_SKIPPED: (dir: string) =>
@@ -162,11 +183,11 @@ const coreMessages = {
   APP_CREATE_ALREADY_LINKED: (name: string) =>
     `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD}\` here to add a feature to this project.`,
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
-  APP_CREATE_UI_NEXT: (cdDir?: string): string[] => [
-    ...(cdDir ? [`1. cd ${cdDir}`] : []),
-    `${cdDir ? 2 : 1}. ${CLI.APP_UPLOAD}              (validate and save your configuration)`,
-    `${cdDir ? 3 : 2}. ${CLI.APP_INSTALL()}   (make it available in an account)`,
-  ],
+  APP_CREATE_UI_NEXT: (cdDir?: string): string[] =>
+    numberedSteps(cdDir, [
+      [CLI.APP_UPLOAD, 'validate and save your configuration'],
+      [CLI.APP_INSTALL(), 'make it available in an account'],
+    ]),
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
