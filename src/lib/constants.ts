@@ -153,6 +153,19 @@ export const ENDPOINTS = {
   OAUTH_TOKEN: '/oauth/token',
 } as const;
 
+/**
+ * The app ID shown in `--help` examples.
+ *
+ * A UUID, because that is what an app ID is: `app create` issues one and `app-config.json`
+ * stores it. The examples used to say `42`, which is short and copy-pasteable and reads as
+ * a database row — so the first thing a user learned about `--app-id` was the wrong shape,
+ * and every command taught it the same way. One constant so the eight commands that take
+ * the flag cannot drift into showing two different shapes.
+ *
+ * Deliberately not a real app ID (see the public-repo rules in `CLAUDE.md`).
+ */
+export const EXAMPLE_APP_ID = '3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93';
+
 export const CLI = {
   LOGIN: 'brevo login',
   INIT: 'brevo app init',

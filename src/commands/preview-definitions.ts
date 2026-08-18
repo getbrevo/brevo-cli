@@ -17,6 +17,7 @@
  * when it empties. See `RELEASE-CHECKLIST.md`.
  */
 import type { CommandDefinition } from '../lib/command-registry';
+import { EXAMPLE_APP_ID } from '../lib/constants';
 import { parseAppId } from '../lib/validators';
 
 import { appInstallCommand } from './app/install';
@@ -33,8 +34,8 @@ export const previewAppCommands: CommandDefinition[] = [
     description: "Show an app's review status",
     examples: [
       'brevo app status',
-      'brevo app status --app-id 42',
-      'brevo app status --app-id 42 --json',
+      `brevo app status --app-id ${EXAMPLE_APP_ID}`,
+      `brevo app status --app-id ${EXAMPLE_APP_ID} --json`,
     ],
     options: [
       {
@@ -60,7 +61,7 @@ export const previewAppCommands: CommandDefinition[] = [
     examples: [
       'brevo app install',
       'brevo app install 99999',
-      'brevo app install 99999 --app-id 42',
+      `brevo app install 99999 --app-id ${EXAMPLE_APP_ID}`,
       'brevo app install 99999 --force --json',
     ],
     options: [
@@ -93,7 +94,7 @@ export const previewAppCommands: CommandDefinition[] = [
     examples: [
       'brevo app uninstall',
       'brevo app uninstall 99999',
-      'brevo app uninstall 99999 --app-id 42',
+      `brevo app uninstall 99999 --app-id ${EXAMPLE_APP_ID}`,
       'brevo app uninstall 99999 --force --json',
     ],
     options: [
@@ -128,9 +129,9 @@ export const previewAppCommands: CommandDefinition[] = [
     hidden: true,
     description: 'Withdraw an app from submission',
     examples: [
-      'brevo app withdraw --app-id 42',
-      'brevo app withdraw --app-id 42 --force',
-      'brevo app withdraw --app-id 42 --json',
+      `brevo app withdraw --app-id ${EXAMPLE_APP_ID}`,
+      `brevo app withdraw --app-id ${EXAMPLE_APP_ID} --force`,
+      `brevo app withdraw --app-id ${EXAMPLE_APP_ID} --json`,
     ],
     options: [
       {
@@ -154,8 +155,8 @@ export const previewAppCommands: CommandDefinition[] = [
     description: 'Submit a public app for review',
     examples: [
       'brevo app submit',
-      'brevo app submit --app-id 42',
-      'brevo app submit --app-id 42 --json',
+      `brevo app submit --app-id ${EXAMPLE_APP_ID}`,
+      `brevo app submit --app-id ${EXAMPLE_APP_ID} --json`,
     ],
     options: [
       {
