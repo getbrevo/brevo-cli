@@ -5,7 +5,7 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
-import { confirmInstallAction, resolveInstallTarget } from './account-install';
+import { assertInstallable, confirmInstallAction, resolveInstallTarget } from './account-install';
 
 interface UninstallOptions {
   /**
@@ -24,18 +24,23 @@ interface UninstallOptions {
  * `app withdraw` treats a never-submitted app — report and exit 0 so
  * teardown scripts stay idempotent.
  */
-function reportNotInstalled(appId: string, accountId: string, json?: boolean): void {
+function reportNotInstalled(
+  appId: string,
+  account: { accountId: string; accountLabel: string; accountName?: string },
+  json?: boolean,
+): void {
   if (json) {
     jsonOutput({
       uninstalled: false,
       appId,
-      accountId,
+      accountId: account.accountId,
+      ...(account.accountName ? { accountName: account.accountName } : {}),
       reason: 'NOT_INSTALLED',
-      message: messages.APP_UNINSTALL_NOT_INSTALLED(appId, accountId),
+      message: messages.APP_UNINSTALL_NOT_INSTALLED(appId, account.accountLabel),
     });
     return;
   }
-  logInfo(`\n  ${messages.APP_UNINSTALL_NOT_INSTALLED(appId, accountId)}\n`);
+  logInfo(`\n  ${messages.APP_UNINSTALL_NOT_INSTALLED(appId, account.accountLabel)}\n`);
 }
 
 /**
@@ -44,16 +49,25 @@ function reportNotInstalled(appId: string, accountId: string, json?: boolean): v
  */
 export const appUninstallCommand = withCommandHandler(
   async (options: UninstallOptions): Promise<void> => {
-    const { appId, appLabel, accountId } = await resolveInstallTarget(
+    const target = await resolveInstallTarget(
       options.accountId,
       options,
       messages.APP_UNINSTALL_SELECT,
     );
+    const { appId, appLabel, accountId, accountLabel } = target;
 
-    // Deliberately no upload gate here: uninstalling is always safe, and blocking it
-    // on an upload would strand an app installed by an earlier CLI version.
+    // The app-type check applies, the upload check does not, and the split is the point:
+    // an app installed by an earlier CLI version must stay removable whatever its
+    // `version` says, while an OAuth app never had an install to remove. See
+    // `assertInstallable`.
+    await assertInstallable(appId, {
+      requireUploaded: false,
+      notUiAppMessage: messages.APP_UNINSTALL_NOT_UI_APP(appId),
+      fromLinkedConfig: target.appFromLinkedConfig,
+    });
+
     const proceed = await confirmInstallAction(
-      messages.APP_UNINSTALL_CONFIRM(appLabel, appId, accountId),
+      messages.APP_UNINSTALL_CONFIRM(appLabel, appId, accountLabel),
       messages.APP_UNINSTALL_CANCELLED,
       options,
     );
@@ -71,7 +85,7 @@ export const appUninstallCommand = withCommandHandler(
       // Reporting a bad app ID as "not installed" is the cheaper wrong answer: the
       // alternative fails an idempotent teardown that had nothing left to do.
       if (err instanceof ApiError && err.statusCode === 404) {
-        reportNotInstalled(appId, accountId, options.json);
+        reportNotInstalled(appId, target, options.json);
         return;
       }
       throw err;
@@ -79,10 +93,15 @@ export const appUninstallCommand = withCommandHandler(
     spinner.stop();
 
     if (options.json) {
-      jsonOutput({ uninstalled: true, appId, accountId });
+      jsonOutput({
+        uninstalled: true,
+        appId,
+        accountId,
+        ...(target.accountName ? { accountName: target.accountName } : {}),
+      });
       return;
     }
 
-    logSuccess(messages.APP_UNINSTALL_SUCCESS(appId, accountId));
+    logSuccess(messages.APP_UNINSTALL_SUCCESS(appId, accountLabel));
   },
 );

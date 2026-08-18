@@ -4,6 +4,7 @@ jest.mock('../../../container', () => ({
   appService: {
     uninstallApp: jest.fn(),
     fetchAppsList: jest.fn(),
+    fetchApp: jest.fn(),
   },
   accountService: {
     getAccount: jest.fn(),
@@ -161,5 +162,95 @@ describe('app/uninstall', () => {
 
     const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
     expect(parsed).toEqual({ uninstalled: true, appId: '42', accountId: '99999' });
+  });
+  // Gated the same way install is: an OAuth app never had an install to remove. The
+  // *upload* gate is still deliberately absent — see the test above.
+  describe('the app-type gate', () => {
+    it('refuses an OAuth app linked in this directory', async () => {
+      const { ui_app: _ui, ...oauthConfig } = LINKED_CONFIG;
+      (readProjectConfig as jest.Mock).mockReturnValue(oauthConfig);
+
+      await expect(appUninstallCommand({ accountId: '99999', force: true })).rejects.toThrow(
+        /nothing to uninstall/i,
+      );
+      expect(appService.uninstallApp).not.toHaveBeenCalled();
+    });
+
+    it('refuses an --app-id app the server answers with a client_id', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: 'app-1',
+        client_id: 'cli-1',
+        redirect_uris: ['https://example.com/callback'],
+      });
+
+      await expect(
+        appUninstallCommand({ accountId: '99999', appId: 'app-1', force: true }),
+      ).rejects.toThrow(/nothing to uninstall/i);
+      expect(appService.uninstallApp).not.toHaveBeenCalled();
+    });
+
+    // No `version` on the record, and it still uninstalls: the type check applies here,
+    // the upload check does not.
+    it('uninstalls a never-uploaded UI app outside a linked project', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '' });
+
+      await appUninstallCommand({ accountId: '99999', appId: 'app-1', force: true });
+      expect(appService.uninstallApp).toHaveBeenCalled();
+    });
+  });
+
+  describe('how the target account is named', () => {
+    const output = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+    it('leaves an explicit account ID unnamed', async () => {
+      await appUninstallCommand({ accountId: '99999', force: true });
+
+      expect(output()).toMatch(/uninstalled from account 99999\./);
+    });
+
+    it('names the caller own account', async () => {
+      (accountService.getAccount as jest.Mock).mockResolvedValue({
+        type: 'user',
+        companyName: 'Acme Retail',
+      });
+
+      await appUninstallCommand({ force: true });
+
+      expect(output()).toMatch(/uninstalled from Acme Retail \(your own account, ID 12345\)\./);
+    });
+
+    // The not-installed path is informational and exits 0 — it names the account too.
+    it('names the account when reporting "not installed"', async () => {
+      (accountService.getAccount as jest.Mock).mockResolvedValue({
+        type: 'user',
+        companyName: 'Acme Retail',
+      });
+      (appService.uninstallApp as jest.Mock).mockRejectedValue(
+        new ApiError('Installation ID does not exist', 404, undefined),
+      );
+
+      await appUninstallCommand({ force: true });
+
+      expect(output()).toMatch(/not installed in Acme Retail \(your own account, ID 12345\)\./);
+    });
+
+    it('adds accountName to --json', async () => {
+      (accountService.getAccount as jest.Mock).mockResolvedValue({
+        type: 'user',
+        companyName: 'Acme Retail',
+      });
+
+      await appUninstallCommand({ json: true });
+
+      const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
+      expect(parsed).toEqual({
+        uninstalled: true,
+        appId: '42',
+        accountId: '12345',
+        accountName: 'Acme Retail',
+      });
+    });
   });
 });

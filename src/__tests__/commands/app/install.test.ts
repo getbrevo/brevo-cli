@@ -295,4 +295,204 @@ describe('app/install', () => {
 
     expect(appService.installApp).toHaveBeenCalledWith('9', '99999', 'Picked App');
   });
+  // Only a UI app is installed into an account — the rule the capability matrix already
+  // encoded and nothing on this path enforced, so an OAuth app installed with a 201 and
+  // rendered nothing.
+  describe('the app-type gate', () => {
+    it('refuses an OAuth app linked in this directory', async () => {
+      const { ui_app: _ui, ...oauthConfig } = UPLOADED_CONFIG;
+      (readProjectConfig as jest.Mock).mockReturnValue(oauthConfig);
+
+      await expect(appInstallCommand({ accountId: '99999', force: true })).rejects.toThrow(
+        /only UI apps are installed into an account/i,
+      );
+      expect(appService.installApp).not.toHaveBeenCalled();
+    });
+
+    // The type check runs before the upload check: "this app can't be installed at all"
+    // dominates "it hasn't been uploaded yet".
+    it('names the app type, not the upload, for an unuploaded OAuth app', async () => {
+      const { ui_app: _ui, ...oauthConfig } = UPLOADED_CONFIG;
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...oauthConfig, version: '' });
+
+      await expect(appInstallCommand({ accountId: '99999', force: true })).rejects.toThrow(
+        /only UI apps are installed into an account/i,
+      );
+    });
+
+    // The gate reads `app-config.json` only for the app that config describes. An
+    // explicit --app-id names a different one, so the config cannot answer for it.
+    it('gates --app-id against the named app, not the directory linked one', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(UPLOADED_CONFIG);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: 'app-1',
+        version: '3',
+        client_id: 'cli-1',
+        redirect_uris: ['https://example.com/callback'],
+      });
+
+      await expect(
+        appInstallCommand({ accountId: '99999', appId: 'app-1', force: true }),
+      ).rejects.toThrow(/only UI apps are installed into an account/i);
+      expect(appService.fetchApp).toHaveBeenCalledWith('app-1');
+      expect(appService.installApp).not.toHaveBeenCalled();
+    });
+
+    // The mirror case: the directory's app is an OAuth app, the named one is not, and it
+    // is the named one that decides.
+    it('does not refuse --app-id because the directory app is an OAuth app', async () => {
+      const { ui_app: _ui, ...oauthConfig } = UPLOADED_CONFIG;
+      (readProjectConfig as jest.Mock).mockReturnValue(oauthConfig);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '3' });
+
+      await appInstallCommand({ accountId: '99999', appId: 'app-1', force: true });
+      expect(appService.installApp).toHaveBeenCalledWith('app-1', '99999', 'app-1');
+    });
+
+    // Same rule for the upload half: the named app's own `version` decides.
+    it('gates the upload check on the named app too', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(UPLOADED_CONFIG);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '' });
+
+      await expect(
+        appInstallCommand({ accountId: '99999', appId: 'app-1', force: true }),
+      ).rejects.toThrow(/brevo app upload/i);
+    });
+
+    describe('outside a linked project', () => {
+      beforeEach(() => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+      });
+
+      // A record carrying OAuth material is definitely an OAuth app, whatever the list
+      // endpoint does or doesn't echo about `ui_app`.
+      it('refuses an --app-id app the server answers with a client_id', async () => {
+        (appService.fetchApp as jest.Mock).mockResolvedValue({
+          app_id: 'app-1',
+          version: '3',
+          client_id: 'cli-1',
+          redirect_uris: ['https://example.com/callback'],
+        });
+
+        await expect(
+          appInstallCommand({ accountId: '99999', appId: 'app-1', force: true }),
+        ).rejects.toThrow(/only UI apps are installed into an account/i);
+        expect(appService.installApp).not.toHaveBeenCalled();
+      });
+
+      // The bias is deliberate: no OAuth material reads as a UI app, so the failure mode
+      // is a missed refusal rather than a wrongly refused UI app.
+      it('installs a record carrying no OAuth material', async () => {
+        (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '3' });
+
+        await appInstallCommand({ accountId: '99999', appId: 'app-1', force: true });
+        expect(appService.installApp).toHaveBeenCalled();
+      });
+
+      // Same policy as the upload half of the gate: guarding against a silent no-op must
+      // not become a new way to fail outright.
+      it('does not block when the app read fails', async () => {
+        (appService.fetchApp as jest.Mock).mockRejectedValue(new ApiError('boom', 500, undefined));
+
+        await appInstallCommand({ accountId: '99999', appId: 'app-1', force: true });
+        expect(appService.installApp).toHaveBeenCalled();
+      });
+
+      // One read now answers both halves of the gate; it used to be fetched twice.
+      it('reads the app once for both checks', async () => {
+        (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '3' });
+
+        await appInstallCommand({ accountId: '99999', appId: 'app-1', force: true });
+        expect(appService.fetchApp).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  // A bare account ID is not enough when the CLI chose the account itself: the user never
+  // typed the number, so there is nothing for them to check it against.
+  describe('how the target account is named', () => {
+    const output = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+    // The explicit positional is the CI path, and its wording is unchanged.
+    it('leaves an explicit account ID unnamed', async () => {
+      await appInstallCommand({ accountId: '99999', force: true });
+
+      expect(output()).toMatch(/installed into account 99999\./);
+    });
+
+    it('names the caller own account from the account response', async () => {
+      (accountService.getAccount as jest.Mock).mockResolvedValue({
+        type: 'user',
+        companyName: 'Acme Retail',
+      });
+
+      await appInstallCommand({ force: true });
+
+      expect(output()).toMatch(/installed into Acme Retail \(your own account, ID 12345\)\./);
+    });
+
+    // The one path where the identifier can be a UUID the user has never seen — which is
+    // exactly why the name matters here.
+    it('names a UUID-identified account', async () => {
+      (accountService.getAccount as jest.Mock).mockResolvedValue({
+        type: 'user',
+        companyName: 'Acme Retail',
+      });
+      (getOrganizationId as jest.Mock).mockReturnValue('550e8400-e29b-41d4-a716-446655440001');
+
+      await appInstallCommand({ force: true });
+
+      expect(output()).toMatch(/Acme Retail \(your own account, ID 550e8400-/);
+    });
+
+    it('falls back to the identifier alone when the account has no company name', async () => {
+      await appInstallCommand({ force: true });
+
+      expect(output()).toMatch(/installed into your own account \(ID 12345\)\./);
+    });
+
+    it('names a picked sub-account the way the picker did', async () => {
+      (accountService.getAccount as jest.Mock).mockResolvedValue({ type: 'corporate' });
+      (accountService.fetchSubAccounts as jest.Mock).mockResolvedValue([
+        { id: 4043630, companyName: 'Company2', active: true },
+      ]);
+      mockPrompt.mockResolvedValueOnce({ selectedSubAccount: 4043630 });
+
+      await appInstallCommand({ force: true });
+
+      expect(output()).toMatch(/installed into Company2 \(account 4043630\)\./);
+    });
+
+    it('names the account in the confirmation too', async () => {
+      (accountService.getAccount as jest.Mock).mockResolvedValue({
+        type: 'user',
+        companyName: 'Acme Retail',
+      });
+      mockPrompt.mockResolvedValueOnce({ confirmed: true });
+
+      await appInstallCommand({});
+
+      expect(mockPrompt.mock.calls[0]![0][0].message).toBe(
+        'Install app "Invoice Manager" (42) into Acme Retail (your own account, ID 12345)?',
+      );
+    });
+
+    // `accountId` stays the raw identifier scripts already match on; the name is additive.
+    it('adds accountName to --json only when one was resolved', async () => {
+      (accountService.getAccount as jest.Mock).mockResolvedValue({
+        type: 'user',
+        companyName: 'Acme Retail',
+      });
+
+      await appInstallCommand({ json: true });
+
+      const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
+      expect(parsed).toEqual({
+        installed: true,
+        appId: '42',
+        accountId: '12345',
+        accountName: 'Acme Retail',
+      });
+    });
+  });
 });

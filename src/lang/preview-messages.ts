@@ -80,11 +80,55 @@ export const previewMessages = {
 
   // App install / uninstall — per-account availability for UI apps (BEX-290)
   APP_INSTALL_SELECT: 'Select an app to install:',
-  APP_INSTALL_CONFIRM: (name: string, appId: string, accountId: string) =>
-    `Install app "${name}" (${appId}) into account ${accountId}?`,
+  /**
+   * How an account is named in every install/uninstall line.
+   *
+   * The bare ID was not enough. Two of the three resolution paths choose the account
+   * *for* the user — their own account, or one picked from the sub-account listing — and
+   * someone who never typed an identifier has nothing to check a bare number against. So
+   * the company name leads and the identifier follows in parentheses, the same order the
+   * sub-account picker already used.
+   *
+   * `self` marks the plain-account path, where the identifier is the caller's
+   * `organization_id` and may be a UUID rather than a number. It is spelled out as "your
+   * own account" instead of taking the picker's `Account ID:` prefix, because that prefix
+   * names a numeric sub-account ID and this is a different identifier — the same reason
+   * the picker avoids calling it a user ID.
+   *
+   * With no name and not self the result is `account 99999`, which is exactly the wording
+   * these messages carried before names were added — so the explicit `[account-id]` path,
+   * the one CI uses, is unchanged byte for byte.
+   */
+  APP_INSTALL_ACCOUNT_LABEL: (accountId: string, companyName?: string, self?: boolean): string => {
+    const name = companyName?.trim();
+    if (self) {
+      return name
+        ? `${name} (your own account, ID ${accountId})`
+        : `your own account (ID ${accountId})`;
+    }
+    return name ? `${name} (account ${accountId})` : `account ${accountId}`;
+  },
+  APP_INSTALL_CONFIRM: (name: string, appId: string, account: string) =>
+    `Install app "${name}" (${appId}) into ${account}?`,
   APP_INSTALL_CANCELLED: 'Install cancelled.',
-  APP_INSTALL_SUCCESS: (appId: string, accountId: string) =>
-    `App ${appId} installed into account ${accountId}.`,
+  APP_INSTALL_SUCCESS: (appId: string, account: string) =>
+    `App ${appId} installed into ${account}.`,
+  // Only a UI app is installed into an account. The rule is not new — the capability
+  // matrix (`src/app-types/capabilities.ts`) has said so since it was written, and its
+  // header names this as the example of a type-driven capability — but nothing on the
+  // install path consulted it, so an OAuth app installed successfully and rendered
+  // nothing. The installs endpoint has no app-type check of its own (same handler the
+  // upload gate's note describes), so this is the only place the mistake can be caught.
+  APP_INSTALL_NOT_UI_APP: (appId: string) =>
+    `App ${appId} is an OAuth app, and only UI apps are installed into an account. An OAuth app becomes usable when a user authorizes it, so there is nothing to install.\n\n  \`${CLI.APP_LIST}\` shows each app's type.`,
+  // Gated as well as install, deliberately. The asymmetry with the *upload* gate is real
+  // and intended: that one is skipped here because an app installed by an older CLI must
+  // stay removable, whereas an OAuth app has no install to remove in the first place. The
+  // one case this does strand is an OAuth app installed by a CLI that predates this
+  // check — `brevo app uninstall` can no longer reach it. Accepted: the record it would
+  // remove is one nothing reads.
+  APP_UNINSTALL_NOT_UI_APP: (appId: string) =>
+    `App ${appId} is an OAuth app, and only UI apps are installed into an account, so there is nothing to uninstall.\n\n  \`${CLI.APP_LIST}\` shows each app's type.`,
   // Sub-account resolution, shared by install and uninstall. Only a master (corporate)
   // account ever reaches these: a plain account resolves to itself with no prompt.
   APP_INSTALL_SELECT_ACCOUNT: 'Select the account to install into:',
@@ -95,13 +139,13 @@ export const previewMessages = {
   // upload, so its absence is a reliable local signal.
   APP_INSTALL_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
   APP_UNINSTALL_SELECT: 'Select an app to uninstall:',
-  APP_UNINSTALL_CONFIRM: (name: string, appId: string, accountId: string) =>
-    `Uninstall app "${name}" (${appId}) from account ${accountId}?`,
+  APP_UNINSTALL_CONFIRM: (name: string, appId: string, account: string) =>
+    `Uninstall app "${name}" (${appId}) from ${account}?`,
   APP_UNINSTALL_CANCELLED: 'Uninstall cancelled.',
-  APP_UNINSTALL_SUCCESS: (appId: string, accountId: string) =>
-    `App ${appId} uninstalled from account ${accountId}.`,
-  APP_UNINSTALL_NOT_INSTALLED: (appId: string, accountId: string) =>
-    `App ${appId} is not installed in account ${accountId}.`,
+  APP_UNINSTALL_SUCCESS: (appId: string, account: string) =>
+    `App ${appId} uninstalled from ${account}.`,
+  APP_UNINSTALL_NOT_INSTALLED: (appId: string, account: string) =>
+    `App ${appId} is not installed in ${account}.`,
   APP_INSTALL_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
 

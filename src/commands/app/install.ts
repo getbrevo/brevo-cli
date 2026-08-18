@@ -5,11 +5,7 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
-import {
-  assertUploadedBeforeInstall,
-  confirmInstallAction,
-  resolveInstallTarget,
-} from './account-install';
+import { assertInstallable, confirmInstallAction, resolveInstallTarget } from './account-install';
 
 interface InstallOptions {
   /**
@@ -30,16 +26,17 @@ interface InstallOptions {
  */
 export const appInstallCommand = withCommandHandler(
   async (options: InstallOptions): Promise<void> => {
-    const { appId, appLabel, accountId } = await resolveInstallTarget(
-      options.accountId,
-      options,
-      messages.APP_INSTALL_SELECT,
-    );
+    const { appId, appLabel, accountId, accountLabel, accountName, appFromLinkedConfig } =
+      await resolveInstallTarget(options.accountId, options, messages.APP_INSTALL_SELECT);
 
-    await assertUploadedBeforeInstall(appId);
+    await assertInstallable(appId, {
+      requireUploaded: true,
+      notUiAppMessage: messages.APP_INSTALL_NOT_UI_APP(appId),
+      fromLinkedConfig: appFromLinkedConfig,
+    });
 
     const proceed = await confirmInstallAction(
-      messages.APP_INSTALL_CONFIRM(appLabel, appId, accountId),
+      messages.APP_INSTALL_CONFIRM(appLabel, appId, accountLabel),
       messages.APP_INSTALL_CANCELLED,
       options,
     );
@@ -69,10 +66,12 @@ export const appInstallCommand = withCommandHandler(
     spinner.stop();
 
     if (options.json) {
-      jsonOutput({ installed: true, appId, accountId });
+      // `accountId` stays the raw identifier a script matches on; `accountName` is added
+      // only when the CLI learned one, so the shape a caller already parses is unchanged.
+      jsonOutput({ installed: true, appId, accountId, ...(accountName ? { accountName } : {}) });
       return;
     }
 
-    logSuccess(messages.APP_INSTALL_SUCCESS(appId, accountId));
+    logSuccess(messages.APP_INSTALL_SUCCESS(appId, accountLabel));
   },
 );
