@@ -178,6 +178,18 @@ export interface SurfacePointEntry {
    */
   modal_iframe_url?: string;
   /**
+   * Where THIS entry's `redirect_link` opens. It followed the CTA fields off the block
+   * root because it qualifies a per-entry destination — a root value could only ever say
+   * one thing about every slot.
+   *
+   * Still NOT authored into `app-config.json`: `brevo app upload` injects `_blank` onto
+   * each `actionLink` entry, `brevo app create` never writes it, and the write-back strips
+   * it back out. On the type because the payload carries it and the server now echoes it
+   * per entry. Absent on an `iframeExtension` entry, which embeds its URL rather than
+   * navigating to it.
+   */
+  link_target?: LinkTarget;
+  /**
    * Optional card size for the widget card THIS placement renders, at the same level
    * as `context` for the same reason: per placement, so two slots can size their cards
    * differently. Each axis is a CSS length string — "<positive integer>px" sizes the axis
@@ -303,25 +315,14 @@ export interface UiApp {
    */
   surface_point_list: SurfacePointEntry[];
   /**
-   * NOTE (BEX-426): `label`, `more_info`, `redirect_link` and `modal_iframe_url` are
-   * deliberately NOT fields of this block any more — they live on each
-   * `surface_point_list` entry, so two placements can carry different copy and different
-   * destinations. `validateUiApp` refuses the root spellings by name with a migration
-   * hint. Only `extension_type` (the validation-spec selector for the whole block) and
-   * the two server-managed keys below stay at the root.
+   * NOTE (BEX-426): `label`, `more_info`, `redirect_link`, `modal_iframe_url` and
+   * `link_target` are deliberately NOT fields of this block any more — they live on each
+   * `surface_point_list` entry, so two placements can carry different copy, different
+   * destinations and their own link target. `validateUiApp` refuses the root spellings by
+   * name with a migration hint, and so does the server (`supersededUIAppKeys`). Only
+   * `extension_type` (the validation-spec selector for the whole block) and the
+   * server-managed `version` below stay at the root.
    */
-  /**
-   * `actionLink` only, and NOT authored into `app-config.json` (BEX-290): `brevo app
-   * upload` injects `_blank` into the payload, and `brevo app create` never writes it.
-   * There was never a choice to make — the server refuses `_self` — so a field in the
-   * file only invited a partner to edit it into a value that 400s.
-   *
-   * Still on the type for two reasons: the upload payload carries it, and the server's
-   * `ui_app` echo may carry it back. The write-back strips it so it cannot creep back
-   * into the file, and the upload diff ignores it so its presence server-side is not
-   * reported as local drift.
-   */
-  link_target?: LinkTarget;
   /** Snapshot version, surfaced at the manifest item root. Server-managed. */
   version?: string;
 }
@@ -473,9 +474,10 @@ export interface UploadAppResponse {
   // the server normalized. Tolerated as absent: server builds that accept the
   // block on write but don't return it leave the locally-sent block in place.
   //
-  // `link_target` is stripped from this echo before the write-back (BEX-290) —
-  // the server defaults it to `_blank`, and the CLI deliberately stopped
-  // authoring it, so echoing it straight through would silently re-add to
+  // Each entry's `link_target` is stripped from this echo before the write-back
+  // (BEX-290, moved per entry by BEX-426) — the server defaults it to `_blank`
+  // and echoes it on every `actionLink` entry, and the CLI deliberately does not
+  // author it, so echoing it straight through would silently re-add to
   // app-config.json the one field the file is not supposed to carry.
   ui_app?: UiApp;
 }

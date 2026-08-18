@@ -2197,14 +2197,19 @@ describe('app/create', () => {
       expect(collectedUiApp().surface_point_list[0].more_info).toBe('Review invoice history');
     });
 
-    // link_target is neither asked nor authored: `brevo app upload` injects `_blank`.
-    // The server refuses `_self`, so a field in the file would only invite a partner to
-    // edit it into a value that 400s.
+    // link_target is neither asked nor authored: `brevo app upload` injects `_blank` onto
+    // each entry. The server refuses `_self`, so a field in the file would only invite a
+    // partner to edit it into a value that 400s. Checked at BOTH depths since BEX-426 moved
+    // the field onto the entry — the root is where it used to live, the entry is where the
+    // injection lands, and create writes it in neither place.
     it('never prompts for or writes a link target', async () => {
       await createCommand(CLI_OPTIONS);
 
       expect(questionNamed('link_target')).toBeUndefined();
       expect(collectedUiApp()).not.toHaveProperty('link_target');
+      for (const entry of collectedUiApp().surface_point_list) {
+        expect(entry).not.toHaveProperty('link_target');
+      }
     });
 
     // The other half of the OAuth-path assertion up top: the opening questions are the

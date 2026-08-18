@@ -351,8 +351,8 @@ describe('validateUiApp', () => {
   };
 
   // The BEX-426 block: `surface_point_list` is a list of objects each carrying its own
-  // CTA fields; the root holds only `extension_type` (`link_target` is not authored —
-  // upload injects it).
+  // CTA fields; the root holds only `extension_type`. `link_target` is not authored at all
+  // — upload injects it onto each entry — so no fixture carries one.
   const VALID = {
     extension_type: 'actionLink',
     surface_point_list: [ENTRY],
@@ -374,10 +374,19 @@ describe('validateUiApp', () => {
     ).not.toThrow();
   });
 
-  // Tolerated rather than rejected: a leftover `_blank` in a hand-edited file is exactly
-  // what upload injects anyway, so failing on it would be pedantry.
-  it('accepts a leftover _blank link_target', () => {
-    expect(() => validateUiApp({ ...VALID, link_target: '_blank' })).not.toThrow();
+  // Tolerated rather than rejected: a leftover `_blank` on an entry in a hand-edited file
+  // is exactly what upload injects there anyway, so failing on it would be pedantry.
+  it('accepts a leftover _blank link_target on an entry', () => {
+    expect(() => validateUiApp(withEntry({ link_target: '_blank' }))).not.toThrow();
+  });
+
+  // The root spelling is a different matter: it moved with the CTA fields (BEX-426) and the
+  // server refuses it by name, so a leftover root value has to be named rather than ignored.
+  // The hint says "remove it", not "move it" — the CLI never wants this field in the file.
+  it('refuses a root link_target with a remove-it hint', () => {
+    expect(() => validateUiApp({ ...VALID, link_target: '_blank' })).toThrow(
+      /ui_app\.link_target moved onto each surface_point_list entry.*Remove it from the file/s,
+    );
   });
 
   // Two slots, and each carries its OWN copy and destination — the whole point of the
@@ -463,12 +472,12 @@ describe('validateUiApp', () => {
     ['an entry with an over-long more_info', withEntry({ more_info: 'x'.repeat(256) })],
     ['an entry with a missing redirect_link', withEntry({ redirect_link: undefined })],
     ['an entry with an insecure redirect_link', withEntry({ redirect_link: 'http://example.com' })],
-    ['an unknown link_target', { ...VALID, link_target: '_top' }],
+    ['an entry with an unknown link_target', withEntry({ link_target: '_top' })],
     // _self is refused because the server refuses it. Accepting it locally would only
     // move the failure to upload time.
     [
-      'the _self link_target while uploads are pinned to _blank',
-      { ...VALID, link_target: '_self' },
+      "an entry's _self link_target while uploads are pinned to _blank",
+      withEntry({ link_target: '_self' }),
     ],
     ['a non-array per-entry context', withEntry({ context: 'recordId' })],
     ['an empty per-entry context field name', withEntry({ context: ['recordId', ''] })],
@@ -615,8 +624,16 @@ describe('validateUiApp — iframeExtension', () => {
     ).toThrow(/cannot be combined/i);
   });
 
-  // link_target governs where a redirect opens; a modal embeds its URL instead.
-  it('rejects link_target', () => {
-    expect(() => validateUiApp({ ...VALID_IFRAME, link_target: '_blank' })).toThrow(/no effect/i);
+  // link_target governs where a redirect opens; a modal embeds its URL instead. Refused per
+  // entry since BEX-426, which is where the field now lives — and named per entry, so an app
+  // on three slots says which one is wrong.
+  it('rejects a per-entry link_target', () => {
+    expect(() => validateUiApp(withIframeEntry({ link_target: '_blank' }))).toThrow(/no effect/i);
+  });
+
+  it('names the entry carrying it', () => {
+    expect(() => validateUiApp(withIframeEntry({ link_target: '_blank' }))).toThrow(
+      new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.link_target`),
+    );
   });
 });

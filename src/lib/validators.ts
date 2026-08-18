@@ -366,14 +366,6 @@ export function validateUiApp(uiApp: unknown): void {
   rejectRootCtaFields(block);
 
   validateSurfacePointList(block.surface_point_list, extensionType);
-
-  // `link_target` is the one CTA-adjacent field still at the root (it is server-owned,
-  // not partner-authored — see types.ts), so its two per-type rules stay root-level.
-  if (extensionType === EXTENSION_TYPE_IFRAME) {
-    validateIframeLinkTarget(block);
-  } else {
-    validateActionLinkTarget(block);
-  }
 }
 
 /**
@@ -436,6 +428,16 @@ function rejectRootCtaFields(block: Record<string, unknown>): void {
         `ui_app.${key} moved into each surface_point_list entry (each placement carries its own) — e.g. [{ "surface_point_name": "contact-details-header-menu", ${hint} }]. Move it in app-config.json.`,
       );
     }
+  }
+  // `link_target` moved onto each entry with them, but its migration hint is "delete it",
+  // not "move it": the CLI has never wanted this field in the file (`app upload` injects
+  // it per entry, `app create` never writes it, the write-back strips it), so telling a
+  // partner to relocate a value they should not be authoring would be the wrong advice.
+  // The server refuses the root spelling by name too — `supersededUIAppKeys` in bo-be.
+  if (block.link_target !== undefined) {
+    throw new CliError(
+      'ui_app.link_target moved onto each surface_point_list entry (BEX-426), and is not authored in app-config.json at all — `brevo app upload` injects it per placement. Remove it from the file.',
+    );
   }
 }
 
@@ -558,6 +560,16 @@ function validateEntryCtaFields(
     const urlCheck = validateUiAppUrl(asText(row.modal_iframe_url));
     if (urlCheck !== true) throw new CliError(`${at('modal_iframe_url')}: ${urlCheck}`);
 
+    // A modal embeds its URL rather than navigating to it, so there is no link target to
+    // set. Refused rather than ignored: the server refuses it per entry as well, and a
+    // stored `_blank` on an iframe entry is a field the read path serves and nothing
+    // applies.
+    if (isPresentField(row.link_target)) {
+      throw new CliError(
+        `${at('link_target')} has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL in a modal rather than navigating to it. Remove it.`,
+      );
+    }
+
     // Refused because the two delivery paths disagree about which URL wins: the
     // widget-card path pairs strictly by extension_type and opens the modal, while the
     // header-menu path routes on redirect_link first and never opens it. The same entry
@@ -573,34 +585,23 @@ function validateEntryCtaFields(
   const urlCheck = validateUiAppUrl(asText(row.redirect_link));
   if (urlCheck !== true) throw new CliError(`${at('redirect_link')}: ${urlCheck}`);
 
+  // Optional, and normally absent: `app upload` injects `_blank` onto every actionLink
+  // entry, so the authored file carries nothing. A hand-authored value is still checked
+  // against the pin — `_self` is refused server-side, so accepting it here would only move
+  // the failure to upload time. `undefined` passes; an omitted entry value is defaulted to
+  // `_blank` server-side.
+  if (row.link_target !== undefined && !UPLOADABLE_LINK_TARGETS.includes(asText(row.link_target))) {
+    throw new CliError(
+      `Invalid ${at('link_target')} "${asText(row.link_target)}". Must be one of: ${UPLOADABLE_LINK_TARGETS.join(', ')}.`,
+    );
+  }
+
   // The UI kit keeps `modal_iframe_url` only for an `iframeExtension` item, so one
   // carried by an actionLink entry is dropped without a word. Reject rather than let a
   // partner ship a URL that will never open.
   if (isPresentField(row.modal_iframe_url)) {
     throw new CliError(
       `${at('modal_iframe_url')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
-    );
-  }
-}
-
-function validateActionLinkTarget(block: Record<string, unknown>): void {
-  // _self is refused server-side for now, so accepting it here would only move the
-  // failure to upload time. See UPLOADABLE_LINK_TARGETS.
-  if (
-    block.link_target !== undefined &&
-    !UPLOADABLE_LINK_TARGETS.includes(asText(block.link_target))
-  ) {
-    throw new CliError(
-      `Invalid ui_app.link_target "${asText(block.link_target)}". Must be one of: ${UPLOADABLE_LINK_TARGETS.join(', ')}.`,
-    );
-  }
-}
-
-function validateIframeLinkTarget(block: Record<string, unknown>): void {
-  // link_target only governs where a redirect_link opens; a modal embeds its URL.
-  if (isPresentField(block.link_target)) {
-    throw new CliError(
-      `ui_app.link_target has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL in a modal rather than navigating to it. Remove it.`,
     );
   }
 }
