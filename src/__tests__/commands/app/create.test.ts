@@ -319,7 +319,7 @@ describe('app/create', () => {
       questionNamed(name).choices.map((choice: { value: string }) => choice.value);
 
     expect(valuesOf('distribution')).toEqual(['private', 'public']);
-    expect(valuesOf('appType')).toEqual(['oauth', 'ui']);
+    expect(valuesOf('appType')).toEqual(['oauth', 'ui', 'function']);
   });
 
   describe('feature scaffolding', () => {
@@ -2542,6 +2542,7 @@ describe('app/create', () => {
       const labels = appTypeQuestion.choices.map((choice: { name: string }) => choice.name.trim());
       expect(labels).toEqual([messages.APP_CREATE_APP_TYPE_OAUTH]);
       expect(labels).not.toContain(messages.APP_CREATE_APP_TYPE_UI);
+      expect(labels).not.toContain(messages.APP_CREATE_APP_TYPE_FUNCTION);
       expect(appTypeQuestion.choices.map((choice: { value: string }) => choice.value)).toEqual([
         'oauth',
       ]);

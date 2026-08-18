@@ -110,9 +110,9 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
 //    to a shape that can still change. Any non-interactive run — piped stdin or
 //    `--json` — creates an OAuth app, exactly as it did before BEX-290, so
 //    existing scripted `app create` calls are unaffected.
-export type AppType = 'oauth' | 'ui';
+export type AppType = 'oauth' | 'ui' | 'function';
 
-async function resolveAppType(interactive: boolean): Promise<AppType> {
+async function resolveAppType(interactive: boolean, distribution?: string): Promise<AppType> {
   // A UI app is only reachable through this prompt (there is no `--type` flag), so a
   // non-interactive run has nothing to resolve and creates an OAuth app, exactly as it
   // did before BEX-290.
@@ -135,6 +135,16 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
   ];
   if (__BREVO_PREVIEW__ && isFeatureAvailable('ui-app-type')) {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' });
+  }
+  // ELIMINATION SITE — same pattern as the UI-app choice: the raw global lets esbuild
+  // fold this branch away in a published build. `isFeatureAvailable` is still consulted
+  // so flipping `FEATURE_STAGE['brevo-function-type']` to `'ga'` releases the choice.
+  if (
+    __BREVO_PREVIEW__ &&
+    isFeatureAvailable('brevo-function-type') &&
+    distribution === 'private'
+  ) {
+    choices.push({ name: messages.APP_CREATE_APP_TYPE_FUNCTION, value: 'function' });
   }
   const answer = await inquirer.prompt([
     {
@@ -367,6 +377,8 @@ interface CreateAppInputs {
   logoUri?: string;
   /** Present for UI apps only; drives scope defaults and omits redirect URIs. */
   uiApp?: UiApp;
+  /** The selected app type — drives the `brevo_function` discriminator on the wire. */
+  appType: AppType;
 }
 
 interface CreatedApp {
@@ -396,6 +408,9 @@ function buildCreatePayload(inputs: CreateAppInputs) {
     ...(isUiApp
       ? { ui_app: inputs.uiApp }
       : { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } }),
+    // Brevo Function apps are created as OAuth apps on the wire — the server
+    // does not accept a `brevo_function` block on create. The discriminator
+    // lives in the local app-config.json snapshot instead (see the template).
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
 }
@@ -574,10 +589,10 @@ export const createCommand = withCommandHandler(
     const appName = await resolveAppName(options.name);
     const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
     const distribution = await resolveDistribution(options.distribution, interactive);
-    const appType = await resolveAppType(interactive);
+    const appType = await resolveAppType(interactive, distribution);
 
-    // The two app types diverge here: OAuth apps collect callback URLs, UI apps
-    // collect placement + destination. Neither path runs the other's prompts.
+    // The app types diverge here: OAuth and Function apps collect callback URLs,
+    // UI apps collect placement + destination. Neither path runs the other's prompts.
     let redirectUris: string[] = [];
     let uiApp: UiApp | undefined;
     // Same elimination site as `resolveAppType`: this is the only call to
@@ -588,12 +603,20 @@ export const createCommand = withCommandHandler(
     if (__BREVO_PREVIEW__ && appType === 'ui') {
       uiApp = await resolveUiApp();
     } else {
+      // Both OAuth and Function apps follow the OAuth path (collect redirect URIs).
       redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
     }
 
     const dir = await resolveCreateDirectory(appName, interactive);
 
-    const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri, uiApp };
+    const inputs: CreateAppInputs = {
+      appName,
+      distribution,
+      redirectUris,
+      logoUri,
+      uiApp,
+      appType,
+    };
     const { result, appName: finalAppName } = await createAppWithRetry(
       inputs,
       jsonMode,
@@ -692,6 +715,9 @@ export const createCommand = withCommandHandler(
       redirect_uris: result.redirect_uris ?? null,
     };
     const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp, fallbackApp);
+    if (appType === 'function') {
+      ctx.isBrevoFunction = true;
+    }
 
     // Always write the basic project structure (app-config.json + meta files).
     const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);

@@ -16,8 +16,13 @@ import { refreshAccessToken, RefreshError } from '../services/oauth-refresh';
 import { stopActiveSpinner } from '../lib/ui';
 import { AccountResponse } from '../types';
 import { client } from '../container';
-import { registerAll } from '../lib/command-registry';
-import { topLevelCommands, appCommandGroup, skillCommandGroup } from '../commands/definitions';
+import { registerAll, SubcommandGroupDefinition } from '../lib/command-registry';
+import {
+  topLevelCommands,
+  appCommandGroup,
+  skillCommandGroup,
+  functionCommandGroup,
+} from '../commands/definitions';
 import {
   formatBlockedBanner,
   startUpdateCheck,
@@ -105,7 +110,9 @@ client.setEnsureFresh(async () => {
 
 // ──────────────── Register all commands ────────────────
 
-registerAll(program, topLevelCommands, [appCommandGroup, skillCommandGroup]);
+const commandGroups: SubcommandGroupDefinition[] = [appCommandGroup, skillCommandGroup];
+if (functionCommandGroup) commandGroups.push(functionCommandGroup);
+registerAll(program, topLevelCommands, commandGroups);
 
 // ──────────────── Re-auth handler ────────────────
 

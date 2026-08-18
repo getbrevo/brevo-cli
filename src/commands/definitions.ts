@@ -3,10 +3,10 @@ import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/v
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
 // The gated subcommands are referenced only through this binding, and only from behind
-// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their five handler
-// modules — from a published build. Importing any of those handlers directly here would
-// make them live references again and ship the whole surface. See ./preview-definitions.ts.
-import { previewAppCommands } from './preview-definitions';
+// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their handler modules —
+// from a published build. Importing any of those handlers directly here would make them
+// live references again and ship the whole surface. See ./preview-definitions.ts.
+import { previewAppCommands, previewFunctionGroup } from './preview-definitions';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -280,3 +280,13 @@ export const skillCommandGroup: SubcommandGroupDefinition = {
     },
   ],
 };
+
+// ELIMINATION SITE — same pattern as previewAppCommands above: the raw global lets
+// esbuild fold this to `undefined` in a published build and tree-shake the function
+// handler modules only `previewFunctionGroup` references. `isFeatureAvailable` is
+// still consulted at runtime (for the help screen, via `gatedSection`), so flipping
+// `FEATURE_STAGE['brevo-function-type']` to `'ga'` releases the group without
+// touching this line.
+export const functionCommandGroup: SubcommandGroupDefinition | undefined = __BREVO_PREVIEW__
+  ? previewFunctionGroup
+  : undefined;

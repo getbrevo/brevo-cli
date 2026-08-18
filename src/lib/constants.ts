@@ -148,6 +148,8 @@ export const ENDPOINTS = {
   // record-page prompt and then narrows the row read with `?location=<csv>`, rather than
   // pulling the whole registry to derive the same handful of strings client-side.
   APP_STORE_SURFACE_POINT_LOCATIONS: '/v3/app-store/surface-points/locations',
+  DP_FUNCTIONS: '/v3/dp-functions/functions',
+  DP_FUNCTION: (id: string) => `/v3/dp-functions/functions/${encodeURIComponent(id)}`,
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -188,6 +190,11 @@ export const CLI = {
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
+  FUNCTION_LIST: 'brevo function list',
+  FUNCTION_GET: 'brevo function get',
+  FUNCTION_ACTIVATE: 'brevo function activate',
+  FUNCTION_DEACTIVATE: 'brevo function deactivate',
+  FUNCTION_DELETE: 'brevo function delete',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;

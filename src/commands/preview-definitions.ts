@@ -16,7 +16,7 @@
  * At GA, move the released entries back into `definitions.ts` and delete this file
  * when it empties. See `RELEASE-CHECKLIST.md`.
  */
-import type { CommandDefinition } from '../lib/command-registry';
+import type { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
 import { parseAppId } from '../lib/validators';
 
 import { deployCommand } from './app/deploy';
@@ -24,6 +24,11 @@ import { rollbackCommand } from './app/rollback';
 import { statusCommand } from './app/status';
 import { submitCommand } from './app/submit';
 import { withdrawCommand } from './app/withdraw';
+import { listFunctionCommand } from './function/list';
+import { getFunctionCommand } from './function/get';
+import { activateFunctionCommand } from './function/activate';
+import { deactivateFunctionCommand } from './function/deactivate';
+import { deleteFunctionCommand } from './function/delete';
 
 /** The `brevo app <name>` subcommands gated behind an unreleased feature. */
 export const previewAppCommands: CommandDefinition[] = [
@@ -175,3 +180,73 @@ export const previewAppCommands: CommandDefinition[] = [
       }),
   },
 ];
+
+/** The `brevo function` group, gated behind the preview build. */
+export const previewFunctionGroup: SubcommandGroupDefinition = {
+  name: 'function',
+  aliases: ['fn'],
+  description: 'Manage Brevo Functions',
+  commands: [
+    {
+      name: 'list',
+      description: 'List all Brevo Functions in your account',
+      examples: [
+        'brevo function list',
+        'brevo function list --draft',
+        'brevo function list --json',
+      ],
+      options: [
+        { flags: '--draft', description: 'List only draft functions' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        listFunctionCommand({ json: Boolean(opts.json), draft: Boolean(opts.draft) }),
+    },
+    {
+      name: 'get',
+      description: 'Show details of a Brevo Function',
+      arguments: [{ name: '<id>', description: 'Function ID' }],
+      examples: ['brevo function get fn-001', 'brevo function get fn-001 --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts, id) => getFunctionCommand({ id: id as string, json: Boolean(opts.json) }),
+    },
+    {
+      name: 'activate',
+      description: 'Activate a Brevo Function',
+      arguments: [{ name: '<id>', description: 'Function ID' }],
+      examples: ['brevo function activate fn-001', 'brevo function activate fn-001 --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts, id) =>
+        activateFunctionCommand({ id: id as string, json: Boolean(opts.json) }),
+    },
+    {
+      name: 'deactivate',
+      description: 'Deactivate a Brevo Function',
+      arguments: [{ name: '<id>', description: 'Function ID' }],
+      examples: ['brevo function deactivate fn-001', 'brevo function deactivate fn-001 --json'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts, id) =>
+        deactivateFunctionCommand({ id: id as string, json: Boolean(opts.json) }),
+    },
+    {
+      name: 'delete',
+      description: 'Delete a deployed Brevo Function',
+      arguments: [{ name: '<id>', description: 'Function ID' }],
+      examples: [
+        'brevo function delete fn-001',
+        'brevo function delete fn-001 --force',
+        'brevo function delete fn-001 --json',
+      ],
+      options: [
+        { flags: '--force', description: 'Skip confirmation' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts, id) =>
+        deleteFunctionCommand({
+          id: id as string,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+  ],
+};
