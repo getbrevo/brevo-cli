@@ -133,11 +133,13 @@ export type ExtensionKind = 'widget' | 'action';
 export interface SurfacePointEntry {
   /**
    * The registry's `surface_point_name` slug for the slot — e.g.
-   * `contact-details-header-menu`. Named for the registry COLUMN it must match, which is
+   * `contactDetails.header.menu`. Named for the registry COLUMN it must match, which is
    * the point of the field name: the entry key and the `WHERE` clause read the same.
    *
-   * NOT the dotted `<location>.<place>.<kind>` name of the BEX-350 grammar
-   * (`contactDetails.headerMenu.action`). Both identify the same registry row, 1:1, and
+   * NOT the `<location>.<place>.<kind>` name of the BEX-350 grammar
+   * (`contactDetails.headerMenu.action`). The slug is dotted too since the rename away
+   * from kebab-case (`contact-details-header-menu`), which makes the two easier than
+   * ever to confuse. Both identify the same registry row, 1:1, and
    * both travel under names built from the words "surface point" — but only the slug is
    * authorable. The platform resolves an authored entry with
    * `WHERE surface_point_name = ANY(...)` and then serves that row's dotted
@@ -179,8 +181,8 @@ export interface SurfacePointRow {
    */
   extension_point_name: string;
   /**
-   * The registry's own identifier for the slot — a kebab-case SLUG
-   * (`contact-details-header-menu`), NOT display text. Never render it to a partner: the
+   * The registry's own identifier for the slot — an authoring SLUG
+   * (`contactDetails.header.menu`), NOT display text. Never render it to a partner: the
    * prompt labels come from `EXTENSION_PLACE_LABELS` in `lib/constants.ts`.
    *
    * This is the AUTHORING identity: the value `app create` writes into a
