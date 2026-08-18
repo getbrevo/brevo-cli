@@ -251,8 +251,8 @@ export const EXTENSION_KIND_WIDGET = 'widget';
  *
  * These are CLI-OWNED and stay that way. An earlier version of this comment claimed they
  * mirror `extension_points.surface_point_name`, "the platform's own display text" — that
- * is false: the seeded values of that column are kebab-case slugs
- * (`contact-details-header-menu`), so rendering them to a partner would be worse than
+ * is false: the seeded values of that column are authoring slugs
+ * (`contactDetails.header.menu`), so rendering them to a partner would be worse than
  * these. The registry exposes no display-name column, so until it does, this map is the
  * only source of partner-facing placement labels.
  */

@@ -255,8 +255,9 @@ export function validateUiAppMoreInfo(value: string): true | string {
  * and passing one the platform had removed.
  *
  * Note the value is the registry's `surface_point_name` slug
- * (`contact-details-header-menu`), not the dotted grammar name — see
- * `SurfacePointEntry.surface_point_name`. Shape-only means the two are indistinguishable
+ * (`contactDetails.header.menu`), not the `<location>.<place>.<kind>` grammar name
+ * (`contactDetails.headerMenu.action`) — see `SurfacePointEntry.surface_point_name`.
+ * Shape-only means the two are indistinguishable
  * here; only the registry can tell them apart, which is another reason not to try.
  */
 export function validateSurfacePoint(point: string): true | string {
@@ -403,7 +404,7 @@ function rejectPreBex290Fields(block: Record<string, unknown>): void {
   }
   if (block.context !== undefined) {
     throw new CliError(
-      'ui_app.context is no longer a top-level field — record context is now per placement. Move each field list into the matching `surface_point_list` entry, e.g. [{ "surface_point_name": "contact-details-header-menu", "context": ["recordId"] }].',
+      'ui_app.context is no longer a top-level field — record context is now per placement. Move each field list into the matching `surface_point_list` entry, e.g. [{ "surface_point_name": "contactDetails.header.menu", "context": ["recordId"] }].',
     );
   }
 }
@@ -457,14 +458,14 @@ function rejectRootCtaFields(block: Record<string, unknown>): void {
 function validateSurfacePointList(entries: unknown, extensionType: string): void {
   if (!Array.isArray(entries) || entries.length === 0) {
     throw new CliError(
-      'ui_app.surface_point_list must list at least one placement (e.g. [{ "surface_point_name": "contact-details-header-menu", "context": ["recordId"] }]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
+      'ui_app.surface_point_list must list at least one placement (e.g. [{ "surface_point_name": "contactDetails.header.menu", "context": ["recordId"] }]). An empty list makes the platform fall back to its default widget slots, which is unlikely to be where you want the app.',
     );
   }
   const names: string[] = [];
   for (const entry of entries) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new CliError(
-        'ui_app.surface_point_list entries must be objects, e.g. { "surface_point_name": "contact-details-header-menu", "context": ["recordId"] }. A bare string is the pre-BEX-290 shape.',
+        'ui_app.surface_point_list entries must be objects, e.g. { "surface_point_name": "contactDetails.header.menu", "context": ["recordId"] }. A bare string is the pre-BEX-290 shape.',
       );
     }
     const row = entry as Record<string, unknown>;

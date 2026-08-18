@@ -251,8 +251,8 @@ async function fetchSurfacePointsForPages(
 
 /** Partner-facing label for one placement: the page region, plus the shape it renders as. */
 function placementLabel(row: UsableSurfacePoint): string {
-  // NOT row.surface_point_name — that column holds a kebab-case slug
-  // (`contact-details-header-menu`), not display text. See EXTENSION_PLACE_LABELS.
+  // NOT row.surface_point_name — that column holds an authoring slug
+  // (`contactDetails.header.menu`), not display text. See EXTENSION_PLACE_LABELS.
   const place = EXTENSION_PLACE_LABELS[row.section_name] ?? row.section_name;
   if (row.component_type === EXTENSION_KIND_ACTION) {
     return `${place} — ${messages.APP_CREATE_UI_PLACEMENT_MENU_SUFFIX}`;
@@ -434,7 +434,7 @@ export async function resolveUiApp(): Promise<UiApp> {
  * and keeping registry order (which is deterministic server-side, so the upload diff
  * doesn't churn).
  *
- * The authored value is the row's `surface_point_name` SLUG (`contact-details-header-menu`),
+ * The authored value is the row's `surface_point_name` SLUG (`contactDetails.header.menu`),
  * NOT its dotted `extension_point_name` (`contactDetails.headerMenu.action`). The two are 1:1
  * on the registry row and easy to confuse — the dotted name is what the UI kit ultimately
  * renders — but they are not interchangeable here: the platform resolves an authored entry
