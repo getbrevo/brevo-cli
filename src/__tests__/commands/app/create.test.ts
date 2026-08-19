@@ -1756,11 +1756,13 @@ describe('app/create', () => {
       expect(questionNamed(name)).toBeUndefined();
     });
 
-    // Decision 2026-08-03, still current: only actionLink is authorable until the
-    // iframe-embed RFC lands, but the prompt exists — Iframe is shown as a DISABLED
-    // "coming soon" choice so partners see the roadmap where the decision is being made.
-    // (The platform still accepts a hand-edited iframeExtension block at upload.)
-    it('offers the integration-type prompt with Iframe disabled', async () => {
+    // Decision 2026-08-19: only actionLink is authorable, and the Iframe choice is
+    // GONE from the prompt — it was shown as a disabled "coming soon" entry until
+    // iframe authoring stalled, and a roadmap hint that outlives its date misleads.
+    // The prompt is still asked with its one choice, so the user is told what they
+    // are getting. (The platform still accepts a hand-edited iframeExtension block
+    // at upload.)
+    it('offers the integration-type prompt with Link as the only choice', async () => {
       await createCommand(CLI_OPTIONS);
 
       const question = questionNamed('integrationType');
@@ -1770,7 +1772,7 @@ describe('app/create', () => {
       const iframe = choices.find((c) => c.value === 'iframeExtension');
       expect(link).toBeDefined();
       expect(link?.disabled).toBeUndefined();
-      expect(iframe?.disabled).toBe('coming soon');
+      expect(iframe).toBeUndefined();
       expect(collectedUiApp().extension_type).toBe('actionLink');
     });
 

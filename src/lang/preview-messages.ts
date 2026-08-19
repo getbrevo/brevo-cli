@@ -48,12 +48,10 @@ export const previewMessages = {
   APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
     `Where should it appear on the ${page} page?`,
   // Integration type — asked SECOND, before any placement, because it is the decision a
-  // partner arrives with. Only Link is selectable; Iframe is shown disabled so the
-  // roadmap is visible where the choice is being made rather than hidden.
-  APP_CREATE_UI_INTEGRATION_PROMPT: 'Do you want to add a link or an iframe?',
+  // partner arrives with. Only Link is offered for now: the disabled "coming soon"
+  // Iframe choice was removed 2026-08-19 until iframe support is ready to author.
+  APP_CREATE_UI_INTEGRATION_PROMPT: 'What type of integration are you adding?',
   APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link            (Opens your URL in a new tab)',
-  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe          (Embeds your page in a modal)',
-  APP_CREATE_UI_INTEGRATION_COMING_SOON: 'coming soon',
   // Each field says what it renders as, so a partner filling the form knows what
   // they are writing. Both fields render in two places, and the prompt names both:
   // `label` is the menu entry's text AND a card's CTA button, `more_info` is the

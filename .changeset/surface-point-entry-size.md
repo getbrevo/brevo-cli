@@ -18,5 +18,7 @@ Both commands now name the target account, not just its ID: `installed into Acme
 
 `--help` examples for `--app-id` now show a UUID instead of `42`, on every command that takes the flag. An app ID is a UUID — `app create` issues one — so the old examples taught the wrong shape uniformly.
 
+`brevo app create`'s UI-app integration-type prompt no longer lists Iframe as a disabled "coming soon" choice — Link (`actionLink`) is the only choice offered until iframe authoring is ready. The question is still asked, so the user is told what they are getting, and `brevo app upload` still accepts a hand-authored `iframeExtension` block. Pre-GA and absent from published builds.
+
 The *Next steps* box after a UI app is created lines its hints up again. The two step lines carried hard-coded padding for commands one character apart in length, which put `brevo app upload`'s note ten columns right of `brevo app install`'s inside the same box; the column is now derived from the widest command in the list. The OAuth box's wording and spacing are unchanged.
 

@@ -13,7 +13,7 @@
  * only correct in the order this flow calls them.
  */
 import inquirer from 'inquirer';
-import { EXTENSION_TYPE_ACTION_LINK, EXTENSION_TYPE_IFRAME } from '../../lib/constants';
+import { EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
 import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import {
@@ -30,7 +30,7 @@ import { formatPlacementLines } from './fields';
 // UI-app configuration (BEX-290) — this is step 4b of the `app create` flow, replacing the
 //     redirect-URL step for UI apps. Prompt order, and why:
 //
-//       1. link or iframe   → sets `extension_type`. Asked FIRST because it is the
+//       1. integration type → sets `extension_type`. Asked FIRST because it is the
 //                             decision a partner arrives with, because it decides which
 //                             single URL question is asked at the end, and because both
 //                             registry reads narrow by it (`?extension_type=`, BEX-422) —
@@ -65,10 +65,10 @@ import { formatPlacementLines } from './fields';
 //
 //     Placement choices are read from the platform's extension-point registry (BEX-361),
 //     fetch-only with NO local-mirror fallback, so a partner can never author a slot the
-//     platform doesn't have. Only `actionLink` is selectable at the integration-type
-//     prompt: `iframeExtension` shows as a disabled "coming soon" choice rather than
-//     being hidden (the upload endpoint still accepts a hand-edited block — see
-//     validateUiApp).
+//     platform doesn't have. Only `actionLink` is offered at the integration-type
+//     prompt: the `iframeExtension` choice (previously shown disabled as "coming soon")
+//     was removed 2026-08-19 until iframe authoring is ready, though the upload endpoint
+//     still accepts a hand-edited block — see validateUiApp.
 //
 //     The collected block is the app snapshot the platform stores, verbatim, so there is
 //     no vocabulary translation between what a partner authors and what the platform
@@ -337,9 +337,11 @@ async function promptSurfacePoint(
 }
 
 /**
- * Ask whether the app is a link or an iframe. Only Link (`actionLink`) is selectable —
- * Iframe is rendered as a disabled "coming soon" choice so partners see the roadmap
- * without being able to author a block the kit can't serve yet.
+ * Ask what the app integrates as. Only Link (`actionLink`) is offered — the Iframe
+ * choice (previously a disabled "coming soon" entry) was removed 2026-08-19 until
+ * iframe authoring is ready. The question is still asked with one choice, same as the
+ * gated app-type and distribution prompts: the user is told what they are getting
+ * rather than having it applied silently.
  */
 async function promptIntegrationType(): Promise<UiApp['extension_type']> {
   const { integrationType } = await inquirer.prompt([
@@ -351,11 +353,6 @@ async function promptIntegrationType(): Promise<UiApp['extension_type']> {
         {
           name: messages.APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK,
           value: EXTENSION_TYPE_ACTION_LINK,
-        },
-        {
-          name: messages.APP_CREATE_UI_INTEGRATION_MODAL_IFRAME,
-          value: EXTENSION_TYPE_IFRAME,
-          disabled: messages.APP_CREATE_UI_INTEGRATION_COMING_SOON,
         },
       ]),
     },
