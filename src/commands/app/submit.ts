@@ -9,7 +9,7 @@ import { EXIT_CODES } from '../../lib/exit-codes';
 import { jsonOutput } from '../../lib/json-output';
 import { logDebug, logInfo, logSuccess } from '../../lib/logger';
 import { createSpinner } from '../../lib/ui';
-import { OAuthApp } from '../../types';
+import { AppStateResponse, OAuthApp } from '../../types';
 import { assertCapability, resolveFromRecord, type Distribution } from '../../app-types';
 
 interface SubmitOptions {
@@ -165,17 +165,51 @@ async function resolveAppId(options: SubmitOptions, config: ProjectConfig | null
 }
 
 // Preflight through the canonical review-state read (`brevo app status`'s path)
-// before doing any submit work. Only a failed fetch — network, auth, or a
-// not-found app — blocks the flow; the returned state value is not a gate, so
-// it's read and discarded. A thrown error propagates to the command handler,
-// which aborts the submission.
-async function checkAppStatus(appId: string, silent: boolean | undefined): Promise<void> {
+// before doing any submit work. A failed fetch — network, auth, or a not-found
+// app — propagates to the command handler and aborts the submission. The
+// returned state also carries the submittability signal (BEX-383), consumed by
+// `assertSubmittable` further down.
+async function preflightAppState(
+  appId: string,
+  silent: boolean | undefined,
+): Promise<AppStateResponse> {
   const spinner = createSpinner(messages.APP_SUBMIT_CHECKING_STATUS, { silent });
   try {
-    await appService.fetchAppState(appId);
+    return await appService.fetchAppState(appId);
   } finally {
     spinner.stop();
   }
+}
+
+// Server field keys the state API reports in `missing_fields` (BEX-383) mapped to
+// the labels the CLI already uses for these fields elsewhere (see
+// `computeConfigDrift` / `renderAppSummary`). Unknown keys fall through to the raw
+// key so a server-added field is still shown, just unlabelled.
+const MISSING_FIELD_LABELS: Record<string, string> = {
+  name: 'Name',
+  logoLink: 'Logo URL',
+  distribution_type: 'Distribution',
+  'oauth.scopes': 'Scopes',
+  'oauth.redirectUris': 'Redirect URLs',
+};
+
+function labelForMissingField(key: string): string {
+  return MISSING_FIELD_LABELS[key] ?? key;
+}
+
+// Block a submission the backend would reject for incompleteness. The state API
+// reports `submittable` plus the specific `missing_fields`; only an explicit
+// `false` gates, so an older server that omits the flag still submits (matches the
+// optional type in AppStateResponse). --json gets the compact raw-key message;
+// humans get the labelled multiline list.
+function assertSubmittable(state: AppStateResponse, jsonMode: boolean, appId: string): void {
+  if (state.submittable !== false) return;
+  const fields = state.missing_fields ?? [];
+  if (jsonMode) {
+    throw new CliError(messages.APP_SUBMIT_NOT_SUBMITTABLE(fields, appId));
+  }
+  const diff = fields.map((f) => `  ${labelForMissingField(f)}`).join('\n');
+  throw new CliError(messages.APP_SUBMIT_NOT_SUBMITTABLE_DIFF(diff, appId));
 }
 
 async function fetchExistingApp(appId: string, silent: boolean | undefined): Promise<OAuthApp> {
@@ -197,8 +231,8 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
   const appId = await resolveAppId(options, config);
 
   // Run the status check first — a failed read aborts before we attempt to
-  // submit.
-  await checkAppStatus(appId, options.json);
+  // submit. The response also carries the submittability signal used below.
+  const state = await preflightAppState(appId, options.json);
 
   const app = await fetchExistingApp(appId, options.json);
 
@@ -219,6 +253,10 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     'review-lifecycle',
     messages.APP_SUBMIT_NOT_PUBLIC(appId),
   );
+
+  // Block early when the app is still missing fields required for review (BEX-383),
+  // rather than sending the developer to a form the backend would reject.
+  assertSubmittable(state, !!options.json, appId);
 
   // Tracks whether we actually ran a local-vs-server comparison and it came back
   // clean — only then does the "no mismatch" note make sense to show.

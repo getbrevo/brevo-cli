@@ -75,7 +75,11 @@ describe('app/submit', () => {
     // The status preflight must pass by default so flow tests reach the submit
     // logic; the preflight-failure test overrides this. (clearAllMocks resets
     // call data but not implementations, so re-establish it each test.)
-    (appService.fetchAppState as jest.Mock).mockResolvedValue({ state: 'configured' });
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({
+      state: 'draft',
+      submittable: true,
+      missing_fields: [],
+    });
     // Interactive runs now confirm before opening the form — accept by default
     // so pre-existing flow tests exercise the full path.
     (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ confirmed: true });
@@ -96,7 +100,11 @@ describe('app/submit', () => {
 
   it('runs the status check before opening the submission form', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
-    (appService.fetchAppState as jest.Mock).mockResolvedValue({ state: 'configured' });
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({
+      state: 'draft',
+      submittable: true,
+      missing_fields: [],
+    });
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
     await submitCommand({ appId: '42' });
@@ -286,6 +294,54 @@ describe('app/submit', () => {
     });
 
     await expect(submitCommand({ appId: '42' })).rejects.toThrow('cannot be submitted for review');
+  });
+
+  // ── Submittability gate (BEX-383) ──
+
+  it('blocks and lists the missing fields (labelled) when the app is not submittable', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({
+      state: 'draft',
+      submittable: false,
+      missing_fields: ['logoLink', 'oauth.scopes'],
+    });
+
+    const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("isn't ready to submit");
+    // Server field keys are shown with the CLI's friendly labels.
+    expect((error as Error).message).toContain('Logo URL');
+    expect((error as Error).message).toContain('Scopes');
+    expect((error as Error).message).toContain('brevo app upload');
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('reports the raw missing-field keys in --json mode when not submittable', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({
+      state: 'draft',
+      submittable: false,
+      missing_fields: ['logoLink', 'oauth.scopes'],
+    });
+
+    const error = await submitCommand({ appId: '42', json: true }).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    // --json keeps the compact raw-key form (no label translation).
+    expect((error as Error).message).toContain('logoLink');
+    expect((error as Error).message).toContain('oauth.scopes');
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('still submits when the server omits the submittable flag (older server)', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({ state: 'draft' });
+
+    await submitCommand({ appId: '42' });
+
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
   });
 
   // ── Sync check ──

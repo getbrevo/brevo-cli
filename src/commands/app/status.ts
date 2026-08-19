@@ -27,7 +27,7 @@ function toTone(state: string): StatusTone {
       return 'progress';
     case 'submitted':
       return 'pending';
-    case 'configured':
+    case 'draft':
       return 'info';
     default:
       return 'neutral';

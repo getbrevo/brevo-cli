@@ -119,6 +119,15 @@ export const previewMessages = {
     `Configuration mismatch detected — your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
     `Configuration mismatch detected — your local app-config.json differs from the app on Brevo:\n${diff}\n\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  // Submittability gate (BEX-383). The state API reports which required fields the
+  // app still lacks; block before opening the form so the developer isn't sent to
+  // complete a submission the backend would reject (`422 app_not_submittable`).
+  // Two shapes, matching OUT_OF_SYNC above: compact raw keys for --json, a labelled
+  // multiline list for humans.
+  APP_SUBMIT_NOT_SUBMITTABLE: (fields: string[], appId: string): string =>
+    `Your app isn't ready to submit yet — required fields are still missing (${fields.join(', ')}).\n  Add them to app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_NOT_SUBMITTABLE_DIFF: (diff: string, appId: string): string =>
+    `Your app isn't ready to submit yet — these required fields are still missing:\n${diff}\n\n  Add them to app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_IN_SYNC:
     'No configuration mismatch detected. Showing the submission confirmation prompt with the complete app configuration below.',
   APP_SUBMIT_CONFIRM_HEADER: 'You are about to submit this app for review:',
@@ -145,7 +154,7 @@ export const previewMessages = {
       case '':
       case 'unknown':
         return `Status information isn't available for your app yet. Make sure your app is public and has been uploaded with \`${CLI.APP_UPLOAD}\`.`;
-      case 'configured':
+      case 'draft':
         return "Your app is set up but hasn't been submitted for review yet.";
       case 'submitted':
         return 'Your app has been submitted and is waiting to be reviewed.';

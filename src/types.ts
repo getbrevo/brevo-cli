@@ -331,9 +331,14 @@ export interface OAuthApp {
  * `app_submission_states.state` enum (BEX-318). Kept as a union for reference;
  * `AppStateResponse.state` stays a plain string so a server-added state never
  * breaks the read path — the CLI maps unknown states to a generic message.
+ *
+ * The backend (BEX-382) renamed the initial state `configured` → `draft` (the
+ * server migration renames every existing row, so `configured` no longer appears
+ * on the wire) and made `draft` the state an app enters at creation; this CLI
+ * change (BEX-383) reads the new value.
  */
 export type AppState =
-  | 'configured'
+  | 'draft'
   | 'submitted'
   | 'in_review'
   | 'approved'
@@ -344,6 +349,14 @@ export interface AppStateResponse {
   // Optional: the read path tolerates a missing/empty state and normalizes it
   // to an "unknown" sentinel (see src/commands/app/status.ts).
   state?: string;
+  // Submittability (BEX-383), meaningful only for public apps — the server
+  // computes it from the app's latest snapshot. `submittable` is true exactly
+  // when `missing_fields` is empty; `missing_fields` lists the server field keys
+  // still required (e.g. `logoLink`, `oauth.scopes`). Both are optional so an
+  // older server that omits them is tolerated — `app submit` only gates on an
+  // explicit `submittable === false`.
+  submittable?: boolean;
+  missing_fields?: string[];
 }
 
 /**
