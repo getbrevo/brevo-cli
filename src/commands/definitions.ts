@@ -4,7 +4,7 @@ import { EXAMPLE_APP_ID } from '../lib/constants';
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
 // The gated subcommands are referenced only through this binding, and only from behind
-// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their five handler
+// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their three handler
 // modules — from a published build. Importing any of those handlers directly here would
 // make them live references again and ship the whole surface. See ./preview-definitions.ts.
 import { previewAppCommands } from './preview-definitions';
@@ -21,6 +21,8 @@ import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
+import { appInstallCommand } from './app/install';
+import { appUninstallCommand } from './app/uninstall';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
 
@@ -250,15 +252,85 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           port: opts.port as number | undefined,
         }),
     },
+    // Moved here from ./preview-definitions.ts when UI apps went GA. `requires` stays:
+    // it is the capability the command applies to (UI apps only — see
+    // `src/app-types/capabilities.ts`), and with its `FEATURE_STAGE` row at 'ga' it no
+    // longer hides or refuses anything.
+    {
+      name: 'install',
+      requires: 'account-install',
+      description: 'Install an app into a Brevo account',
+      arguments: [
+        {
+          name: '[account-id]',
+          description: 'Brevo account (tenant) ID (defaults to your own account)',
+        },
+      ],
+      examples: [
+        'brevo app install',
+        'brevo app install 99999',
+        `brevo app install 99999 --app-id ${EXAMPLE_APP_ID}`,
+        'brevo app install 99999 --force --json',
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts, accountId) =>
+        appInstallCommand({
+          accountId: accountId as string | undefined,
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'uninstall',
+      requires: 'account-install',
+      description: 'Uninstall an app from a Brevo account',
+      arguments: [
+        {
+          name: '[account-id]',
+          description: 'Brevo account (tenant) ID (defaults to your own account)',
+        },
+      ],
+      examples: [
+        'brevo app uninstall',
+        'brevo app uninstall 99999',
+        `brevo app uninstall 99999 --app-id ${EXAMPLE_APP_ID}`,
+        'brevo app uninstall 99999 --force --json',
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts, accountId) =>
+        appUninstallCommand({
+          accountId: accountId as string | undefined,
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
     // ELIMINATION SITE — the raw global rather than `isFeatureAvailable()` on purpose:
     // esbuild substitutes the global here, folds the ternary to `[]`, and can then drop
-    // `previewAppCommands` and the five handler modules only it imports. Importing the
+    // `previewAppCommands` and the three handler modules only it imports. Importing the
     // constant instead leaves a runtime ternary and ships the whole gated surface. See
     // src/globals.d.ts.
     //
     // Appended, not interleaved, so the spread is one foldable expression. Ordering in
     // `brevo app --help` is unaffected in a public build (there is nothing to order);
-    // a preview build simply lists these five last.
+    // a preview build simply lists these three last.
     ...(__BREVO_PREVIEW__ ? previewAppCommands : []),
   ],
 };

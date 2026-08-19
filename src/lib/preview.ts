@@ -1,11 +1,13 @@
 /**
  * The pre-GA gate (BEX-405).
  *
- * Public app distribution and UI apps are built in this repo but **not live on the
- * Brevo platform**. The published package must not expose either: not in help, not to
- * a direct invocation, and — because the guard is applied at build time — not in the
- * shipped code at all. `scripts/build.mjs` eliminates every gated branch and
- * tree-shakes the command modules only those branches referenced.
+ * Public app distribution is built in this repo but **not live on the Brevo
+ * platform**. The published package must not expose it: not in help, not to a direct
+ * invocation, and — because the guard is applied at build time — not in the shipped
+ * code at all. `scripts/build.mjs` eliminates every gated branch and tree-shakes the
+ * command modules only those branches referenced. (UI apps — the *UI app* create
+ * choice and `app install` / `app uninstall` — went GA and ship in every build; their
+ * rows below are flipped to `'ga'` and their modules are referenced live.)
  *
  * ## Why this has no runtime escape hatch
  *
@@ -19,9 +21,9 @@
  *
  * That also means this is no longer "a guardrail, not a security boundary": there is
  * nothing client-side left to bypass. The Brevo API remains the real authority and
- * refuses both features per account independently (`400 invalid_parameter` on a public
- * create, `403 ui_app_not_enabled` on a UI app), so the two layers are the build and
- * the server, with nothing in between for a user to talk their way past.
+ * refuses the gated feature per account independently (`400 invalid_parameter` on a
+ * public create), so the two layers are the build and the server, with nothing in
+ * between for a user to talk their way past.
  *
  * ## One table, so GA is one edit
  *
@@ -58,9 +60,9 @@ export type FeatureStage = 'ga' | 'preview';
  * gate, so a new command is public unless someone opts it in.
  */
 export const FEATURE_STAGE: Readonly<Record<PreviewFeature, FeatureStage>> = {
-  'account-install': 'preview',
+  'account-install': 'ga',
   'review-lifecycle': 'preview',
-  'ui-app-type': 'preview',
+  'ui-app-type': 'ga',
   'public-distribution': 'preview',
 } as const;
 

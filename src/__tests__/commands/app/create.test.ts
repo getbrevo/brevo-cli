@@ -2450,11 +2450,10 @@ describe('app/create', () => {
       ).rejects.not.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
     });
 
-    // The question is asked in every build; only the *choices* are gated. A gated
-    // build offering one app type still names it, rather than applying it silently —
-    // so the flow reads the same everywhere and the user is told what they're getting.
-    // What must never appear is the withheld choice itself.
-    it('asks for the app type, offering only OAuth, and creates an OAuth app', async () => {
+    // The question is asked in every build. UI apps are GA, so the published build
+    // offers both app types — the choices no longer differ between builds; only the
+    // distribution question below still withholds its gated value.
+    it('asks for the app type, offering OAuth and UI app alike', async () => {
       mockPrompt.mockResolvedValue({ appType: 'oauth', redirectUrl: '', logoUrl: '' });
 
       await createCommand({ name: 'Test App', distribution: 'private' });
@@ -2464,14 +2463,12 @@ describe('app/create', () => {
         .find((question) => question?.name === 'appType');
       expect(appTypeQuestion).toBeDefined();
       // Labels are trimmed before comparing — `indentChoices` pads them into the CLI's
-      // output gutter. This matters for more than tidiness here: the withheld-choice
-      // assertion below is a `not.toContain`, which an unnoticed indent would satisfy
-      // vacuously, quietly turning the gate's own test green for the wrong reason.
+      // output gutter.
       const labels = appTypeQuestion.choices.map((choice: { name: string }) => choice.name.trim());
-      expect(labels).toEqual([messages.APP_CREATE_APP_TYPE_OAUTH]);
-      expect(labels).not.toContain(messages.APP_CREATE_APP_TYPE_UI);
+      expect(labels).toEqual([messages.APP_CREATE_APP_TYPE_OAUTH, messages.APP_CREATE_APP_TYPE_UI]);
       expect(appTypeQuestion.choices.map((choice: { value: string }) => choice.value)).toEqual([
         'oauth',
+        'ui',
       ]);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];

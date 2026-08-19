@@ -74,6 +74,14 @@ function formatRootHelp(description: string): string {
     `  brevo app delete            [--app-id <id>] [--force] [--json]`,
     `                                                        Delete an app`,
     ``,
+    // GA (UI apps shipped): rendered in every build, no gate. The wrapper this section
+    // sat behind before GA is the one still on the review-lifecycle block below.
+    `App-install commands (UI apps only):`,
+    `  brevo app install           [account-id] [--app-id <id>] [--force] [--json]`,
+    `                                                        Install an app into an account`,
+    `  brevo app uninstall         [account-id] [--app-id <id>] [--force] [--json]`,
+    `                                                        Uninstall an app from an account`,
+    ``,
     // ELIMINATION SITE — `__BREVO_PREVIEW__` wraps the call rather than living inside a
     // helper, because an array passed as a function *argument* is still evaluated: a
     // `previewOnlySection(feature, [...])` helper left every one of these lines in the
@@ -83,19 +91,10 @@ function formatRootHelp(description: string): string {
     // **The build flag is therefore the outer authority for help text, above
     // `FEATURE_STAGE`.** At GA that is a trap — flipping a row to `'ga'` is not enough,
     // since a published build still has `__BREVO_PREVIEW__ === false` and would keep
-    // hiding the restored section. The wrapper must be removed by hand at the same time;
+    // hiding the restored section. The wrapper must be removed by hand at the same time
+    // (exactly what happened to the App-install section above at UI-apps GA);
     // `RELEASE-CHECKLIST.md` lists it, alongside the identical trap in
     // `commands/preview-definitions.ts`.
-    ...(__BREVO_PREVIEW__
-      ? gatedSection('account-install', [
-          `App-install commands (UI apps only):`,
-          `  brevo app install           [account-id] [--app-id <id>] [--force] [--json]`,
-          `                                                        Install an app into an account`,
-          `  brevo app uninstall         [account-id] [--app-id <id>] [--force] [--json]`,
-          `                                                        Uninstall an app from an account`,
-          ``,
-        ])
-      : []),
     ...(__BREVO_PREVIEW__
       ? gatedSection('review-lifecycle', [
           `App-review commands (public apps only):`,
