@@ -28,12 +28,16 @@ import {
   uploadApp,
 } from './core';
 
-// Every state src/lang/en.ts (APP_STATUS_MESSAGE) has canned copy for, plus the
-// 'unknown' sentinel status.ts normalises an empty state to. An unrecognised
-// value means the server grew a state the CLI doesn't describe yet.
+// Every state APP_STATUS_MESSAGE (src/lang/preview-messages.ts) has canned copy
+// for, plus the 'unknown' sentinel status.ts normalises an empty state to. An
+// unrecognised value means the server grew a state the CLI doesn't describe yet.
+//
+// BEX-382 renamed the initial state `configured` → `draft` on the wire (the
+// server migration renames every existing row, so `configured` no longer
+// appears — a clean rename with no alias), and BEX-383 reads the new value.
 const KNOWN_REVIEW_STATES = [
   'unknown',
-  'configured',
+  'draft',
   'submitted',
   'in_review',
   'approved',

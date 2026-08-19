@@ -240,6 +240,20 @@ describe('services/app', () => {
       expect(mockClient.get).toHaveBeenCalledWith(`/v3/app-store/apps/${UUID}/state`);
     });
 
+    it('should pass through the submittability fields (BEX-383)', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue({
+        state: 'draft',
+        submittable: false,
+        missing_fields: ['logoLink', 'oauth.scopes'],
+      });
+      const result = await service.fetchAppState('42');
+      expect(result).toEqual({
+        state: 'draft',
+        submittable: false,
+        missing_fields: ['logoLink', 'oauth.scopes'],
+      });
+    });
+
     it('should map a 404 to an app-not-found CliError', async () => {
       const { ApiError } = jest.requireActual('../../lib/errors');
       (mockClient.get as jest.Mock).mockRejectedValue(new ApiError('nope', 404));

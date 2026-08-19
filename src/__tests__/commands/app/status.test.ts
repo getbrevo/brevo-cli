@@ -70,7 +70,7 @@ describe('app/status', () => {
   it('should prompt the app picker when no flag and no config', async () => {
     mockReadProjectConfig.mockReturnValue(null);
     mockPickApp.mockResolvedValue('88');
-    mockFetchAppState.mockResolvedValue({ state: 'configured' });
+    mockFetchAppState.mockResolvedValue({ state: 'draft' });
 
     await statusCommand({});
 
@@ -85,6 +85,18 @@ describe('app/status', () => {
     await statusCommand({ appId: '42' });
 
     expect(mockFetchAppState).toHaveBeenCalledWith('42');
+  });
+
+  it('should render the draft state with an info tone and canned copy', async () => {
+    mockFetchAppState.mockResolvedValue({ state: 'draft' });
+
+    await statusCommand({ appId: '42' });
+
+    const out = output();
+    expect(out).toContain('Draft');
+    expect(out).toContain("hasn't been submitted for review yet");
+    // The info tone renders a diamond glyph.
+    expect(out).toContain('◇');
   });
 
   it('should render the changes_requested canned copy', async () => {
