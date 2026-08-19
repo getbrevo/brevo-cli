@@ -133,11 +133,13 @@ export type ExtensionKind = 'widget' | 'action';
 export interface SurfacePointEntry {
   /**
    * The registry's `surface_point_name` slug for the slot — e.g.
-   * `contact-details-header-menu`. Named for the registry COLUMN it must match, which is
+   * `contactDetails.header.menu`. Named for the registry COLUMN it must match, which is
    * the point of the field name: the entry key and the `WHERE` clause read the same.
    *
-   * NOT the dotted `<location>.<place>.<kind>` name of the BEX-350 grammar
-   * (`contactDetails.headerMenu.action`). Both identify the same registry row, 1:1, and
+   * NOT the `<location>.<place>.<kind>` name of the BEX-350 grammar
+   * (`contactDetails.headerMenu.action`). The slug is dotted too since the rename away
+   * from kebab-case (`contact-details-header-menu`), which makes the two easier than
+   * ever to confuse. Both identify the same registry row, 1:1, and
    * both travel under names built from the words "surface point" — but only the slug is
    * authorable. The platform resolves an authored entry with
    * `WHERE surface_point_name = ANY(...)` and then serves that row's dotted
@@ -150,6 +152,56 @@ export interface SurfacePointEntry {
    */
   surface_point_name: string;
   context?: string[];
+  /**
+   * The entry's own text: the menu entry's label on an `.action` slot, the card's CTA
+   * button text on a `.widget` slot. Per placement since BEX-426 — an app on three slots
+   * can label each differently. Required in practice (`validateUiApp` refuses an empty
+   * one on every entry) but optional at the type level because the read path tolerates
+   * a partial block.
+   */
+  label?: string;
+  /**
+   * Supporting text: the menu entry's `subText`, the card's description. Optional —
+   * the kit renders it only when set. Per placement since BEX-426.
+   */
+  more_info?: string;
+  /**
+   * Destination for an `actionLink` — per placement since BEX-426, because a different
+   * slot usually wants a different deep link. Required on every entry of an `actionLink`
+   * app; refused on an `iframeExtension` (see the validator for why the two URLs cannot
+   * coexist).
+   */
+  redirect_link?: string;
+  /**
+   * `iframeExtension` only — the URL the modal embeds. Per placement since BEX-426.
+   * Refused on an `actionLink`, where the kit would silently drop it.
+   */
+  modal_iframe_url?: string;
+  /**
+   * Where THIS entry's `redirect_link` opens. It followed the CTA fields off the block
+   * root because it qualifies a per-entry destination — a root value could only ever say
+   * one thing about every slot.
+   *
+   * Still NOT authored into `app-config.json`: `brevo app upload` injects `_blank` onto
+   * each `actionLink` entry, `brevo app create` never writes it, and the write-back strips
+   * it back out. On the type because the payload carries it and the server now echoes it
+   * per entry. Absent on an `iframeExtension` entry, which embeds its URL rather than
+   * navigating to it.
+   */
+  link_target?: LinkTarget;
+  /**
+   * Optional card size for the widget card THIS placement renders, at the same level
+   * as `context` for the same reason: per placement, so two slots can size their cards
+   * differently. Each axis is a CSS length string — "<positive integer>px" sizes the axis
+   * absolutely, "<1-100>%" sizes it relative to the host slot's box. At least one axis is
+   * required when the object is authored at all; an omitted axis stays on the host slot's
+   * default.
+   *
+   * A request to SHRINK, never to grow: the record page clamps the card to its column
+   * (max-width 100%), so this can reduce the card's footprint but never overflow the host
+   * layout. Absent means the host slot's default size applies entirely (BEX-416).
+   */
+  size?: { width?: string; height?: string };
 }
 
 /**
@@ -179,9 +231,9 @@ export interface SurfacePointRow {
    */
   extension_point_name: string;
   /**
-   * The registry's own identifier for the slot — a kebab-case SLUG
-   * (`contact-details-header-menu`), NOT display text. Never render it to a partner: the
-   * prompt labels come from `EXTENSION_PLACE_LABELS` in `lib/constants.ts`.
+   * The registry's own identifier for the slot — an authoring SLUG
+   * (`contactDetails.header.menu`), NOT display text. Never render it to a partner: the
+   * prompt labels each row as `section_name — component_type`, the registry's own values.
    *
    * This is the AUTHORING identity: the value `app create` writes into a
    * `surface_point_list` entry — under this same key, which is the point — and the only
@@ -225,6 +277,13 @@ export interface RawSurfacePointRow extends Partial<SurfacePointRow> {
   place?: string;
   kind?: string;
   supported_extension_types?: string[];
+  /**
+   * What the endpoint actually serves since BEX-422: the `extension_type` values currently
+   * authorable on the slot (the registry's `enabled_extension_types` column — never empty
+   * on the wire, a slot with an empty list is disabled and not served at all). Normalized
+   * onto `extension_type_list`, the CLI's own field for the same fact.
+   */
+  enabled_extension_types?: string[];
 }
 
 /** Wire shape of GET /v3/app-store/surface-points (BEX-361). */
@@ -256,42 +315,14 @@ export interface UiApp {
    */
   surface_point_list: SurfacePointEntry[];
   /**
-   * The app's own text: the menu entry's label on an `.action` slot, the card's CTA
-   * button text on a `.widget` slot. Required in practice — `validateUiApp` refuses an
-   * empty one — but optional at the type level because the read path tolerates a
-   * partial block (the backend degrades a malformed snapshot rather than erroring).
+   * NOTE (BEX-426): `label`, `more_info`, `redirect_link`, `modal_iframe_url` and
+   * `link_target` are deliberately NOT fields of this block any more — they live on each
+   * `surface_point_list` entry, so two placements can carry different copy, different
+   * destinations and their own link target. `validateUiApp` refuses the root spellings by
+   * name with a migration hint, and so does the server (`supersededUIAppKeys`). Only
+   * `extension_type` (the validation-spec selector for the whole block) and the
+   * server-managed `version` below stay at the root.
    */
-  label?: string;
-  /**
-   * Supporting text: the menu entry's `subText` on an `.action` slot, the card's
-   * description on a `.widget` slot. Optional — the kit renders it only when set.
-   *
-   * Not a hover tooltip: `ActionListItem` in the design system destructures a fixed
-   * prop list with no rest-spread, so a native `title` attribute never reaches the DOM.
-   * It is always-visible second-line text, which is also the accessible choice.
-   */
-  more_info?: string;
-  /**
-   * Destination for an `actionLink`. Non-http(s) values are dropped by the kit.
-   * Refused on an `iframeExtension`: the widget-card path opens `modal_iframe_url`
-   * while the header-menu path routes on `redirect_link` first, so an app carrying
-   * both behaves differently depending on which slot renders it.
-   */
-  redirect_link?: string;
-  /**
-   * `actionLink` only, and NOT authored into `app-config.json` (BEX-290): `brevo app
-   * upload` injects `_blank` into the payload, and `brevo app create` never writes it.
-   * There was never a choice to make — the server refuses `_self` — so a field in the
-   * file only invited a partner to edit it into a value that 400s.
-   *
-   * Still on the type for two reasons: the upload payload carries it, and the server's
-   * `ui_app` echo may carry it back. The write-back strips it so it cannot creep back
-   * into the file, and the upload diff ignores it so its presence server-side is not
-   * reported as local drift.
-   */
-  link_target?: LinkTarget;
-  /** `iframeExtension` only — dropped by the kit for any other type. */
-  modal_iframe_url?: string;
   /** Snapshot version, surfaced at the manifest item root. Server-managed. */
   version?: string;
 }
@@ -443,9 +474,10 @@ export interface UploadAppResponse {
   // the server normalized. Tolerated as absent: server builds that accept the
   // block on write but don't return it leave the locally-sent block in place.
   //
-  // `link_target` is stripped from this echo before the write-back (BEX-290) —
-  // the server defaults it to `_blank`, and the CLI deliberately stopped
-  // authoring it, so echoing it straight through would silently re-add to
+  // Each entry's `link_target` is stripped from this echo before the write-back
+  // (BEX-290, moved per entry by BEX-426) — the server defaults it to `_blank`
+  // and echoes it on every `actionLink` entry, and the CLI deliberately does not
+  // author it, so echoing it straight through would silently re-add to
   // app-config.json the one field the file is not supposed to carry.
   ui_app?: UiApp;
 }

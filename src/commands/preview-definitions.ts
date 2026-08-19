@@ -17,10 +17,11 @@
  * when it empties. See `RELEASE-CHECKLIST.md`.
  */
 import type { CommandDefinition } from '../lib/command-registry';
+import { EXAMPLE_APP_ID } from '../lib/constants';
 import { parseAppId } from '../lib/validators';
 
-import { deployCommand } from './app/deploy';
-import { rollbackCommand } from './app/rollback';
+import { appInstallCommand } from './app/install';
+import { appUninstallCommand } from './app/uninstall';
 import { statusCommand } from './app/status';
 import { submitCommand } from './app/submit';
 import { withdrawCommand } from './app/withdraw';
@@ -33,8 +34,8 @@ export const previewAppCommands: CommandDefinition[] = [
     description: "Show an app's review status",
     examples: [
       'brevo app status',
-      'brevo app status --app-id 42',
-      'brevo app status --app-id 42 --json',
+      `brevo app status --app-id ${EXAMPLE_APP_ID}`,
+      `brevo app status --app-id ${EXAMPLE_APP_ID} --json`,
     ],
     options: [
       {
@@ -48,9 +49,9 @@ export const previewAppCommands: CommandDefinition[] = [
       statusCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
   },
   {
-    name: 'deploy',
+    name: 'install',
     requires: 'account-install',
-    description: 'Make an app available in a Brevo account',
+    description: 'Install an app into a Brevo account',
     arguments: [
       {
         name: '[account-id]',
@@ -58,10 +59,10 @@ export const previewAppCommands: CommandDefinition[] = [
       },
     ],
     examples: [
-      'brevo app deploy',
-      'brevo app deploy 99999',
-      'brevo app deploy 99999 --app-id 42',
-      'brevo app deploy 99999 --force --json',
+      'brevo app install',
+      'brevo app install 99999',
+      `brevo app install 99999 --app-id ${EXAMPLE_APP_ID}`,
+      'brevo app install 99999 --force --json',
     ],
     options: [
       {
@@ -73,7 +74,7 @@ export const previewAppCommands: CommandDefinition[] = [
       { flags: '--json', description: 'Output as JSON' },
     ],
     handler: (opts, accountId) =>
-      deployCommand({
+      appInstallCommand({
         accountId: accountId as string | undefined,
         appId: opts.appId as string | undefined,
         force: Boolean(opts.force),
@@ -81,9 +82,9 @@ export const previewAppCommands: CommandDefinition[] = [
       }),
   },
   {
-    name: 'rollback',
+    name: 'uninstall',
     requires: 'account-install',
-    description: 'Roll back an app from a Brevo account',
+    description: 'Uninstall an app from a Brevo account',
     arguments: [
       {
         name: '[account-id]',
@@ -91,10 +92,10 @@ export const previewAppCommands: CommandDefinition[] = [
       },
     ],
     examples: [
-      'brevo app rollback',
-      'brevo app rollback 99999',
-      'brevo app rollback 99999 --app-id 42',
-      'brevo app rollback 99999 --force --json',
+      'brevo app uninstall',
+      'brevo app uninstall 99999',
+      `brevo app uninstall 99999 --app-id ${EXAMPLE_APP_ID}`,
+      'brevo app uninstall 99999 --force --json',
     ],
     options: [
       {
@@ -106,7 +107,7 @@ export const previewAppCommands: CommandDefinition[] = [
       { flags: '--json', description: 'Output as JSON' },
     ],
     handler: (opts, accountId) =>
-      rollbackCommand({
+      appUninstallCommand({
         accountId: accountId as string | undefined,
         appId: opts.appId as string | undefined,
         force: Boolean(opts.force),
@@ -128,9 +129,9 @@ export const previewAppCommands: CommandDefinition[] = [
     hidden: true,
     description: 'Withdraw an app from submission',
     examples: [
-      'brevo app withdraw --app-id 42',
-      'brevo app withdraw --app-id 42 --force',
-      'brevo app withdraw --app-id 42 --json',
+      `brevo app withdraw --app-id ${EXAMPLE_APP_ID}`,
+      `brevo app withdraw --app-id ${EXAMPLE_APP_ID} --force`,
+      `brevo app withdraw --app-id ${EXAMPLE_APP_ID} --json`,
     ],
     options: [
       {
@@ -154,8 +155,8 @@ export const previewAppCommands: CommandDefinition[] = [
     description: 'Submit a public app for review',
     examples: [
       'brevo app submit',
-      'brevo app submit --app-id 42',
-      'brevo app submit --app-id 42 --json',
+      `brevo app submit --app-id ${EXAMPLE_APP_ID}`,
+      `brevo app submit --app-id ${EXAMPLE_APP_ID} --json`,
     ],
     options: [
       {

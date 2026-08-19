@@ -79,7 +79,7 @@ Or step by step:
    ```bash
    brevo app list
    brevo app create --name "My App" --distribution private
-   brevo app scaffold --app-id 42
+   brevo app scaffold --app-id 3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93
    brevo app start oauth --port 3000
    ```
 

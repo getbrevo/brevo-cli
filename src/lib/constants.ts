@@ -114,8 +114,8 @@ export const ENDPOINTS = {
   ACCOUNT: '/v3/account/info',
   // Sub-accounts of a master (corporate) account — `{ count, subAccounts: [...] }`.
   // `offset` and `limit` are both required (there is no "return everything" call),
-  // so `count` is the paging terminator. `app deploy` / `app rollback` read this to
-  // resolve a deploy target when no <account-id> was given.
+  // so `count` is the paging terminator. `app install` / `app uninstall` read this to
+  // resolve a target account when no <account-id> was given.
   CORPORATE_SUB_ACCOUNTS: '/v3/corporate/subAccount',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
@@ -132,14 +132,15 @@ export const ENDPOINTS = {
   //
   // Both verbs take the same body — `client_id` (the *caller's* organization ID,
   // which the server uses to resolve the app, and which it falls back to as the
-  // install target), `deploy_client_id` (the numeric account being deployed to),
-  // `name`, `is_developer`. Note the `deploy` / `rollback` *commands* are named
-  // for the partner-facing verb, not the resource; the resource is an install.
+  // install target), `deploy_client_id` (the numeric account being installed into),
+  // `name`, `is_developer`. The `install` / `uninstall` *commands* are named for
+  // the resource itself; `deploy_client_id` is the one wire field that still
+  // carries the old server-side vocabulary — never rename it.
   //
   // DELETE resolves the install from this body rather than from an installation ID
   // (BEX-364) — the developer never sees one — so it answers 404 both for an unknown
-  // app and for an install that isn't there. `app rollback` reads either as
-  // "not deployed"; see the comment on its catch block.
+  // app and for an install that isn't there. `app uninstall` reads either as
+  // "not installed"; see the comment on its catch block.
   APP_STORE_APP_INSTALLS: (appId: string) =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/installs`,
   APP_STORE_SURFACE_POINTS: '/v3/app-store/surface-points',
@@ -151,6 +152,19 @@ export const ENDPOINTS = {
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
+
+/**
+ * The app ID shown in `--help` examples.
+ *
+ * A UUID, because that is what an app ID is: `app create` issues one and `app-config.json`
+ * stores it. The examples used to say `42`, which is short and copy-pasteable and reads as
+ * a database row — so the first thing a user learned about `--app-id` was the wrong shape,
+ * and every command taught it the same way. One constant so the eight commands that take
+ * the flag cannot drift into showing two different shapes.
+ *
+ * Deliberately not a real app ID (see the public-repo rules in `CLAUDE.md`).
+ */
+export const EXAMPLE_APP_ID = '3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93';
 
 export const CLI = {
   LOGIN: 'brevo login',
@@ -176,10 +190,10 @@ export const CLI = {
   APP_UPLOAD: 'brevo app upload',
   // The account ID is optional — omitted, both commands resolve the target from the
   // authenticated account. The no-argument form is the one to show in guidance copy.
-  APP_DEPLOY: (accountId?: string) =>
-    accountId ? `brevo app deploy ${accountId}` : 'brevo app deploy',
-  APP_ROLLBACK: (accountId?: string) =>
-    accountId ? `brevo app rollback ${accountId}` : 'brevo app rollback',
+  APP_INSTALL: (accountId?: string) =>
+    accountId ? `brevo app install ${accountId}` : 'brevo app install',
+  APP_UNINSTALL: (accountId?: string) =>
+    accountId ? `brevo app uninstall ${accountId}` : 'brevo app uninstall',
   APP_DELETE: 'brevo app delete',
   APP_WITHDRAW: (appId?: string) =>
     appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
@@ -237,41 +251,18 @@ export const DEFAULT_SCOPES: readonly string[] = [
  */
 
 /**
- * The `kind` segment. Both extension types render on both kinds — a widget slot gets a
- * card, an action slot a menu entry — so kind is a placement choice, not a consequence
- * of the extension type.
- */
-export const EXTENSION_KIND_ACTION = 'action';
-export const EXTENSION_KIND_WIDGET = 'widget';
-
-/**
- * Friendly labels for the placement prompt — partners think in page regions, the wire
- * wants the `place` segment (served as `section_name`).
+ * There is deliberately no friendly-name map for record pages OR for placements, and no
+ * default page.
  *
- * These are CLI-OWNED and stay that way. An earlier version of this comment claimed they
- * mirror `extension_points.surface_point_name`, "the platform's own display text" — that
- * is false: the seeded values of that column are kebab-case slugs
- * (`contact-details-header-menu`), so rendering them to a partner would be worse than
- * these. The registry exposes no display-name column, so until it does, this map is the
- * only source of partner-facing placement labels.
- */
-export const EXTENSION_PLACE_LABELS: Readonly<Record<string, string>> = {
-  headerMenu: 'Header "More" (•••) menu',
-  overviewMain: 'Main column',
-  overviewSidebar: 'Sidebar',
-  overviewAttributes: 'Attributes panel',
-} as const;
-
-/**
- * There is deliberately no friendly-name map for record pages, and no default page.
- *
- * `app create`'s record-page prompt shows the registry's own `location_name` values
- * verbatim (`contactDetails`, …) and pre-selects none of them. A local `contact →
- * contactDetails` map used to sit here: it gave every page a second, CLI-owned name that
- * had to be kept in step with the platform, needed a strip-`Details` guess for any page
- * the map didn't know, and let the prompt show something the API never said. Do not
- * reintroduce it. `EXTENSION_PLACE_LABELS` above is not a counter-example: it labels a
- * fixed segment of the BEX-350 grammar, not a server-supplied identifier.
+ * `app create`'s prompts show the registry's own values verbatim: `location_name`
+ * (`contactDetails`, …) for the page, then `section_name — component_type`
+ * (`headerMenu — action`) for the placement on it. Two local maps used to sit here — a
+ * `contact → contactDetails` page map, and an `EXTENSION_PLACE_LABELS` placement map that
+ * rendered `headerMenu` as `Header "More" (•••) menu` and the kind segment as
+ * `menu entry` / `card`. Both are gone for the same reason: each gave a server-supplied
+ * identifier a second, CLI-owned name that had to be kept in step with the platform,
+ * needed a guess for anything the map didn't know (so the prompt mixed two vocabularies),
+ * and let the prompt show something the API never said. Do not reintroduce either.
  */
 
 /**

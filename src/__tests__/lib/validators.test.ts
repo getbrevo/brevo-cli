@@ -340,48 +340,100 @@ describe('parseAccountId', () => {
 const VALID_POINT = 'contact-details-header-menu';
 
 describe('validateUiApp', () => {
-  // The BEX-290 block: `surface_point_list` is a list of objects, the two text fields are
-  // `label`/`more_info`, and `link_target` is not authored (upload injects it).
-  const VALID = {
-    extension_type: 'actionLink',
-    surface_point_list: [
-      { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
-    ],
+  // One well-formed entry: the CTA fields live per placement (BEX-426), so a complete
+  // entry carries its own label, supporting text and destination beside its context.
+  const ENTRY = {
+    surface_point_name: 'contact-details-header-menu',
+    context: ['recordId'],
     label: 'View in CRM',
     more_info: 'Open this contact in your connected CRM to see full activity history.',
     redirect_link: 'https://example.com/brevo',
   };
+
+  // The BEX-426 block: `surface_point_list` is a list of objects each carrying its own
+  // CTA fields; the root holds only `extension_type`. `link_target` is not authored at all
+  // — upload injects it onto each entry — so no fixture carries one.
+  const VALID = {
+    extension_type: 'actionLink',
+    surface_point_list: [ENTRY],
+  };
+
+  /** The valid block with its single entry's fields overridden (or removed via undefined). */
+  const withEntry = (overrides: Record<string, unknown>) => ({
+    ...VALID,
+    surface_point_list: [{ ...ENTRY, ...overrides }],
+  });
 
   it('accepts a well-formed action link', () => {
     expect(() => validateUiApp(VALID)).not.toThrow();
   });
 
   it('accepts one without more_info or a per-entry context', () => {
-    const { more_info: _m, ...rest } = VALID;
     expect(() =>
-      validateUiApp({
-        ...rest,
-        surface_point_list: [{ surface_point_name: 'contact-details-header-menu' }],
-      }),
+      validateUiApp(withEntry({ more_info: undefined, context: undefined })),
     ).not.toThrow();
   });
 
-  // Tolerated rather than rejected: a leftover `_blank` in a hand-edited file is exactly
-  // what upload injects anyway, so failing on it would be pedantry.
-  it('accepts a leftover _blank link_target', () => {
-    expect(() => validateUiApp({ ...VALID, link_target: '_blank' })).not.toThrow();
+  // Tolerated rather than rejected: a leftover `_blank` on an entry in a hand-edited file
+  // is exactly what upload injects there anyway, so failing on it would be pedantry.
+  it('accepts a leftover _blank link_target on an entry', () => {
+    expect(() => validateUiApp(withEntry({ link_target: '_blank' }))).not.toThrow();
   });
 
-  it('accepts several action slots', () => {
+  // The root spelling is a different matter: it moved with the CTA fields (BEX-426) and the
+  // server refuses it by name, so a leftover root value has to be named rather than ignored.
+  // The hint says "remove it", not "move it" — the CLI never wants this field in the file.
+  it('refuses a root link_target with a remove-it hint', () => {
+    expect(() => validateUiApp({ ...VALID, link_target: '_blank' })).toThrow(
+      /ui_app\.link_target moved onto each surface_point_list entry.*Remove it from the file/s,
+    );
+  });
+
+  // Two slots, and each carries its OWN copy and destination — the whole point of the
+  // per-entry move: a deal page can open a different deep link than a contact page.
+  it('accepts several action slots with differing labels and links', () => {
     expect(() =>
       validateUiApp({
         ...VALID,
         surface_point_list: [
-          { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
-          { surface_point_name: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
+          ENTRY,
+          {
+            surface_point_name: 'deal-details-header-menu',
+            context: ['recordId', 'recordName'],
+            label: 'View deal in CRM',
+            redirect_link: 'https://example.com/deals',
+          },
         ],
       }),
     ).not.toThrow();
+  });
+
+  it('accepts an entry-level size beside context (BEX-416)', () => {
+    expect(() =>
+      validateUiApp({
+        ...VALID,
+        surface_point_list: [
+          { ...ENTRY, size: { width: '280px', height: '160px' } },
+          {
+            surface_point_name: 'deal-details-header-menu',
+            label: 'View in CRM',
+            redirect_link: 'https://example.com/brevo',
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  // A single-axis size is valid — the omitted axis stays on the host slot's default — and
+  // % sizes the axis relative to the host slot's box (1-100).
+  it('accepts a single-axis percentage size (BEX-416)', () => {
+    expect(() => validateUiApp(withEntry({ size: { height: '50%' } }))).not.toThrow();
+  });
+
+  // Both axes are optional, so an empty size object is valid too — it authors nothing and
+  // the server stores it as no size at all, same as omitting the key.
+  it('accepts an empty size object (BEX-416)', () => {
+    expect(() => validateUiApp(withEntry({ size: {} }))).not.toThrow();
   });
 
   // The handover to the server, asserted so it cannot be undone by accident: an
@@ -390,10 +442,7 @@ describe('validateUiApp', () => {
   // allow-list would fail this test.
   it('passes an unregistered slot name through for the server to reject', () => {
     expect(() =>
-      validateUiApp({
-        ...VALID,
-        surface_point_list: [{ surface_point_name: 'contact.header.action' }],
-      }),
+      validateUiApp(withEntry({ surface_point_name: 'contact.header.action' })),
     ).not.toThrow();
   });
 
@@ -403,53 +452,59 @@ describe('validateUiApp', () => {
     ['a missing extension_type', { ...VALID, extension_type: undefined }],
     ['an empty surface_point_list', { ...VALID, surface_point_list: [] }],
     ['a missing surface_point_list', { ...VALID, surface_point_list: undefined }],
-    ['a blank point', { ...VALID, surface_point_list: [{ surface_point_name: '   ' }] }],
-    ['a missing point', { ...VALID, surface_point_list: [{ context: ['recordId'] }] }],
+    ['a blank point', withEntry({ surface_point_name: '   ' })],
+    ['a missing point', withEntry({ surface_point_name: undefined })],
     [
       'duplicate points',
-      {
-        ...VALID,
-        surface_point_list: [
-          { surface_point_name: 'contact-details-header-menu' },
-          { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
-        ],
-      },
+      { ...VALID, surface_point_list: [ENTRY, { ...ENTRY, context: undefined }] },
     ],
-    ['an empty label', { ...VALID, label: '  ' }],
-    ['a missing label', { ...VALID, label: undefined }],
-    ['an over-long label', { ...VALID, label: 'x'.repeat(49) }],
-    ['an over-long more_info', { ...VALID, more_info: 'x'.repeat(256) }],
-    ['a missing redirect_link', { ...VALID, redirect_link: undefined }],
-    ['an insecure redirect_link', { ...VALID, redirect_link: 'http://example.com' }],
-    ['an unknown link_target', { ...VALID, link_target: '_top' }],
+    ['a size that is not an object', withEntry({ size: '280x160' })],
+    ['a unitless size axis', withEntry({ size: { width: '280' } })],
+    [
+      'a numeric size axis (the pre-revision shape)',
+      withEntry({ size: { width: 280, height: 160 } }),
+    ],
+    ['a zero size axis', withEntry({ size: { height: '0px' } })],
+    ['a percentage axis over 100', withEntry({ size: { height: '120%' } })],
+    ['an entry with an empty label', withEntry({ label: '  ' })],
+    ['an entry with a missing label', withEntry({ label: undefined })],
+    ['an entry with an over-long label', withEntry({ label: 'x'.repeat(49) })],
+    ['an entry with an over-long more_info', withEntry({ more_info: 'x'.repeat(256) })],
+    ['an entry with a missing redirect_link', withEntry({ redirect_link: undefined })],
+    ['an entry with an insecure redirect_link', withEntry({ redirect_link: 'http://example.com' })],
+    ['an entry with an unknown link_target', withEntry({ link_target: '_top' })],
     // _self is refused because the server refuses it. Accepting it locally would only
     // move the failure to upload time.
     [
-      'the _self link_target while uploads are pinned to _blank',
-      { ...VALID, link_target: '_self' },
+      "an entry's _self link_target while uploads are pinned to _blank",
+      withEntry({ link_target: '_self' }),
     ],
-    [
-      'a non-array per-entry context',
-      { ...VALID, surface_point_list: [{ surface_point_name: VALID_POINT, context: 'recordId' }] },
-    ],
-    [
-      'an empty per-entry context field name',
-      {
-        ...VALID,
-        surface_point_list: [{ surface_point_name: VALID_POINT, context: ['recordId', ''] }],
-      },
-    ],
-    [
-      'a duplicated per-entry context field name',
-      {
-        ...VALID,
-        surface_point_list: [
-          { surface_point_name: VALID_POINT, context: ['recordId', 'recordId'] },
-        ],
-      },
-    ],
+    ['a non-array per-entry context', withEntry({ context: 'recordId' })],
+    ['an empty per-entry context field name', withEntry({ context: ['recordId', ''] })],
+    ['a duplicated per-entry context field name', withEntry({ context: ['recordId', 'recordId'] })],
   ])('rejects %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(CliError);
+  });
+
+  // A violation must name its entry: "ui_app.redirect_link is required" is useless once
+  // three entries each carry one (the acceptance criterion of BEX-426).
+  it('names the offending entry in per-entry violations', () => {
+    expect(() =>
+      validateUiApp({
+        ...VALID,
+        surface_point_list: [
+          ENTRY,
+          {
+            surface_point_name: 'deal-details-header-menu',
+            label: 'View deal',
+            redirect_link: 'http://example.com',
+          },
+        ],
+      }),
+    ).toThrow(/surface_point_list\["deal-details-header-menu"\]\.redirect_link/);
+    expect(() => validateUiApp(withEntry({ label: ' ' }))).toThrow(
+      /surface_point_list\["contact-details-header-menu"\]\.label/,
+    );
   });
 
   // Widget slots are authorable: the UI kit renders both extension types on both kinds — a
@@ -457,10 +512,7 @@ describe('validateUiApp', () => {
   // enforce here.
   it('accepts a widget slot', () => {
     expect(() =>
-      validateUiApp({
-        ...VALID,
-        surface_point_list: [{ surface_point_name: 'contact-details-overview-main' }],
-      }),
+      validateUiApp(withEntry({ surface_point_name: 'contact-details-overview-main' })),
     ).not.toThrow();
   });
 
@@ -476,15 +528,13 @@ describe('validateUiApp', () => {
   });
 
   it('rejects the renamed heading field with a hint', () => {
-    const { label: _l, ...rest } = VALID;
-    expect(() => validateUiApp({ ...rest, heading: 'View in CRM' })).toThrow(
+    expect(() => validateUiApp({ ...VALID, heading: 'View in CRM' })).toThrow(
       /heading was renamed to ui_app\.label/i,
     );
   });
 
   it('rejects the renamed subheading field with a hint', () => {
-    const { more_info: _m, ...rest } = VALID;
-    expect(() => validateUiApp({ ...rest, subheading: 'Some detail' })).toThrow(
+    expect(() => validateUiApp({ ...VALID, subheading: 'Some detail' })).toThrow(
       /subheading was renamed to ui_app\.more_info/i,
     );
   });
@@ -492,6 +542,20 @@ describe('validateUiApp', () => {
   it('rejects a top-level context, pointing at the per-entry field', () => {
     expect(() => validateUiApp({ ...VALID, context: ['recordId'] })).toThrow(
       /no longer a top-level field/i,
+    );
+  });
+
+  // ──────── The pre-BEX-426 root CTA fields fail with a migration hint too ────────
+  // Hard move, refused by name: a root value silently mirrored onto every entry would be
+  // a second placement for the same fact, and the server refuses these spellings as well.
+  it.each([
+    ['label', 'View in CRM'],
+    ['more_info', 'Some detail'],
+    ['redirect_link', 'https://example.com/brevo'],
+    ['modal_iframe_url', 'https://example.com/embed'],
+  ])('rejects a root-level %s, pointing at the per-entry field', (key, value) => {
+    expect(() => validateUiApp({ ...VALID, [key]: value })).toThrow(
+      new RegExp(`ui_app\\.${key} moved into each surface_point_list entry`),
     );
   });
 
@@ -506,10 +570,10 @@ describe('validateUiApp', () => {
   );
 
   // The UI kit keeps modal_iframe_url only for iframeExtension, so one on an
-  // action link is silently discarded.
-  it('rejects modal_iframe_url on an action link', () => {
+  // action link entry is silently discarded.
+  it('rejects modal_iframe_url on an action link entry', () => {
     expect(() =>
-      validateUiApp({ ...VALID, modal_iframe_url: 'https://example.com/modal' }),
+      validateUiApp(withEntry({ modal_iframe_url: 'https://example.com/modal' })),
     ).toThrow(/only used by/i);
   });
 });
@@ -517,12 +581,21 @@ describe('validateUiApp', () => {
 // iframeExtension became authorable once the UI kit shipped modal rendering on both
 // delivery paths (the modal card layout, and the header-menu action + its modal).
 describe('validateUiApp — iframeExtension', () => {
-  const VALID_IFRAME = {
-    extension_type: 'iframeExtension',
-    surface_point_list: [{ surface_point_name: VALID_POINT, context: ['recordId'] }],
+  const IFRAME_ENTRY = {
+    surface_point_name: VALID_POINT,
+    context: ['recordId'],
     label: 'View in CRM',
     modal_iframe_url: 'https://example.com/embed',
   };
+  const VALID_IFRAME = {
+    extension_type: 'iframeExtension',
+    surface_point_list: [IFRAME_ENTRY],
+  };
+
+  const withIframeEntry = (overrides: Record<string, unknown>) => ({
+    ...VALID_IFRAME,
+    surface_point_list: [{ ...IFRAME_ENTRY, ...overrides }],
+  });
 
   it('accepts a valid iframe extension', () => {
     expect(() => validateUiApp(VALID_IFRAME)).not.toThrow();
@@ -530,32 +603,37 @@ describe('validateUiApp — iframeExtension', () => {
 
   it('accepts a widget slot', () => {
     expect(() =>
-      validateUiApp({
-        ...VALID_IFRAME,
-        surface_point_list: [{ surface_point_name: 'contact-details-overview-main' }],
-      }),
+      validateUiApp(withIframeEntry({ surface_point_name: 'contact-details-overview-main' })),
     ).not.toThrow();
   });
 
   it.each([
-    ['a missing modal_iframe_url', { ...VALID_IFRAME, modal_iframe_url: undefined }],
-    ['an insecure modal_iframe_url', { ...VALID_IFRAME, modal_iframe_url: 'http://example.com' }],
-    ['an empty label', { ...VALID_IFRAME, label: ' ' }],
-  ])('rejects %s', (_label, block) => {
+    ['a missing modal_iframe_url', withIframeEntry({ modal_iframe_url: undefined })],
+    ['an insecure modal_iframe_url', withIframeEntry({ modal_iframe_url: 'http://example.com' })],
+    ['an empty label', withIframeEntry({ label: ' ' })],
+  ])('rejects an entry with %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(CliError);
   });
 
   // The two delivery paths disagree about which URL wins when both are set: the card path
   // pairs strictly by extension_type and opens the modal, while the header-menu path routes
-  // on redirect_link first and never opens it. Same app, different behaviour per slot.
-  it('rejects redirect_link alongside modal_iframe_url', () => {
+  // on redirect_link first and never opens it. Same entry, different behaviour per slot kind.
+  it('rejects redirect_link alongside modal_iframe_url on an entry', () => {
     expect(() =>
-      validateUiApp({ ...VALID_IFRAME, redirect_link: 'https://example.com/go' }),
+      validateUiApp(withIframeEntry({ redirect_link: 'https://example.com/go' })),
     ).toThrow(/cannot be combined/i);
   });
 
-  // link_target governs where a redirect opens; a modal embeds its URL instead.
-  it('rejects link_target', () => {
-    expect(() => validateUiApp({ ...VALID_IFRAME, link_target: '_blank' })).toThrow(/no effect/i);
+  // link_target governs where a redirect opens; a modal embeds its URL instead. Refused per
+  // entry since BEX-426, which is where the field now lives — and named per entry, so an app
+  // on three slots says which one is wrong.
+  it('rejects a per-entry link_target', () => {
+    expect(() => validateUiApp(withIframeEntry({ link_target: '_blank' }))).toThrow(/no effect/i);
+  });
+
+  it('names the entry carrying it', () => {
+    expect(() => validateUiApp(withIframeEntry({ link_target: '_blank' }))).toThrow(
+      new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.link_target`),
+    );
   });
 });
