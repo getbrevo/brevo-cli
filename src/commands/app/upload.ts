@@ -183,31 +183,6 @@ function withoutInjectedKeys(uiApp: UiApp): UiApp {
   return stripInjectedKeys(uiApp) as UiApp;
 }
 
-/**
- * Stamp `link_target: '_blank'` onto every `actionLink` placement on the way to the wire.
- *
- * The counterpart of `withoutInjectedKeys`: this puts the key on, that takes it off again
- * before anything is compared or written back, so the field travels on the payload and never
- * reaches `app-config.json`. Per entry since BEX-426 — it qualifies THAT entry's
- * `redirect_link`, and the block root no longer accepts it.
- *
- * An `iframeExtension` is returned untouched: it navigates nowhere, and the field is refused
- * per entry on both sides. An entry that already carries a value keeps it — `validateUiApp`
- * has pinned anything authored to `_blank` already, so there is nothing to overwrite and
- * clobbering it would hide a future widening of the pin rather than honour it.
- */
-function withInjectedLinkTargets(uiApp: UiApp): UiApp {
-  if (uiApp.extension_type !== EXTENSION_TYPE_ACTION_LINK) return uiApp;
-  if (!Array.isArray(uiApp.surface_point_list)) return uiApp;
-  return {
-    ...uiApp,
-    surface_point_list: uiApp.surface_point_list.map((entry) => ({
-      ...entry,
-      link_target: entry.link_target ?? DEFAULT_LINK_TARGET,
-    })),
-  };
-}
-
 // Stable serialization for equality checks. Three things vary without the block having
 // changed, and all three are normalized away here:
 //
@@ -278,13 +253,15 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   const changed = canonicalizeUiApp(next) !== canonicalizeUiApp(current);
   logInfo(`  ${messages.APP_UPLOAD_UI_APP_SUMMARY}${changed ? ' (changed)' : ''}`);
   logInfo(`    Extension type: ${next.extension_type}`);
-  // Each placement prints its own context, label and destination, because all of them
-  // are per-entry now (BEX-426): a partner targeting a contact page and a deal page can
-  // label each differently and deep-link each somewhere else, and shared rows would
-  // hide that.
+  // Each placement prints its own context, because the two are per-entry now: a
+  // partner targeting a contact page and a deal page can be forwarded different
+  // fields on each, and one shared row would hide that.
   formatPlacementLines(next).forEach((line, i) => {
     logInfo(`    ${i === 0 ? 'Placement:      ' : '                '}${line}`);
   });
+  logInfo(`    Label:          ${next.label ?? ''}`);
+  if (next.more_info) logInfo(`    More info:      ${next.more_info}`);
+  logInfo(`    Redirect link:  ${next.redirect_link ?? ''}`);
   // No link_target row: app-config.json does not carry the field, so printing a value
   // for it only sends a partner looking for one to edit. `_blank` is still injected
   // into an actionLink's payload — see the payload build.
@@ -396,17 +373,20 @@ export async function uploadProjectConfig(
       // server's own default, which is gated on the pre-BEX-350 spelling of
       // extension_type and therefore no longer fires for CLI-authored apps.
       //
-      // Onto each ENTRY, not the block root (BEX-426): it qualifies that entry's
-      // `redirect_link`, so it followed the destination off the root, and the root
-      // spelling is now refused by name server-side. An entry that already carries
-      // one keeps it — `validateUiApp` has already pinned any authored value to
-      // `_blank`, so this only fills the blanks.
-      //
       // Only for an `actionLink`. An `iframeExtension` embeds its URL in a modal
-      // instead of navigating, has no link target to set, and both `validateUiApp`
-      // and the server refuse the field per entry — so injecting it would send the
+      // instead of navigating, has no link target to set, and `validateUiApp`
+      // refuses the field in the authored file — so injecting it would send the
       // one field the CLI just told the partner not to write.
-      ...(isUiApp && config.ui_app ? { ui_app: withInjectedLinkTargets(config.ui_app) } : {}),
+      ...(isUiApp && config.ui_app
+        ? {
+            ui_app: {
+              ...config.ui_app,
+              ...(config.ui_app.extension_type === EXTENSION_TYPE_ACTION_LINK
+                ? { link_target: DEFAULT_LINK_TARGET as UiApp['link_target'] }
+                : {}),
+            },
+          }
+        : {}),
     });
   } finally {
     spinner.stop();

@@ -36,7 +36,7 @@ describe('capability matrix', () => {
     }
   });
 
-  // account-install is the UI app's one lifecycle verb, and `app install` is documented as
+  // account-install is the UI app's one lifecycle verb, and `app deploy` is documented as
   // UI-only. An OAuth app gaining it would make that documentation wrong.
   it('grants account-install to UI apps only', () => {
     for (const distribution of DISTRIBUTIONS) {

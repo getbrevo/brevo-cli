@@ -1,6 +1,5 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
 import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
-import { EXAMPLE_APP_ID } from '../lib/constants';
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
 // The gated subcommands are referenced only through this binding, and only from behind
@@ -128,8 +127,8 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       name: 'credentials',
       description: 'Show client ID and secret for an app',
       examples: [
-        `brevo app credentials --app-id ${EXAMPLE_APP_ID}`,
-        `brevo app credentials --app-id ${EXAMPLE_APP_ID} --reveal-secret --json`,
+        'brevo app credentials --app-id 42',
+        'brevo app credentials --app-id 42 --reveal-secret --json',
       ],
       options: [
         {
@@ -164,10 +163,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     {
       name: 'delete',
       description: 'Delete an app',
-      examples: [
-        `brevo app delete --app-id ${EXAMPLE_APP_ID}`,
-        `brevo app delete --app-id ${EXAMPLE_APP_ID} --force`,
-      ],
+      examples: ['brevo app delete --app-id 42', 'brevo app delete --app-id 42 --force'],
       options: [
         {
           flags: '--app-id <id>',
@@ -194,10 +190,10 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'Add a feature to the app in this directory, or set an empty directory up for an existing app',
       examples: [
         'brevo app scaffold',
-        `brevo app scaffold --app-id ${EXAMPLE_APP_ID}`,
+        'brevo app scaffold --app-id 42',
         'brevo app scaffold --overwrite',
         'brevo app scaffold --json',
-        `brevo app scaffold --app-id ${EXAMPLE_APP_ID} --json`,
+        'brevo app scaffold --app-id 42 --json',
       ],
       options: [
         {

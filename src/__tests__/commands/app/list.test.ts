@@ -297,16 +297,10 @@ describe('app/list', () => {
         version: '0.0.1',
         ui_app: {
           extension_type: 'actionLink',
-          // The CTA fields live on each entry (BEX-426), and that is what the read
-          // path echoes back.
-          surface_point_list: [
-            {
-              surface_point_name: 'contact-details-header-menu',
-              label: 'Sync to Acme',
-              more_info: 'Push this contact to Acme',
-              redirect_link: 'https://example.com/sync',
-            },
-          ],
+          surface_point_list: [{ surface_point_name: 'contact-details-header-menu' }],
+          label: 'Sync to Acme',
+          more_info: 'Push this contact to Acme',
+          redirect_link: 'https://example.com/sync',
         },
         created_at: '2026-01-01',
         updated_at: '2026-01-01',
@@ -341,10 +335,9 @@ describe('app/list', () => {
         const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
         expect(output).toContain('Extension:     actionLink');
         expect(output).toContain('Placement:     contact-details-header-menu');
-        // The entry's own CTA fields render nested under their placement (BEX-426).
-        expect(output).toContain('label:         Sync to Acme');
-        expect(output).toContain('more info:     Push this contact to Acme');
-        expect(output).toContain('redirect link: https://example.com/sync');
+        expect(output).toContain('Label:         Sync to Acme');
+        expect(output).toContain('More info:     Push this contact to Acme');
+        expect(output).toContain('Link:          https://example.com/sync');
       });
 
       it('omits the OAuth-only rows for a UI app', async () => {

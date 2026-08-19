@@ -122,7 +122,7 @@ function toNumericIdentifier(value: string | undefined): number | undefined {
 /**
  * The caller's own account identifier, as a display/target string.
  *
- * Unlike the wire fields this keeps a UUID intact — it is what `app install` labels the
+ * Unlike the wire fields this keeps a UUID intact — it is what `app deploy` labels the
  * target with and what a plain account resolves to when no `[account-id]` was given.
  * Only an absent or blank value throws, since that means the credentials carry no
  * account at all and re-authenticating is the fix.
@@ -130,7 +130,7 @@ function toNumericIdentifier(value: string | undefined): number | undefined {
 export function getCallerAccountId(): string {
   const organizationId = getOrganizationId()?.trim();
   if (!organizationId) {
-    throw new CliError(messages.APP_INSTALL_MISSING_CLIENT_ID);
+    throw new CliError(messages.APP_DEPLOY_MISSING_CLIENT_ID);
   }
   return organizationId;
 }
@@ -149,11 +149,11 @@ export function getCallerAccountId(): string {
  *   when it is a number, never worth a 400 when it isn't.
  * - `deploy_client_id` is the target the install lands in, and the server defaults it
  *   to the caller when absent. That default is exactly right for a plain account
- *   installing into itself, which is the only case that can produce a non-numeric value
+ *   deploying into itself, which is the only case that can produce a non-numeric value
  *   here (an explicit `[account-id]` is numeric by `parseAccountId`, and a sub-account
  *   `id` is numeric by construction).
  *
- * The two are not interchangeable: they differ whenever a corporate account installs
+ * The two are not interchangeable: they differ whenever a corporate account deploys
  * into a sub-account, and collapsing them 404s the app lookup.
  */
 function buildInstallPayload(accountId: string, name: string) {
@@ -222,18 +222,11 @@ export function createAppService(client: ApiClient) {
      * Tolerates a bare array alongside the wrapped shape, and drops non-string, blank and
      * duplicate entries, so callers can trust every value they get.
      *
-     * `extensionType` narrows to the pages that still have at least one slot enabled for
-     * that type (`?extension_type=`, BEX-422), so the page prompt cannot offer a page whose
-     * every placement the row read then hides. A server predating the filter ignores the
-     * parameter and answers unnarrowed, which the row read's own type check absorbs.
-     *
      * Errors propagate — the caller owns the actionable message, same as below.
      */
-    async fetchSurfacePointLocations(extensionType?: string): Promise<string[]> {
-      const type = String(extensionType ?? '').trim();
-      const query = type ? `?extension_type=${encodeURIComponent(type)}` : '';
+    async fetchSurfacePointLocations(): Promise<string[]> {
       const res = await client.get<SurfacePointLocationsResponse | string[] | null>(
-        `${ENDPOINTS.APP_STORE_SURFACE_POINT_LOCATIONS}${query}`,
+        ENDPOINTS.APP_STORE_SURFACE_POINT_LOCATIONS,
       );
       const raw = Array.isArray(res) ? res : (res?.locations ?? []);
       const locations = new Set<string>();
@@ -254,11 +247,9 @@ export function createAppService(client: ApiClient) {
      * for the whole registry, which the create flow only falls back to when the narrowed
      * read doesn't cover the picked pages.
      *
-     * `extensionType` narrows server-side to the slots enabled for that type
-     * (`?extension_type=`, BEX-422). The server owns the enable/disable state — a disabled
-     * slot is absent from the catalogue entirely, filter or no filter — but the create flow
-     * STILL checks each row's own `extension_type_list`: a server predating the filter
-     * ignores the parameter, and the unfiltered retry path deliberately drops it.
+     * There is deliberately NO extension-type filter. Both extension types render on both
+     * kinds, so filtering server-side would hide authorable placements; the create flow
+     * checks each row's own `extension_type_list` instead.
      *
      * The backend route is specified (app-store-bo-be GET /cli/surface-points) but not
      * built yet; only the public /v3 mapping is assumed. See RELEASE-CHECKLIST.md → Before
@@ -267,22 +258,12 @@ export function createAppService(client: ApiClient) {
      *
      * Normalization: rows are keyed on `extension_point_name`, falling back to the pre-BEX-361
      * `extension_point` spelling, and the three decomposed segments accept either naming
-     * (see RawSurfacePointRow for why both are tolerated). The type list accepts THREE
-     * namings for the same reason: `enabled_extension_types` (what the endpoint serves since
-     * BEX-422), the CLI's own `extension_type_list`, and the pre-BEX-361 draft's
-     * `supported_extension_types` — newest spelling wins. Rows with no usable name are
+     * (see RawSurfacePointRow for why both are tolerated). Rows with no usable name are
      * dropped and duplicates deduped, so callers can trust every row's identity.
      */
-    async fetchSurfacePoints(
-      locations?: readonly string[],
-      extensionType?: string,
-    ): Promise<SurfacePointRow[]> {
+    async fetchSurfacePoints(locations?: readonly string[]): Promise<SurfacePointRow[]> {
       const filter = (locations ?? []).map((l) => String(l).trim()).filter(Boolean);
-      const type = String(extensionType ?? '').trim();
-      const params = new URLSearchParams();
-      if (filter.length) params.set('location', filter.join(','));
-      if (type) params.set('extension_type', type);
-      const query = params.size ? `?${params.toString()}` : '';
+      const query = filter.length ? `?location=${encodeURIComponent(filter.join(','))}` : '';
       const res = await client.get<SurfacePointsResponse | RawSurfacePointRow[] | null>(
         `${ENDPOINTS.APP_STORE_SURFACE_POINTS}${query}`,
       );
@@ -300,17 +281,17 @@ export function createAppService(client: ApiClient) {
           place: legacyPlace,
           kind: legacyKind,
           supported_extension_types: legacySupportedTypes,
-          enabled_extension_types: enabledTypes,
           ...rest
         } = row;
-        const typeList = enabledTypes ?? row.extension_type_list ?? legacySupportedTypes;
         normalized.push({
           ...rest,
           extension_point_name: name,
           ...pick('location_name', firstNonEmptyString(row.location_name, legacyLocation)),
           ...pick('section_name', firstNonEmptyString(row.section_name, legacyPlace)),
           ...pick('component_type', firstNonEmptyString(row.component_type, legacyKind)),
-          ...(typeList ? { extension_type_list: typeList } : {}),
+          ...((row.extension_type_list ?? legacySupportedTypes)
+            ? { extension_type_list: row.extension_type_list ?? legacySupportedTypes }
+            : {}),
         });
       }
       return normalized;
@@ -471,7 +452,7 @@ export function createAppService(client: ApiClient) {
      * the app itself. Everything else (notably the "not yet uploaded" rejection)
      * propagates for the command to map.
      */
-    async installApp(appId: string, accountId: string, name: string): Promise<void> {
+    async deployApp(appId: string, accountId: string, name: string): Promise<void> {
       try {
         await client.post(
           ENDPOINTS.APP_STORE_APP_INSTALLS(appId),
@@ -484,17 +465,17 @@ export function createAppService(client: ApiClient) {
 
     /**
      * Withdraw a UI app's availability from a single account — deletes the
-     * install created by {@link installApp}. Same resource, same body, DELETE.
+     * install created by {@link deployApp}. Same resource, same body, DELETE.
      *
      * Deliberately no `rethrowNotFound` here, unlike every other verb. The developer
      * uninstall route (BEX-364) has no `installation_id` to delete by, so it resolves
      * the install from the same details the install was created with — and answers 404
      * for *both* "app doesn't exist" and "no such install", distinguishable only by the
      * error copy. Collapsing them into "App not found" would report a hard failure for
-     * the ordinary already-uninstalled case, so the ApiError reaches the command intact
-     * and `uninstall` maps any 404 to its informational not-installed path.
+     * the ordinary already-rolled-back case, so the ApiError reaches the command intact
+     * and `rollback` maps any 404 to its informational not-deployed path.
      */
-    async uninstallApp(appId: string, accountId: string, name: string): Promise<void> {
+    async rollbackApp(appId: string, accountId: string, name: string): Promise<void> {
       await client.delete(
         ENDPOINTS.APP_STORE_APP_INSTALLS(appId),
         buildInstallPayload(accountId, name),

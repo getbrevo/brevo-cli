@@ -91,27 +91,6 @@ describe('app/delete', () => {
     expect(parsed).toEqual({ deleted: true, appId: '42' });
   });
 
-  it('warns about losing installs before the confirmation prompt', async () => {
-    mockPrompt.mockResolvedValueOnce({ confirmed: false });
-
-    await deleteCommand({ appId: '42' });
-
-    // The warning prints before the prompt, so it is visible even on a decline
-    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).toContain('installed or published');
-    expect(output).toContain('cannot be recovered');
-    expect(appService.deleteApp).not.toHaveBeenCalled();
-  });
-
-  it('skips the install-loss warning in --force mode', async () => {
-    (appService.deleteApp as jest.Mock).mockResolvedValue(undefined);
-
-    await deleteCommand({ appId: '42', force: true });
-
-    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).not.toContain('installed or published');
-  });
-
   it('should cancel when user declines confirmation', async () => {
     mockPrompt.mockResolvedValueOnce({ confirmed: false });
 

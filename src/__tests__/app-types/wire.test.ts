@@ -18,23 +18,12 @@ describe('stripUiAppWireOnlyKeys', () => {
     );
   });
 
-  // Per entry since BEX-426, next to the redirect_link it qualifies — so this is the second
-  // key the traversal has to reach one level down, not a top-level filter.
-  it('strips link_target from inside a surface_point_list entry', () => {
+  it('strips link_target from the top level', () => {
     const stripped = stripUiAppWireOnlyKeys({
       extension_type: 'actionLink',
-      surface_point_list: [
-        {
-          surface_point_name: 'contact-details-header-menu',
-          redirect_link: 'https://example.com/open',
-          link_target: '_blank',
-        },
-      ],
+      link_target: '_blank',
     } as UiApp);
-    expect(stripped.surface_point_list?.[0]).toEqual({
-      surface_point_name: 'contact-details-header-menu',
-      redirect_link: 'https://example.com/open',
-    });
+    expect(stripped).not.toHaveProperty('link_target');
     expect(stripped.extension_type).toBe('actionLink');
   });
 

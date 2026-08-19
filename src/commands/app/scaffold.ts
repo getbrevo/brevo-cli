@@ -443,7 +443,7 @@ function finishUiAppScaffold(
   }
   logInfo(messages.APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP);
   // A bootstrap that made its own directory has to say which one, and for a UI
-  // app upload → install is the whole of what comes next.
+  // app upload → deploy is the whole of what comes next.
   if (cdDir) printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_UI_NEXT(cdDir));
 }
 
