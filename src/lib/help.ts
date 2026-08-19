@@ -32,7 +32,7 @@ export function createDescription(): string {
  * The root `brevo --help` screen.
  *
  * Hand-aligned rather than generated: it groups commands by what they're for
- * (app / install / review / skill / scope) and shows each one's flags inline,
+ * (app / deployment / review / skill / scope) and shows each one's flags inline,
  * which Commander's default two-column layout can't express. The grouping
  * mirrors the capability gates in `commands/definitions.ts` — see
  * `command-capabilities.test.ts`, which is the executable copy of that rule.
@@ -88,11 +88,11 @@ function formatRootHelp(description: string): string {
     // `commands/preview-definitions.ts`.
     ...(__BREVO_PREVIEW__
       ? gatedSection('account-install', [
-          `App-install commands (UI apps only):`,
-          `  brevo app install           [account-id] [--app-id <id>] [--force] [--json]`,
-          `                                                        Install an app into an account`,
-          `  brevo app uninstall         [account-id] [--app-id <id>] [--force] [--json]`,
-          `                                                        Uninstall an app from an account`,
+          `App-deployment commands (UI apps only):`,
+          `  brevo app deploy            [account-id] [--app-id <id>] [--force] [--json]`,
+          `                                                        Make an app available in an account`,
+          `  brevo app rollback          [account-id] [--app-id <id>] [--force] [--json]`,
+          `                                                        Roll back an app from an account`,
           ``,
         ])
       : []),

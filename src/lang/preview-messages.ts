@@ -5,7 +5,7 @@ import { CLI } from '../lib/constants';
  *
  * Split out of `en.ts` for a build reason, not a tidiness one. `messages` is a single
  * object literal, and esbuild cannot prune properties from one — so with these inline,
- * every string for `app install`, `app uninstall`, `app submit`, `app status`,
+ * every string for `app deploy`, `app rollback`, `app submit`, `app status`,
  * `app withdraw` and UI-app authoring shipped in the published bundle even though no
  * surviving code referenced them: `strings` on the binary read back the whole
  * unreleased feature set. As a separate module spread in behind `__BREVO_PREVIEW__`,
@@ -36,22 +36,29 @@ export const previewMessages = {
   // waiting for a seed.
   APP_CREATE_UI_POINTS_NONE_FOR_TYPE: (extensionType: string) =>
     `None of the available placements can host a "${extensionType}" extension. This environment's extension-point registry may predate it — try again later.`,
-  // Single-select (BEX-426): the interactive flow authors exactly one placement, because
-  // the CTA fields (label, more_info, destination) live per placement now and asking them
-  // per page would multiply the prompt count. More placements are added by hand as further
-  // `surface_point_list` entries in app-config.json — the box hint says so.
-  APP_CREATE_UI_SURFACE_PROMPT: 'Which record page should it appear on?',
-  // The placement prompt on the picked page: an app takes exactly one spot on a page.
+  APP_CREATE_UI_SURFACE_PROMPT: 'Which record pages should it appear on?',
+  APP_CREATE_UI_SURFACE_REQUIRED: 'Pick at least one record page.',
+  // One single-select prompt PER picked page: an app takes exactly one spot on a page.
   // Replaces the old kind-then-place pair (kind is a property of the slot, not a question
   // — a partner picking "Header menu" has already said they want a menu entry) and the
   // grouped multi-select that briefly followed it.
   APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
     `Where should it appear on the ${page} page?`,
+  // Printed BEFORE the prompt, as a warning, when the registry offers no spot on a page
+  // that was picked. It cannot be a prompt rule: no answer would satisfy one.
+  APP_CREATE_UI_PLACEMENT_PAGES_DROPPED: (pages: string[]) =>
+    `No placements are available on: ${pages.join(', ')}. Those pages are skipped — the registry offers no spot there for this integration type.`,
+  // Suffixes on each placement choice, so the shape a slot renders as is visible while
+  // choosing rather than a surprise afterwards.
+  APP_CREATE_UI_PLACEMENT_MENU_SUFFIX: 'menu entry',
+  APP_CREATE_UI_PLACEMENT_CARD_SUFFIX: 'card',
   // Integration type — asked SECOND, before any placement, because it is the decision a
-  // partner arrives with. Only Link is offered for now: the disabled "coming soon"
-  // Iframe choice was removed 2026-08-19 until iframe support is ready to author.
-  APP_CREATE_UI_INTEGRATION_PROMPT: 'What type of integration are you adding?',
+  // partner arrives with. Only Link is selectable; Iframe is shown disabled so the
+  // roadmap is visible where the choice is being made rather than hidden.
+  APP_CREATE_UI_INTEGRATION_PROMPT: 'Do you want to add a link or an iframe?',
   APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link            (Opens your URL in a new tab)',
+  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe          (Embeds your page in a modal)',
+  APP_CREATE_UI_INTEGRATION_COMING_SOON: 'coming soon',
   // Each field says what it renders as, so a partner filling the form knows what
   // they are writing. Both fields render in two places, and the prompt names both:
   // `label` is the menu entry's text AND a card's CTA button, `more_info` is the
@@ -72,79 +79,33 @@ export const previewMessages = {
   APP_CREATE_UI_BOX_EXAMPLE_URL_LABEL: 'Brevo will open, for example:',
   APP_CREATE_UI_BOX_EXAMPLE_URL_NOTE:
     'Values are placeholders. Read them as query parameters — the path is never templated.',
-  // Also the pointer to MORE placements: the flow authors one, and each further one is a
-  // hand-written `surface_point_list` entry carrying its own label and destination.
-  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this, then run \`${CLI.APP_UPLOAD}\`.`,
 
-  // App install / uninstall — per-account availability for UI apps (BEX-290)
-  APP_INSTALL_SELECT: 'Select an app to install:',
-  /**
-   * How an account is named in every install/uninstall line.
-   *
-   * The bare ID was not enough. Two of the three resolution paths choose the account
-   * *for* the user — their own account, or one picked from the sub-account listing — and
-   * someone who never typed an identifier has nothing to check a bare number against. So
-   * the company name leads and the identifier follows in parentheses, the same order the
-   * sub-account picker already used.
-   *
-   * `self` marks the plain-account path, where the identifier is the caller's
-   * `organization_id` and may be a UUID rather than a number. It is spelled out as "your
-   * own account" instead of taking the picker's `Account ID:` prefix, because that prefix
-   * names a numeric sub-account ID and this is a different identifier — the same reason
-   * the picker avoids calling it a user ID.
-   *
-   * With no name and not self the result is `account 99999`, which is exactly the wording
-   * these messages carried before names were added — so the explicit `[account-id]` path,
-   * the one CI uses, is unchanged byte for byte.
-   */
-  APP_INSTALL_ACCOUNT_LABEL: (accountId: string, companyName?: string, self?: boolean): string => {
-    const name = companyName?.trim();
-    if (self) {
-      return name
-        ? `${name} (your own account, ID ${accountId})`
-        : `your own account (ID ${accountId})`;
-    }
-    return name ? `${name} (account ${accountId})` : `account ${accountId}`;
-  },
-  APP_INSTALL_CONFIRM: (name: string, appId: string, account: string) =>
-    `Install app "${name}" (${appId}) into ${account}?`,
-  APP_INSTALL_CANCELLED: 'Install cancelled.',
-  APP_INSTALL_SUCCESS: (appId: string, account: string) =>
-    `App ${appId} installed into ${account}.`,
-  // Only a UI app is installed into an account. The rule is not new — the capability
-  // matrix (`src/app-types/capabilities.ts`) has said so since it was written, and its
-  // header names this as the example of a type-driven capability — but nothing on the
-  // install path consulted it, so an OAuth app installed successfully and rendered
-  // nothing. The installs endpoint has no app-type check of its own (same handler the
-  // upload gate's note describes), so this is the only place the mistake can be caught.
-  APP_INSTALL_NOT_UI_APP: (appId: string) =>
-    `App ${appId} is an OAuth app, and only UI apps are installed into an account. An OAuth app becomes usable when a user authorizes it, so there is nothing to install.\n\n  \`${CLI.APP_LIST}\` shows each app's type.`,
-  // Gated as well as install, deliberately. The asymmetry with the *upload* gate is real
-  // and intended: that one is skipped here because an app installed by an older CLI must
-  // stay removable, whereas an OAuth app has no install to remove in the first place. The
-  // one case this does strand is an OAuth app installed by a CLI that predates this
-  // check — `brevo app uninstall` can no longer reach it. Accepted: the record it would
-  // remove is one nothing reads.
-  APP_UNINSTALL_NOT_UI_APP: (appId: string) =>
-    `App ${appId} is an OAuth app, and only UI apps are installed into an account, so there is nothing to uninstall.\n\n  \`${CLI.APP_LIST}\` shows each app's type.`,
-  // Sub-account resolution, shared by install and uninstall. Only a master (corporate)
+  // App deploy / rollback — per-account availability for UI apps (BEX-290)
+  APP_DEPLOY_SELECT: 'Select an app to deploy:',
+  APP_DEPLOY_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Deploy app "${name}" (${appId}) to account ${accountId}?`,
+  APP_DEPLOY_CANCELLED: 'Deploy cancelled.',
+  APP_DEPLOY_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} deployed to account ${accountId}.`,
+  // Sub-account resolution, shared by deploy and rollback. Only a master (corporate)
   // account ever reaches these: a plain account resolves to itself with no prompt.
-  APP_INSTALL_SELECT_ACCOUNT: 'Select the account to install into:',
-  APP_INSTALL_ACCOUNT_ID_REQUIRED: `This is a corporate account, so the target account can't be resolved automatically.\n\n  Pass it explicitly: ${CLI.APP_INSTALL('<account-id>')}\n  (Choosing one from a list requires an interactive terminal.)`,
-  APP_INSTALL_NO_SUB_ACCOUNTS: `No active sub-accounts found on this corporate account.\n\n  Pass the target account explicitly: ${CLI.APP_INSTALL('<account-id>')}`,
-  // The spec's installation flow requires install to refuse until the config has
+  APP_DEPLOY_SELECT_ACCOUNT: 'Select the account to deploy to:',
+  APP_DEPLOY_ACCOUNT_ID_REQUIRED: `This is a corporate account, so the target account can't be resolved automatically.\n\n  Pass it explicitly: ${CLI.APP_DEPLOY('<account-id>')}\n  (Choosing one from a list requires an interactive terminal.)`,
+  APP_DEPLOY_NO_SUB_ACCOUNTS: `No active sub-accounts found on this corporate account.\n\n  Pass the target account explicitly: ${CLI.APP_DEPLOY('<account-id>')}`,
+  // The spec's installation flow requires deploy to refuse until the config has
   // been validated by an upload. `version` is only ever written by a successful
   // upload, so its absence is a reliable local signal.
-  APP_INSTALL_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
-  APP_UNINSTALL_SELECT: 'Select an app to uninstall:',
-  APP_UNINSTALL_CONFIRM: (name: string, appId: string, account: string) =>
-    `Uninstall app "${name}" (${appId}) from ${account}?`,
-  APP_UNINSTALL_CANCELLED: 'Uninstall cancelled.',
-  APP_UNINSTALL_SUCCESS: (appId: string, account: string) =>
-    `App ${appId} uninstalled from ${account}.`,
-  APP_UNINSTALL_NOT_INSTALLED: (appId: string, account: string) =>
-    `App ${appId} is not installed in ${account}.`,
-  APP_INSTALL_NON_INTERACTIVE:
+  APP_DEPLOY_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
+  APP_ROLLBACK_SELECT: 'Select an app to roll back:',
+  APP_ROLLBACK_CONFIRM: (name: string, appId: string, accountId: string) =>
+    `Roll back app "${name}" (${appId}) from account ${accountId}?`,
+  APP_ROLLBACK_CANCELLED: 'Rollback cancelled.',
+  APP_ROLLBACK_SUCCESS: (appId: string, accountId: string) =>
+    `App ${appId} rolled back from account ${accountId}.`,
+  APP_ROLLBACK_NOT_DEPLOYED: (appId: string, accountId: string) =>
+    `App ${appId} is not deployed to account ${accountId}.`,
+  APP_DEPLOY_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
 
   // App submit (BEX-221)

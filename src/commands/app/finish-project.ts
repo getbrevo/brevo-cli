@@ -69,7 +69,7 @@ export async function finishProject(params: FinishProjectParams): Promise<Finish
   const { appId, ctx, targetDir, cdDir, isUiApp } = params;
 
   // No feature to offer, so this is the end of the road: name what comes next
-  // (upload → install) rather than the OAuth test server the app can't use.
+  // (upload → deploy) rather than the OAuth test server the app can't use.
   if (isUiApp) {
     printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_UI_NEXT(cdDir));
     return { cancelled: false, feature: null, written: 0 };

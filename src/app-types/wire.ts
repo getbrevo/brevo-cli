@@ -11,8 +11,8 @@
  * writing a third traversal would have been the same bug a third time.
  *
  * A note on why the strip has to recurse rather than filter top-level keys:
- * `extension_point_name` and (since BEX-426) `link_target` sit INSIDE each entry, one level
- * below the block, while `version` sits at the top. One list, two depths.
+ * `extension_point_name` is stamped INSIDE each entry, one level below the block, while
+ * `link_target` and `version` sit at the top. One list, two depths.
  */
 import { appTypeById } from './index';
 import type { UiApp } from '../types';

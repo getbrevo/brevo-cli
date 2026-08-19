@@ -16,29 +16,6 @@ function scaffoldFileCount(done: string, written: number, total: number): string
   return `${done} (${written} of ${total} files written)`;
 }
 
-/**
- * Numbered "Next steps" lines, with each step's parenthetical note aligned.
- *
- * The note column is derived from the widest command in the list rather than hard-coded
- * per line. It was hard-coded, and the two commands in the UI-app box differ in length by
- * one character while their padding differed by eleven — so `brevo app upload`'s note sat
- * ten columns right of `brevo app install`'s inside the same box.
- *
- * `cdDir` prepends `1. cd <dir>` and shifts the numbering. It is deliberately outside the
- * alignment: it carries no note, so padding it to the command column would only widen the
- * box for nothing.
- */
-function numberedSteps(cdDir: string | undefined, steps: Array<[string, string]>): string[] {
-  const commandWidth = Math.max(...steps.map(([command]) => command.length));
-  const offset = cdDir ? 1 : 0;
-  return [
-    ...(cdDir ? [`1. cd ${cdDir}`] : []),
-    ...steps.map(
-      ([command, note], i) => `${i + 1 + offset}. ${command.padEnd(commandWidth)}   (${note})`,
-    ),
-  ];
-}
-
 const coreMessages = {
   // Update notifier
   UPDATE_AVAILABLE: (current: string, latest: string): string =>
@@ -174,8 +151,10 @@ const coreMessages = {
   // as a failure. See `scaffoldFileCount`, which both scaffold reports share.
   APP_CREATE_BASE_SUCCESS: (written: number, total: number) =>
     `Project structure ${scaffoldFileCount('created', written, total)}`,
-  APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] =>
-    numberedSteps(cdDir, [[CLI.APP_SCAFFOLD, 'add a feature — e.g. the OAuth test server']]),
+  APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] => [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    `${cdDir ? 2 : 1}. ${CLI.APP_SCAFFOLD}   (add a feature — e.g. the OAuth test server)`,
+  ],
   APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS: (dir: string) =>
     `Skipped scaffold: directory already exists (${dir}). cd into it and run \`${CLI.APP_SCAFFOLD}\` to add a feature.`,
   APP_CREATE_DIR_EXISTS_SKIPPED: (dir: string) =>
@@ -183,11 +162,11 @@ const coreMessages = {
   APP_CREATE_ALREADY_LINKED: (name: string) =>
     `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD}\` here to add a feature to this project.`,
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
-  APP_CREATE_UI_NEXT: (cdDir?: string): string[] =>
-    numberedSteps(cdDir, [
-      [CLI.APP_UPLOAD, 'validate and save your configuration'],
-      [CLI.APP_INSTALL(), 'make it available in an account'],
-    ]),
+  APP_CREATE_UI_NEXT: (cdDir?: string): string[] => [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    `${cdDir ? 2 : 1}. ${CLI.APP_UPLOAD}              (validate and save your configuration)`,
+    `${cdDir ? 3 : 2}. ${CLI.APP_DEPLOY()}   (make it available in an account)`,
+  ],
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -282,7 +261,7 @@ const coreMessages = {
   // cached by a successful login. Numeric and UUID values are both forwarded as-is;
   // only an absent or blank one lands here, meaning the credentials predate the field
   // or were written by a partial login — re-authenticating rewrites them.
-  APP_INSTALL_MISSING_CLIENT_ID: `Could not determine your Brevo account's organization ID.\n\n  Run \`${CLI.LOGIN}\` to re-authenticate.`,
+  APP_DEPLOY_MISSING_CLIENT_ID: `Could not determine your Brevo account's organization ID.\n\n  Run \`${CLI.LOGIN}\` to re-authenticate.`,
   APP_UPLOAD_DISTRIBUTION_IMMUTABLE: (current: string, next: string) =>
     `distribution_type cannot be changed via upload — this app is "${current}" on Brevo, but app-config.json says "${next}".\n  Edit \`distribution_type\` in app-config.json back to "${current}", or create a new ${next} app with \`${CLI.APP_CREATE}\`.`,
   LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_START('oauth')}\`.`,
@@ -299,8 +278,6 @@ const coreMessages = {
 
   // App delete
   APP_DELETE_SELECT: 'Select an app to delete:',
-  APP_DELETE_WARNING: (name: string, id: string) =>
-    `Deleting "${name}" (${id}) will also remove it from every account where it is installed or published.\n  Installs and credentials cannot be recovered after this.`,
   APP_DELETE_CONFIRM: (name: string, id: string) =>
     `Delete app "${name}" (${id})? This cannot be undone.`,
   APP_DELETE_SUCCESS: (id: string) => `App ${id} deleted.`,
@@ -407,7 +384,7 @@ const coreMessages = {
     `App ${appId} was created but could not be read back from the server. Scaffolding from the create response instead — run \`${CLI.APP_SCAFFOLD}\` later to refresh app-config.json from the server.`,
   APP_SCAFFOLD_SUCCESS: (written: number, total: number) =>
     `Feature ${scaffoldFileCount('scaffolded', written, total)}`,
-  APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_INSTALL()}\`.`,
+  APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_DEPLOY()}\`.`,
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
   APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
   // The directory was already there and the user has just said how to handle it —
@@ -498,7 +475,7 @@ const coreMessages = {
   // `init` ends by naming the obvious next command, and for a UI app that is not
   // `app start oauth`: an action link has no OAuth flow and no local server to run,
   // so the OAuth line pointed at a command that would fail. It also contradicted the
-  // Next steps box printed directly above it, which already said upload → install.
+  // Next steps box printed directly above it, which already said upload → deploy.
   // Deliberately in core rather than `preview-messages`: `init` is not a gated command,
   // and a hand-edited `ui_app` block can reach this line in a published build.
   INIT_DONE_UI_APP: `All set! Follow the next steps above, or run \`${CLI.HELP}\` to see all commands.`,
