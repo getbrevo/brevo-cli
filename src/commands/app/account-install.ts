@@ -77,7 +77,7 @@ const CORPORATE_ACCOUNT_TYPE = 'corporate';
  * `promptAppSelection` treatment — a CliError naming the way forward, never an empty
  * prompt.
  */
-async function promptSubAccountSelection(): Promise<ResolvedAccount> {
+async function promptSubAccountSelection(accountSelectPrompt: string): Promise<ResolvedAccount> {
   const spinner = createSpinner('Fetching sub-accounts...');
   let subAccounts: SubAccount[];
   try {
@@ -97,7 +97,7 @@ async function promptSubAccountSelection(): Promise<ResolvedAccount> {
     {
       type: 'rawlist',
       name: 'selectedSubAccount',
-      message: messages.APP_INSTALL_SELECT_ACCOUNT,
+      message: accountSelectPrompt,
       // "Account ID", deliberately not "User ID": `whoami` already prints an
       // unrelated `user_id` under that name, and reusing it here would put two
       // different numbers behind one label.
@@ -122,7 +122,10 @@ async function promptSubAccountSelection(): Promise<ResolvedAccount> {
  * stays usable non-interactively (piped stdin, `--json`, CI). Only a master account
  * has a real choice to make, and that is the one branch that needs a terminal.
  */
-async function resolveTargetAccountId(json?: boolean): Promise<ResolvedAccount> {
+async function resolveTargetAccountId(
+  accountSelectPrompt: string,
+  json?: boolean,
+): Promise<ResolvedAccount> {
   const spinner = createSpinner('Resolving target account...', { silent: json });
   let account;
   try {
@@ -146,7 +149,7 @@ async function resolveTargetAccountId(json?: boolean): Promise<ResolvedAccount> 
   if (json || !process.stdin.isTTY) {
     throw new CliError(messages.APP_INSTALL_ACCOUNT_ID_REQUIRED);
   }
-  return promptSubAccountSelection();
+  return promptSubAccountSelection(accountSelectPrompt);
 }
 
 /**
@@ -166,6 +169,7 @@ export async function resolveInstallTarget(
   accountIdArg: string | undefined,
   options: { appId?: string; json?: boolean },
   selectPrompt: string,
+  accountSelectPrompt: string,
 ): Promise<InstallTarget> {
   // An explicit positional is taken at face value and deliberately NOT looked up: the
   // whole point of it is reaching an account the sub-account listing won't show (a
@@ -174,7 +178,7 @@ export async function resolveInstallTarget(
   // account it is — the two paths that need naming are the two that choose for them.
   const account: ResolvedAccount = accountIdArg
     ? { accountId: parseAccountId(accountIdArg), self: false }
-    : await resolveTargetAccountId(options.json);
+    : await resolveTargetAccountId(accountSelectPrompt, options.json);
 
   const accountFields = {
     accountId: account.accountId,

@@ -87,6 +87,9 @@ describe('app/uninstall', () => {
     await appUninstallCommand({ force: true });
 
     expect(appService.uninstallApp).toHaveBeenCalledWith('42', '4043629', 'Invoice Manager');
+    // The shared picker takes its wording from the command: this one must not ask
+    // which account to "install into".
+    expect(mockPrompt.mock.calls[0]![0][0].message).toBe('Select the account to uninstall from:');
   });
 
   // Unlike install, uninstall has no upload gate — an app installed by an older CLI

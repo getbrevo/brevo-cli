@@ -136,6 +136,9 @@ describe('app/install', () => {
       await appInstallCommand({ accountId: undefined, force: true });
 
       expect(appService.installApp).toHaveBeenCalledWith('42', '4043630', 'Invoice Manager');
+      // The picker prompt is per command: install asks where to install INTO,
+      // uninstall (see uninstall.test.ts) asks where to uninstall FROM.
+      expect(mockPrompt.mock.calls[0]![0][0].message).toBe('Select the account to install into:');
     });
 
     it('does not offer deactivated sub-accounts', async () => {

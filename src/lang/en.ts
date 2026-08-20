@@ -299,7 +299,12 @@ const coreMessages = {
     `App ${appId} is an OAuth app, and only UI apps are installed into an account, so there is nothing to uninstall.\n\n  \`${CLI.APP_LIST}\` shows each app's type.`,
   // Sub-account resolution, shared by install and uninstall. Only a master (corporate)
   // account ever reaches these: a plain account resolves to itself with no prompt.
+  // The picker prompt is per command — uninstall must not ask which account to
+  // "install into" — while the two error strings stay shared: both name `app install`
+  // as the way forward, which is right for either command (there is nothing to
+  // uninstall from an account the listing can't even show).
   APP_INSTALL_SELECT_ACCOUNT: 'Select the account to install into:',
+  APP_UNINSTALL_SELECT_ACCOUNT: 'Select the account to uninstall from:',
   APP_INSTALL_ACCOUNT_ID_REQUIRED: `This is a corporate account, so the target account can't be resolved automatically.\n\n  Pass it explicitly: ${CLI.APP_INSTALL('<account-id>')}\n  (Choosing one from a list requires an interactive terminal.)`,
   APP_INSTALL_NO_SUB_ACCOUNTS: `No active sub-accounts found on this corporate account.\n\n  Pass the target account explicitly: ${CLI.APP_INSTALL('<account-id>')}`,
   // The spec's installation flow requires install to refuse until the config has

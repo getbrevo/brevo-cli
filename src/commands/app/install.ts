@@ -27,7 +27,12 @@ interface InstallOptions {
 export const appInstallCommand = withCommandHandler(
   async (options: InstallOptions): Promise<void> => {
     const { appId, appLabel, accountId, accountLabel, accountName, appFromLinkedConfig } =
-      await resolveInstallTarget(options.accountId, options, messages.APP_INSTALL_SELECT);
+      await resolveInstallTarget(
+        options.accountId,
+        options,
+        messages.APP_INSTALL_SELECT,
+        messages.APP_INSTALL_SELECT_ACCOUNT,
+      );
 
     await assertInstallable(appId, {
       requireUploaded: true,

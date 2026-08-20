@@ -53,6 +53,7 @@ export const appUninstallCommand = withCommandHandler(
       options.accountId,
       options,
       messages.APP_UNINSTALL_SELECT,
+      messages.APP_UNINSTALL_SELECT_ACCOUNT,
     );
     const { appId, appLabel, accountId, accountLabel } = target;
 
