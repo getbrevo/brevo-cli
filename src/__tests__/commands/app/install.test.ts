@@ -431,7 +431,7 @@ describe('app/install', () => {
 
       await appInstallCommand({ force: true });
 
-      expect(output()).toMatch(/installed into Acme Retail \(your own account, ID 12345\)\./);
+      expect(output()).toMatch(/installed into Acme Retail \(your own account, org ID 12345\)\./);
     });
 
     // The one path where the identifier can be a UUID the user has never seen — which is
@@ -445,13 +445,13 @@ describe('app/install', () => {
 
       await appInstallCommand({ force: true });
 
-      expect(output()).toMatch(/Acme Retail \(your own account, ID 550e8400-/);
+      expect(output()).toMatch(/Acme Retail \(your own account, org ID 550e8400-/);
     });
 
     it('falls back to the identifier alone when the account has no company name', async () => {
       await appInstallCommand({ force: true });
 
-      expect(output()).toMatch(/installed into your own account \(ID 12345\)\./);
+      expect(output()).toMatch(/installed into your own account \(org ID 12345\)\./);
     });
 
     it('names a picked sub-account the way the picker did', async () => {
@@ -476,7 +476,7 @@ describe('app/install', () => {
       await appInstallCommand({});
 
       expect(mockPrompt.mock.calls[0]![0][0].message).toBe(
-        'Install app "Invoice Manager" (42) into Acme Retail (your own account, ID 12345)?',
+        'Install app "Invoice Manager" (42) into Acme Retail (your own account, org ID 12345)?',
       );
     });
 

@@ -261,7 +261,8 @@ const coreMessages = {
    * `organization_id` and may be a UUID rather than a number. It is spelled out as "your
    * own account" instead of taking the picker's `Account ID:` prefix, because that prefix
    * names a numeric sub-account ID and this is a different identifier — the same reason
-   * the picker avoids calling it a user ID.
+   * the picker avoids calling it a user ID. The label itself says "org ID" rather than
+   * plain "ID" for the same reason: it's the organization ID, not a generic identifier.
    *
    * With no name and not self the result is `account 99999`, which is exactly the wording
    * these messages carried before names were added — so the explicit `[account-id]` path,
@@ -271,8 +272,8 @@ const coreMessages = {
     const name = companyName?.trim();
     if (self) {
       return name
-        ? `${name} (your own account, ID ${accountId})`
-        : `your own account (ID ${accountId})`;
+        ? `${name} (your own account, org ID ${accountId})`
+        : `your own account (org ID ${accountId})`;
     }
     return name ? `${name} (account ${accountId})` : `account ${accountId}`;
   },

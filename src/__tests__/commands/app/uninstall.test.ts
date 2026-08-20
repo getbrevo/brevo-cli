@@ -221,7 +221,7 @@ describe('app/uninstall', () => {
 
       await appUninstallCommand({ force: true });
 
-      expect(output()).toMatch(/uninstalled from Acme Retail \(your own account, ID 12345\)\./);
+      expect(output()).toMatch(/uninstalled from Acme Retail \(your own account, org ID 12345\)\./);
     });
 
     // The not-installed path is informational and exits 0 — it names the account too.
@@ -236,7 +236,7 @@ describe('app/uninstall', () => {
 
       await appUninstallCommand({ force: true });
 
-      expect(output()).toMatch(/not installed in Acme Retail \(your own account, ID 12345\)\./);
+      expect(output()).toMatch(/not installed in Acme Retail \(your own account, org ID 12345\)\./);
     });
 
     it('adds accountName to --json', async () => {
