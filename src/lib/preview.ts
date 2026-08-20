@@ -25,13 +25,16 @@
  * public create), so the two layers are the build and the server, with nothing in
  * between for a user to talk their way past.
  *
- * ## One table, so GA is one edit
+ * ## One table for readiness — but GA is a sequence, not one edit
  *
- * `FEATURE_STAGE` is the only place a feature's readiness is stated. Help filtering,
+ * `FEATURE_STAGE` is the only place a feature's readiness is *stated*. Help filtering,
  * the runtime refusal, the command registry and the two `app create` prompts all read
- * it through `isFeatureAvailable`, so flipping a row to `'ga'` releases that feature
- * everywhere at once. See `RELEASE-CHECKLIST.md` → *Before public-apps GA* /
- * *Before UI-apps GA*.
+ * it through `isFeatureAvailable`. Flipping a row to `'ga'` is necessary but NOT
+ * sufficient for a command: gated definitions live in `commands/preview-definitions.ts`
+ * and gated help sections sit behind `__BREVO_PREVIEW__`, a *build* flag, so both must
+ * be moved/unwrapped by hand in the same change — UI-apps GA (BEX-290) touched 17 files
+ * doing exactly that. The full sequence is the GA runbook, `RELEASE-CHECKLIST.md` on
+ * the `docs/public-cli-ui-apps-feature-changes` branch → *Before public-apps GA*.
  *
  * Two of the four names are `Capability` values from `app-types/capabilities.ts`,
  * deliberately: commands already declare `requires` in `commands/definitions.ts`, so
@@ -54,7 +57,9 @@ export type PreviewFeature =
 export type FeatureStage = 'ga' | 'preview';
 
 /**
- * Readiness per feature. Flip a row to `'ga'` to release it.
+ * Readiness per feature. Flipping a row to `'ga'` is the first step of releasing it —
+ * a gated *command* also needs its definition moved out of `preview-definitions.ts`
+ * and its help section unwrapped, see the header.
  *
  * Everything not listed here is GA by construction — absence from this table is not a
  * gate, so a new command is public unless someone opts it in.

@@ -580,8 +580,8 @@ describe('app/upload', () => {
     });
 
     // UI apps have no OAuth block on the wire either — the whole auth key is
-    // omitted, not sent with empty arrays (assumed contract, tracked in
-    // RELEASE-CHECKLIST.md → Before UI-apps GA).
+    // omitted, not sent with empty arrays (assumed contract, tracked in docs.md
+    // on the docs/public-cli-ui-apps-feature-changes branch).
     it('omits the auth key from the upload payload', async () => {
       await uploadCommand({ yes: true });
 

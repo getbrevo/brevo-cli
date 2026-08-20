@@ -379,9 +379,11 @@ export function validateUiApp(uiApp: unknown): void {
  * IS there, under its old name.
  *
  * No read-path alias, deliberately, for the same reason the snake_case rename didn't get
- * one: UI apps aren't live, so there is no partner config in the wild to migrate. These
- * files only exist on developer machines, and a two-line rename is cheaper to explain than
- * an alias map that has to be removed later.
+ * one: both renames shipped BEFORE UI apps went GA (BEX-290), so the old names never
+ * existed in a partner config — only on developer machines, where a two-line rename is
+ * cheaper to explain than an alias map that has to be removed later. That reasoning is
+ * frozen at GA: now that partner configs exist in the wild, a future rename DOES need a
+ * migration path, not this treatment.
  */
 function rejectPreBex290Fields(block: Record<string, unknown>): void {
   if (block.heading !== undefined) {

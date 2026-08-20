@@ -276,7 +276,9 @@ export const DEFAULT_SCOPES: readonly string[] = [
  * `legacy_component`) are deliberately NOT accepted. The kit still maps them for
  * backward compatibility, but that map is slated for removal once every producer
  * emits camelCase — and the CLI is a producer, so it only ever writes canonical
- * values. UI apps aren't live yet, so there is no authored config to migrate.
+ * values. The CLI never wrote snake_case and UI apps went GA (BEX-290) already on
+ * camelCase, so no authored config in the wild carries the old spellings; a respelling
+ * from here on would need a migration path.
  */
 export const EXTENSION_TYPE_ACTION_LINK = 'actionLink';
 export const EXTENSION_TYPE_IFRAME = 'iframeExtension';

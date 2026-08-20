@@ -132,8 +132,12 @@ describe('the pre-GA gate, end to end', () => {
       expect(tree.rootHelp).not.toContain(heading);
     });
 
+    // Padded like the GATED checks above, and for the mirror-image reason: a bare
+    // `toContain('install')` is satisfied by `uninstall`'s help entry, so the one test
+    // proving `app install` survived a public build would stay green if only `install`
+    // were dropped.
     it.each(UNGATED)('still lists `app %s`', (name) => {
-      expect(tree.appHelp).toContain(name);
+      expect(tree.appHelp).toContain(` ${name} `);
     });
 
     // The flag is GA; only the `public` value is gated. Dropping the flag would be

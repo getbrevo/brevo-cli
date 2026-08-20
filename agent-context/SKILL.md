@@ -88,6 +88,7 @@ The `ui_app` block in `app-config.json`:
   - `more_info` — supporting text under the menu entry / a card's description. Optional.
   - `redirect_link` — the destination URL that entry opens; record context arrives as **query parameters** (the path is never templated).
   - `context` — optional narrowing of the record fields passed along; it can only narrow what the platform allows for that slot.
+  - `size` — optional card size for the widget card this placement renders, e.g. `{ "width": "280px", "height": "160px" }`. Each axis is a CSS length string — a positive integer with an explicit `px` unit, or `1%`–`100%` of the host slot's box (shrink-only; >100% is rejected). Both axes are optional; an omitted axis (or the whole key) stays on the host slot's default.
   - `modal_iframe_url` — `iframeExtension` entries only; rejected on an `actionLink`.
 - Do **not** write `link_target` or `extension_point_name` anywhere in the file — both are wire/server-stamped values (`app upload` injects `link_target: "_blank"` itself) and the CLI strips them from server echoes.
 - The old `heading`/`subheading` names are rejected with a migration hint — they are `label`/`more_info` now, and they live **per entry**, not at the `ui_app` root.

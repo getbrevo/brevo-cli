@@ -120,8 +120,8 @@ describe('app-type registry', () => {
     ]);
   });
 
-  it('marks the ui type as preview and oauth as GA', () => {
+  it('marks both types as GA', () => {
     expect(APP_TYPES.oauth.availability).toBe('ga');
-    expect(APP_TYPES.ui.availability).toBe('preview');
+    expect(APP_TYPES.ui.availability).toBe('ga');
   });
 });

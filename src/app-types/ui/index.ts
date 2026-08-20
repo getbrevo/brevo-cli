@@ -1,8 +1,9 @@
 /**
  * The UI app type (BEX-290) — an action link that renders inside a Brevo CRM record.
  *
- * `preview`: shipped in the CLI, not live on the platform. That is metadata for doc
- * generation only — the CLI deliberately has no runtime guard, see `contract.ts`.
+ * GA since BEX-290: live on the platform (private distribution) and shipped in every
+ * build. `availability` is metadata for doc generation only — the CLI deliberately has
+ * no runtime guard, see `contract.ts`.
  *
  * Note the descriptor does NOT expose this type's prompts. `./authoring` is imported directly
  * by `app create`, so `app list` doesn't pull `inquirer` and the whole registry-read flow in
@@ -40,7 +41,7 @@ const UI_APP_WIRE_ONLY_KEYS: readonly string[] = [
 export const uiAppType: AppTypeModule = {
   id: 'ui',
   label: messages.APP_TYPE_UI,
-  availability: 'preview',
+  availability: 'ga',
 
   detectConfig: isUiAppConfigShape,
   detectRecord: isUiAppRecordShape,

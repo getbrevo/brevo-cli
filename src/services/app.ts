@@ -261,8 +261,9 @@ export function createAppService(client: ApiClient) {
      * ignores the parameter, and the unfiltered retry path deliberately drops it.
      *
      * The backend route is specified (app-store-bo-be GET /cli/surface-points) but not
-     * built yet; only the public /v3 mapping is assumed. See RELEASE-CHECKLIST.md → Before
-     * UI-apps GA. Errors propagate — the caller owns the actionable message, since a 404
+     * built yet; only the public /v3 mapping is assumed — tracked in docs.md on the
+     * docs/public-cli-ui-apps-feature-changes branch. Errors propagate — the caller owns
+     * the actionable message, since a 404
      * currently just means "endpoint not built".
      *
      * Normalization: rows are keyed on `extension_point_name`, falling back to the pre-BEX-361

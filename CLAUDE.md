@@ -18,8 +18,8 @@ Public app distribution is **not live on the Brevo platform**. The repo contains
 - **The guard is the build, not the docs.** This replaced a documentation-only notice (and then a runtime check). `agent-context/SKILL.md` and `AGENTS.md` no longer carry a *⚠️ not available yet* section or an *Exception — internal Brevo accounts* clause; they carry one rule instead — `brevo --help` is the complete surface. Don't reintroduce prohibition prose: an agent can't be led into a command that isn't in the binary.
 - **There is deliberately no runtime escape hatch.** The earlier gate unlocked on an `@brevo.com` account or `BREVO_ENABLE_PREVIEW=1`; both are gone. A compile-time guard any user can switch back on is a runtime guard wearing a costume, and it has to ship the surface in order to reveal it. Internal testing is a different artifact, not a different flag. **Do not add one back.**
 - **Two layers, no soft middle.** The build removes the surface; the Brevo API refuses public-app creation independently (`400 invalid_parameter`). There is no longer a client-side check for a user to talk past, so the old "guardrail, not a security boundary" caveat no longer applies.
-- **`src/lib/preview.ts` → `FEATURE_STAGE` is the single source of truth** for what is gated. Flipping a row to `'ga'` is necessary but **not sufficient** for a command: gated command definitions live in `src/commands/preview-definitions.ts` and are referenced from behind `__BREVO_PREVIEW__`, a *build* flag, so a GA feature left in that module is still eliminated. See `RELEASE-CHECKLIST.md` → *Before public-apps GA* for the full sequence.
-- **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* in one pass.
+- **`src/lib/preview.ts` → `FEATURE_STAGE` is the single source of truth** for what is gated. Flipping a row to `'ga'` is necessary but **not sufficient** for a command: gated command definitions live in `src/commands/preview-definitions.ts` and are referenced from behind `__BREVO_PREVIEW__`, a *build* flag, so a GA feature left in that module is still eliminated. See the GA runbook (`RELEASE-CHECKLIST.md` on the `docs/public-cli-ui-apps-feature-changes` branch) → *Before public-apps GA* for the full sequence.
+- **When public apps go GA**, work through the runbook's *Before public-apps GA* section in one pass.
 
 ## UI apps are GA — they ship in every build (BEX-290)
 
@@ -70,7 +70,7 @@ Do **not** "tidy" this into `Number()` on everything (`NaN` → `null` → also 
 
 Also confirmed on that endpoint: **the body's `client_id` is ignored whenever the gateway sets `X-Sib-Client-Id`** — `extractClientID` reads the header *first* and only falls back to the body. That is why omitting a non-numeric identifier is safe rather than merely tolerable. The POST response is `{brevo_integration_id, installation_id}` (both the same value); the CLI discards it, which is fine while uninstall addresses the install by account rather than by ID.
 
-Still assumed: the `type === 'corporate'` discriminator on `/v3/account/info` that account resolution branches on — it lives on the account API, not in either app-store repo, so reading the app-store code cannot settle it. Marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+Still assumed: the `type === 'corporate'` discriminator on `/v3/account/info` that account resolution branches on — it lives on the account API, not in either app-store repo, so reading the app-store code cannot settle it. It **survives UI-apps GA** (verifying it needs a corporate account, which the GA flip did not supply): marked in code comments and tracked as an open question in `docs.md` on the `docs/public-cli-ui-apps-feature-changes` branch.
 
 **`[account-id]` is optional on both commands.** Omitted, the target resolves from the authenticated account: a plain account installs into itself (no prompt, so `--json`/CI still work), a corporate account picks from `GET /v3/corporate/subAccount`. Resolution lives once in `resolveInstallTarget()` (`src/commands/app/account-install.ts`) and both commands inherit it. The explicit positional is checked first — it keeps CI unchanged and is the only way to reach an account the listing won't show, notably a deactivated sub-account.
 
@@ -221,15 +221,17 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 
 ## Working docs: `RELEASE-CHECKLIST.md` and `docs.md`
 
-Two durable docs at the repo root, with different jobs. Read this before editing either.
+Two durable docs with different jobs. **Both live on the `docs/public-cli-ui-apps-feature-changes`
+branch, not at this branch's root or on `main`** — they were moved off the feature branch so it
+merges only what it ships. Read this before editing either.
 
 - **`RELEASE-CHECKLIST.md` — the GA runbook.** Ordered, mechanical steps for the day a
-  feature ships. Its `## Before public-apps GA` and `## Before UI-apps GA` sections are
-  **durable**: they survive into `main` and stay until those features ship. Do not delete
-  them as branch cleanup. Its `## Per-branch verification` section is **scratch** — it
-  exists for the life of a branch and is cleared before merge.
-- **`docs.md` — the open-questions log**, for the two pre-GA features. Part 1 is release
-  copy held until GA; Part 2 is everything still unknown or undecided. Not in
+  feature ships. Its `## Before public-apps GA` section is **durable**: it stays until
+  public apps ship — do not delete it as cleanup. (The `## Before UI-apps GA` section was
+  worked through when UI apps went GA at BEX-290; anything from it that outlives GA — like
+  the unverified corporate discriminator — lives on in `docs.md`.)
+- **`docs.md` — the open-questions log.** Part 1 is release copy held until GA; Part 2 is
+  everything still unknown or undecided, including assumptions that survive a GA. Not in
   `package.json` `files:`, so it never ships to npm.
 
 The split is *what to do on the day* versus *what is still unknown*. An item moves from
@@ -238,16 +240,13 @@ The split is *what to do on the day* versus *what is still unknown*. An item mov
 
 Working rules:
 
-- **Whenever you make a change that needs verification**, append an entry under
-  `## Per-branch verification` (follow its template) covering what must hold true — new
-  criteria, not a rewrite of old ones.
 - **Whenever you identify follow-up work that isn't done in the current change**, add it to
-  `docs.md` → *Part 2* rather than letting it fall through silently. (There was a
-  `TODO.md` here; it was folded into `docs.md` because its contents were entirely
-  public-app / UI-app follow-ups.)
-- **Before merging the branch into `main`, clear the `## Per-branch verification` section
-  of `RELEASE-CHECKLIST.md`** — per-branch working state doesn't belong in `main`'s
-  history. **Keep the file itself and both `## Before …GA` sections.**
+  `docs.md` → *Part 2* on the docs branch rather than letting it fall through silently.
+  (There was a `TODO.md` here; it was folded into `docs.md` because its contents were
+  entirely public-app / UI-app follow-ups.)
+- **Per-branch verification notes are scratch.** When a branch keeps a
+  `## Per-branch verification` section in a local `RELEASE-CHECKLIST.md`, clear it before
+  merging into `main` — per-branch working state doesn't belong in `main`'s history.
 
 ## Adding a new command
 

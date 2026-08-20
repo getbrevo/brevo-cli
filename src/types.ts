@@ -13,7 +13,8 @@ export interface AccountResponse {
    * which resolves deterministically and never prompts. That is the safe default —
    * mistaking a master account for a plain one costs a "pass the account ID
    * explicitly" round trip, while the reverse would prompt a user who has nothing
-   * to pick from. Tracked in RELEASE-CHECKLIST.md → *Before UI-apps GA*.
+   * to pick from. Open assumption surviving UI-apps GA — tracked in `docs.md`
+   * (the open-questions log, on the `docs/public-cli-ui-apps-feature-changes` branch).
    */
   type?: string;
 }
@@ -264,7 +265,8 @@ export interface SurfacePointRow {
  * The row as it may arrive on the wire, before normalization.
  *
  * Both spellings are tolerated on read because the endpoint is specified but NOT BUILT
- * (see `RELEASE-CHECKLIST.md` → Before UI-apps GA), and the two candidate namings are the
+ * (tracked in `docs.md` on the `docs/public-cli-ui-apps-feature-changes` branch), and
+ * the two candidate namings are the
  * registry's column names (above) and the pre-BEX-361 draft's `extension_point` /
  * `location` / `place` / `kind` / `supported_extension_types`. Keying strictly on either
  * one would fail CLOSED against the other: every row gets dropped, and the partner is told
@@ -428,8 +430,8 @@ export interface UploadAppPayload {
   distribution_type: 'public' | 'private';
   // Absent for UI apps: their config carries an empty `auth: {}` and no
   // OAuth block travels on the wire — the key is omitted, not sent empty.
-  // ASSUMED contract until the server side ships (RELEASE-CHECKLIST.md →
-  // Before UI-apps GA). Always present for OAuth apps. Same block, same
+  // ASSUMED contract until the server side ships (tracked in docs.md on the
+  // docs/public-cli-ui-apps-feature-changes branch). Always present for OAuth apps. Same block, same
   // semantics on the create request (unified payload structure).
   auth?: {
     scopes: string[];

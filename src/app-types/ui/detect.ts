@@ -50,7 +50,8 @@ export function isUiAppConfigShape(config: AppConfigLike | null | undefined): bo
  * Deliberately requires BOTH to be empty. A record with a client_id but no callbacks is a
  * half-configured OAuth app, not a UI app, and must keep rendering as one.
  *
- * The fallback can go once the list echoes `ui_app` (RELEASE-CHECKLIST.md → Before UI-apps GA).
+ * The fallback can go once the list echoes `ui_app` (tracked in `docs.md` on the
+ * `docs/public-cli-ui-apps-feature-changes` branch).
  */
 export function isUiAppRecordShape(app: AppRecordLike | null | undefined): boolean {
   if (!app) return false;

@@ -100,7 +100,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Add a feature to the app in the current directory, or set an empty directory up for an app you already have — picked interactively, or named with `--app-id` (`--overwrite`, `--json`) |
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |
-| `brevo app install` | Install a UI app into a Brevo account (`[account-id]` optional — defaults to your own account; `--app-id`, `--force`) |
+| `brevo app install` | Install a UI app into a Brevo account (`[account-id]` optional — a regular account installs into itself; a corporate account is prompted to pick a sub-account, so pass the ID explicitly in scripts; `--app-id`, `--force`) |
 | `brevo app uninstall` | Uninstall a UI app from a Brevo account (same arguments as `install`) |
 | `brevo app available-scopes` | List the OAuth scopes the IdP supports (`--web` opens the catalog in a browser) |
 

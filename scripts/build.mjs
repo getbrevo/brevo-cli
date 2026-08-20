@@ -117,8 +117,9 @@ fs.chmodSync(outfile, builtMode | ((builtMode & 0o444) >> 2));
 // `installApp`/`uninstallApp` methods used to be residue too; they became live surface
 // at UI-apps GA.) `lang/en.ts` had the same problem and was fixed by moving the gated
 // strings into `lang/preview-messages.ts` and spreading that in behind the build flag —
-// the same treatment would work for these if the residue ever matters. Tracked in
-// RELEASE-CHECKLIST.md.
+// the same treatment would work for these if the residue ever matters. Tracked in the
+// GA runbook (`RELEASE-CHECKLIST.md` on the `docs/public-cli-ui-apps-feature-changes`
+// branch).
 //
 // So: a marker here must name a MODULE-level binding, never an object property, or the
 // check fails in a way no amount of correct gating can clear. The one property-level case
@@ -130,6 +131,18 @@ const LEAK_MARKERS = [
   'submitCommand', // commands/app/submit.ts
   'statusCommand', // commands/app/status.ts
   'withdrawCommand', // commands/app/withdraw.ts
+];
+
+// The mirror image of LEAK_MARKERS, for surface that went GA: bindings that must be
+// PRESENT in every build. Without this, only the jest gate suite notices a refactor
+// that re-routes an install import behind `__BREVO_PREVIEW__` (or back into
+// `preview-definitions.ts`) — the build would silently publish a package with no
+// `brevo app install`, against this file's own philosophy of checking the output.
+// Same rule as above: module-level bindings only, never object properties.
+const GA_MARKERS = [
+  'appInstallCommand', // commands/app/install.ts — GA at BEX-290
+  'appUninstallCommand', // commands/app/uninstall.ts — GA at BEX-290
+  'resolveInstallTarget', // commands/app/account-install.ts — GA at BEX-290
 ];
 
 // The INVERSE leak, and the one `LEAK_MARKERS` is structurally blind to: not a gated
@@ -152,8 +165,20 @@ function orphanedPreviewMessageKeys(bundle) {
   return keys.filter((key) => bundle.includes(key));
 }
 
+const bundle = fs.readFileSync(outfile, 'utf-8');
+
+// GA surface must survive in BOTH builds — a preview build is a superset, never a
+// replacement.
+const missingGa = GA_MARKERS.filter((marker) => !bundle.includes(marker));
+if (missingGa.length > 0) {
+  throw new Error(
+    `GA surface missing from the ${preview ? 'preview' : 'public'} build: ${missingGa.join(', ')}.\n` +
+      'A shipped module was eliminated. Check that nothing moved its only reference ' +
+      'behind `__BREVO_PREVIEW__` or into `commands/preview-definitions.ts`.',
+  );
+}
+
 if (!preview) {
-  const bundle = fs.readFileSync(outfile, 'utf-8');
   const leaked = LEAK_MARKERS.filter((marker) => bundle.includes(marker));
   if (leaked.length > 0) {
     throw new Error(
@@ -176,7 +201,6 @@ if (!preview) {
   // Inverted on a preview build: a marker going missing here means the elimination is
   // firing when it shouldn't, which would silently ship a preview build with no preview
   // surface — the failure that looks like everything working.
-  const bundle = fs.readFileSync(outfile, 'utf-8');
   const missing = LEAK_MARKERS.filter((marker) => !bundle.includes(marker));
   if (missing.length > 0) {
     throw new Error(
