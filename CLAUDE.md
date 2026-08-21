@@ -76,6 +76,17 @@ Still assumed: the `type === 'corporate'` discriminator on `/v3/account/info` th
 
 **The presence of `ui_app` is the app-type discriminator** — there is no `appType` key in `app-config.json`. Every branch that needs to tell the two types apart goes through `isUiAppConfig()` in `src/lib/config.ts`; use it rather than testing for the key inline, so the discriminator can change in one place.
 
+## Branch-local release-status docs — NEVER merge into `main`
+
+`UI-APPS-RELEASE-STATUS.md` and `PUBLIC-APPS-RELEASE-STATUS.md` are internal working
+status notes committed on feature branches only (`feat/bex-416-entry-size` carries the
+UI-apps one, `feature_set-brevo-cli-v2` the public-apps one). **They must never land on
+`main`**: this repo is public, and these files consolidate internal release state.
+Before merging any branch that contains either file into `main`, delete the file from
+the branch first. Do not "helpfully" move their content into README, docs, or the
+changelog either — their durable homes are `RELEASE-CHECKLIST.md` / `docs.md` on the
+docs branch.
+
 ## Public repository — review before committing
 
 This repo is **public** at `github.com/getbrevo/brevo-cli` and the package publishes to the **public npm registry** under `@getbrevo`. Every commit, PR title, PR description, issue, and review comment is world-readable and indexed by search engines. Treat each commit and PR as a public release.
