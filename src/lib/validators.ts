@@ -478,29 +478,8 @@ function validateSurfacePointList(entries: unknown, extensionType: string): void
     const name = asText(row.surface_point_name).trim();
     names.push(name);
 
-    if (row.context !== undefined) {
-      if (!Array.isArray(row.context)) {
-        throw new CliError(
-          `ui_app.surface_point_list["${name}"].context must be an array of field names, e.g. ["recordId"].`,
-        );
-      }
-      const contextCheck = validateUiAppContext(row.context.map(asText));
-      if (contextCheck !== true) {
-        throw new CliError(`ui_app.surface_point_list["${name}"].context: ${contextCheck}`);
-      }
-    }
-
-    // Same authored-or-absent contract as `context`, one level down: absent means the host
-    // slot's default card size applies; authored, each axis is a px or % CSS length and at
-    // least one must be present. Shape only, like everything else here — there is no
-    // platform per-slot ceiling to check yet.
-    if (row.size !== undefined) {
-      const sizeCheck = validateSurfacePointSize(row.size);
-      if (sizeCheck !== true) {
-        throw new CliError(`ui_app.surface_point_list["${name}"].size: ${sizeCheck}`);
-      }
-    }
-
+    validateEntryContext(row, name);
+    validateEntrySize(row, name);
     validateEntryCtaFields(row, name, extensionType);
   }
   if (new Set(names).size !== names.length) {
@@ -538,6 +517,37 @@ function validateSurfacePointSize(size: unknown): true | string {
     }
   }
   return true;
+}
+
+/**
+ * Validate one entry's `context` when authored: an array of well-formed field names.
+ * Absent means the registry row's full allow-list applies.
+ */
+function validateEntryContext(row: Record<string, unknown>, name: string): void {
+  if (row.context === undefined) return;
+  if (!Array.isArray(row.context)) {
+    throw new CliError(
+      `ui_app.surface_point_list["${name}"].context must be an array of field names, e.g. ["recordId"].`,
+    );
+  }
+  const contextCheck = validateUiAppContext(row.context.map(asText));
+  if (contextCheck !== true) {
+    throw new CliError(`ui_app.surface_point_list["${name}"].context: ${contextCheck}`);
+  }
+}
+
+/**
+ * Validate one entry's `size` when authored. Same authored-or-absent contract as
+ * `context`: absent means the host slot's default card size applies; authored, each axis
+ * is a px or % CSS length. Shape only, like everything else here — there is no platform
+ * per-slot ceiling to check yet.
+ */
+function validateEntrySize(row: Record<string, unknown>, name: string): void {
+  if (row.size === undefined) return;
+  const sizeCheck = validateSurfacePointSize(row.size);
+  if (sizeCheck !== true) {
+    throw new CliError(`ui_app.surface_point_list["${name}"].size: ${sizeCheck}`);
+  }
 }
 
 /**
