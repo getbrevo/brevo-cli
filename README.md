@@ -79,7 +79,7 @@ Or step by step:
    ```bash
    brevo app list
    brevo app create --name "My App" --distribution private
-   brevo app scaffold --app-id 42
+   brevo app scaffold --app-id 3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93
    brevo app start oauth --port 3000
    ```
 
@@ -93,13 +93,15 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`) |
-| `brevo app list` | List apps in your account |
+| `brevo app create` | Create an app — an OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`), or a UI app via the interactive prompts (there is no `--type` flag; non-interactive runs always create an OAuth app) |
+| `brevo app list` | List apps in your account (each row names its type) |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff (`--yes`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Add a feature to the app in the current directory, or set an empty directory up for an app you already have — picked interactively, or named with `--app-id` (`--overwrite`, `--json`) |
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |
+| `brevo app install` | Install a UI app into a Brevo account (`[account-id]` optional — a regular account installs into itself; a corporate account is prompted to pick a sub-account, so pass the ID explicitly in scripts; `--app-id`, `--force`) |
+| `brevo app uninstall` | Uninstall a UI app from a Brevo account (same arguments as `install`) |
 | `brevo app available-scopes` | List the OAuth scopes the IdP supports (`--web` opens the catalog in a browser) |
 
 Most commands require a successful `brevo login` first, except authentication/help flows (`brevo login`, `brevo logout`, `brevo app init`, `--help`). Every command accepts `--json` for machine-readable output.

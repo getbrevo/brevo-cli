@@ -14,17 +14,29 @@
 import type { UiApp } from '../../types';
 
 /**
- * One line per placement: the slot slug, plus its own record context when it narrows one.
+ * A group of lines per placement: the slot slug (plus its own record context when it
+ * narrows one), followed by the entry's own CTA fields — label, supporting text and
+ * destination — indented under it.
  *
- * Per-entry rather than a single shared context row, because two record pages can forward
- * different fields and a combined row would hide that.
+ * Per-entry rather than shared rows, because everything here is per-entry now: two
+ * record pages can forward different fields, show different labels and open different
+ * URLs (BEX-426), and combined rows would hide all of that.
  *
- * Returns lines WITHOUT any label or indent — the caller owns those, including the
- * first-row-label / continuation-row-padding pattern each renderer uses.
+ * Returns lines WITHOUT any label or left indent — the caller owns those, including the
+ * first-row-label / continuation-row-padding pattern each renderer uses. The two-space
+ * indent that nests a CTA line under its slot line is part of the value, so the three
+ * renderers can't drift on it.
  */
 export function formatPlacementLines(uiApp: Pick<UiApp, 'surface_point_list'>): string[] {
-  return (uiApp.surface_point_list ?? []).map((entry) => {
+  return (uiApp.surface_point_list ?? []).flatMap((entry) => {
     const context = entry.context?.length ? `  (context: ${entry.context.join(', ')})` : '';
-    return `${entry.surface_point_name}${context}`;
+    return [
+      `${entry.surface_point_name}${context}`,
+      ...(entry.label ? [`  label:         ${entry.label}`] : []),
+      ...(entry.more_info ? [`  more info:     ${entry.more_info}`] : []),
+      ...(entry.redirect_link ? [`  redirect link: ${entry.redirect_link}`] : []),
+      // An iframeExtension's modal URL is the destination, so it earns a line too.
+      ...(entry.modal_iframe_url ? [`  modal URL:     ${entry.modal_iframe_url}`] : []),
+    ];
   });
 }

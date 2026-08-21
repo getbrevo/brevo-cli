@@ -16,6 +16,29 @@ function scaffoldFileCount(done: string, written: number, total: number): string
   return `${done} (${written} of ${total} files written)`;
 }
 
+/**
+ * Numbered "Next steps" lines, with each step's parenthetical note aligned.
+ *
+ * The note column is derived from the widest command in the list rather than hard-coded
+ * per line. It was hard-coded, and the two commands in the UI-app box differ in length by
+ * one character while their padding differed by eleven — so `brevo app upload`'s note sat
+ * ten columns right of `brevo app install`'s inside the same box.
+ *
+ * `cdDir` prepends `1. cd <dir>` and shifts the numbering. It is deliberately outside the
+ * alignment: it carries no note, so padding it to the command column would only widen the
+ * box for nothing.
+ */
+function numberedSteps(cdDir: string | undefined, steps: Array<[string, string]>): string[] {
+  const commandWidth = Math.max(...steps.map(([command]) => command.length));
+  const offset = cdDir ? 1 : 0;
+  return [
+    ...(cdDir ? [`1. cd ${cdDir}`] : []),
+    ...steps.map(
+      ([command, note], i) => `${i + 1 + offset}. ${command.padEnd(commandWidth)}   (${note})`,
+    ),
+  ];
+}
+
 const coreMessages = {
   // Update notifier
   UPDATE_AVAILABLE: (current: string, latest: string): string =>
@@ -151,10 +174,8 @@ const coreMessages = {
   // as a failure. See `scaffoldFileCount`, which both scaffold reports share.
   APP_CREATE_BASE_SUCCESS: (written: number, total: number) =>
     `Project structure ${scaffoldFileCount('created', written, total)}`,
-  APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] => [
-    ...(cdDir ? [`1. cd ${cdDir}`] : []),
-    `${cdDir ? 2 : 1}. ${CLI.APP_SCAFFOLD}   (add a feature — e.g. the OAuth test server)`,
-  ],
+  APP_CREATE_BASE_ONLY_NEXT: (cdDir?: string): string[] =>
+    numberedSteps(cdDir, [[CLI.APP_SCAFFOLD, 'add a feature — e.g. the OAuth test server']]),
   APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS: (dir: string) =>
     `Skipped scaffold: directory already exists (${dir}). cd into it and run \`${CLI.APP_SCAFFOLD}\` to add a feature.`,
   APP_CREATE_DIR_EXISTS_SKIPPED: (dir: string) =>
@@ -162,11 +183,145 @@ const coreMessages = {
   APP_CREATE_ALREADY_LINKED: (name: string) =>
     `App "${name}" is already linked in this directory (app-config.json found). Move to a different directory to create a new app, or run \`${CLI.APP_SCAFFOLD}\` here to add a feature to this project.`,
   APP_CREATE_DIR_UNRESOLVED: 'Could not resolve the output directory for scaffolding.',
-  APP_CREATE_UI_NEXT: (cdDir?: string): string[] => [
-    ...(cdDir ? [`1. cd ${cdDir}`] : []),
-    `${cdDir ? 2 : 1}. ${CLI.APP_UPLOAD}              (validate and save your configuration)`,
-    `${cdDir ? 3 : 2}. ${CLI.APP_DEPLOY()}   (make it available in an account)`,
-  ],
+  APP_CREATE_UI_NEXT: (cdDir?: string): string[] =>
+    numberedSteps(cdDir, [
+      [CLI.APP_UPLOAD, 'validate and save your configuration'],
+      [CLI.APP_INSTALL(), 'make it available in an account'],
+    ]),
+
+  // App create — UI app (BEX-290). Moved here from `preview-messages.ts` at UI-apps GA.
+  // Placement choices are read from the platform's extension-point registry at prompt
+  // time (BEX-361) — fetch-only, no local fallback, so a partner can never author a slot
+  // the platform doesn't have. Two loads: the record pages, then the placements on the
+  // pages that were picked.
+  APP_CREATE_UI_PAGES_SPINNER: 'Loading record pages...',
+  APP_CREATE_UI_POINTS_SPINNER: 'Loading placements...',
+  APP_CREATE_UI_POINTS_FETCH_FAILED:
+    'Could not load the available placements from the Brevo API — the UI-app flow needs them to offer where your app can appear. Check your connection and try again. Creating an OAuth app does not need this and still works.',
+  APP_CREATE_UI_POINTS_EMPTY:
+    'The Brevo API returned no available placements for UI apps. This usually means the extension-point registry has not been seeded in this environment — try again later.',
+  // Raised when the registry has rows, but none of them can serve the chosen extension
+  // type. Distinct from the empty case: the fix is a different integration type, not
+  // waiting for a seed.
+  APP_CREATE_UI_POINTS_NONE_FOR_TYPE: (extensionType: string) =>
+    `None of the available placements can host a "${extensionType}" extension. This environment's extension-point registry may predate it — try again later.`,
+  // Single-select (BEX-426): the interactive flow authors exactly one placement, because
+  // the CTA fields (label, more_info, destination) live per placement now and asking them
+  // per page would multiply the prompt count. More placements are added by hand as further
+  // `surface_point_list` entries in app-config.json — the box hint says so.
+  APP_CREATE_UI_SURFACE_PROMPT: 'Which record page should it appear on?',
+  // The placement prompt on the picked page: an app takes exactly one spot on a page.
+  // Replaces the old kind-then-place pair (kind is a property of the slot, not a question
+  // — a partner picking "Header menu" has already said they want a menu entry) and the
+  // grouped multi-select that briefly followed it.
+  APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
+    `Where should it appear on the ${page} page?`,
+  // Integration type — asked SECOND, before any placement, because it is the decision a
+  // partner arrives with. Only Link is offered for now: the disabled "coming soon"
+  // Iframe choice was removed 2026-08-19 until iframe support is ready to author.
+  APP_CREATE_UI_INTEGRATION_PROMPT: 'What type of integration are you adding?',
+  APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link            (Opens your URL in a new tab)',
+  // Each field says what it renders as, so a partner filling the form knows what
+  // they are writing. Both fields render in two places, and the prompt names both:
+  // `label` is the menu entry's text AND a card's CTA button, `more_info` is the
+  // menu entry's second line AND a card's description.
+  APP_CREATE_UI_LABEL_PROMPT: 'Label — the menu entry text, and the button text on a card:',
+  APP_CREATE_UI_MORE_INFO_PROMPT:
+    'More info — supporting text under the menu entry, and a card’s description (optional):',
+  APP_CREATE_UI_REDIRECT_LINK_PROMPT:
+    'Redirect link — the destination URL your app opens (record context arrives as query parameters):',
+  APP_CREATE_UI_BOX_TITLE: 'UI app created',
+  // `label` labels the menu entry (BEX-290). The one piece of rendered text that has
+  // no field is a CARD's title, which is the app name — worth saying, since it is now
+  // the only place a partner might hunt for a field that doesn't exist.
+  APP_CREATE_UI_BOX_LABEL_NOTE: (label: string, appName: string) =>
+    `The menu entry is labelled "${label}". On a card that text becomes the button, and the card's title is the app name ("${appName}").`,
+  // Record context reaches the partner's endpoint as query parameters only — there is
+  // no path templating — so the summary prints the exact URL shape to build against.
+  APP_CREATE_UI_BOX_EXAMPLE_URL_LABEL: 'Brevo will open, for example:',
+  APP_CREATE_UI_BOX_EXAMPLE_URL_NOTE:
+    'Values are placeholders. Read them as query parameters — the path is never templated.',
+  // Also the pointer to MORE placements: the flow authors one, and each further one is a
+  // hand-written `surface_point_list` entry carrying its own label and destination.
+  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
+
+  // App install / uninstall — per-account availability for UI apps (BEX-290).
+  // Moved here from `preview-messages.ts` at UI-apps GA.
+  APP_INSTALL_SELECT: 'Select an app to install:',
+  /**
+   * How an account is named in every install/uninstall line.
+   *
+   * The bare ID was not enough. Two of the three resolution paths choose the account
+   * *for* the user — their own account, or one picked from the sub-account listing — and
+   * someone who never typed an identifier has nothing to check a bare number against. So
+   * the company name leads and the identifier follows in parentheses, the same order the
+   * sub-account picker already used.
+   *
+   * `self` marks the plain-account path, where the identifier is the caller's
+   * `organization_id` and may be a UUID rather than a number. It is spelled out as "your
+   * own account" instead of taking the picker's `Account ID:` prefix, because that prefix
+   * names a numeric sub-account ID and this is a different identifier — the same reason
+   * the picker avoids calling it a user ID. The label itself says "org ID" rather than
+   * plain "ID" for the same reason: it's the organization ID, not a generic identifier.
+   *
+   * With no name and not self the result is `account 99999`, which is exactly the wording
+   * these messages carried before names were added — so the explicit `[account-id]` path,
+   * the one CI uses, is unchanged byte for byte.
+   */
+  APP_INSTALL_ACCOUNT_LABEL: (accountId: string, companyName?: string, self?: boolean): string => {
+    const name = companyName?.trim();
+    if (self) {
+      return name
+        ? `${name} (your own account, org ID ${accountId})`
+        : `your own account (org ID ${accountId})`;
+    }
+    return name ? `${name} (account ${accountId})` : `account ${accountId}`;
+  },
+  APP_INSTALL_CONFIRM: (name: string, appId: string, account: string) =>
+    `Install app "${name}" (${appId}) into ${account}?`,
+  APP_INSTALL_CANCELLED: 'Install cancelled.',
+  APP_INSTALL_SUCCESS: (appId: string, account: string) =>
+    `App ${appId} installed into ${account}.`,
+  // Only a UI app is installed into an account. The rule is not new — the capability
+  // matrix (`src/app-types/capabilities.ts`) has said so since it was written, and its
+  // header names this as the example of a type-driven capability — but nothing on the
+  // install path consulted it, so an OAuth app installed successfully and rendered
+  // nothing. The installs endpoint has no app-type check of its own (same handler the
+  // upload gate's note describes), so this is the only place the mistake can be caught.
+  APP_INSTALL_NOT_UI_APP: (appId: string) =>
+    `App ${appId} is an OAuth app, and only UI apps are installed into an account. An OAuth app becomes usable when a user authorizes it, so there is nothing to install.\n\n  \`${CLI.APP_LIST}\` shows each app's type.`,
+  // Gated as well as install, deliberately. The asymmetry with the *upload* gate is real
+  // and intended: that one is skipped here because an app installed by an older CLI must
+  // stay removable, whereas an OAuth app has no install to remove in the first place. The
+  // one case this does strand is an OAuth app installed by a CLI that predates this
+  // check — `brevo app uninstall` can no longer reach it. Accepted: the record it would
+  // remove is one nothing reads.
+  APP_UNINSTALL_NOT_UI_APP: (appId: string) =>
+    `App ${appId} is an OAuth app, and only UI apps are installed into an account, so there is nothing to uninstall.\n\n  \`${CLI.APP_LIST}\` shows each app's type.`,
+  // Sub-account resolution, shared by install and uninstall. Only a master (corporate)
+  // account ever reaches these: a plain account resolves to itself with no prompt.
+  // The picker prompt is per command — uninstall must not ask which account to
+  // "install into" — while the two error strings stay shared: both name `app install`
+  // as the way forward, which is right for either command (there is nothing to
+  // uninstall from an account the listing can't even show).
+  APP_INSTALL_SELECT_ACCOUNT: 'Select the account to install into:',
+  APP_UNINSTALL_SELECT_ACCOUNT: 'Select the account to uninstall from:',
+  APP_INSTALL_ACCOUNT_ID_REQUIRED: `This is a corporate account, so the target account can't be resolved automatically.\n\n  Pass it explicitly: ${CLI.APP_INSTALL('<account-id>')}\n  (Choosing one from a list requires an interactive terminal.)`,
+  APP_INSTALL_NO_SUB_ACCOUNTS: `No active sub-accounts found on this corporate account.\n\n  Pass the target account explicitly: ${CLI.APP_INSTALL('<account-id>')}`,
+  // The spec's installation flow requires install to refuse until the config has
+  // been validated by an upload. `version` is only ever written by a successful
+  // upload, so its absence is a reliable local signal.
+  APP_INSTALL_NOT_UPLOADED: `Please first validate your configuration with \`${CLI.APP_UPLOAD}\`.`,
+  APP_UNINSTALL_SELECT: 'Select an app to uninstall:',
+  APP_UNINSTALL_CONFIRM: (name: string, appId: string, account: string) =>
+    `Uninstall app "${name}" (${appId}) from ${account}?`,
+  APP_UNINSTALL_CANCELLED: 'Uninstall cancelled.',
+  APP_UNINSTALL_SUCCESS: (appId: string, account: string) =>
+    `App ${appId} uninstalled from ${account}.`,
+  APP_UNINSTALL_NOT_INSTALLED: (appId: string, account: string) =>
+    `App ${appId} is not installed in ${account}.`,
+  APP_INSTALL_NON_INTERACTIVE:
+    'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -261,7 +416,7 @@ const coreMessages = {
   // cached by a successful login. Numeric and UUID values are both forwarded as-is;
   // only an absent or blank one lands here, meaning the credentials predate the field
   // or were written by a partial login — re-authenticating rewrites them.
-  APP_DEPLOY_MISSING_CLIENT_ID: `Could not determine your Brevo account's organization ID.\n\n  Run \`${CLI.LOGIN}\` to re-authenticate.`,
+  APP_INSTALL_MISSING_CLIENT_ID: `Could not determine your Brevo account's organization ID.\n\n  Run \`${CLI.LOGIN}\` to re-authenticate.`,
   APP_UPLOAD_DISTRIBUTION_IMMUTABLE: (current: string, next: string) =>
     `distribution_type cannot be changed via upload — this app is "${current}" on Brevo, but app-config.json says "${next}".\n  Edit \`distribution_type\` in app-config.json back to "${current}", or create a new ${next} app with \`${CLI.APP_CREATE}\`.`,
   LEGACY_ALL_SCOPE_START_BLOCK: `This app's auth.scopes in app-config.json still contains the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses (run \`${CLI.APP_SCOPES}\` to see the catalog),\n  migrate by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_START('oauth')}\`.`,
@@ -278,6 +433,8 @@ const coreMessages = {
 
   // App delete
   APP_DELETE_SELECT: 'Select an app to delete:',
+  APP_DELETE_WARNING: (name: string, id: string) =>
+    `Deleting "${name}" (${id}) will also remove it from every account where it is installed or published.\n  Installs and credentials cannot be recovered after this.`,
   APP_DELETE_CONFIRM: (name: string, id: string) =>
     `Delete app "${name}" (${id})? This cannot be undone.`,
   APP_DELETE_SUCCESS: (id: string) => `App ${id} deleted.`,
@@ -384,7 +541,7 @@ const coreMessages = {
     `App ${appId} was created but could not be read back from the server. Scaffolding from the create response instead — run \`${CLI.APP_SCAFFOLD}\` later to refresh app-config.json from the server.`,
   APP_SCAFFOLD_SUCCESS: (written: number, total: number) =>
     `Feature ${scaffoldFileCount('scaffolded', written, total)}`,
-  APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_DEPLOY()}\`.`,
+  APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP: `This is a UI app — there are no features to scaffold (an action link has no local server to run). Edit the \`ui_app\` block in app-config.json, then run \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_INSTALL()}\`.`,
   APP_SCAFFOLD_TARGET_IS_CWD: 'Scaffolding into the current directory.',
   APP_SCAFFOLD_CREATING_DIR: (dir: string) => `Creating ${dir} and moving into it...`,
   // The directory was already there and the user has just said how to handle it —
@@ -475,7 +632,7 @@ const coreMessages = {
   // `init` ends by naming the obvious next command, and for a UI app that is not
   // `app start oauth`: an action link has no OAuth flow and no local server to run,
   // so the OAuth line pointed at a command that would fail. It also contradicted the
-  // Next steps box printed directly above it, which already said upload → deploy.
+  // Next steps box printed directly above it, which already said upload → install.
   // Deliberately in core rather than `preview-messages`: `init` is not a gated command,
   // and a hand-edited `ui_app` block can reach this line in a published build.
   INIT_DONE_UI_APP: `All set! Follow the next steps above, or run \`${CLI.HELP}\` to see all commands.`,

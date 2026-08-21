@@ -26,6 +26,7 @@ function isSafeToDelete(dir: string): boolean {
 }
 
 async function confirmDeletion(appLabel: string, appId: string): Promise<boolean> {
+  logWarn(`\n  ${messages.APP_DELETE_WARNING(appLabel, appId)}\n`);
   const { confirmed } = await inquirer.prompt([
     {
       type: 'confirm',

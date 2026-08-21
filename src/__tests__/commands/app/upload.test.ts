@@ -424,19 +424,35 @@ describe('app/upload', () => {
   // The block mirrors the platform's stored app snapshot field for field.
   describe('UI apps', () => {
     // `surface_point_list` is a list of objects and each entry carries its own record
-    // context (BEX-290). `link_target` is deliberately absent — `upload` injects it.
-    const UI_APP = {
-      extension_type: 'actionLink' as const,
-      surface_point_list: [
-        { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
-      ],
+    // context (BEX-290) and its own CTA fields (BEX-426). `link_target` is deliberately
+    // absent — `upload` injects it onto each entry, where it lives since BEX-426.
+    const UI_APP_ENTRY = {
+      surface_point_name: 'contact-details-header-menu',
+      context: ['recordId'],
       label: 'View in CRM',
       more_info: 'Open this contact in your connected CRM to see full activity history.',
       redirect_link: 'https://example.com/brevo',
     };
+    const UI_APP = {
+      extension_type: 'actionLink' as const,
+      surface_point_list: [UI_APP_ENTRY],
+    };
+    /** The block with its single entry's fields overridden (or removed via undefined). */
+    const withUiEntry = (overrides: Record<string, unknown>) => ({
+      ...UI_APP,
+      surface_point_list: [{ ...UI_APP_ENTRY, ...overrides }],
+    });
 
-    // What the wire carries: the authored block plus the injected link_target.
-    const UI_APP_PAYLOAD = { ...UI_APP, link_target: '_blank' as const };
+    // What the wire carries: the authored block with the injected link_target stamped onto
+    // every entry — the root carries none, which is what the server now refuses by name.
+    const withLinkTargets = (block: typeof UI_APP) => ({
+      ...block,
+      surface_point_list: block.surface_point_list.map((entry) => ({
+        ...entry,
+        link_target: '_blank' as const,
+      })),
+    });
+    const UI_APP_PAYLOAD = withLinkTargets(UI_APP);
 
     // A UI app carries no OAuth block at all — `auth` is exactly the empty
     // object `{}`, and that absence of scopes/redirectUris is the point of the
@@ -488,12 +504,41 @@ describe('app/upload', () => {
     // partner to edit it into a value that 400s. It is still sent explicitly rather than
     // left to the server default, which is gated on the pre-BEX-350 extension_type
     // spelling and so never fires for a CLI-authored app.
-    it('injects link_target into the payload without it being in the config', async () => {
+    //
+    // Per ENTRY since BEX-426, and NOT at the root: the root spelling is a superseded key
+    // the upload endpoint refuses by name, so sending it there would 400 an app that used
+    // to upload fine.
+    it('injects link_target onto each entry without it being in the config', async () => {
       await uploadCommand({ yes: true });
 
       expect(UI_CONFIG.ui_app).not.toHaveProperty('link_target');
+      expect(UI_CONFIG.ui_app.surface_point_list[0]).not.toHaveProperty('link_target');
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
-      expect(payload.ui_app.link_target).toBe('_blank');
+      expect(payload.ui_app).not.toHaveProperty('link_target');
+      expect(payload.ui_app.surface_point_list).toHaveLength(1);
+      expect(payload.ui_app.surface_point_list[0].link_target).toBe('_blank');
+    });
+
+    // Every placement gets its own copy: the field qualifies THAT entry's redirect_link,
+    // and an app on three slots that only stamped the first would leave the other two to a
+    // server default the CLI is deliberately not relying on.
+    it('injects link_target onto every entry of a multi-placement app', async () => {
+      const second = {
+        ...UI_APP_ENTRY,
+        surface_point_name: 'deal-details-header-menu',
+        redirect_link: 'https://example.com/deal',
+      };
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, surface_point_list: [UI_APP_ENTRY, second] },
+      });
+
+      await uploadCommand({ yes: true });
+
+      const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+      expect(
+        payload.ui_app.surface_point_list.map((e: { link_target?: string }) => e.link_target),
+      ).toEqual(['_blank', '_blank']);
     });
 
     it('does not require redirect URLs', async () => {
@@ -535,8 +580,8 @@ describe('app/upload', () => {
     });
 
     // UI apps have no OAuth block on the wire either — the whole auth key is
-    // omitted, not sent with empty arrays (assumed contract, tracked in
-    // RELEASE-CHECKLIST.md → Before UI-apps GA).
+    // omitted, not sent with empty arrays (assumed contract, tracked in docs.md
+    // on the docs/public-cli-ui-apps-feature-changes branch).
     it('omits the auth key from the upload payload', async () => {
       await uploadCommand({ yes: true });
 
@@ -556,24 +601,25 @@ describe('app/upload', () => {
     it('uploads when only the ui_app block changed', async () => {
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         ...UI_REMOTE,
-        ui_app: { ...UI_APP, label: 'Old Label' },
+        ui_app: withUiEntry({ label: 'Old Label' }),
       });
 
       await uploadCommand({ yes: true });
 
       expect(appService.uploadApp).toHaveBeenCalled();
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
-      expect(payload.ui_app.label).toBe('View in CRM');
+      expect(payload.ui_app.surface_point_list[0].label).toBe('View in CRM');
     });
 
-    // The server echoes the block it stored, which carries the link_target IT defaulted
-    // and the local file deliberately does not. Comparing that field would make the block
-    // read as changed on every upload and "Already up to date" would never print again for
-    // a UI app — so the diff normalizes it away on both sides.
+    // The server echoes the block it stored, which carries on each entry the link_target IT
+    // defaulted and the local file deliberately does not. Comparing that field would make the
+    // block read as changed on every upload and "Already up to date" would never print again
+    // for a UI app — so the diff normalizes it away on both sides, at entry depth since
+    // BEX-426 moved it there.
     it('reports up to date when the server echo only adds link_target', async () => {
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         ...UI_REMOTE,
-        ui_app: { ...UI_APP, link_target: '_blank' as const, version: '1.0.0' },
+        ui_app: { ...withLinkTargets(UI_APP), version: '1.0.0' },
       });
 
       await uploadCommand({ json: true });
@@ -584,7 +630,7 @@ describe('app/upload', () => {
     });
 
     // extension_point_name is the platform's own copy of a slot's dotted name, stamped onto
-    // its stored entry. It is server-derived, so it can never be a local edit — and unlike
+    // its stored entry. It is server-derived, so it can never be a local edit. Like
     // link_target it lives INSIDE an entry, which a top-level-only strip would miss. The
     // server does not echo it today; this pins the behaviour if that ever changes, in both
     // directions: no phantom drift, and it must not be written back into app-config.json
@@ -592,17 +638,10 @@ describe('app/upload', () => {
     it('ignores a server-echoed extension_point_name inside an entry', async () => {
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         ...UI_REMOTE,
-        ui_app: {
-          ...UI_APP,
-          surface_point_list: [
-            {
-              surface_point_name: 'contact-details-header-menu',
-              extension_point_name: 'contactDetails.headerMenu.action',
-              context: ['recordId'],
-            },
-          ],
-          link_target: '_blank' as const,
-        },
+        ui_app: withUiEntry({
+          extension_point_name: 'contactDetails.headerMenu.action',
+          link_target: '_blank',
+        }),
       });
 
       await uploadCommand({ json: true });
@@ -621,21 +660,31 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point_name: 'deal-details-header-menu', context: ['recordId'] },
-            { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+            { ...UI_APP_ENTRY, surface_point_name: 'deal-details-header-menu' },
+            UI_APP_ENTRY,
           ],
         },
       });
       (appService.fetchApp as jest.Mock).mockResolvedValue({
         ...UI_REMOTE,
         ui_app: {
-          link_target: '_blank' as const,
-          redirect_link: 'https://example.com/brevo',
-          more_info: 'Open this contact in your connected CRM to see full activity history.',
-          label: 'View in CRM',
           surface_point_list: [
-            { context: ['recordId'], surface_point_name: 'contact-details-header-menu' },
-            { context: ['recordId'], surface_point_name: 'deal-details-header-menu' },
+            // Key order scrambled per entry too — canonicalization sorts at every depth.
+            {
+              context: ['recordId'],
+              redirect_link: 'https://example.com/brevo',
+              label: 'View in CRM',
+              link_target: '_blank' as const,
+              more_info: 'Open this contact in your connected CRM to see full activity history.',
+              surface_point_name: 'contact-details-header-menu',
+            },
+            {
+              redirect_link: 'https://example.com/brevo',
+              surface_point_name: 'deal-details-header-menu',
+              more_info: 'Open this contact in your connected CRM to see full activity history.',
+              label: 'View in CRM',
+              context: ['recordId'],
+            },
           ],
           extension_type: 'actionLink' as const,
         },
@@ -655,10 +704,7 @@ describe('app/upload', () => {
     it('uploads an unregistered extension point for the server to reject', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: {
-          ...UI_APP,
-          surface_point_list: [{ surface_point_name: 'contact.headerMenu.action' }],
-        },
+        ui_app: withUiEntry({ surface_point_name: 'contact.headerMenu.action' }),
       });
 
       await uploadCommand({ yes: true });
@@ -666,7 +712,11 @@ describe('app/upload', () => {
       expect(appService.uploadApp).toHaveBeenCalled();
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
       expect(payload.ui_app.surface_point_list).toEqual([
-        { surface_point_name: 'contact.headerMenu.action' },
+        {
+          ...UI_APP_ENTRY,
+          surface_point_name: 'contact.headerMenu.action',
+          link_target: '_blank',
+        },
       ]);
     });
 
@@ -675,10 +725,7 @@ describe('app/upload', () => {
     it('rejects a blank extension point without a round trip', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: {
-          ...UI_APP,
-          surface_point_list: [{ surface_point_name: '   ' }],
-        },
+        ui_app: withUiEntry({ surface_point_name: '   ' }),
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/cannot be empty/i);
@@ -691,10 +738,7 @@ describe('app/upload', () => {
     it('accepts a widget slot for an action link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: {
-          ...UI_APP,
-          surface_point_list: [{ surface_point_name: 'contact-details-overview-main' }],
-        },
+        ui_app: withUiEntry({ surface_point_name: 'contact-details-overview-main' }),
       });
 
       await uploadCommand({ yes: true });
@@ -711,15 +755,23 @@ describe('app/upload', () => {
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/at least one placement/i);
     });
 
-    it('accepts multiple record pages', async () => {
+    // Hand-authored in app-config.json — `app create` authors one placement (BEX-426),
+    // and this is the documented path to more. Each entry carries its own copy and
+    // destination, which is the point of the per-entry move.
+    it('accepts multiple record pages, each with its own label and link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
-            { surface_point_name: 'deal-details-header-menu', context: ['recordId'] },
-            { surface_point_name: 'company-details-header-menu', context: ['recordId'] },
+            UI_APP_ENTRY,
+            {
+              ...UI_APP_ENTRY,
+              surface_point_name: 'deal-details-header-menu',
+              label: 'View deal in CRM',
+              redirect_link: 'https://example.com/deals',
+            },
+            { ...UI_APP_ENTRY, surface_point_name: 'company-details-header-menu' },
           ],
         },
       });
@@ -728,6 +780,8 @@ describe('app/upload', () => {
 
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
       expect(payload.ui_app.surface_point_list).toHaveLength(3);
+      expect(payload.ui_app.surface_point_list[1].label).toBe('View deal in CRM');
+      expect(payload.ui_app.surface_point_list[1].redirect_link).toBe('https://example.com/deals');
     });
 
     it('rejects duplicate extension points', async () => {
@@ -735,33 +789,34 @@ describe('app/upload', () => {
         ...UI_CONFIG,
         ui_app: {
           ...UI_APP,
-          surface_point_list: [
-            { surface_point_name: 'contact-details-header-menu' },
-            { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
-          ],
+          surface_point_list: [UI_APP_ENTRY, { ...UI_APP_ENTRY, context: undefined }],
         },
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/duplicate/i);
     });
 
-    it('rejects an insecure redirect link', async () => {
+    it('rejects an insecure redirect link, naming the entry', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, redirect_link: 'http://example.com/brevo' },
+        ui_app: withUiEntry({ redirect_link: 'http://example.com/brevo' }),
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/must use https/i);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(
+        /surface_point_list\["contact-details-header-menu"\]\.redirect_link.*must use https/i,
+      );
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    it('rejects an empty label', async () => {
+    it('rejects an empty label, naming the entry', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, label: '  ' },
+        ui_app: withUiEntry({ label: '  ' }),
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Label cannot be empty/i);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(
+        /surface_point_list\["contact-details-header-menu"\]\.label.*cannot be empty/i,
+      );
     });
 
     // The pre-BEX-290 field names and the flat surface_point_list fail with a migration
@@ -788,13 +843,51 @@ describe('app/upload', () => {
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    it('rejects an invalid link_target', async () => {
+    // The pre-BEX-426 root CTA fields get the same treatment: refused by name with the
+    // per-entry destination, before any round trip. The server refuses these spellings
+    // too, so letting them travel would only trade this message for an opaque 400.
+    it.each([
+      ['label', 'View in CRM'],
+      ['more_info', 'Some detail'],
+      ['redirect_link', 'https://example.com/brevo'],
+      ['modal_iframe_url', 'https://example.com/embed'],
+    ])('rejects a root-level %s with a migration hint', async (key, value) => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, link_target: '_top' },
+        ui_app: { ...UI_APP, [key]: value },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(/Invalid ui_app.link_target/i);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(
+        /moved into each surface_point_list entry/i,
+      );
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid link_target on an entry', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: withUiEntry({ link_target: '_top' }),
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(
+        /Invalid ui_app\.surface_point_list\["contact-details-header-menu"\]\.link_target/i,
+      );
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    // The root spelling moved onto each entry with the CTA fields (BEX-426) and the upload
+    // endpoint refuses it by name, so a config left over from an earlier build is stopped
+    // here rather than 400ing — and the hint says to delete it, not relocate it.
+    it('refuses a root link_target before anything is pushed', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        ui_app: { ...UI_APP, link_target: '_blank' },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(
+        /ui_app\.link_target moved onto each surface_point_list entry/i,
+      );
+      expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
     // legacyComponent is the pre-extensibility interpreter path, driven by the UI kit's own
@@ -818,9 +911,13 @@ describe('app/upload', () => {
     // the header-menu path, so the surface the old block cited as missing exists.
     const IFRAME_UI_APP = {
       extension_type: 'iframeExtension' as const,
-      surface_point_list: [{ surface_point_name: 'contact-details-header-menu' }],
-      label: 'View in CRM',
-      modal_iframe_url: 'https://example.com/embed',
+      surface_point_list: [
+        {
+          surface_point_name: 'contact-details-header-menu',
+          label: 'View in CRM',
+          modal_iframe_url: 'https://example.com/embed',
+        },
+      ],
     };
 
     it('uploads an iframeExtension with a modal_iframe_url', async () => {
@@ -835,9 +932,9 @@ describe('app/upload', () => {
     });
 
     // link_target is injected for an actionLink only. An iframeExtension embeds its URL
-    // rather than navigating, and `validateUiApp` REFUSES the field in its authored block
-    // (`rejects link_target` in validators.test.ts) — so injecting it here would send the
-    // one field the CLI just told the partner not to write.
+    // rather than navigating, and both `validateUiApp` and the server REFUSE the field on an
+    // iframe entry (`rejects a per-entry link_target` in validators.test.ts) — so injecting it
+    // here would send the one field the CLI just told the partner not to write, and 400.
     it('does not inject link_target for an iframeExtension', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
@@ -848,18 +945,23 @@ describe('app/upload', () => {
 
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
       expect(payload.ui_app).not.toHaveProperty('link_target');
+      expect(payload.ui_app.surface_point_list[0]).not.toHaveProperty('link_target');
       expect(payload.ui_app).toEqual(IFRAME_UI_APP);
     });
 
-    it('rejects an iframeExtension carrying a redirect_link', async () => {
+    it('rejects an iframeExtension entry carrying a redirect_link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: {
           extension_type: 'iframeExtension',
-          surface_point_list: [{ surface_point_name: 'contact-details-header-menu' }],
-          label: 'View in CRM',
-          modal_iframe_url: 'https://example.com/embed',
-          redirect_link: 'https://example.com/go',
+          surface_point_list: [
+            {
+              surface_point_name: 'contact-details-header-menu',
+              label: 'View in CRM',
+              modal_iframe_url: 'https://example.com/embed',
+              redirect_link: 'https://example.com/go',
+            },
+          ],
         },
       });
 
@@ -876,8 +978,9 @@ describe('app/upload', () => {
         ui_app: {
           ...UI_APP,
           surface_point_list: [
-            { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
+            UI_APP_ENTRY,
             {
+              ...UI_APP_ENTRY,
               surface_point_name: 'deal-details-header-menu',
               context: ['recordId', 'recordName'],
             },
@@ -889,8 +992,13 @@ describe('app/upload', () => {
 
       const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
       expect(payload.ui_app.surface_point_list).toEqual([
-        { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
-        { surface_point_name: 'deal-details-header-menu', context: ['recordId', 'recordName'] },
+        { ...UI_APP_ENTRY, link_target: '_blank' },
+        {
+          ...UI_APP_ENTRY,
+          surface_point_name: 'deal-details-header-menu',
+          context: ['recordId', 'recordName'],
+          link_target: '_blank',
+        },
       ]);
     });
 
@@ -900,10 +1008,7 @@ describe('app/upload', () => {
     ])('rejects %s', async (_label, context) => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: {
-          ...UI_APP,
-          surface_point_list: [{ surface_point_name: 'contact-details-header-menu', context }],
-        },
+        ui_app: withUiEntry({ context }),
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/\.context/i);
@@ -911,11 +1016,11 @@ describe('app/upload', () => {
     });
 
     // The UI kit drops modal_iframe_url for anything that isn't an
-    // iframeExtension, so authoring one on an action link is a silent no-op.
-    it('rejects modal_iframe_url on an action link', async () => {
+    // iframeExtension, so authoring one on an action link entry is a silent no-op.
+    it('rejects modal_iframe_url on an action link entry', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: { ...UI_APP, modal_iframe_url: 'https://example.com/modal' },
+        ui_app: withUiEntry({ modal_iframe_url: 'https://example.com/modal' }),
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/only used by "iframeExtension"/i);
@@ -923,8 +1028,8 @@ describe('app/upload', () => {
 
     it('writes the ui_app block back into app-config.json, preferring the server copy', async () => {
       // The server normalizes the block, so its copy is the authority for everything
-      // except link_target — see the next test.
-      const serverNormalized = { ...UI_APP, more_info: 'Server-normalized copy' };
+      // except each entry's link_target — see the next test.
+      const serverNormalized = withUiEntry({ more_info: 'Server-normalized copy' });
       (appService.uploadApp as jest.Mock).mockResolvedValue({
         ...BASE_UPLOAD_RESPONSE,
         name: 'Invoice Manager',
@@ -939,22 +1044,23 @@ describe('app/upload', () => {
       );
     });
 
-    // The regression this guards: the server defaults link_target and echoes it back, so
-    // passing the echo through verbatim would write into app-config.json the very field
-    // this command injects on the partner's behalf — undoing, on the first successful
-    // upload, the decision to keep it out of the file.
+    // The regression this guards: the server defaults each entry's link_target and echoes it
+    // back there, so passing the echo through verbatim would write into app-config.json the
+    // very field this command injects on the partner's behalf — undoing, on the first
+    // successful upload, the decision to keep it out of the file. Stripped at entry depth
+    // since BEX-426.
     it('strips the server-defaulted link_target from the write-back', async () => {
       (appService.uploadApp as jest.Mock).mockResolvedValue({
         ...BASE_UPLOAD_RESPONSE,
         name: 'Invoice Manager',
         auth: { distribution_type: 'private' as const, scopes: ['contacts:read'] },
-        ui_app: { ...UI_APP, link_target: '_blank' as const },
+        ui_app: withLinkTargets(UI_APP),
       });
 
       await uploadCommand({ yes: true });
 
       const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
-      expect(written.ui_app).not.toHaveProperty('link_target');
+      expect(written.ui_app.surface_point_list[0]).not.toHaveProperty('link_target');
       expect(written.ui_app).toEqual(UI_APP);
     });
 
@@ -967,7 +1073,7 @@ describe('app/upload', () => {
         ...BASE_UPLOAD_RESPONSE,
         name: 'Invoice Manager',
         auth: { distribution_type: 'private' as const, scopes: ['contacts:read'] },
-        ui_app: { ...UI_APP, link_target: '_blank' as const, version: '1.0.1' },
+        ui_app: { ...withLinkTargets(UI_APP), version: '1.0.1' },
       });
 
       await uploadCommand({ yes: true });
@@ -992,15 +1098,10 @@ describe('app/upload', () => {
         name: 'Invoice Manager',
         auth: { distribution_type: 'private' as const, scopes: ['contacts:read'] },
         ui_app: {
-          ...UI_APP,
-          surface_point_list: [
-            {
-              surface_point_name: 'contact-details-header-menu',
-              context: ['recordId'],
-              extension_point_name: 'contactDetails.headerMenu.action',
-            },
-          ],
-          link_target: '_blank' as const,
+          ...withUiEntry({
+            extension_point_name: 'contactDetails.headerMenu.action',
+            link_target: '_blank',
+          }),
           version: '1.0.1',
         },
       });
@@ -1037,12 +1138,17 @@ describe('app/upload', () => {
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       expect(output).toContain('contact-details-header-menu');
-      // Per-placement context renders alongside its slot, not as a shared row.
+      // Per-placement context renders alongside its slot, not as a shared row — and so
+      // do the entry's own label, supporting text and destination (BEX-426).
       expect(output).toContain('(context: recordId)');
-      expect(output).toContain('Label:');
-      expect(output).toContain('More info:');
-      // link_target is injected into the payload but never printed: it is not a field in
-      // app-config.json, so a row for it only sends the partner looking for one to edit.
+      expect(output).toContain('label:         View in CRM');
+      expect(output).toContain(
+        'more info:     Open this contact in your connected CRM to see full activity history.',
+      );
+      expect(output).toContain('redirect link: https://example.com/brevo');
+      // link_target is injected onto each entry in the payload but never printed: it is not a
+      // field in app-config.json, so a row for it only sends the partner looking for one to
+      // edit.
       expect(output).not.toContain('Link target');
       expect(output).not.toContain('Redirect URLs');
     });
