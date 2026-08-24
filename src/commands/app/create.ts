@@ -394,11 +394,14 @@ function buildCreatePayload(inputs: CreateAppInputs) {
   // - OAuth: `auth` with scopes and redirect URIs
   // - UI app: `ui_app` with placements and destination
   // - Function: `brevo_function` as an empty object (no OAuth flow)
-  const typeBlock = isUiApp
-    ? { ui_app: inputs.uiApp }
-    : isFunction
-      ? { brevo_function: {} }
-      : { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } };
+  let typeBlock;
+  if (isUiApp) {
+    typeBlock = { ui_app: inputs.uiApp };
+  } else if (isFunction) {
+    typeBlock = { brevo_function: {} };
+  } else {
+    typeBlock = { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } };
+  }
 
   return {
     name: inputs.appName,
@@ -560,6 +563,25 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
   printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 }
 
+/**
+ * Cache the credentials locally. Not because this is the only copy — `GET
+ * /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
+ * too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
+ * `app start` can read them without a round trip.
+ * Guarded because a UI app has no OAuth credentials to cache: writing the pair
+ * unconditionally stored `{clientId: undefined, clientSecret: undefined}` under
+ * its ID, which is a cache entry that can only mislead a later read.
+ */
+function cacheCreatedAppCredentials(result: CreateAppResponse, appName: string): void {
+  if (result.client_id && result.client_secret) {
+    saveAppCredentials(result.app_id, {
+      clientId: result.client_id,
+      clientSecret: result.client_secret,
+    });
+  }
+  if (appName) saveAppName(result.app_id, appName);
+}
+
 export const createCommand = withCommandHandler(
   async (options: {
     name?: string;
@@ -620,20 +642,7 @@ export const createCommand = withCommandHandler(
     // this line a failed create left a stray directory and a moved cwd behind.
     applyCreateDirectory(dir, jsonMode);
 
-    // Cache the credentials locally. Not because this is the only copy — `GET
-    // /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
-    // too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
-    // `app start` can read them without a round trip.
-    // Guarded because a UI app has no OAuth credentials to cache: writing the pair
-    // unconditionally stored `{clientId: undefined, clientSecret: undefined}` under
-    // its ID, which is a cache entry that can only mislead a later read.
-    if (result.client_id && result.client_secret) {
-      saveAppCredentials(result.app_id, {
-        clientId: result.client_id,
-        clientSecret: result.client_secret,
-      });
-    }
-    if (finalAppName) saveAppName(result.app_id, finalAppName);
+    cacheCreatedAppCredentials(result, finalAppName);
 
     // Shared JSON shape for both exits below. `redirectUri` is omitted for UI
     // apps rather than emitted as an empty array, so a consumer can distinguish

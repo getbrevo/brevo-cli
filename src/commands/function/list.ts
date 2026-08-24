@@ -50,7 +50,8 @@ async function listPublishedFunctions(options: { json?: boolean }): Promise<void
   process.stdout.write(`  ${color('90', '──────────────────────────────────────')}\n\n`);
 
   for (const fn of functions) {
-    process.stdout.write(`  ${color('1', fn.name)}  ${color('90', `(${fn.id})`)}\n`);
+    const idLabel = `(${fn.id})`;
+    process.stdout.write(`  ${color('1', fn.name)}  ${color('90', idLabel)}\n`);
     process.stdout.write(`    Status:      ${statusBadge(fn.is_active)}\n`);
     if (fn.description) {
       process.stdout.write(`    Description: ${color('90', truncate(fn.description, 60))}\n`);
@@ -59,9 +60,8 @@ async function listPublishedFunctions(options: { json?: boolean }): Promise<void
     process.stdout.write('\n');
   }
 
-  process.stdout.write(
-    `  ${color('90', `${response.total} of ${response.max} functions used`)}\n\n`,
-  );
+  const usageLabel = `${response.total} of ${response.max} functions used`;
+  process.stdout.write(`  ${color('90', usageLabel)}\n\n`);
 }
 
 async function listDraftFunctions(options: { json?: boolean }): Promise<void> {

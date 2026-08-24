@@ -12,6 +12,122 @@ export interface SSEEvent {
   data: string;
 }
 
+interface SSEParseState {
+  currentEvent: string | undefined;
+  currentData: string[];
+}
+
+/** Extract a human-readable error message from an API error response object. */
+function extractErrorMessage(obj: Record<string, unknown>): string | undefined {
+  if (typeof obj.message === 'string') return obj.message;
+  if (typeof obj.error === 'string') return obj.error;
+  return undefined;
+}
+
+/** Perform the initial SSE fetch, wrapping network failures into `ApiError`. */
+async function performSSEFetch(
+  deps: SSEStreamDeps,
+  method: 'POST' | 'PATCH',
+  path: string,
+  body?: unknown,
+): Promise<Response> {
+  const authHeader = deps.getAuthHeader();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+    ...buildCliHeaders(authHeader),
+    ...authHeader,
+  };
+  const url = `${deps.baseUrl}${path}`;
+  try {
+    return await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (err) {
+    const apiErr = new ApiError(messages.ERR_NETWORK, 0, ErrorCode.NETWORK_ERROR);
+    (apiErr as Error).cause = err;
+    throw apiErr;
+  }
+}
+
+/** Read the error body from a non-OK response and throw an appropriate `ApiError`. */
+async function handleSSEErrorResponse(response: Response): Promise<never> {
+  let errorMessage = `Request failed with status ${response.status}`;
+  try {
+    const text = await response.text();
+    const data: unknown = text ? JSON.parse(text) : {};
+    if (data && typeof data === 'object') {
+      const obj = data as Record<string, unknown>;
+      // Map stable API codes to CLI messages (mirrors apiCodeMessages in client.ts).
+      if (obj.code === 'feature_not_enabled') {
+        throw new ApiError(messages.ERR_FEATURE_NOT_ENABLED, response.status);
+      }
+      const msg = extractErrorMessage(obj);
+      if (msg) errorMessage = msg;
+    }
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    // keep default message
+  }
+  throw new ApiError(errorMessage, response.status);
+}
+
+/** Read one chunk from the stream reader, wrapping connection errors into `ApiError`. */
+async function readChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<Uint8Array | null> {
+  try {
+    const { done, value } = await reader.read();
+    return done ? null : (value ?? null);
+  } catch (err) {
+    // Connection terminated mid-stream (e.g. server closed, timeout, network drop).
+    const apiErr = new ApiError(messages.ERR_NETWORK, 0, ErrorCode.NETWORK_ERROR);
+    (apiErr as Error).cause = err;
+    throw apiErr;
+  }
+}
+
+/**
+ * Process a single SSE line. Returns an `SSEEvent` when a blank line dispatches
+ * the accumulated event, or `null` otherwise.
+ */
+function processSSELine(line: string, state: SSEParseState): SSEEvent | null {
+  if (line === '' || line === '\r') {
+    if (state.currentData.length > 0) {
+      const event: SSEEvent = {
+        event: state.currentEvent,
+        data: state.currentData.join('\n'),
+      };
+      state.currentEvent = undefined;
+      state.currentData = [];
+      return event;
+    }
+    state.currentEvent = undefined;
+    state.currentData = [];
+    return null;
+  }
+
+  const stripped = line.endsWith('\r') ? line.slice(0, -1) : line;
+  if (stripped.startsWith('event:')) {
+    state.currentEvent = stripped.slice(6).trim();
+  } else if (stripped.startsWith('data:')) {
+    state.currentData.push(stripped.slice(5).trimStart());
+  }
+  // Ignore `id:`, `retry:`, comments (`:`) — not needed for this use case.
+  return null;
+}
+
+/** Flush any remaining data as a final event. */
+function flushSSEState(state: SSEParseState): SSEEvent | null {
+  if (state.currentData.length > 0) {
+    return { event: state.currentEvent, data: state.currentData.join('\n') };
+  }
+  return null;
+}
+
 /**
  * Async generator that streams SSE events from a given endpoint.
  *
@@ -28,54 +144,10 @@ export async function* sseStream(
   path: string,
   body?: unknown,
 ): AsyncGenerator<SSEEvent> {
-  const authHeader = deps.getAuthHeader();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'text/event-stream',
-    ...buildCliHeaders(authHeader),
-    ...authHeader,
-  };
-
-  const url = `${deps.baseUrl}${path}`;
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(120_000),
-    });
-  } catch (err) {
-    const apiErr = new ApiError(messages.ERR_NETWORK, 0, ErrorCode.NETWORK_ERROR);
-    (apiErr as Error).cause = err;
-    throw apiErr;
-  }
+  const response = await performSSEFetch(deps, method, path, body);
 
   if (!response.ok) {
-    let errorMessage = `Request failed with status ${response.status}`;
-    try {
-      const text = await response.text();
-      const data: unknown = text ? JSON.parse(text) : {};
-      if (data && typeof data === 'object') {
-        const obj = data as Record<string, unknown>;
-        // Map stable API codes to CLI messages (mirrors apiCodeMessages in client.ts).
-        if (obj.code === 'feature_not_enabled') {
-          throw new ApiError(messages.ERR_FEATURE_NOT_ENABLED, response.status);
-        }
-        const msg =
-          typeof obj.message === 'string'
-            ? obj.message
-            : typeof obj.error === 'string'
-              ? obj.error
-              : undefined;
-        if (msg) errorMessage = msg;
-      }
-    } catch (e) {
-      if (e instanceof ApiError) throw e;
-      // keep default message
-    }
-    throw new ApiError(errorMessage, response.status);
+    await handleSSEErrorResponse(response);
   }
 
   if (!response.body) {
@@ -85,61 +157,27 @@ export async function* sseStream(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let currentEvent: string | undefined;
-  let currentData: string[] = [];
+  const state: SSEParseState = { currentEvent: undefined, currentData: [] };
 
   try {
     while (true) {
-      let chunk: { done: boolean; value?: Uint8Array };
-      try {
-        chunk = await reader.read();
-      } catch (err) {
-        // Connection terminated mid-stream (e.g. server closed, timeout, network drop).
-        const apiErr = new ApiError(messages.ERR_NETWORK, 0, ErrorCode.NETWORK_ERROR);
-        (apiErr as Error).cause = err;
-        throw apiErr;
-      }
-      const { done, value } = chunk;
-      if (done) break;
+      const chunk = await readChunk(reader);
+      if (!chunk) break;
 
-      buffer += decoder.decode(value, { stream: true });
-
+      buffer += decoder.decode(chunk, { stream: true });
       const lines = buffer.split('\n');
       // The last element may be an incomplete line — keep it in the buffer.
       buffer = lines.pop() ?? '';
 
       for (const line of lines) {
-        if (line === '' || line === '\r') {
-          // Blank line = event dispatch
-          if (currentData.length > 0) {
-            yield {
-              event: currentEvent,
-              data: currentData.join('\n'),
-            };
-          }
-          currentEvent = undefined;
-          currentData = [];
-          continue;
-        }
-
-        const stripped = line.endsWith('\r') ? line.slice(0, -1) : line;
-
-        if (stripped.startsWith('event:')) {
-          currentEvent = stripped.slice(6).trim();
-        } else if (stripped.startsWith('data:')) {
-          currentData.push(stripped.slice(5).trimStart());
-        }
-        // Ignore `id:`, `retry:`, comments (`:`) — not needed for this use case.
+        const event = processSSELine(line, state);
+        if (event) yield event;
       }
     }
 
     // Flush any remaining data if the stream ended without a trailing blank line.
-    if (currentData.length > 0) {
-      yield {
-        event: currentEvent,
-        data: currentData.join('\n'),
-      };
-    }
+    const trailing = flushSSEState(state);
+    if (trailing) yield trailing;
   } finally {
     reader.releaseLock();
   }
