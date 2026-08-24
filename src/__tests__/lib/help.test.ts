@@ -59,7 +59,7 @@ describe('help formatting', () => {
       expect(out).toContain('App-deployment commands (UI apps only):');
       expect(out).toContain('App-review commands (public apps only):');
       expect(out).toContain('Skill commands:');
-      expect(out).toContain('Function commands:');
+      expect(out).toContain('Function commands (alias: brevo fn):');
       expect(out).toContain('Run `brevo <command> --help` for details on a specific command.');
     });
 

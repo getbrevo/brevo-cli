@@ -116,9 +116,14 @@ function formatRootHelp(description: string): string {
     ``,
     ...(__BREVO_PREVIEW__
       ? gatedSection('brevo-function-type', [
-          `Function commands:`,
-          `  brevo function list         [--draft] [--json]        List all Brevo Functions in your account`,
-          `  brevo function get <id>     [--json]                  Show details of a Brevo Function`,
+          `Function commands (alias: brevo fn):`,
+          `  brevo function list              [--draft] [--json]   List all Brevo Functions in your account`,
+          `  brevo function get               [--id <id>] [--json] Show details of a Brevo Function`,
+          `  brevo function activate          [--id <id>] [--json] Activate a Brevo Function`,
+          `  brevo function deactivate        [--id <id>] [--json] Deactivate a Brevo Function`,
+          `  brevo function delete            [--id <id>] [--force] [--json]`,
+          `                                                        Delete a Brevo Function`,
+          `  brevo function init                                   Create a new Brevo Function (interactive)`,
           ``,
         ])
       : []),

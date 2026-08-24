@@ -523,3 +523,97 @@ export interface DpDraftFunctionListResponse {
   offset: number;
   has_more: boolean;
 }
+
+// ──────────────── Brevo Function init (AI generation) ────────────────
+
+export type FunctionGenerateStage =
+  | 'enriching'
+  | 'planning_agent'
+  | 'executing_agent'
+  | 'validating';
+
+export interface FunctionGenerateSSEEvent {
+  error?: string;
+  value?: { message?: string; stage?: string };
+  result?: {
+    code?: string;
+    name?: string;
+    draft_id?: string;
+    session_id?: string;
+    category?: string;
+    description?: string;
+    explanation?: string;
+  };
+}
+
+export interface FunctionGenerateRequest {
+  user_prompt: string;
+  source?: string;
+  context_json?: string;
+  session_id?: string;
+}
+
+export interface FunctionIterateRequest {
+  draft_function_id: string;
+  user_prompt: string;
+  previous_code: string;
+  chat_history: ChatHistoryEntry[];
+  source?: string;
+}
+
+export interface ChatHistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface FunctionCreateRequest {
+  source?: string;
+  name?: string;
+  code: string;
+  category?: string;
+  description?: string;
+  explanation?: string;
+  app_id?: string;
+  draft_id?: string;
+  attribute_id?: string;
+}
+
+export interface FunctionCreateResponse {
+  id: string;
+  name: string;
+  version: number;
+}
+
+export interface FunctionTemplate {
+  id: string;
+  name: string;
+  description: string;
+  code: string;
+  category?: string;
+  attribute_id?: string;
+  explanation?: string;
+}
+
+export interface FunctionContactsResponse {
+  contacts: Record<string, unknown>[];
+}
+
+export interface FunctionExecuteRequest {
+  template_id?: string;
+  contact_data: Record<string, unknown>[];
+  code?: string;
+  draft_id?: string;
+}
+
+export interface FunctionExecuteResponse {
+  result: Record<string, unknown>[];
+}
+
+export interface FunctionCreateFromTemplateRequest {
+  global_function_id: string;
+  name: string;
+  description: string;
+  category: string;
+  attribute_id: string;
+  source: string;
+}

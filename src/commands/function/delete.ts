@@ -1,20 +1,29 @@
 import inquirer from 'inquirer';
-import { logSuccess, logInfo, logWarn } from '../../lib/logger';
+import { logInfo, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
+import { CLI } from '../../lib/constants';
 import { functionService } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { createSpinner } from '../../lib/ui';
+import { createSpinner, printStatusCard } from '../../lib/ui';
 import { ApiError } from '../../lib/errors';
+import { assertFunctionSelectionAllowed, promptFunctionSelection } from './select-function';
 
 export const deleteFunctionCommand = withCommandHandler(
-  async (options: { id: string; force?: boolean; json?: boolean }): Promise<void> => {
+  async (options: { id?: string; force?: boolean; json?: boolean }): Promise<void> => {
+    let functionId = options.id;
+    if (!functionId) {
+      assertFunctionSelectionAllowed(CLI.FUNCTION_DELETE, options.json);
+      const selection = await promptFunctionSelection(messages.FUNCTION_DELETE_SELECT);
+      functionId = selection.functionId;
+    }
+
     if (!options.force && !options.json) {
       const { confirmed } = await inquirer.prompt([
         {
           type: 'confirm',
           name: 'confirmed',
-          message: messages.FUNCTION_DELETE_CONFIRM(options.id),
+          message: messages.FUNCTION_DELETE_CONFIRM(functionId),
           default: false,
         },
       ]);
@@ -26,18 +35,18 @@ export const deleteFunctionCommand = withCommandHandler(
 
     const spinner = createSpinner('Deleting Brevo Function...', { silent: options.json });
     try {
-      await functionService.deleteFunction(options.id);
+      await functionService.deleteFunction(functionId);
     } catch (err) {
       if (err instanceof ApiError && err.statusCode === 404) {
         spinner.stop();
         if (options.json) {
           jsonOutput({
             error: 'not_found',
-            message: messages.FUNCTION_DELETE_NOT_FOUND(options.id),
+            message: messages.FUNCTION_DELETE_NOT_FOUND(functionId),
           });
           return;
         }
-        logWarn(`\n  ${messages.FUNCTION_DELETE_NOT_FOUND(options.id)}\n`);
+        logWarn(`\n  ${messages.FUNCTION_DELETE_NOT_FOUND(functionId)}\n`);
         return;
       }
       throw err;
@@ -46,9 +55,14 @@ export const deleteFunctionCommand = withCommandHandler(
     }
 
     if (options.json) {
-      jsonOutput({ deleted: true, id: options.id });
+      jsonOutput({ deleted: true, id: functionId });
       return;
     }
-    logSuccess(messages.FUNCTION_DELETE_SUCCESS(options.id));
+    printStatusCard(
+      messages.FUNCTION_DELETE_CARD_TITLE,
+      messages.FUNCTION_DELETE_CARD_LABEL,
+      messages.FUNCTION_DELETE_CARD_MESSAGE(functionId),
+      'error',
+    );
   },
 );

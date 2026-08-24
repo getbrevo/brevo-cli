@@ -3,14 +3,20 @@
   "appName": "{{APP_NAME}}",
   "version": "{{APP_VERSION}}",
   "logoUri": "{{LOGO_URI}}",
-  "distribution_type": "{{DISTRIBUTION}}",
 {{#if ui_app}}
+  "distribution_type": "{{DISTRIBUTION}}",
   "ui_app": {{UI_APP_JSON}},
+  "auth": {}
 {{/if}}
-  "auth": {
+{{#if brevo_function}}
+  "distribution_type": "{{DISTRIBUTION}}",
+  "brevo_function": {}
+{{/if}}
 {{#if oauth}}
+  "distribution_type": "{{DISTRIBUTION}}",
+  "auth": {
     "scopes": {{SCOPES_JSON}},
     "redirectUris": {{REDIRECT_URLS_JSON}}
-{{/if}}
   }
+{{/if}}
 }

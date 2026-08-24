@@ -29,6 +29,7 @@ import { getFunctionCommand } from './function/get';
 import { activateFunctionCommand } from './function/activate';
 import { deactivateFunctionCommand } from './function/deactivate';
 import { deleteFunctionCommand } from './function/delete';
+import { initFunctionCommand } from './function/init';
 
 /** The `brevo app <name>` subcommands gated behind an unreleased feature. */
 export const previewAppCommands: CommandDefinition[] = [
@@ -205,48 +206,78 @@ export const previewFunctionGroup: SubcommandGroupDefinition = {
     {
       name: 'get',
       description: 'Show details of a Brevo Function',
-      arguments: [{ name: '<id>', description: 'Function ID' }],
-      examples: ['brevo function get fn-001', 'brevo function get fn-001 --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts, id) => getFunctionCommand({ id: id as string, json: Boolean(opts.json) }),
+      examples: [
+        'brevo function get',
+        'brevo function get --id fn-001',
+        'brevo function get --id fn-001 --json',
+      ],
+      options: [
+        { flags: '--id [id]', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        getFunctionCommand({ id: opts.id as string | undefined, json: Boolean(opts.json) }),
     },
     {
       name: 'activate',
       description: 'Activate a Brevo Function',
-      arguments: [{ name: '<id>', description: 'Function ID' }],
-      examples: ['brevo function activate fn-001', 'brevo function activate fn-001 --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts, id) =>
-        activateFunctionCommand({ id: id as string, json: Boolean(opts.json) }),
+      examples: [
+        'brevo function activate',
+        'brevo function activate --id fn-001',
+        'brevo function activate --id fn-001 --json',
+      ],
+      options: [
+        { flags: '--id [id]', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        activateFunctionCommand({ id: opts.id as string | undefined, json: Boolean(opts.json) }),
     },
     {
       name: 'deactivate',
       description: 'Deactivate a Brevo Function',
-      arguments: [{ name: '<id>', description: 'Function ID' }],
-      examples: ['brevo function deactivate fn-001', 'brevo function deactivate fn-001 --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts, id) =>
-        deactivateFunctionCommand({ id: id as string, json: Boolean(opts.json) }),
+      examples: [
+        'brevo function deactivate',
+        'brevo function deactivate --id fn-001',
+        'brevo function deactivate --id fn-001 --json',
+      ],
+      options: [
+        { flags: '--id [id]', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        deactivateFunctionCommand({
+          id: opts.id as string | undefined,
+          json: Boolean(opts.json),
+        }),
     },
     {
       name: 'delete',
       description: 'Delete a deployed Brevo Function',
-      arguments: [{ name: '<id>', description: 'Function ID' }],
       examples: [
-        'brevo function delete fn-001',
-        'brevo function delete fn-001 --force',
-        'brevo function delete fn-001 --json',
+        'brevo function delete',
+        'brevo function delete --id fn-001',
+        'brevo function delete --id fn-001 --force',
+        'brevo function delete --id fn-001 --json',
       ],
       options: [
+        { flags: '--id [id]', description: 'Function ID (shows a picker if omitted)' },
         { flags: '--force', description: 'Skip confirmation' },
         { flags: '--json', description: 'Output as JSON' },
       ],
-      handler: (opts, id) =>
+      handler: (opts) =>
         deleteFunctionCommand({
-          id: id as string,
+          id: opts.id as string | undefined,
           force: Boolean(opts.force),
           json: Boolean(opts.json),
         }),
+    },
+    {
+      name: 'init',
+      description: 'Create a new Brevo Function',
+      examples: ['brevo function init', 'brevo fn init'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts) => initFunctionCommand({ json: Boolean(opts.json) }),
     },
   ],
 };

@@ -201,8 +201,11 @@ function mergeCachedCredentials(app: OAuthApp, local: AppCredential | undefined)
 }
 
 export function createAppService(client: ApiClient) {
-  async function fetchAppsList(): Promise<OAuthApp[]> {
-    const apps = await client.get<OAuthApp[]>(ENDPOINTS.APP_STORE_APPS);
+  async function fetchAppsList(options?: { type?: string }): Promise<OAuthApp[]> {
+    const path = options?.type
+      ? `${ENDPOINTS.APP_STORE_APPS}?type=${encodeURIComponent(options.type)}`
+      : ENDPOINTS.APP_STORE_APPS;
+    const apps = await client.get<OAuthApp[]>(path);
     return (apps || []).map(normalizeAppId);
   }
 
@@ -408,7 +411,7 @@ export function createAppService(client: ApiClient) {
       name: string;
       distribution_type: 'public' | 'private';
       // OAuth fields travel inside `auth`, the same block the upload endpoint
-      // takes (unified payload structure). Omitted entirely for UI apps.
+      // takes (unified payload structure). Omitted entirely for UI and Function apps.
       auth?: {
         scopes: string[];
         redirect_uris: string[];
@@ -419,6 +422,9 @@ export function createAppService(client: ApiClient) {
       // way to know the app has no OAuth flow, and rejects the absent `auth`
       // block with `redirect_uris is required and must not be empty`.
       ui_app?: UiApp;
+      // Sent for Brevo Function apps only. An empty object that tells the server
+      // this app has no OAuth flow — the discriminator on the wire.
+      brevo_function?: Record<string, never>;
       logo_uri?: string;
     }): Promise<CreateAppResponse> {
       const raw = await client.post<RawCreateAppResponse>(ENDPOINTS.APP_STORE_APPS, payload);

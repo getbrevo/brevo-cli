@@ -61,13 +61,13 @@ describe('function/list', () => {
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       expect(output).toContain('Score Leads');
-      expect(output).toContain('ID: fn-001');
+      expect(output).toContain('(fn-001)');
       expect(output).toContain('active');
       expect(output).toContain('SUM(clicks) * 10');
       expect(output).toContain('Churn Risk');
-      expect(output).toContain('ID: fn-002');
+      expect(output).toContain('(fn-002)');
       expect(output).toContain('inactive');
-      expect(output).toContain('Total: 2 / 7');
+      expect(output).toContain('2 of 7 functions used');
     });
 
     it('should show empty message when no functions exist', async () => {
