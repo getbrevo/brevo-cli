@@ -38,11 +38,27 @@ describe('sseStream', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('should parse a single SSE event', async () => {
+  it.each([
+    {
+      name: 'single SSE event',
+      chunks: ['data: {"stage":"enriching"}\n\n'],
+      expected: [{ event: undefined, data: '{"stage":"enriching"}' }],
+    },
+    {
+      name: 'flush remaining data without trailing blank line',
+      chunks: ['data: {"code":"final"}\n'],
+      expected: [{ event: undefined, data: '{"code":"final"}' }],
+    },
+    {
+      name: '\\r\\n line endings',
+      chunks: ['data: {"ok":true}\r\n\r\n'],
+      expected: [{ event: undefined, data: '{"ok":true}' }],
+    },
+  ])('should handle $name', async ({ chunks, expected }) => {
     globalThis.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      body: streamFromChunks(['data: {"stage":"enriching"}\n\n']),
+      body: streamFromChunks(chunks),
     });
 
     const events = [];
@@ -50,7 +66,7 @@ describe('sseStream', () => {
       events.push(event);
     }
 
-    expect(events).toEqual([{ event: undefined, data: '{"stage":"enriching"}' }]);
+    expect(events).toEqual(expected);
   });
 
   it('should parse multiple SSE events', async () => {
@@ -159,36 +175,6 @@ describe('sseStream', () => {
     }
 
     expect(events).toHaveLength(0);
-  });
-
-  it('should flush remaining data when stream ends without trailing blank line', async () => {
-    globalThis.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      body: streamFromChunks(['data: {"code":"final"}\n']),
-    });
-
-    const events = [];
-    for await (const event of sseStream(createMockDeps(), 'POST', '/api/generate/stream', {})) {
-      events.push(event);
-    }
-
-    expect(events).toEqual([{ event: undefined, data: '{"code":"final"}' }]);
-  });
-
-  it('should handle \\r\\n line endings', async () => {
-    globalThis.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      body: streamFromChunks(['data: {"ok":true}\r\n\r\n']),
-    });
-
-    const events = [];
-    for await (const event of sseStream(createMockDeps(), 'POST', '/api/generate/stream', {})) {
-      events.push(event);
-    }
-
-    expect(events).toEqual([{ event: undefined, data: '{"ok":true}' }]);
   });
 
   it('should send correct headers and method', async () => {

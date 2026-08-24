@@ -5,10 +5,9 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { createSpinner } from '../../lib/ui';
 
-/** Colored status badge: green ● active, gray ○ inactive. */
-function statusBadge(isActive: boolean): string {
-  return isActive ? color('32', '● active') : color('90', '○ inactive');
-}
+/** Colored status badges: green ● active, gray ○ inactive. */
+const ACTIVE_BADGE = color('32', '● active');
+const INACTIVE_BADGE = color('90', '○ inactive');
 
 /** Truncate a string to `max` columns, appending … if clipped. */
 function truncate(text: string, max: number): string {
@@ -52,7 +51,7 @@ async function listPublishedFunctions(options: { json?: boolean }): Promise<void
   for (const fn of functions) {
     const idLabel = `(${fn.id})`;
     process.stdout.write(`  ${color('1', fn.name)}  ${color('90', idLabel)}\n`);
-    process.stdout.write(`    Status:      ${statusBadge(fn.is_active)}\n`);
+    process.stdout.write(`    Status:      ${fn.is_active ? ACTIVE_BADGE : INACTIVE_BADGE}\n`);
     if (fn.description) {
       process.stdout.write(`    Description: ${color('90', truncate(fn.description, 60))}\n`);
     }

@@ -378,13 +378,20 @@ function isDuplicateNameError(err: unknown): boolean {
 /** Keys excluded from the execute-result preview table (internal identifiers). */
 const PREVIEW_EXCLUDED_KEYS = new Set(['organization_id']);
 
+/** Format a cell value for the preview table, handling objects explicitly. */
+function formatCellValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
 function printResultsTable(rows: Record<string, unknown>[]): void {
   if (rows.length === 0) return;
   const cols = Object.keys(rows[0]!).filter((k) => !PREVIEW_EXCLUDED_KEYS.has(k));
   if (cols.length === 0) return;
 
   const widths = cols.map((col) =>
-    Math.max(col.length, ...rows.map((r) => String(r[col] ?? '').length)),
+    Math.max(col.length, ...rows.map((r) => formatCellValue(r[col]).length)),
   );
   const gutter = '  ';
 
@@ -392,7 +399,7 @@ function printResultsTable(rows: Record<string, unknown>[]): void {
   process.stdout.write(`  ${widths.map((w) => '-'.repeat(w)).join(gutter)}\n`);
   for (const row of rows) {
     process.stdout.write(
-      `  ${cols.map((c, i) => String(row[c] ?? '').padEnd(widths[i]!)).join(gutter)}\n`,
+      `  ${cols.map((c, i) => formatCellValue(row[c]).padEnd(widths[i]!)).join(gutter)}\n`,
     );
   }
   process.stdout.write('\n');
