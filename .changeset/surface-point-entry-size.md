@@ -14,4 +14,4 @@
 
 **`brevo app delete` warns before the confirm** that deletion also removes the app from every account where it is installed or published, and that installs and credentials cannot be recovered. `--force` still skips both the warning and the prompt.
 
-Smaller changes: `app create`'s placement prompt is labelled from the registry's own names; the UI integration-type prompt offers Link only until iframe authoring is ready (a hand-authored `iframeExtension` block still uploads); `--help` examples for `--app-id` show a UUID instead of `42`.
+Smaller changes: `app create`'s placement prompt is labelled from the registry's own names; the UI integration-type prompt offers Link only until iframe authoring is ready (a hand-authored `iframeExtension` block still uploads); `--help` examples for `--app-id` show a UUID instead of `42`; a `surface_point_list` entry missing its `surface_point_name` key is reported as a missing key — with a rename hint when the pre-rename `surface_point` spelling is present — instead of as a blank slot name.

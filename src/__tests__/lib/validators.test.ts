@@ -527,6 +527,24 @@ describe('validateUiApp', () => {
     ).toThrow(/must be objects/i);
   });
 
+  // A missing key is reported as a missing key — not as a blank slot name, which points
+  // at the wrong thing when the name IS there under the wrong spelling.
+  it('rejects an entry with no surface_point_name key, naming the key', () => {
+    expect(() => validateUiApp(withEntry({ surface_point_name: undefined }))).toThrow(
+      /entries must carry "surface_point_name"/,
+    );
+  });
+
+  it('rejects the pre-rename surface_point spelling with a rename hint', () => {
+    const { surface_point_name: _dropped, ...rest } = ENTRY;
+    expect(() =>
+      validateUiApp({
+        ...VALID,
+        surface_point_list: [{ ...rest, surface_point: 'contact-details-header-menu' }],
+      }),
+    ).toThrow(/"surface_point" is not a field — rename it to "surface_point_name"/);
+  });
+
   it('rejects the renamed heading field with a hint', () => {
     expect(() => validateUiApp({ ...VALID, heading: 'View in CRM' })).toThrow(
       /heading was renamed to ui_app\.label/i,

@@ -473,6 +473,17 @@ function validateSurfacePointList(entries: unknown, extensionType: string): void
       );
     }
     const row = entry as Record<string, unknown>;
+    // A missing key is a different mistake from a blank value, and the likeliest cause is
+    // the `surface_point` spelling — which is used nowhere: not authored, not a hint, not
+    // on the registry response. Name the rename rather than reporting the name as blank.
+    if (row.surface_point_name === undefined) {
+      throw new CliError(
+        'ui_app.surface_point_list entries must carry "surface_point_name" (e.g. { "surface_point_name": "contactDetails.header.menu" }).' +
+          (row.surface_point !== undefined
+            ? ' "surface_point" is not a field — rename it to "surface_point_name".'
+            : ''),
+      );
+    }
     const check = validateSurfacePoint(asText(row.surface_point_name));
     if (check !== true) throw new CliError(`ui_app.surface_point_list: ${check}`);
     const name = asText(row.surface_point_name).trim();
