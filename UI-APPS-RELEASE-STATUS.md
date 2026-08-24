@@ -106,28 +106,68 @@ below remain code-verified — on this branch.
   the `unknown key` 400 against Brevo-run environments. (The separate *staging registry
   seed* check in §6 housekeeping still stands — needs DB access.)
 
-### 2. QA never run (from the sign-off table — these are the real gaps)
-- **`install` / `uninstall` have never been manually invoked** — TC-12.7 (install + the link
-  actually renders in the CRM), TC-12.9 (refuse before upload), TC-12.10 (uninstall +
-  idempotent second run), TC-12.11 (g)/(h) (account-ID validation, optional positional).
-  **Tracked separately as BEX-438** (child of BEX-218) — needs a real account + browser,
-  so it is planned end-to-end outside the CLI-side QA.
-- **`ui_app` on disk is unverified** — every assertion so far was read off the terminal.
-  Open `app-config.json` and check the key set: TC-12.3's file half, TC-12.4's push half
-  (payload on the wire + write-back with no `link_target`), TC-12.5(b)/(c) (edit → diff
-  `(changed)`; reorder → no-op).
-- **TC-12.5b** — pre-BEX-290 shape rejected with migration hints (now also covers the
-  BEX-426 root-spelling rejections — update the case, it predates the per-entry move).
-- **TC-12.6** — extension-point validation split (dotted name / unknown slug → server 400;
-  shape errors → local).
-- **TC-12.12** — no `--json` / non-TTY path has been run; this pins the scripted contract
-  (non-interactive create = OAuth app, no `--type` flag).
-- **TC-12.13** — scaffold in a UI-app project preserves a hand-edited block.
-- **TC-12.8 / multi-page** — the placement fan-out was only evidenced for N=1; with BEX-426
-  the case needs rewriting (create is single-placement now; multi-placement is hand-authored
-  + upload).
-- **PKCE question from TC-12.14** — whether "a public OAuth app must still get the PKCE
-  scaffold" is real needs settling by reading the templates, not the terminal.
+### 2. QA never run — **CLOSED by sweep 3 (2026-08-24)**, except the browser-bound cases
+
+**Sweep 3, 2026-08-24: public build off `feat/bex-416-entry-size` (`dist-qa`, all three
+build gates green), production, real session.** Every terminal-only gap below is now run
+and ✅ unless noted. QA apps were created, exercised and deleted; the account is clean.
+
+- 🔲 **`install` / `uninstall` have never been manually invoked** — TC-12.7/12.9/12.10/
+  12.11 (g)/(h). **Still open, tracked as BEX-438** (child of BEX-218) — needs a real
+  account + browser, planned end-to-end outside the CLI-side QA. (Unchanged by sweep 3.)
+- ✅ **`ui_app` on disk — verified.** TC-12.3's file half: the created config carries
+  exactly `{extension_type, surface_point_list:[{surface_point_name (dotted slug),
+  context (6 registry-seeded fields), label, more_info, redirect_link}]}`, `auth` exactly
+  `{}`, no `link_target`/`heading`/`subheading`/root `context`/`extension_point_name`,
+  no `src/oauth`, no feature prompt, and **no credentials-cache `apps` entry** for a UI
+  app. TC-12.4 write-back: pushed 0.0.1→0.0.2, `Version` written back, still no
+  `link_target` on either side of the round trip, `auth` restored `{}`. (The wire payload
+  itself was not proxied — that half stays on the unit assertions.) TC-12.5(b) label edit
+  → `UI app: (changed)` → push ✅; TC-12.5(c) key reorder AND entry reorder → `Already up
+  to date` ✅. TC-12.5(a) re-confirmed on the current build with dotted slugs.
+- ✅ **TC-12.5b** — all four pre-BEX-290 shapes AND all five BEX-426 root spellings
+  (`label`, `more_info`, `redirect_link`, `modal_iframe_url`, `link_target`) rejected
+  locally, exit 1, each with its named migration hint, before any network call.
+- ✅ **TC-12.6** — the split is live in both directions: dotted grammar name and
+  unregistered slug both passed local validation and got the server's
+  `400 unregistered extension point(s): <name>` naming the offender; cases 3–8 plus the
+  BEX-416/426 per-entry additions (size grammar ×3, missing per-entry label/redirect_link,
+  `modal_iframe_url`-on-actionLink, `link_target: "_self"`, snake_case `extension_type`)
+  all rejected locally with entry-naming messages. A **widget slot on an actionLink is
+  accepted** (uploaded fine). One nit: an entry using the pre-rename `surface_point` key
+  reports "Surface point cannot be empty" rather than naming the stray key — loud and
+  correct, but not the "unrecognised entry shape" wording the case asks for. Polish item.
+- ✅ **TC-12.12** — `--json` and piped non-TTY create both produce an OAuth app with no
+  app-type prompt (`appType: "oauth"`, `redirectUri` present, no `uiApp` key in JSON, no
+  `ui_app` on disk); `--type`/`--surface` answer `unknown option`, exit 1; `--help` lists
+  no UI-app flags.
+- ✅ **TC-12.13** — scaffold in the UI-app project: drift shown (`appName` local→server),
+  consent refreshed the base config, **the hand-edited per-entry `more_info` survived
+  verbatim** (the refresh carries the local block), no feature prompt, no `src/oauth`,
+  `APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP` printed.
+- ✅ **TC-12.8 direction evidenced** — a second placement hand-authored into
+  `surface_point_list` (different page) uploaded fine and the summary fans out per
+  placement with per-entry label/redirect link; entry reorder is not drift. The case
+  rewrite (single-select create + hand-authored multi-placement) is confirmed as the
+  right shape.
+- ✅ **PKCE question from TC-12.14 — settled from the templates: the expectation is real
+  and enforced.** Scaffolds branch on `{{#if public}}`/`{{#if private}}`
+  (`applyConditionals`, `src/templates/index.ts`): public gets S256
+  `code_challenge`/`code_verifier` and no client secret; private contains zero PKCE
+  machinery. Both variants are pinned by `handler.test.ts`/`conditionals.test.ts`. The
+  sweep-2 runs couldn't see it because both variants write the same file *count* — the
+  difference is file content. No terminal case needed; close the item.
+
+**⚠️ New finding from sweep 3 — duplicate app created by the 502 retry.** During the
+TC-12.3 create, `POST /v3/app-store/apps` produced **two** app records with identical
+`ui_app` snapshots: the backend persisted the first request but its response surfaced as
+a 502, and `client.ts` (`request()`, the `response.status === 502 && retryCount < 1`
+branch) retries **any** method once on 502 — POST included — so the retry created the app
+again. The CLI reported only the second ID; the first was orphaned (found via `app list`,
+deleted). Non-idempotent create retry ⇒ duplicate apps under gateway flakiness. Fix
+options: retry only idempotent methods, or send an idempotency key on create. Also note
+the platform happily holds two apps with the same name (consistent with the thin DB
+constraints found in §6). **Raise as a CLI bug ticket.**
 
 ### 3. Open UX decisions (docs.md Part 2 — choices, not bugs)
 - ✅ **`app credentials` on a UI app — DECIDED & DONE (2026-08-24): refuse, typed.** It
@@ -156,10 +196,11 @@ below remain code-verified — on this branch.
   `uq_extension_points_surface_point_name UNIQUE (surface_point_name)` now exists
   (verified via `pg_constraint`: pkey + name unique + composite + this + context CHECK).
   The earlier composite `uq_extension_points_name_surface_point` didn't cover the
-  slug-alone lookup (`WHERE surface_point_name = ANY(...)`); this does. Remaining:
-  🔲 run the same `ALTER TABLE` on **staging**; ◐ bo-be **PR #384** (open,
-  2026-08-24) records it in `specs/database.sql` and flags the composite-constraint
-  spec drift — plausibly the un-stamped BEX-424 migration — for reconciliation.
+  slug-alone lookup (`WHERE surface_point_name = ANY(...)`); this does.
+  ✅ **Also applied on STAGING (2026-08-24)** — pre-check zero rows, constraint added.
+  Remaining: ◐ merge bo-be **PR #384**, which records it in `specs/database.sql` (plus
+  the BEX-439 partial-index block) and flags the composite-constraint spec drift —
+  plausibly the un-stamped BEX-424 migration — for reconciliation.
 
 ### 5. Deliberately parked — don't "fix" without revisiting
 - `iframeExtension` prompt authoring (waits on the iframe-embed RFC);
@@ -215,15 +256,18 @@ and per-entry CTA copy with the entry as the **only** CTA source (BEX-426, #733 
 Server-side serving of BEX-416/426 is no longer an open item.
 
 **Housekeeping from the PDR (re-checked 2026-08-24 — several closed themselves):**
-- Close the folded QA PR; **stamp the BEX-424 applied marker** in bo-be's
-  `specs/database.sql` (verified still absent).
+- Close the folded QA PR. ✅ **BEX-424 applied markers stamped (2026-08-24, commit
+  `0ae7c05` on PR #384):** the slug-rename block now records prod + staging verification,
+  and the live-but-unrecorded composite unique got its own reconciliation block — the
+  only known spec drift is closed. Lands when #384 merges.
 - ✅ **Registry seed verified on PROD (2026-08-24):** 12 rows (ids 4–15,
   contact/company/dealDetails × 4 slots), both identities on every row, post-rename
   dotted slugs, no duplicate slugs, and the composite unique + context CHECK constraints
   in place. The 2026-08-18 slug-rename migration is applied on prod, and the
   post-rename **extensibility Redis flush was done** (`extensibility:integrations:*`).
-  🔲 **Staging: still unverified** — run the same two queries (registry rows +
-  `extension_points` constraints) against staging.
+  ✅ **Staging verified too (2026-08-24):** same 12 rows with dotted slugs, no
+  NULL/duplicate, and the `surface_point_name` unique was applied there in the same
+  session. Both environments now match.
 - bo-be hardening trio (2026-08-03) — **2 of 3 now resolved on `main`**:
   ✅ advisory-lock coverage (`pg_advisory_xact_lock` serialises both
   `http_cli_update_app.go` and `http_cli_upload_app.go` writes);
@@ -239,10 +283,13 @@ Server-side serving of BEX-416/426 is no longer an open item.
   `FOREIGN KEY (app_id) REFERENCES appstore.apps(id) ON DELETE CASCADE`.
   - ✅ **FK ON DELETE CASCADE confirmed** — deleting an app really does take its installs
     with it, which is precisely what `brevo app delete`'s warning (BEX-427) says.
-  - ⚠️ **The `(client_id, app_id)` unique constraint DOES NOT EXIST.** Install
-    idempotency is therefore application-level only (`findExistingInstallation`); two
-    concurrent installs can race past the check and insert duplicate rows. Raise as a
-    platform ask alongside the `surface_point_name` unique.
+  - ⚠️ **The `(client_id, app_id)` unique constraint DOES NOT EXIST** — install
+    idempotency is application-level only, with a check-then-insert race. Now tracked
+    as **BEX-439** (must be a PARTIAL unique on developer installs only — regular
+    integrations are external-key-keyed). Handler PR **app-store-backend #744** maps
+    the future `23505` to the "already installed" response (duplicate #745 closed);
+    the dedupe + `CREATE UNIQUE INDEX CONCURRENTLY` runs **after #744 deploys**,
+    staging first, then prod, then fill the applied markers in bo-be **#384**.
   - ⚠️ **No status CHECK/enum at the DB level** — status labels are enforced (if at all)
     in application code only.
 - Contacts host: six pre-merge items (gaps #10/#14, debug `console.*` removal,
