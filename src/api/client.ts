@@ -32,6 +32,10 @@ const apiCodeMessages: Record<string, string> = {
   // guards both `app create` and `app upload`, so it is mapped here rather than in
   // either command — the code is stable, unlike the copy.
   ui_app_not_enabled: messages.ERR_UI_APP_NOT_ENABLED,
+  // dp-functions' FeatureGateMiddleware answers 403 `feature_not_enabled` when
+  // the account lacks the dp-functions entitlement. Guards every /v3/dp-functions
+  // endpoint, so it is mapped centrally rather than per command.
+  feature_not_enabled: messages.ERR_FEATURE_NOT_ENABLED,
 };
 
 function resolveErrorMessage(apiCode: string | undefined, fallback: string): string {

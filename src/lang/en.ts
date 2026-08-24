@@ -467,6 +467,12 @@ const coreMessages = {
     "UI apps aren't enabled for this Brevo account yet.\n\n" +
     '  Why:       UI apps (action links) are still rolling out, and are enabled per account.\n' +
     '  Do this:   build an OAuth app instead, or ask Brevo to enable UI apps for this account.',
+  // dp-functions' FeatureGateMiddleware answers 403 `feature_not_enabled` when
+  // the account is not entitled to dp-functions. Mapped centrally so every fn
+  // subcommand (list, get, init, activate, …) shows the same message.
+  ERR_FEATURE_NOT_ENABLED:
+    'Brevo Functions is not enabled for this account.\n\n' +
+    '  Contact Brevo to enable Brevo Functions for your account.',
   ERR_AUTH_GATEWAY:
     'API is behind an authentication gateway (e.g. Cloudflare Access). Sign in via your browser first, or check your API base URL.',
 

@@ -59,6 +59,10 @@ export async function* sseStream(
       const data: unknown = text ? JSON.parse(text) : {};
       if (data && typeof data === 'object') {
         const obj = data as Record<string, unknown>;
+        // Map stable API codes to CLI messages (mirrors apiCodeMessages in client.ts).
+        if (obj.code === 'feature_not_enabled') {
+          throw new ApiError(messages.ERR_FEATURE_NOT_ENABLED, response.status);
+        }
         const msg =
           typeof obj.message === 'string'
             ? obj.message
@@ -67,7 +71,8 @@ export async function* sseStream(
               : undefined;
         if (msg) errorMessage = msg;
       }
-    } catch {
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
       // keep default message
     }
     throw new ApiError(errorMessage, response.status);
