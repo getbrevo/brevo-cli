@@ -381,8 +381,9 @@ const PREVIEW_EXCLUDED_KEYS = new Set(['organization_id']);
 /** Format a cell value for the preview table, handling objects explicitly. */
 function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) return '';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return `${value}`;
+  return JSON.stringify(value);
 }
 
 function printResultsTable(rows: Record<string, unknown>[]): void {
