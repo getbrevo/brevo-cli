@@ -34,7 +34,7 @@
  * and gated help sections sit behind `__BREVO_PREVIEW__`, a *build* flag, so both must
  * be moved/unwrapped by hand in the same change — UI-apps GA (BEX-290) touched 17 files
  * doing exactly that. The full sequence is the GA runbook, `RELEASE-CHECKLIST.md` on
- * the `docs/public-cli-ui-apps-feature-changes` branch → *Before public-apps GA*.
+ * `feature_set-brevo-cli-v2` → *Before public-apps GA*.
  *
  * Two of the four names are `Capability` values from `app-types/capabilities.ts`,
  * deliberately: commands already declare `requires` in `commands/definitions.ts`, so

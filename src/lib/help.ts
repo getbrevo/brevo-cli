@@ -99,8 +99,8 @@ function formatRootHelp(description: string): string {
     // since a published build still has `__BREVO_PREVIEW__ === false` and would keep
     // hiding the restored section. The wrapper must be removed by hand at the same time
     // (exactly what happened to the App-install section above at UI-apps GA); the GA
-    // runbook (`RELEASE-CHECKLIST.md` on the `docs/public-cli-ui-apps-feature-changes`
-    // branch) lists it, alongside the identical trap in `commands/preview-definitions.ts`.
+    // runbook (`RELEASE-CHECKLIST.md` on `feature_set-brevo-cli-v2`) lists it, alongside
+    // the identical trap in `commands/preview-definitions.ts`.
     ...(__BREVO_PREVIEW__
       ? gatedSection('review-lifecycle', [
           `App-review commands (public apps only):`,

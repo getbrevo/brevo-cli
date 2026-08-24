@@ -375,8 +375,8 @@ export async function uploadProjectConfig(
       distribution_type: config.distribution_type,
       // UI apps have no OAuth block — the whole `auth` key is omitted, not sent
       // with empty arrays, mirroring `auth: {}` in the config.
-      // ASSUMED wire contract (server side not built yet; tracked in docs.md on
-      // the docs/public-cli-ui-apps-feature-changes branch): the upload endpoint
+      // ASSUMED wire contract (server side not built yet; tracked in the
+      // branch-local docs.md — see CLAUDE.md → Working docs): the upload endpoint
       // must tolerate an absent auth key for UI apps.
       ...(isUiApp
         ? {}

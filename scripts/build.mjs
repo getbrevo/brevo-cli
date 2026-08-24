@@ -118,8 +118,8 @@ fs.chmodSync(outfile, builtMode | ((builtMode & 0o444) >> 2));
 // at UI-apps GA.) `lang/en.ts` had the same problem and was fixed by moving the gated
 // strings into `lang/preview-messages.ts` and spreading that in behind the build flag —
 // the same treatment would work for these if the residue ever matters. Tracked in the
-// GA runbook (`RELEASE-CHECKLIST.md` on the `docs/public-cli-ui-apps-feature-changes`
-// branch).
+// GA runbook (`RELEASE-CHECKLIST.md` on `feature_set-brevo-cli-v2`; see CLAUDE.md →
+// Working docs for why it is branch-local).
 //
 // So: a marker here must name a MODULE-level binding, never an object property, or the
 // check fails in a way no amount of correct gating can clear. The one property-level case
