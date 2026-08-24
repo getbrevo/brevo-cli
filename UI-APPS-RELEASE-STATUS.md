@@ -167,11 +167,12 @@ again. The CLI reported only the second ID; the first was orphaned (found via `a
 deleted). Non-idempotent create retry ⇒ duplicate apps under gateway flakiness.
 
 Dispositions (same day, 2026-08-24):
-- ✅ **CLI fix shipped for review — PR #70** (`fix/post-502-retry-duplicate-create`, off
-  `main`): the 502 retry now replays only idempotent methods (GET/PUT/DELETE); POST and
-  PATCH surface the 502, with the changeset advising a `brevo app list` check before
-  retrying a failed create. The 401/429 retries are untouched — those statuses mean the
-  origin refused the request without processing it.
+- ✅ **CLI fix MERGED to `main` — PR #70** (2026-08-24): the 502 retry now replays only
+  idempotent methods (GET/PUT/DELETE); POST and PATCH surface the 502, with the changeset
+  advising a `brevo app list` check before retrying a failed create. The 401/429 retries
+  are untouched — those statuses mean the origin refused the request without processing
+  it. Its patch changeset is on `main`, so the changesets bot will offer it in a "Version
+  Packages" PR — hold that until PR #68 merges if a standalone 2.1.1 isn't wanted.
 - 🔲 **Server-side create idempotency remains the real guarantee and is UN-TICKETED** —
   an idempotency key (or duplicate guard) on `POST /v3/app-store/apps`, bo-be work.
   Checked Jira 2026-08-24: BEX-439 covers only *install* idempotency
