@@ -28,11 +28,32 @@ const SQ_IN_SQ = String.raw`'\''`;
 
 // The pty driver's shell. Absolute by POSIX guarantee rather than resolved
 // through PATH — a writable PATH entry must not be able to decide what runs
-// (Sonar S4036). The pipeline it interprets (`cat`, `script`) stays on PATH:
-// `script`'s location differs across the platforms this supports, and the
-// command string is built only from this file's literals plus an already
-// resolved brevo path.
+// (Sonar S4036).
 const POSIX_SHELL = '/bin/sh';
+
+// The pipeline that shell interprets is absolute too. This used to leave `cat`
+// and `script` on PATH, on the reasoning that `script` sits in different places
+// across the platforms this supports and the command string holds only this
+// file's own literals — Sonar flagged it anyway (S4036, on PR #68) and it was
+// right to: the point of pinning the shell is that nothing PATH-writable
+// decides what the pty driver executes, and two of the three words in the
+// pipeline were still doing exactly that. Cheap to close, so closed.
+//
+// Fixed candidates per binary, first hit wins, and deliberately NO bare-name
+// fallback — a fallback would hand the decision back to PATH on precisely the
+// machine where the absolute lookup failed.
+const PTY_SCRIPT_PATHS = ['/usr/bin/script', '/bin/script'];
+const PTY_CAT_PATHS = ['/bin/cat', '/usr/bin/cat'];
+
+function resolveSystemBinary(label: string, candidates: string[]): string {
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (!found) {
+    throw new Error(
+      `smoke: ${label} not found at ${candidates.join(' or ')} — the pty suite needs it to allocate a terminal`,
+    );
+  }
+  return found;
+}
 
 export interface Options {
   skipAuth: boolean;
@@ -447,10 +468,11 @@ export function execExpectPty(
 
   // macOS `script` runs the command directly; util-linux takes a -c command
   // string (quoted a second time, since it travels as one sh word).
+  const scriptBin = resolveSystemBinary('script(1)', PTY_SCRIPT_PATHS);
   const scriptInvocation =
     process.platform === 'darwin'
-      ? `script -q /dev/null ${quoted}`
-      : `script -qec ${shellQuote(quoted)} /dev/null`;
+      ? `${scriptBin} -q /dev/null ${quoted}`
+      : `${scriptBin} -qec ${shellQuote(quoted)} /dev/null`;
 
   // `script` copies terminal modes from its own stdin and tolerates only ENOTTY
   // there. Node's 'pipe' stdio is a SOCKETPAIR on POSIX — and on macOS FIFOs
@@ -462,7 +484,7 @@ export function execExpectPty(
   // until OUR stdin closes, so it is ended after the last answer (verified
   // safe: script forwards the EOF but keeps running until its child exits, and
   // by then no prompt is reading).
-  const shCmd = `cat | ${scriptInvocation}`;
+  const shCmd = `${resolveSystemBinary('cat(1)', PTY_CAT_PATHS)} | ${scriptInvocation}`;
 
   const expectTimeoutMs = opts.expectTimeoutMs ?? 120_000;
   const exitTimeoutMs = opts.exitTimeoutMs ?? 120_000;
