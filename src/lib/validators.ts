@@ -501,7 +501,7 @@ function validateSurfacePointList(entries: unknown, extensionType: string): void
 // One authored size axis: a positive integer with an explicit px or % unit. The unit is
 // mandatory — a bare number is refused rather than defaulted, so the authored value is
 // always a CSS length the record page can apply verbatim.
-const SIZE_AXIS_PATTERN = /^([1-9][0-9]*)(px|%)$/;
+const SIZE_AXIS_PATTERN = /^([1-9]\d*)(px|%)$/;
 
 /**
  * Validate one entry's authored card size: an object with `width` and/or `height`, each a
@@ -524,7 +524,10 @@ function validateSurfacePointSize(size: unknown): true | string {
       return `${axis} must be a positive integer with a px or % unit, e.g. "280px" or "50%".`;
     }
     if (match[2] === '%' && Number(match[1]) > 100) {
-      return `${axis} "${String(value)}" is out of range — a % axis must be between 1% and 100%.`;
+      // `match[0]` rather than `value`: the pattern is anchored, so the whole match IS
+      // the authored string — and it is typed `string`, so the message can never quote
+      // an `unknown`'s default stringification ("[object Object]").
+      return `${axis} "${match[0]}" is out of range — a % axis must be between 1% and 100%.`;
     }
   }
   return true;

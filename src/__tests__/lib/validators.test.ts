@@ -436,6 +436,16 @@ describe('validateUiApp', () => {
     expect(() => validateUiApp(withEntry({ size: {} }))).not.toThrow();
   });
 
+  // The out-of-range message quotes the axis value back, which it can only do from the
+  // regex match — quoting the raw `unknown` would render "[object Object]" for a
+  // non-string. The table below asserts the throw; this pins the wording, entry name
+  // included, so the value can never silently become a default stringification.
+  it('names the entry and quotes the axis when a % size is over 100 (BEX-416)', () => {
+    expect(() => validateUiApp(withEntry({ size: { height: '120%' } }))).toThrow(
+      'ui_app.surface_point_list["contact-details-header-menu"].size: height "120%" is out of range — a % axis must be between 1% and 100%.',
+    );
+  });
+
   // The handover to the server, asserted so it cannot be undone by accident: an
   // unregistered slot name passes the local pre-flight and travels, and the upload
   // endpoint's `checkExtensionPoints` is what answers 400 naming it. Re-adding a local
