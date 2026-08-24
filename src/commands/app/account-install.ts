@@ -14,7 +14,7 @@ import { accountService, appService } from '../../container';
 import { getCallerAccountId } from '../../services/app';
 import { createSpinner } from '../../lib/ui';
 import { SubAccount } from '../../types';
-import { promptAppSelection } from './select-app';
+import { assertAppSelectionAllowed, promptAppSelection } from './select-app';
 
 /**
  * Shared resolution for `app install` and `app uninstall` (BEX-290).
@@ -164,12 +164,16 @@ async function resolveTargetAccountId(
  * accounts). The positional is checked first so CI keeps working unchanged and so
  * there is always an escape hatch for an account the listing won't show — notably a
  * deactivated sub-account.
+ *
+ * `selectCommand` is the `--app-id` form of the calling command, used only if the app
+ * picker has to be refused — the message offers it as the copy-pasteable replacement.
  */
 export async function resolveInstallTarget(
   accountIdArg: string | undefined,
   options: { appId?: string; json?: boolean },
   selectPrompt: string,
   accountSelectPrompt: string,
+  selectCommand: string,
 ): Promise<InstallTarget> {
   // An explicit positional is taken at face value and deliberately NOT looked up: the
   // whole point of it is reaching an account the sub-account listing won't show (a
@@ -208,6 +212,19 @@ export async function resolveInstallTarget(
       ...accountFields,
     };
   }
+
+  // There is no app left to resolve without asking, so the picker is the only path —
+  // and there has to be a terminal to draw it on. Refused here rather than left to
+  // inquirer: the choice list renders to stdout, which under `--json` breaks the
+  // single-parseable-document contract and leaks app IDs into what a script is
+  // parsing, and off a TTY inquirer aborts with a raw ERR_USE_AFTER_CLOSE readline
+  // stack instead. Same guard `app delete`, `app credentials` and `app withdraw`
+  // put in front of their pickers, and it runs BEFORE the apps-list round trip.
+  //
+  // Note this is only reachable once `--app-id` and the linked `app-config.json` have
+  // both come up empty — a non-interactive run that names the app either way is
+  // unaffected, which is what keeps `--json`/CI working.
+  assertAppSelectionAllowed(selectCommand, options.json);
 
   // Only UI apps are offered: an OAuth row would be a choice whose only outcome
   // is `assertInstallable`'s type refusal one step later. The list endpoint

@@ -194,6 +194,13 @@ export const CLI = {
     accountId ? `brevo app install ${accountId}` : 'brevo app install',
   APP_UNINSTALL: (accountId?: string) =>
     accountId ? `brevo app uninstall ${accountId}` : 'brevo app uninstall',
+  // The `--app-id` forms, used only by the non-interactive picker refusal: that message
+  // offers a copy-pasteable replacement for the picker, so it has to NAME the app, which
+  // the bare forms above deliberately don't.
+  APP_INSTALL_APP_ID: (appId?: string) =>
+    appId ? `brevo app install --app-id ${appId}` : 'brevo app install --app-id <id>',
+  APP_UNINSTALL_APP_ID: (appId?: string) =>
+    appId ? `brevo app uninstall --app-id ${appId}` : 'brevo app uninstall --app-id <id>',
   APP_DELETE: 'brevo app delete',
   APP_WITHDRAW: (appId?: string) =>
     appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',

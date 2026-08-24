@@ -300,6 +300,64 @@ describe('app/install', () => {
     expect(appService.installApp).toHaveBeenCalledWith('9', '99999', 'Picked App');
   });
 
+  // The picker is the last resort, reached only when neither `--app-id` nor a linked
+  // `app-config.json` named the app. It renders its choice list to stdout, so it has to
+  // be refused wherever there is no terminal to draw it on — under `--json` it would
+  // break the single-parseable-document contract, and off a TTY inquirer aborts with a
+  // raw readline stack. Same guard `app delete` and `app credentials` already carry.
+  describe('the app picker is refused when it cannot be drawn', () => {
+    beforeEach(() => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+        { app_id: '9', name: 'Picked App', client_id: '' },
+      ]);
+    });
+
+    it('refuses under --json, naming the --app-id form', async () => {
+      await expect(appInstallCommand({ accountId: '99999', json: true })).rejects.toThrow(
+        /brevo app install --app-id <id>/,
+      );
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      // Refused before the round trip, so no apps list is fetched and nothing is
+      // written to the stdout a caller is parsing.
+      expect(appService.fetchAppsList).not.toHaveBeenCalled();
+      expect(appService.installApp).not.toHaveBeenCalled();
+      expect(stdoutSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses off a TTY even without --json', async () => {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        configurable: true,
+        writable: true,
+        value: false,
+      });
+
+      await expect(appInstallCommand({ accountId: '99999', force: true })).rejects.toThrow(
+        /non-interactive/i,
+      );
+
+      expect(appService.installApp).not.toHaveBeenCalled();
+    });
+
+    // The guard must not reach a run that named its app: those are exactly the
+    // non-interactive paths `--json`/CI depends on.
+    it('does not fire when --app-id names the app', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: '7', version: '3' });
+
+      await appInstallCommand({ accountId: '99999', appId: '7', json: true });
+
+      expect(appService.installApp).toHaveBeenCalledWith('7', '99999', '7');
+    });
+
+    it('does not fire when a linked app-config.json names the app', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(UPLOADED_CONFIG);
+
+      await appInstallCommand({ accountId: '99999', json: true });
+
+      expect(appService.installApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
+    });
+  });
   // Only a UI app can be installed, so the picker offers only UI apps — an OAuth
   // app in the list would be a choice whose only outcome is the type-gate refusal
   // one step later. The list endpoint echoes no ui_app block, so rows are

@@ -168,6 +168,37 @@ describe('app/uninstall', () => {
   });
   // Gated the same way install is: an OAuth app never had an install to remove. The
   // *upload* gate is still deliberately absent — see the test above.
+  // Same guard as `app install` — see that suite for why the picker cannot be drawn
+  // under `--json` or off a TTY.
+  describe('the app picker is refused when it cannot be drawn', () => {
+    beforeEach(() => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+        { app_id: '9', name: 'Picked App', client_id: '' },
+      ]);
+    });
+
+    it('refuses under --json, naming the --app-id form', async () => {
+      await expect(appUninstallCommand({ accountId: '99999', json: true })).rejects.toThrow(
+        /brevo app uninstall --app-id <id>/,
+      );
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      // Refused before the round trip, so nothing reaches the stdout a caller parses.
+      expect(appService.fetchAppsList).not.toHaveBeenCalled();
+      expect(appService.uninstallApp).not.toHaveBeenCalled();
+      expect(stdoutSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not fire when --app-id names the app', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: '7' });
+
+      await appUninstallCommand({ accountId: '99999', appId: '7', json: true });
+
+      expect(appService.uninstallApp).toHaveBeenCalledWith('7', '99999', '7');
+    });
+  });
+
   describe('the app-type gate', () => {
     it('refuses an OAuth app linked in this directory', async () => {
       const { ui_app: _ui, ...oauthConfig } = LINKED_CONFIG;

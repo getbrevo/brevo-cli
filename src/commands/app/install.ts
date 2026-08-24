@@ -6,6 +6,7 @@ import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { assertInstallable, confirmInstallAction, resolveInstallTarget } from './account-install';
+import { CLI } from '../../lib/constants';
 
 interface InstallOptions {
   /**
@@ -32,6 +33,7 @@ export const appInstallCommand = withCommandHandler(
         options,
         messages.APP_INSTALL_SELECT,
         messages.APP_INSTALL_SELECT_ACCOUNT,
+        CLI.APP_INSTALL_APP_ID(),
       );
 
     await assertInstallable(appId, {

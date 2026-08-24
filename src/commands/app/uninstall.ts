@@ -6,6 +6,7 @@ import { jsonOutput } from '../../lib/json-output';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import { assertInstallable, confirmInstallAction, resolveInstallTarget } from './account-install';
+import { CLI } from '../../lib/constants';
 
 interface UninstallOptions {
   /**
@@ -54,6 +55,7 @@ export const appUninstallCommand = withCommandHandler(
       options,
       messages.APP_UNINSTALL_SELECT,
       messages.APP_UNINSTALL_SELECT_ACCOUNT,
+      CLI.APP_UNINSTALL_APP_ID(),
     );
     const { appId, appLabel, accountId, accountLabel } = target;
 
