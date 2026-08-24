@@ -78,6 +78,8 @@ export interface State {
   tmpDirs: string[];
   mainApp: SmokeApp | null;
   publicApp: SmokeApp | null;
+  // The UI app the `ui` suite created (`redirectUri` is '' — a UI app has none).
+  uiApp: SmokeApp | null;
   initAppId: string | null;
   linked: boolean;
   caps: Record<string, boolean> | null;
@@ -340,6 +342,200 @@ export async function execScriptedStdin(
   });
 }
 
+// ──────────────────────────── pty-driven prompts ────────────────────────────
+
+// ANSI escapes (colours, cursor movement) inquirer writes to a real terminal,
+// plus the carriage returns a pty inserts. Stripped before matching so an
+// expect pattern sees the prompt text contiguously, the way a human does.
+const ANSI_RE = /\u001B\[[0-9;?]*[ -/]*[@-~]/g;
+
+export function stripAnsi(s: string): string {
+  return s.replaceAll(ANSI_RE, '').replaceAll('\r', '');
+}
+
+export interface PtyExchange {
+  // Matched against the ANSI-stripped transcript, beyond the previous match.
+  expect: RegExp;
+  // The line to type once the prompt appears ('\n' is appended, so '' is a bare
+  // Enter and '2' is inquirer's number-key jump plus Enter). The function form
+  // gets the full stripped transcript and may return null to abort the run —
+  // the child is killed and the result carries `aborted: true`. That is how a
+  // step tells "this build doesn't offer the choice I need" (skip) apart from
+  // "the flow broke" (fail).
+  send: string | ((strippedTranscript: string) => string | null);
+}
+
+// Drive a child that insists on a real terminal. `execScriptedStdin` gives the
+// child a PIPE, so `process.stdin.isTTY` is undefined in it — which is exactly
+// what `app create` branches on, and why a piped create can never author a UI
+// app. `script(1)` allocates a pty (present on both macOS and Linux, different
+// argument conventions); answers travel stdin → cat → script, which forwards
+// them through the pty master (see shCmd below for why cat is in the middle).
+//
+// Expect-driven rather than blind-paced (contrast execScriptedStdin): registry
+// reads and the create POST happen BETWEEN prompts and take network time, so a
+// fixed inter-line delay is either wastefully long or a race. Each answer is
+// sent only after its prompt has actually rendered.
+export function execExpectPty(
+  cmd: string,
+  args: string[],
+  state: State,
+  opts: {
+    cwd?: string;
+    exchanges: PtyExchange[];
+    // Per-prompt and post-last-prompt patience. Generous by default: the gaps
+    // between prompts hold real API calls.
+    expectTimeoutMs?: number;
+    exitTimeoutMs?: number;
+  },
+): Promise<{ stdout: string; exitCode: number; aborted: boolean }> {
+  const pretty = `$ ${cmd} ${args.join(' ')}  (pty, ${opts.exchanges.length} prompts)`;
+  logToFile(state, pretty);
+
+  // Every layer here is quoting this script's own literals plus the resolved
+  // brevo path — no user input is ever interpolated. Single-quote each word;
+  // the only metacharacter left inside a single-quoted word is the quote itself.
+  const shellQuote = (a: string) => `'${a.replaceAll("'", String.raw`'\''`)}'`;
+  const quoted = [cmd, ...args].map(shellQuote).join(' ');
+
+  // macOS `script` runs the command directly; util-linux takes a -c command
+  // string (quoted a second time, since it travels as one sh word).
+  const scriptInvocation =
+    process.platform === 'darwin'
+      ? `script -q /dev/null ${quoted}`
+      : `script -qec ${shellQuote(quoted)} /dev/null`;
+
+  // `script` copies terminal modes from its own stdin and tolerates only ENOTTY
+  // there. Node's 'pipe' stdio is a SOCKETPAIR on POSIX — and on macOS FIFOs
+  // are socket-backed too — so `script` dies on either outright
+  // ("tcgetattr/ioctl: Operation not supported on socket"). A shell `|` is a
+  // real pipe(2), which answers ENOTTY as script expects: interpose `cat` so
+  // script's stdin is that real pipe while the answers still arrive from this
+  // process. The cost is an EOF obligation — `cat` holds the sh pipeline open
+  // until OUR stdin closes, so it is ended after the last answer (verified
+  // safe: script forwards the EOF but keeps running until its child exits, and
+  // by then no prompt is reading).
+  const shCmd = `cat | ${scriptInvocation}`;
+
+  const expectTimeoutMs = opts.expectTimeoutMs ?? 120_000;
+  const exitTimeoutMs = opts.exitTimeoutMs ?? 120_000;
+
+  return new Promise((resolve, reject) => {
+    // detached → own process group, so kills reach cat, script AND the CLI
+    // under test rather than just the sh wrapper.
+    const child = spawn('sh', ['-c', shCmd], {
+      cwd: opts.cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: process.env,
+      detached: true,
+    });
+
+    const killTree = (sig: NodeJS.Signals) => {
+      if (!child.pid) return;
+      try {
+        process.kill(-child.pid, sig);
+      } catch {
+        try {
+          child.kill(sig);
+        } catch {
+          // already gone
+        }
+      }
+    };
+
+    let raw = '';
+    let cursor = 0; // index into the stripped transcript, past the last match
+    let next = 0; // next exchange to satisfy
+    let aborted = false;
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+
+    const clearTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+    const finish = (exitCode: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimer();
+      resolve({ stdout: raw, exitCode, aborted });
+    };
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimer();
+      killTree('SIGKILL');
+      reject(err);
+    };
+    const armTimer = () => {
+      clearTimer();
+      const waiting =
+        next < opts.exchanges.length
+          ? `prompt ${next + 1}/${opts.exchanges.length} (${String(opts.exchanges[next]?.expect)})`
+          : 'exit';
+      timer = setTimeout(
+        () => fail(new Error(`pty run timed out waiting for ${waiting}`)),
+        next < opts.exchanges.length ? expectTimeoutMs : exitTimeoutMs,
+      );
+    };
+
+    const tryMatch = () => {
+      const stripped = stripAnsi(raw);
+      cursor = Math.min(cursor, stripped.length);
+      while (!aborted && next < opts.exchanges.length) {
+        const ex = opts.exchanges[next];
+        if (!ex) break;
+        const m = ex.expect.exec(stripped.slice(cursor));
+        if (!m) break;
+        cursor += m.index + m[0].length;
+        next++;
+        const line = typeof ex.send === 'function' ? ex.send(stripped) : ex.send;
+        if (line === null) {
+          aborted = true;
+          logToFile(state, `pty: aborting at prompt ${next} (sender returned null)`);
+          killTree('SIGTERM');
+          break;
+        }
+        // Small settle so inquirer has attached its keypress listener after
+        // rendering — same reasoning as execScriptedStdin's paced writes. After
+        // the LAST answer, stdin is ended so `cat` can exit (see shCmd above).
+        setTimeout(() => {
+          if (settled || !child.stdin || child.stdin.destroyed) return;
+          child.stdin.write(line + '\n');
+          logToFile(state, `pty> ${line || '(enter)'}`);
+          if (next >= opts.exchanges.length) {
+            setTimeout(() => child.stdin?.end(), 500);
+          }
+        }, 200);
+      }
+      armTimer();
+    };
+
+    const onData = (d: Buffer) => {
+      const s = d.toString();
+      raw += s;
+      const legible = stripAnsi(s).trim();
+      if (legible) logToFile(state, legible);
+      tryMatch();
+    };
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
+    child.on('error', fail);
+    child.on('exit', (code) => {
+      if (!aborted && next < opts.exchanges.length) {
+        fail(
+          new Error(
+            `child exited (${code ?? -1}) before prompt ${next + 1}/${opts.exchanges.length} appeared`,
+          ),
+        );
+        return;
+      }
+      finish(code ?? -1);
+    });
+    armTimer();
+  });
+}
+
 // Run a child process while letting the user see (and respond to) its output
 // in real time. stdin is inherited so the user can answer interactive prompts;
 // stdout/stderr are tee'd to terminal AND captured into a buffer for parsing
@@ -508,10 +704,19 @@ export function assertMappedFailure(r: ExecResult, exp: FailureExpectation): str
 
 // ──────────────────────────── capability detection ────────────────────────────
 
-// Commands whose presence the public-app steps depend on. Each landed in its
-// own ticket (BEX-250/251/252/253), and `--against=published` runs whatever
-// npm currently serves — so detect instead of assuming.
-export const GATED_COMMANDS = ['upload', 'submit', 'status', 'withdraw'] as const;
+// Commands whose presence suite steps depend on. The review-lifecycle four each
+// landed in their own ticket (BEX-250/251/252/253); `install`/`uninstall`
+// shipped with UI apps GA (BEX-290/362/364) and the `ui` suite needs them. All
+// are detected rather than assumed because `--against=published` runs whatever
+// npm currently serves.
+export const GATED_COMMANDS = [
+  'upload',
+  'submit',
+  'status',
+  'withdraw',
+  'install',
+  'uninstall',
+] as const;
 
 export type GatedCommand = (typeof GATED_COMMANDS)[number];
 
@@ -1099,6 +1304,13 @@ export function stepDeleteLeftoverApps(state: State): string {
       clear: () => (state.publicApp = null),
     });
   }
+  if (state.uiApp) {
+    leftovers.push({
+      label: 'ui',
+      appId: state.uiApp.appId,
+      clear: () => (state.uiApp = null),
+    });
+  }
   if (state.initAppId) {
     leftovers.push({
       label: 'init',
@@ -1197,7 +1409,12 @@ export function stepFinalCleanup(state: State): string {
 // is worse than no cleanup at all because nobody goes looking for the orphan.
 export function trapDeleteApps(state: State): void {
   const orphans: string[] = [];
-  for (const appId of [state.mainApp?.appId, state.publicApp?.appId, state.initAppId]) {
+  for (const appId of [
+    state.mainApp?.appId,
+    state.publicApp?.appId,
+    state.uiApp?.appId,
+    state.initAppId,
+  ]) {
     if (!appId) continue;
     try {
       const r = spawnSync(
@@ -1222,6 +1439,7 @@ export function trapDeleteApps(state: State): void {
   }
   state.mainApp = null;
   state.publicApp = null;
+  state.uiApp = null;
   state.initAppId = null;
 
   if (orphans.length > 0) {

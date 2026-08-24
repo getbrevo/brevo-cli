@@ -9,6 +9,9 @@
  *                                 → scaffold → start → delete, + guardrail probes
  *   scripts/smoke/public-app.ts   create → upload → status → submit → submit again
  *                                 → status → withdraw → status → delete
+ *   scripts/smoke/ui-app.ts       UI-app lifecycle: interactive create (pty) → upload
+ *                                 no-op → per-entry edit upload → install → uninstall
+ *                                 → delete (opt-in)
  *   scripts/smoke/init-wizard.ts  the `brevo app init` wizard (opt-in)
  *
  * Shared plumbing lives in scripts/smoke/core.ts.
@@ -47,13 +50,16 @@ import {
 } from './smoke/core';
 import { privateAppSuite } from './smoke/private-app';
 import { publicAppSuite } from './smoke/public-app';
+import { uiAppSuite } from './smoke/ui-app';
 import { initWizardSuite } from './smoke/init-wizard';
 
-// Suite registry. `--suite=<name[,name]>` picks from these; the init wizard is
-// opt-in because it drives interactive prompts through scripted stdin.
+// Suite registry. `--suite=<name[,name]>` picks from these; the ui suite and
+// the init wizard are opt-in because they drive interactive prompts (ui through
+// a pty, init through scripted stdin).
 const SUITES: Record<string, Suite> = {
   private: privateAppSuite,
   public: publicAppSuite,
+  ui: uiAppSuite,
   init: initWizardSuite,
 };
 
@@ -107,6 +113,7 @@ function applyBooleanFlag(opts: Options, arg: string): boolean {
     opts.ci = true;
     opts.verbose = true;
   } else if (arg === '--with-init') opts.suites = uniq([...opts.suites, 'init']);
+  else if (arg === '--with-ui') opts.suites = uniq([...opts.suites, 'ui']);
   // Kept as aliases for --suite so existing invocations keep working.
   else if (arg === '--with-public') opts.suites = uniq([...opts.suites, 'public']);
   else if (arg === '--skip-public') opts.suites = opts.suites.filter((s) => s !== 'public');
@@ -168,10 +175,13 @@ Flags:
   --suite=<names>              Which suites to run, comma-separated, in order.
                                private  private-app lifecycle + client guardrails
                                public   public-app submission/review lifecycle
+                               ui       UI-app lifecycle (interactive create via a
+                                        pty; opt-in)
                                init     'brevo app init' wizard (interactive, opt-in)
                                all      every suite
                                Default: private,public
   --with-init                  Append the init suite (same as adding 'init').
+  --with-ui                    Append the ui suite.
   --with-public                Append the public suite.
   --skip-public                Drop the public suite (same as --suite=private).
   -h, --help                   Show this help.
@@ -197,6 +207,10 @@ only hold one build:
   * with only 'private' selected it builds the published surface, i.e. what npm
     actually ships. Run 'yarn smoke --suite=private' when that is the thing you
     want to verify.
+The ui suite needs neither: UI apps are GA (BEX-290) and ship in every build, so
+it runs on whichever artefact the other selected suites decided on. It DOES need
+a pty — 'brevo app create' only offers the UI app type on a real terminal — so
+the suite drives the prompts through script(1) and is opt-in like init.
 `);
 }
 
@@ -332,6 +346,7 @@ function hasLeftoverState(state: State): boolean {
   return Boolean(
     state.mainApp ||
     state.publicApp ||
+    state.uiApp ||
     state.initAppId ||
     state.tmpDirs.length > 0 ||
     state.linked ||
@@ -359,6 +374,7 @@ async function main(): Promise<void> {
     tmpDirs: [],
     mainApp: null,
     publicApp: null,
+    uiApp: null,
     initAppId: null,
     linked: false,
     caps: null,
