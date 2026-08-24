@@ -1,4 +1,5 @@
 import { CliError } from './errors';
+import { previewCli, previewEndpoints } from './preview-constants';
 
 // Track whether URL suffix parts were stripped for deferred warning (avoid side effects at import time)
 let strippedUrlSuffix: string | undefined;
@@ -110,7 +111,7 @@ export const CLI_AUTH_METHODS = {
   OAUTH: 'oauth',
 } as const;
 
-export const ENDPOINTS = {
+const coreEndpoints = {
   ACCOUNT: '/v3/account/info',
   // Sub-accounts of a master (corporate) account — `{ count, subAccounts: [...] }`.
   // `offset` and `limit` are both required (there is no "return everything" call),
@@ -122,10 +123,7 @@ export const ENDPOINTS = {
   // Served by the app-store service directly (APP_STORE_BASE), not via the v3
   // gateway — see resolveAppStoreUrl above and services/cli-info.ts.
   CLI_INFO: '/cli/info',
-  APP_STATE: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/state`,
   APP_STORE_APP_UPLOAD: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/upload`,
-  APP_STORE_APP_WITHDRAW: (appId: string) =>
-    `/v3/app-store/apps/${encodeURIComponent(appId)}/withdraw`,
   // Per-account availability for UI apps (BEX-290). Until an in-product
   // enable/disable surface ships, this endpoint *is* the install mechanism for
   // an action link: POST to install into an account, DELETE to remove.
@@ -153,6 +151,12 @@ export const ENDPOINTS = {
   OAUTH_TOKEN: '/oauth/token',
 } as const;
 
+// ELIMINATION SITE — see the note on `CLI` below; same reasoning, same shape.
+export const ENDPOINTS = {
+  ...coreEndpoints,
+  ...(__BREVO_PREVIEW__ ? previewEndpoints : ({} as typeof previewEndpoints)),
+};
+
 /**
  * The app ID shown in `--help` examples.
  *
@@ -166,13 +170,12 @@ export const ENDPOINTS = {
  */
 export const EXAMPLE_APP_ID = '3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93';
 
-export const CLI = {
+const coreCli = {
   LOGIN: 'brevo login',
   INIT: 'brevo app init',
   HELP: 'brevo --help',
   APP_CREATE: 'brevo app create',
   APP_LIST: 'brevo app list',
-  APP_STATUS: 'brevo app status',
   APP_SCAFFOLD: 'brevo app scaffold',
   // The bootstrap form, kept separate from the bare `APP_SCAFFOLD` above rather than
   // folding both into one function: the bare string is quoted in a dozen messages that
@@ -202,16 +205,22 @@ export const CLI = {
   APP_UNINSTALL_APP_ID: (appId?: string) =>
     appId ? `brevo app uninstall --app-id ${appId}` : 'brevo app uninstall --app-id <id>',
   APP_DELETE: 'brevo app delete',
-  APP_WITHDRAW: (appId?: string) =>
-    appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
-  APP_SUBMIT: (appId?: string) =>
-    appId ? `brevo app submit --app-id ${appId}` : 'brevo app submit --app-id <id>',
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;
+
+// ELIMINATION SITE — the raw global rather than `isFeatureAvailable`, so esbuild folds
+// the spread to `{}` and drops ./preview-constants entirely. `CLI` is one object literal,
+// so a property can only be removed by removing the whole object it arrived in. The
+// `as typeof previewCli` cast keeps every call site type-safe in both builds; see that
+// module for why the lie is safe.
+export const CLI = {
+  ...coreCli,
+  ...(__BREVO_PREVIEW__ ? previewCli : ({} as typeof previewCli)),
+};
 
 export const DEFAULT_APP_FOLDER = 'my-app';
 export const DEFAULT_PORT = 3009;
