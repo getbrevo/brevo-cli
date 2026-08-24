@@ -14,4 +14,6 @@
 
 **`brevo app delete` warns before the confirm** that deletion also removes the app from every account where it is installed or published, and that installs and credentials cannot be recovered. `--force` still deletes without prompting, but now prints the same consequence line so a scripted delete leaves a record; it is kept out of `--json` output, which stays parseable JSON only.
 
+**A `502 Bad Gateway` is now retried only for idempotent methods.** The automatic retry replays GET, PUT and DELETE; POST and PATCH surface the 502 as an error instead. A 502 comes from a gateway, so the origin may already have processed the request — blindly replaying a create could duplicate the resource (observed: `brevo app create` producing two identical apps). If it happens on `app create`, check `brevo app list` before retrying, since the app may already exist.
+
 Smaller changes: `app create`'s placement prompt is labelled from the registry's own names; the UI integration-type prompt offers Link only until iframe authoring is ready (a hand-authored `iframeExtension` block still uploads); `--help` examples for `--app-id` show a UUID instead of `42`; a `surface_point_list` entry missing its `surface_point_name` key is reported as a missing key — with a rename hint when the pre-rename `surface_point` spelling is present — instead of as a blank slot name.
