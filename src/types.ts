@@ -6,15 +6,15 @@ export interface AccountResponse {
   organization_id: string;
   user_id: number;
   /**
-   * ⚠️ ASSUMED CONTRACT — the account-type discriminator. `'corporate'` marks a
+   * The account-type discriminator, VERIFIED against a live corporate account
+   * (2026-08-21 — this was the last assumed wire contract). `'corporate'` marks a
    * master account that owns sub-accounts; anything else takes the plain branch.
    *
    * Optional on purpose: a response without the field degrades to "plain account",
    * which resolves deterministically and never prompts. That is the safe default —
    * mistaking a master account for a plain one costs a "pass the account ID
    * explicitly" round trip, while the reverse would prompt a user who has nothing
-   * to pick from. Open assumption surviving UI-apps GA — tracked in `docs.md`
-   * (the open-questions log, on the `docs/public-cli-ui-apps-feature-changes` branch).
+   * to pick from.
    */
   type?: string;
 }

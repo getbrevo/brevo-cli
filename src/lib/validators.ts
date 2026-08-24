@@ -427,7 +427,7 @@ function rejectRootCtaFields(block: Record<string, unknown>): void {
   for (const [key, hint] of moved) {
     if (block[key] !== undefined) {
       throw new CliError(
-        `ui_app.${key} moved into each surface_point_list entry (each placement carries its own) — e.g. [{ "surface_point_name": "contact-details-header-menu", ${hint} }]. Move it in app-config.json.`,
+        `ui_app.${key} moved into each surface_point_list entry (each placement carries its own) — e.g. [{ "surface_point_name": "contactDetails.header.menu", ${hint} }]. Move it in app-config.json.`,
       );
     }
   }

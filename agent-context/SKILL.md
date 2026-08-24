@@ -83,7 +83,7 @@ The `ui_app` block in `app-config.json`:
 
 - `extension_type` (root) — one of `actionLink`, `iframeExtension`, `legacyComponent` (camelCase; snake_case spellings like `action_link` are rejected).
 - `surface_point_list` — one entry per placement. Each entry carries:
-  - `surface_point_name` — the placement's kebab-case slug (e.g. `contact-details-header-menu`). The valid names come from the platform's registry — the CLI prompts from it at create time, and `brevo app upload` validates against it (an unregistered name is a 400 naming the offender). Do **not** author the dotted spelling (`contactDetails.headerMenu.action`) — it looks right because specs quote it, but upload rejects it.
+  - `surface_point_name` — the placement's dot-notation slug from the platform's registry (e.g. `contactDetails.header.menu`). The valid names come from the registry — the CLI prompts from it at create time, and `brevo app upload` validates against it (an unregistered name is a 400 naming the offender). Do **not** author the extension-point name (`contactDetails.headerMenu.action`, the `<location>.<place>.<kind>` grammar) — it is dotted too and looks right because specs quote it, but it is a different string and upload rejects it.
   - `label` — the menu entry's text (and the CTA button on a card). Required.
   - `more_info` — supporting text under the menu entry / a card's description. Optional.
   - `redirect_link` — the destination URL that entry opens; record context arrives as **query parameters** (the path is never templated).

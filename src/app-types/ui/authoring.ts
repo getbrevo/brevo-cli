@@ -263,7 +263,7 @@ async function fetchSurfacePointsForPages(
  * for either.
  *
  * NOT row.surface_point_name — that column holds the authoring slug
- * (`contact-details-header-menu`), which is the choice's VALUE, not its label.
+ * (`contactDetails.header.menu`), which is the choice's VALUE, not its label.
  */
 function placementLabel(row: UsableSurfacePoint): string {
   return `${row.section_name} — ${row.component_type}`;
