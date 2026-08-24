@@ -66,22 +66,27 @@ Do **not** "tidy" this into `Number()` on everything (`NaN` → `null` → also 
 
 Also confirmed on that endpoint: **the body's `client_id` is ignored whenever the gateway sets `X-Sib-Client-Id`** — `extractClientID` reads the header *first* and only falls back to the body. That is why omitting a non-numeric identifier is safe rather than merely tolerable. The POST response is `{brevo_integration_id, installation_id}` (both the same value); the CLI discards it, which is fine while rollback addresses the install by account rather than by ID.
 
-Still assumed: the `type === 'corporate'` discriminator on `/v3/account/info` that account resolution branches on — it lives on the account API, not in either app-store repo, so reading the app-store code cannot settle it. Marked in code comments and tracked in `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+The `type === 'corporate'` discriminator on `/v3/account/info` that account resolution branches on was the last assumed wire contract, and it is now **verified** — confirmed against a live corporate account on 2026-08-21 (recorded on `feat/bex-416-entry-size`, whose code comments no longer call it assumed). It lives on the account API, not in either app-store repo, so reading app-store code could never settle it.
 
 **`[account-id]` is optional on both commands.** Omitted, the target resolves from the authenticated account: a plain account deploys into itself (no prompt, so `--json`/CI still work), a corporate account picks from `GET /v3/corporate/subAccount`. Resolution lives once in `resolveDeploymentTarget()` (`src/commands/app/account-deployment.ts`) and both commands inherit it. The explicit positional is checked first — it keeps CI unchanged and is the only way to reach an account the listing won't show, notably a deactivated sub-account.
 
 **The presence of `ui_app` is the app-type discriminator** — there is no `appType` key in `app-config.json`. Every branch that needs to tell the two types apart goes through `isUiAppConfig()` in `src/lib/config.ts`; use it rather than testing for the key inline, so the discriminator can change in one place.
 
-## Branch-local release-status docs — NEVER merge into `main`
+## Branch-local working docs — NEVER merge into `main`
 
-`UI-APPS-RELEASE-STATUS.md` and `PUBLIC-APPS-RELEASE-STATUS.md` are internal working
-status notes committed on feature branches only (`feat/bex-416-entry-size` carries the
-UI-apps one, `feature_set-brevo-cli-v2` the public-apps one). **They must never land on
-`main`**: this repo is public, and these files consolidate internal release state.
-Before merging any branch that contains either file into `main`, delete the file from
-the branch first. Do not "helpfully" move their content into README, docs, or the
-changelog either — their durable homes are `RELEASE-CHECKLIST.md` / `docs.md` on the
-docs branch.
+The internal working docs are committed on feature branches only and **must never land
+on `main`** — this repo is public, and they consolidate internal release state:
+
+- `PUBLIC-APPS-RELEASE-STATUS.md`, `RELEASE-CHECKLIST.md`, `docs.md` and
+  `QA-TESTCASES.md` on `feature_set-brevo-cli-v2` (this branch — the public-apps halves)
+- `UI-APPS-RELEASE-STATUS.md`, `RELEASE-CHECKLIST.md`, `docs.md` and `QA-TESTCASES.md`
+  on `feat/bex-416-entry-size` (the UI-apps halves)
+
+Before merging any branch that carries one of these files into `main`, delete the file
+from the branch first. Do not "helpfully" move their content into README, docs, or the
+changelog either. (The checklist / open-questions / QA files lived on a separate
+`docs/public-cli-ui-apps-feature-changes` branch until 2026-08-24; that branch is
+deleted — its final pre-split state is preserved in closed PR #53.)
 
 ## Public repository — review before committing
 
@@ -226,18 +231,23 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - Services are tested against mocked API client responses.
 - Template tests verify variable substitution, not file I/O.
 
-## Working docs: `RELEASE-CHECKLIST.md` and `docs.md`
+## Working docs: `RELEASE-CHECKLIST.md`, `docs.md` and `QA-TESTCASES.md`
 
-Two durable docs at the repo root, with different jobs. Read this before editing either.
+Three working docs at this branch's root, all **branch-local, never merged into `main`**
+(see the rule above). They carry the **public-apps halves**; the UI-apps halves live on
+`feat/bex-416-entry-size`. Read this before editing any of them.
 
-- **`RELEASE-CHECKLIST.md` — the GA runbook.** Ordered, mechanical steps for the day a
-  feature ships. Its `## Before public-apps GA` and `## Before UI-apps GA` sections are
-  **durable**: they survive into `main` and stay until those features ship. Do not delete
-  them as branch cleanup. Its `## Per-branch verification` section is **scratch** — it
-  exists for the life of a branch and is cleared before merge.
-- **`docs.md` — the open-questions log**, for the two pre-GA features. Part 1 is release
-  copy held until GA; Part 2 is everything still unknown or undecided. Not in
-  `package.json` `files:`, so it never ships to npm.
+- **`RELEASE-CHECKLIST.md` — the GA runbook.** Ordered, mechanical steps for the day
+  public apps ship (`## Before public-apps GA`). Durable until that day — do not delete
+  it as branch cleanup, and never merge it (work it from this branch instead).
+- **`docs.md` — the open-questions log.** Part 1 is release copy held until GA; Part 2
+  is everything still open on public apps. `PUBLIC-APPS-RELEASE-STATUS.md` is the
+  consolidated status view over both.
+- **`QA-TESTCASES.md` — the manual public-apps test plan** (suites 2, 5, 6, 7, 10, 13),
+  with the recorded sweep results. Every case needs a preview build
+  (`PREVIEW=1 yarn link:dev`).
+
+None of the three is in `package.json` `files:`, so nothing ships to npm.
 
 The split is *what to do on the day* versus *what is still unknown*. An item moves from
 `docs.md` to `RELEASE-CHECKLIST.md` when it turns into a release step, and is deleted from
@@ -245,16 +255,12 @@ The split is *what to do on the day* versus *what is still unknown*. An item mov
 
 Working rules:
 
-- **Whenever you make a change that needs verification**, append an entry under
-  `## Per-branch verification` (follow its template) covering what must hold true — new
-  criteria, not a rewrite of old ones.
 - **Whenever you identify follow-up work that isn't done in the current change**, add it to
   `docs.md` → *Part 2* rather than letting it fall through silently. (There was a
   `TODO.md` here; it was folded into `docs.md` because its contents were entirely
   public-app / UI-app follow-ups.)
-- **Before merging the branch into `main`, clear the `## Per-branch verification` section
-  of `RELEASE-CHECKLIST.md`** — per-branch working state doesn't belong in `main`'s
-  history. **Keep the file itself and both `## Before …GA` sections.**
+- **Before merging this branch into `main`, delete all four working docs from it** (the
+  never-merge rule above) — the runbook is worked from the branch, not merged.
 
 ## Adding a new command
 

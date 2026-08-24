@@ -1,10 +1,12 @@
 # Public apps (distribution + review lifecycle) — release status
 
-> Working notes derived from PR #53 (`docs/public-cli-ui-apps-feature-changes`:
-> `RELEASE-CHECKLIST.md`, `QA-TESTCASES.md`, `docs.md`), the BEX-281 epic and the Action
-> Link Dev PDR, cross-checked against the code on `main` / `feat/bex-416-entry-size` as of
-> 2026-08-21. **Branch-local working doc — never merge into `main`** (see CLAUDE.md).
-> References are Jira keys and PR numbers only.
+> Working notes derived from PR #53 (`RELEASE-CHECKLIST.md`, `QA-TESTCASES.md`,
+> `docs.md`), the BEX-281 epic and the Action Link Dev PDR, cross-checked against the
+> code on `main` / `feat/bex-416-entry-size` as of 2026-08-21. **Since 2026-08-24 the
+> public-apps halves of those three docs live at this branch's root** (the
+> `docs/public-cli-ui-apps-feature-changes` branch they came from is deleted; its final
+> pre-split state is in closed PR #53). **Branch-local working doc — never merge into
+> `main`** (see CLAUDE.md). References are Jira keys and PR numbers only.
 
 ## Headline: NOT GA — the published build omits the whole surface
 
@@ -128,5 +130,6 @@ The epic and PDR are almost entirely UI-apps scope; what touches public apps:
   fix pattern if it ever matters.
 - **No suite covers the gate itself** manually (published build hides commands / refuses
   the flag) — automated coverage exists; nice-to-have.
-- `QA-TESTCASES.md`'s public suites predate the install/uninstall rename and BEX-426 —
-  refresh the doc before the GA QA sweep so passes aren't filed as failures.
+- ✅ `QA-TESTCASES.md`'s public suites were refreshed 2026-08-24 (entry conditions,
+  TC-10.2's re-baseline note for the post-UI-apps-GA help layout) and now live at this
+  branch's root — done; keep them in step with future surface changes.
