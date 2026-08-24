@@ -21,6 +21,19 @@ import { ChildProcess, spawn, spawnSync } from 'node:child_process';
 import * as http from 'node:http';
 import * as net from 'node:net';
 
+// A literal single quote inside a single-quoted shell word: close the quote,
+// backslash-escape the quote, reopen. Hoisted out of the template that uses it
+// so that template isn't a nested one (Sonar S4624, and it reads better).
+const SQ_IN_SQ = String.raw`'\''`;
+
+// The pty driver's shell. Absolute by POSIX guarantee rather than resolved
+// through PATH — a writable PATH entry must not be able to decide what runs
+// (Sonar S4036). The pipeline it interprets (`cat`, `script`) stays on PATH:
+// `script`'s location differs across the platforms this supports, and the
+// command string is built only from this file's literals plus an already
+// resolved brevo path.
+const POSIX_SHELL = '/bin/sh';
+
 export interface Options {
   skipAuth: boolean;
   verbose: boolean;
@@ -395,7 +408,7 @@ export function execExpectPty(
   // Every layer here is quoting this script's own literals plus the resolved
   // brevo path — no user input is ever interpolated. Single-quote each word;
   // the only metacharacter left inside a single-quoted word is the quote itself.
-  const shellQuote = (a: string) => `'${a.replaceAll("'", String.raw`'\''`)}'`;
+  const shellQuote = (a: string) => `'${a.replaceAll("'", SQ_IN_SQ)}'`;
   const quoted = [cmd, ...args].map(shellQuote).join(' ');
 
   // macOS `script` runs the command directly; util-linux takes a -c command
@@ -423,7 +436,7 @@ export function execExpectPty(
   return new Promise((resolve, reject) => {
     // detached → own process group, so kills reach cat, script AND the CLI
     // under test rather than just the sh wrapper.
-    const child = spawn('sh', ['-c', shCmd], {
+    const child = spawn(POSIX_SHELL, ['-c', shCmd], {
       cwd: opts.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: process.env,
@@ -995,8 +1008,16 @@ export function ensureWorkRoot(state: State): string {
 
 // Render an optional string field for a step detail line without leaking
 // "undefined" into the summary.
+// Numbers are rendered as well as strings because the values this reports on come
+// straight off `--json` and an identifier is a string in some responses and a number
+// in others (an account ID is either, depending on the resolution path). Anything
+// else — object, array, null, NaN — is '(none)' rather than "[object Object]": the
+// caller must never have to pre-stringify an `unknown`, which is how a stringified
+// object reached a step's summary line in the first place.
 export function optStr(value: unknown): string {
-  return typeof value === 'string' && value ? value : '(none)';
+  if (typeof value === 'string') return value || '(none)';
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '(none)';
 }
 
 // Mirrors computeSlug() in src/commands/app/scaffold.ts — the default project

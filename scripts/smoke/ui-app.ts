@@ -321,7 +321,7 @@ function stepUiInstall(state: State): string {
   }
   const res = parseJson<Record<string, unknown>>(r.stdout);
   must(res.installed === true, `install did not report installed: ${JSON.stringify(res)}`);
-  return `installed into account ${optStr(String(res.accountId ?? ''))}`;
+  return `installed into account ${optStr(res.accountId)}`;
 }
 
 function stepUiUninstall(state: State): string {
