@@ -103,10 +103,20 @@ describe('app/delete', () => {
     expect(appService.deleteApp).not.toHaveBeenCalled();
   });
 
-  it('skips the install-loss warning in --force mode', async () => {
+  it('prints the install-loss warning in --force mode without prompting', async () => {
     (appService.deleteApp as jest.Mock).mockResolvedValue(undefined);
 
     await deleteCommand({ appId: '42', force: true });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).toContain('installed or published');
+    expect(mockPrompt).not.toHaveBeenCalled();
+  });
+
+  it('keeps the warning out of --force --json output', async () => {
+    (appService.deleteApp as jest.Mock).mockResolvedValue(undefined);
+
+    await deleteCommand({ appId: '42', force: true, json: true });
 
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).not.toContain('installed or published');

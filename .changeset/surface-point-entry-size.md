@@ -12,6 +12,6 @@
 
 **`brevo app credentials` refuses a UI app.** A UI app has no OAuth credentials, so the command now exits `1` with a typed message pointing at `brevo app list`, instead of printing an empty credential form (blank client ID, "(none)" scopes and URLs) and caching the emptiness locally.
 
-**`brevo app delete` warns before the confirm** that deletion also removes the app from every account where it is installed or published, and that installs and credentials cannot be recovered. `--force` still skips both the warning and the prompt.
+**`brevo app delete` warns before the confirm** that deletion also removes the app from every account where it is installed or published, and that installs and credentials cannot be recovered. `--force` still deletes without prompting, but now prints the same consequence line so a scripted delete leaves a record; it is kept out of `--json` output, which stays parseable JSON only.
 
 Smaller changes: `app create`'s placement prompt is labelled from the registry's own names; the UI integration-type prompt offers Link only until iframe authoring is ready (a hand-authored `iframeExtension` block still uploads); `--help` examples for `--app-id` show a UUID instead of `42`; a `surface_point_list` entry missing its `surface_point_name` key is reported as a missing key — with a rename hint when the pre-rename `surface_point` spelling is present — instead of as a blank slot name.
