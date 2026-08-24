@@ -460,8 +460,7 @@ async function templateFlow(app: OAuthApp): Promise<void> {
 
   // Step 4: Print preview -- template info + execute results
   logInfo(`\n  ${messages.FUNCTION_INIT_PREVIEW_HEADER}`);
-  process.stdout.write(`\n  Attribute ID:  ${template.attribute_id || ''}\n`);
-  process.stdout.write(`  Description:   ${template.description}\n`);
+  process.stdout.write(`\n  Description:   ${template.description}\n`);
   printResultsTable(executeResponse.result || []);
 
   // Steps 5-7: Name -> confirm -> deploy, retrying on duplicate name.

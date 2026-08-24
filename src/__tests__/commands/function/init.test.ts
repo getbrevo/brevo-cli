@@ -440,8 +440,6 @@ describe('function/init', () => {
     expect(output).toContain('Function deployed');
     expect(output).toContain('Custom Name');
     // Verify preview shows template info
-    expect(output).toContain('Attribute ID:');
-    expect(output).toContain('FUNC_B');
     expect(output).toContain('Description:');
     // Verify execute results table is printed
     expect(output).toContain('contact_id');
