@@ -135,8 +135,8 @@ and ✅ unless noted. QA apps were created, exercised and deleted; the account i
   `modal_iframe_url`-on-actionLink, `link_target: "_self"`, snake_case `extension_type`)
   all rejected locally with entry-naming messages. A **widget slot on an actionLink is
   accepted** (uploaded fine). One nit: an entry using the pre-rename `surface_point` key
-  reports "Surface point cannot be empty" rather than naming the stray key — loud and
-  correct, but not the "unrecognised entry shape" wording the case asks for. Polish item.
+  reported "Surface point cannot be empty" rather than naming the stray key — **fixed
+  same day** (`62b380e`): a missing key now gets its own message with a rename hint.
 - ✅ **TC-12.12** — `--json` and piped non-TTY create both produce an OAuth app with no
   app-type prompt (`appType: "oauth"`, `redirectUri` present, no `uiApp` key in JSON, no
   `ui_app` on disk); `--type`/`--surface` answer `unknown option`, exit 1; `--help` lists
@@ -164,10 +164,24 @@ TC-12.3 create, `POST /v3/app-store/apps` produced **two** app records with iden
 a 502, and `client.ts` (`request()`, the `response.status === 502 && retryCount < 1`
 branch) retries **any** method once on 502 — POST included — so the retry created the app
 again. The CLI reported only the second ID; the first was orphaned (found via `app list`,
-deleted). Non-idempotent create retry ⇒ duplicate apps under gateway flakiness. Fix
-options: retry only idempotent methods, or send an idempotency key on create. Also note
-the platform happily holds two apps with the same name (consistent with the thin DB
-constraints found in §6). **Raise as a CLI bug ticket.**
+deleted). Non-idempotent create retry ⇒ duplicate apps under gateway flakiness.
+
+Dispositions (same day, 2026-08-24):
+- ✅ **CLI fix shipped for review — PR #70** (`fix/post-502-retry-duplicate-create`, off
+  `main`): the 502 retry now replays only idempotent methods (GET/PUT/DELETE); POST and
+  PATCH surface the 502, with the changeset advising a `brevo app list` check before
+  retrying a failed create. The 401/429 retries are untouched — those statuses mean the
+  origin refused the request without processing it.
+- 🔲 **Server-side create idempotency remains the real guarantee and is UN-TICKETED** —
+  an idempotency key (or duplicate guard) on `POST /v3/app-store/apps`, bo-be work.
+  Checked Jira 2026-08-24: BEX-439 covers only *install* idempotency
+  (`as_integrations`), nothing covers creates. Raise when ready.
+- ✅ **Same-name apps coexisting: reviewed and ACCEPTED (decision 2026-08-24)** — app
+  identity is the UUID, names are display-only, and no uniqueness ask will be raised.
+  Noted here so nobody re-raises it from the sweep evidence.
+- ✅ The TC-12.6 case-4 message nit from the same sweep is **fixed** (`62b380e` on this
+  branch): a missing `surface_point_name` key is reported by name, with a rename hint
+  when the pre-rename `surface_point` spelling is present.
 
 ### 3. Open UX decisions (docs.md Part 2 — choices, not bugs)
 - ✅ **`app credentials` on a UI app — DECIDED & DONE (2026-08-24): refuse, typed.** It

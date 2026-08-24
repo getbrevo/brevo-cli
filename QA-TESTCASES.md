@@ -189,17 +189,50 @@ the per-entry key set of the current shape has *never* been seen on disk); and
 **wrapped mid-token** inside the box (`…&clientId=CLIEN` / `T_ID`) — that is the boxed-output
 wrapping from `3280138` working as designed on a long unbreakable URL, not a defect.
 
+**Result (sweep 3):** ✅ Pass, **file half included** — 2026-08-24, public build
+(`dist-qa` off `feat/bex-416-entry-size`), production. Interactive create
+(`companyDetails` → `headerMenu — action`) rendered the box with the per-entry
+label/more info/redirect link rows, the example URL carrying all six seeded context
+fields, the card-title note **and the hand-author hint** for more placements. The
+generated `app-config.json` was opened and carries exactly the expected key set: root
+`{appId, appName, version, logoUri, distribution_type, ui_app, auth}`; `ui_app` exactly
+`{extension_type: "actionLink", surface_point_list}`; the single entry exactly
+`{surface_point_name: "companyDetails.header.menu"` (dotted slug)`, context` (six
+registry-seeded fields)`, label, more_info, redirect_link}` — **no `link_target` or
+`extension_point_name` at any depth, no root CTA fields, no pre-BEX-290 keys**; `auth`
+exactly `{}`. No `src/oauth/`, no feature prompt, and `~/.brevo/credentials.json` held
+**no `apps` entry** for the UI app (checked this time). One incident during this run —
+the create was duplicated server-side by the client's blind 502 retry, see the sweep-3
+finding in `UI-APPS-RELEASE-STATUS.md` (CLI fix: PR #70).
+
 ### TC-12.3b — Record context is seeded per placement, and reaches the URL as query params
 **Priority:** High
 **Preconditions:** TC-12.3 done against a registry whose rows carry `default_context_field`.
 **Steps:** Inspect `ui_app.surface_point_list` in `app-config.json`; compare each entry's `context` against the registry row for that slot. Then follow the example URL printed by create.
 **Expected:** Each entry's `context` equals that slot's own `default_context_field` (rows can differ), and an entry whose row declares no default has **no** `context` key at all (not `[]`). The example URL carries exactly those names as query parameters, merged after any `?` already in the redirect link and inserted **before** any `#` fragment. The path is never templated.
 
+**Result (sweep 3):** ◐ Partial pass — 2026-08-24, public build, production. The entry's
+`context` held the six fields the registry seeded for `companyDetails.header.menu`
+(`recordId, recordType, userId, locale, accountId, clientId` — note `recordType`, not the
+older `recordName`), and the example URL merged them with `&` **after** the redirect
+link's existing `?src=brevo`. Not exercised: a slot with a differing or absent
+`default_context_field` (every prod row seeds the same six), and a `#` fragment in the
+redirect link.
+
 ### TC-12.4 — Upload sends the block, injects link_target, and is accepted
 **Priority:** High
 **Preconditions:** TC-12.3 done; ability to observe the request.
 **Steps:** `brevo app upload` from the project directory.
 **Expected:** The summary includes a `UI app:` block listing extension type, each placement with its context, label, more info and redirect link — and **no** "Redirect URLs" row, and **no** `Link target:` row (that row was deliberately removed; `link_target` is injected into the payload but is not a field the partner authors, so showing it in a local-vs-server diff only invited someone to try editing it). The payload carries the block under the **`ui_app`** key with **`link_target: "_blank"` added to every entry** (it moved per entry with BEX-426), alongside `version`/`name`/`logo_uri`, and has **no `auth` key at all** (UI apps carry no OAuth block). The server accepts it; `Version:` is printed and written back to `app-config.json` with `auth` restored as exactly the empty object `{}`. **Critically: `app-config.json` must still have no `link_target` (and no `extension_point_name`) afterwards, at any depth** — the server echoes `link_target` per entry and stamps the dotted `extension_point_name` on its stored copy, and the write-back strips both.
+
+**Result (sweep 3):** ✅ Pass on everything a terminal can show — 2026-08-24, public
+build, production. The summary rendered the `UI app:` block with per-entry
+label/more info/redirect link and **no "Redirect URLs" row, no `Link target:` row**; a
+real push (label edit, 0.0.1 → 0.0.2, and later a two-entry push to 0.0.3/0.0.4) was
+accepted, `Version:` printed and written back, and the post-upload file carried **no
+`link_target` and no `extension_point_name` on any entry**, with `auth` restored as
+exactly `{}`. The payload's on-the-wire keys (`link_target: "_blank"` injected per entry,
+no `auth` key) were not proxied — that half stays on the unit assertions.
 
 ### TC-12.5 — Editing only the block is detected as a change
 **Priority:** High
@@ -222,6 +255,14 @@ diff and the key/placement-reorder no-ops are still unverified, as is the whole 
 TC-12.4's *push* half: this app was never uploaded with a real change, so no `ui_app`
 payload has been observed on the wire and no write-back has been inspected.
 
+**Result (sweep 3):** ✅ Pass on all three — 2026-08-24, public build, production, on the
+current per-entry/dotted-slug shape. (a) upload straight after create: `Already up to
+date at version 0.0.1`, nothing pushed. (b) editing one entry's `label`: `UI app:
+(changed)` and a push to 0.0.2. (c) run twice: reordering the keys inside `ui_app` *and*
+inside the entry → no-op; then, with a second hand-authored entry present, reversing the
+`surface_point_list` order → `Already up to date at version 0.0.3`. Neither key order nor
+entry order reads as drift.
+
 ### TC-12.5b — Superseded block shapes are rejected with a migration hint
 **Priority:** High
 **Why this matters:** an unmigrated config could upload "successfully" and render an app with missing text or record context — the CLI's named refusals are the layer that reports *what moved where* rather than a generic "label cannot be empty" pointing at the wrong thing.
@@ -241,6 +282,11 @@ Pre-BEX-426 spellings (the root CTA fields — added when the fields moved per e
 9. add a root `link_target: "_blank"`
 
 **Expected:** Each fails before any network call, exit `1`, naming the field and the fix — (1) renamed to `ui_app.label`; (2) renamed to `ui_app.more_info`; (3) move it into each `surface_point_list` entry; (4) entries must be objects; (5)–(8) "moved into each surface_point_list entry", with an example entry showing the field in place; (9) is the odd one out — the hint is **remove it**, not move it: `link_target` is never authored, `app upload` injects it per entry. The server refuses the superseded root spellings by name too, so a CLI that missed one would still 400 — but the local message is the one with the fix in it.
+
+**Result (sweep 3):** ✅ Pass on all nine — 2026-08-24, public build, production. Every
+case exited `1` with its named hint exactly as specified, and all before any network call
+(proven by a valid-config control run in the same harness being the only one to reach
+`Fetching app...`). (9) got the remove-it hint, not a move-it hint.
 
 ### TC-12.6 — Extension-point validation (the silent-failure guard)
 **Priority:** High
@@ -267,6 +313,20 @@ For the entries below, `label` and `redirect_link` are assumed present and valid
 - **Cases 3–8 fail locally**, before any network call, naming the field; exit `1`. (3) blank slot name; (4) entries must carry `surface_point_name` — the bare `surface_point` spelling is used nowhere and should be reported as an unrecognised entry shape; (5) at least one placement; (6) duplicate slots; (7)–(8) the offending entry's `context`.
 - A **widget** slot is **accepted** for an action link — it renders as a card, so there is no kind rule to break.
 
+**Result (sweep 3):** ✅ Pass, split confirmed live in both directions — 2026-08-24,
+public build, production. Cases 1 and 2 passed local validation, travelled, and each got
+the server's `400` naming its exact offender (`…contains unregistered extension point(s):
+contactDetails.headerMenu.action`, then `…: contact-header`), exit `1`. Cases 3–8 all
+failed locally, exit `1`, with entry-naming messages; the sweep also covered the
+per-entry additions the case predates — `size` grammar (non-object, unitless axis, >100%),
+missing per-entry `label`/`redirect_link`, `modal_iframe_url` on an `actionLink`,
+`link_target: "_self"`, and snake_case `extension_type` — all local, all naming their
+entry. A widget slot (`companyDetails.overview.mainContent`) on the actionLink app was
+**accepted** and uploaded. One nit found on (4): the run reported "Surface point cannot
+be empty" instead of naming the missing key — fixed the same day (`62b380e` on
+`feat/bex-416-entry-size`): a missing `surface_point_name` key now gets its own message,
+with a rename hint when the `surface_point` spelling is present.
+
 ### TC-12.7 — Install into an account, and the action link renders
 **Priority:** High
 **Preconditions:** TC-12.4 succeeded; a test account ID; the registry is seeded in the environment (prod verified 2026-08-24; staging not yet).
@@ -278,6 +338,13 @@ For the entries below, `label` and `redirect_link` are assumed present and valid
 **Why this changed:** `brevo app create` authors **exactly one** placement since BEX-426 — the CTA fields are per-entry, so N placements would mean re-asking three questions per placement. Multi-placement is now the hand-edit path the created-app box's hint points at, and this case pins that path.
 **Steps:** After TC-12.3, hand-add two more `surface_point_list` entries to `app-config.json` — a second record page's menu slot and one `.widget` slot — each with its **own** `label`, `redirect_link` and (on the widget entry) an optional `size`; get the slugs from another created app or the registry owner, since the CLI deliberately ships no list of them. Run `brevo app upload`, then `brevo app install <account-id>`.
 **Expected:** Upload's diff shows the block `(changed)` and the push is accepted — the platform rejects only a *duplicate* slot, so several entries (even two spots on one page) are fine. After install, each placement renders with **its own** label and destination: different menu text on the two record pages, and a card whose button and description come from the widget entry's fields.
+
+**Result (sweep 3):** ◐ Partial pass — 2026-08-24, public build, production. The
+upload half is proven: a second menu entry (`contactDetails.header.menu`) and later a
+widget entry (`companyDetails.overview.mainContent`), each with its own `label` and
+`redirect_link`, were hand-added and pushed cleanly (0.0.3, 0.0.4), with the summary
+fanning out per placement. The install-and-render half was not run — it is the
+browser-bound remainder tracked with TC-12.7 (BEX-438).
 
 ### TC-12.9 — Install refuses before an upload
 **Priority:** High
@@ -303,10 +370,25 @@ Note the second run relies on the uninstall route answering **404** for both "no
 **Steps:** (a) `brevo app create --name "QA Link" --distribution private --json`; (b) the same command piped from `/dev/null` (non-TTY); (c) `brevo app create --type ui`; (d) `brevo app create --surface contact`.
 **Expected:** (a) and (b) create an **OAuth** app without ever showing the app-type prompt — JSON reports `appType: "oauth"`, includes `redirectUri`, and has **no** `uiApp` key; no `ui_app` block is written to `app-config.json`. (c) and (d) fail with commander's `unknown option` and exit non-zero — neither flag exists. `brevo app create --help` lists neither, nor `--label`/`--more-info`/`--redirect-link`/`--link-target`.
 
+**Result (sweep 3):** ✅ Pass on all four — 2026-08-24, public build, production. (a)
+exit 0 with JSON `appType: "oauth"`, a `redirectUri` array, **no `uiApp` key**; (b) the
+piped run created an OAuth app with the full created-app box and never showed the
+app-type or feature prompt; both configs on disk carried **no `ui_app` key** (root keys
+exactly `appId, appName, auth, distribution_type, logoUri, version`). (c)/(d): `unknown
+option '--type'` / `'--surface'`, exit 1. `--help` lists only
+`--name/--distribution/--redirect-uri/--logo-uri/--json`.
+
 ### TC-12.13 — `app scaffold` in a UI-app project
 **Priority:** High
 **Steps:** From a UI-app project, hand-edit an entry's `more_info`, then force drift (rename the app locally or on the server) and run `brevo app scaffold`, consenting to the refresh.
 **Expected:** No feature-type prompt, no `src/oauth/` files, and a message that there are no features to scaffold. **Critically: the hand-edited `ui_app` block survives the refresh** — still present and unchanged in `app-config.json` afterwards.
+
+**Result (sweep 3):** ✅ Pass — 2026-08-24, public build, production. With an entry's
+`more_info` hand-edited and the app renamed locally, `app scaffold` showed the drift
+(`appName: <local> → <server>`), asked the refresh consent, rewrote the base config with
+the server's name — and the hand-edited `more_info` survived **verbatim** (the refresh
+carries the local `ui_app` block; the server's echo is deliberately not the source). No
+feature prompt, no `src/oauth/`, and the no-features-for-a-UI-app message printed, exit 0.
 
 ### TC-12.14 — OAuth regression sweep
 **Priority:** High
@@ -334,33 +416,45 @@ the private one — the same `6` feature files were written. **Whether "a public
 must still get the PKCE scaffold" is still a real expectation needs settling by reading
 the templates, not by watching the terminal.**
 
+**PKCE question — settled (sweep 3, 2026-08-24, from the templates):** the expectation is
+real and enforced. The scaffold templates branch on distribution via
+`{{#if public}}`/`{{#if private}}` (`applyConditionals`, `src/templates/index.ts`): the
+public variant's `handler.js` sends an S256 `code_challenge` on authorize and the
+`code_verifier` (no `client_secret`) on the token exchange, `token-store.js` stashes the
+verifier, and `.env.example` omits `CLIENT_SECRET`; the private variant is pinned by unit
+test to contain **no** PKCE machinery (`handler.test.ts`, `conditionals.test.ts`). The
+terminal could never distinguish them because both variants write the same file *count* —
+the difference is file content. No terminal case needed; the sentence in **Expected**
+stands as written.
+
 ---
 
 ## Sign-off
 
-Cases carrying a **Result:** line were run on 2026-08-13 against **production** on a real
-TTY, in **sweep 2** of the two manual sweeps run on `features_set_public_cli` — a
-**preview** build whose UI-app half covered a UI app created and uploaded. (Sweep 1 was a
-published build and exercised the OAuth happy path only. The same sweep's public-app
-results live with the public-apps plan on `feature_set-brevo-cli-v2`.)
+Three sweeps so far. **Sweep 2** (2026-08-13, preview build, production, on
+`features_set_public_cli`) covered a UI app created and uploaded, pre-BEX-416/422/426 —
+its Result lines are marked as predating the per-entry move. (Sweep 1 was a published
+build, OAuth happy path only; its public-app results live with the public-apps plan on
+`feature_set-brevo-cli-v2`.) **Sweep 3** (2026-08-24, **public** build `dist-qa` off
+`feat/bex-416-entry-size`, production, real session) ran every terminal-only case on the
+current per-entry, dotted-slug shape; all QA apps were deleted afterwards.
 
 A Result line says which build it ran on when it matters. Nothing here is signed off.
 
 | Suite | Owner | Result (Pass/Fail) | Notes |
 |-------|-------|--------------------|-------|
-| 12 — UI apps / action links | Piyush | ◐ Partial pass | **TC-12.5(a) ✅ — the headline result**: a UI app created and then uploaded reported `Already up to date at version 0.0.1`, so create persists `ui_app` and the server's `link_target` echo is not read as drift. TC-12.2 / 12.2c / 12.3 partial (one page only; `app-config.json` never opened), TC-12.14 ✅ ×2. **Not run: 12.4's push half, 12.5(b)/(c), 12.5b, 12.6, 12.7–12.13** — nothing was hand-edited, and the install commands (then `deploy` / `rollback`, since renamed `install` / `uninstall`) were never invoked. The sweep also predates BEX-416/422/426 and the slug rename — the partial passes above were against the root-CTA-field, multi-select, kebab-slug flow. |
+| 12 — UI apps / action links | Piyush | ◐ Partial pass — **all terminal-only cases ✅ (sweep 3)**; browser-bound cases remain | Sweep 3 closed: TC-12.3 (file half included, on-disk key set verified), 12.3b ◐, 12.4 (push + write-back; wire keys stay on unit assertions), 12.5(a)(b)(c), 12.5b (all nine hints), 12.6 (split live both directions, widget accepted; case-4 message nit found and fixed, `62b380e`), 12.8's upload half, 12.12, 12.13, and the TC-12.14 PKCE question (settled from templates). **Still open: the browser-bound install set — TC-12.7, 12.9, 12.10, 12.11 (and 12.8's render half) — tracked as BEX-438**, plus the interactive-only 12.1/12.2 family re-run on the current build. Sweep-3 incident: the client's blind 502 retry duplicated a create server-side — CLI fix in PR #70. |
 
 **Overall verdict:** ☐ Ready for GA  ☑ Not yet signed off.
 
-What sweep 2 establishes: the UI-app create→upload round trip is clean — including the
-drift regression TC-12.5(a) exists to catch.
+What sweeps 2+3 establish: the UI-app create→upload round trip is clean on the current
+shape — drift no-ops (12.5), the on-disk contract (12.3/12.4), the migration hints
+(12.5b), the local/server validation split (12.6), the scripted-create contract (12.12)
+and scaffold's block preservation (12.13).
 
-What still blocks sign-off, in priority order:
+What still blocks sign-off:
 
-1. **`ui_app` on disk is still unverified** — every UI-app assertion so far is read off
-   the terminal, not out of `app-config.json`. TC-12.4's push half, TC-12.5b and TC-12.6
-   are the ones that would catch a wrong key.
-2. **`install` / `uninstall` (TC-12.7, 12.9, 12.10, 12.11) have never been invoked** —
-   under either their current names or the old `deploy` / `rollback`.
-3. **No `--json` / non-TTY path has been run** — TC-12.12 is the one that pins the
-   scripted contract for UI apps, and it is unrun.
+1. **`install` / `uninstall` (TC-12.7, 12.9, 12.10, 12.11, 12.8's render half) have never
+   been invoked** — needs a real account + browser; tracked as BEX-438.
+2. **TC-12.1/12.2/12.2b/12.2c/12.2d** — the prompt-flow family has no recorded run on the
+   current single-select build (12.2c's pass predates BEX-426).
