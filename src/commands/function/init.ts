@@ -376,7 +376,7 @@ function isDuplicateNameError(err: unknown): boolean {
 }
 
 /** Keys excluded from the execute-result preview table (internal identifiers). */
-const PREVIEW_EXCLUDED_KEYS = new Set(['organization_id']);
+const PREVIEW_EXCLUDED_KEYS = new Set(['organization_id', 'attribute_id']);
 
 /** Format a cell value for the preview table, handling objects explicitly. */
 function formatCellValue(value: unknown): string {
