@@ -8,7 +8,9 @@
 
 **CTA fields moved into each entry** (BEX-426). `label`, `more_info`, `redirect_link` and `modal_iframe_url` now live on each `surface_point_list` entry instead of the `ui_app` root, so every placement can carry its own label and destination. The root spellings are refused with a migration hint, and the per-type rules run per entry (`actionLink` requires `redirect_link` and refuses `modal_iframe_url`; `iframeExtension` the reverse). `brevo app create` authors exactly one placement — add more by editing `app-config.json` and running `brevo app upload`.
 
-**Install/uninstall improvements.** Both commands refuse an app that is not a UI app (previously an OAuth app "installed" with nothing to render), name the resolved target account — `installed into Acme Retail (account 4043630)` — with an additive `accountName` in `--json`, and `uninstall`'s corporate sub-account picker asks "uninstall from" instead of "install into".
+**Install/uninstall improvements.** Both commands refuse an app that is not a UI app (previously an OAuth app "installed" with nothing to render), name the resolved target account — `installed into Acme Retail (account 4043630)` — with an additive `accountName` in `--json`, and `uninstall`'s corporate sub-account picker asks "uninstall from" instead of "install into". Their interactive app picker now offers **only UI apps** — an OAuth app in the list was a choice whose only outcome was that refusal one step later — and errors with a pointer at `brevo app create` when there is no UI app to offer.
+
+**`brevo app credentials` refuses a UI app.** A UI app has no OAuth credentials, so the command now exits `1` with a typed message pointing at `brevo app list`, instead of printing an empty credential form (blank client ID, "(none)" scopes and URLs) and caching the emptiness locally.
 
 **`brevo app delete` warns before the confirm** that deletion also removes the app from every account where it is installed or published, and that installs and credentials cannot be recovered. `--force` still skips both the warning and the prompt.
 

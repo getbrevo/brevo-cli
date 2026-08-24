@@ -209,7 +209,16 @@ export async function resolveInstallTarget(
     };
   }
 
-  const selection = await promptAppSelection(selectPrompt);
+  // Only UI apps are offered: an OAuth row would be a choice whose only outcome
+  // is `assertInstallable`'s type refusal one step later. The list endpoint
+  // echoes no ui_app block, so rows classify by the same OAuth-material bias
+  // that gate documents — a row carrying a client_id or callbacks is definitely
+  // OAuth and is hidden; one carrying neither reads as UI and stays, and the
+  // full-record type check after the pick still backstops it.
+  const selection = await promptAppSelection(selectPrompt, {
+    filter: (app) => resolveFromRecord(app).id === 'ui',
+    emptyMessage: messages.APP_INSTALL_NO_UI_APPS,
+  });
   return {
     appId: selection.appId,
     appLabel: selection.appLabel,

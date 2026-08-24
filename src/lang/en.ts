@@ -322,6 +322,12 @@ const coreMessages = {
     `App ${appId} is not installed in ${account}.`,
   APP_INSTALL_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force or --json to skip.',
+  // Raised by the install/uninstall app picker when the filtered list is empty:
+  // the picker offers only UI apps (an OAuth row would be a choice whose only
+  // outcome is the APP_INSTALL_NOT_UI_APP refusal one step later), so an
+  // account holding only OAuth apps has nothing to offer. Shared by both
+  // commands, same as APP_INSTALL_NO_SUB_ACCOUNTS.
+  APP_INSTALL_NO_UI_APPS: `You have no UI apps, and only UI apps are installed into an account.\n\n  \`${CLI.APP_LIST}\` shows each app's type; \`${CLI.APP_CREATE}\` creates a UI app.`,
 
   // App list
   APP_LIST_EMPTY: `No apps found. Create one with: ${CLI.APP_CREATE}`,
@@ -349,6 +355,13 @@ const coreMessages = {
   CLIENT_SECRET_NOT_AVAILABLE: '[not available]',
   APP_CREDENTIALS_CONFIG_BACKFILLED: (fields: string[]) =>
     `Backfilled ${fields.join(', ')} into app-config.json.`,
+  // A UI app sends no `auth` block, so there is no client ID, secret, scopes or
+  // callbacks to show — rendering the form anyway printed a blank client ID and
+  // "(none)" everywhere, which reads as "your app lost its credentials". The
+  // decision goes through the capability matrix ('oauth-flow'), whose header has
+  // named `app credentials` as OAuth-only since it was written.
+  APP_CREDENTIALS_UI_APP: (appId: string) =>
+    `App ${appId} is a UI app, and UI apps have no OAuth credentials, so there is nothing to show.\n\n  \`${CLI.APP_LIST}\` shows each app's type.`,
 
   // App update — removed (BEX-250), kept only as a signpost to `app upload`.
   //

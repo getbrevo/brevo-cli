@@ -365,7 +365,10 @@ describe('app/list', () => {
             ui_app: {
               ...uiApp.ui_app,
               surface_point_list: [
-                { surface_point_name: 'contact-details-header-menu', context: ['email', 'id'] },
+                {
+                  surface_point_name: 'contact-details-header-menu',
+                  context: ['recordId', 'accountId'],
+                },
                 { surface_point_name: 'deal-details-header-menu' },
               ],
             },
@@ -376,7 +379,7 @@ describe('app/list', () => {
 
         const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
         expect(output).toContain(
-          'Placement:     contact-details-header-menu  (context: email, id)',
+          'Placement:     contact-details-header-menu  (context: recordId, accountId)',
         );
         expect(output).toContain('               deal-details-header-menu\n');
       });

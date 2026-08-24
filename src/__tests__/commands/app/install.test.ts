@@ -290,13 +290,64 @@ describe('app/install', () => {
   it('falls back to the app picker outside a project directory', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(null);
     (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-      { app_id: '9', name: 'Picked App', client_id: 'cli-9' },
+      { app_id: '9', name: 'Picked App', client_id: '' },
     ]);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: '9', version: '3' });
     mockPrompt.mockResolvedValueOnce({ selectedApp: '9' });
 
     await appInstallCommand({ accountId: '99999', force: true });
 
     expect(appService.installApp).toHaveBeenCalledWith('9', '99999', 'Picked App');
+  });
+
+  // Only a UI app can be installed, so the picker offers only UI apps — an OAuth
+  // app in the list would be a choice whose only outcome is the type-gate refusal
+  // one step later. The list endpoint echoes no ui_app block, so rows are
+  // classified by the same OAuth-material bias the gate itself uses: a row
+  // carrying a client_id or callbacks is definitely OAuth and is hidden.
+  describe('the app picker offers only UI apps', () => {
+    beforeEach(() => {
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: '9', version: '3' });
+    });
+
+    it('hides OAuth apps from the choice list', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+        {
+          app_id: '1',
+          name: 'OAuth App',
+          client_id: 'cli-1',
+          redirect_uris: ['https://example.com/callback'],
+        },
+        { app_id: '9', name: 'UI App', client_id: '' },
+      ]);
+      mockPrompt.mockResolvedValueOnce({ selectedApp: '9' });
+
+      await appInstallCommand({ accountId: '99999', force: true });
+
+      const choices = mockPrompt.mock.calls[0][0][0].choices;
+      expect(choices).toHaveLength(1);
+      expect(choices[0].value).toBe('9');
+      // A UI app has no client_id, so the row must not render an empty one.
+      expect(choices[0].name).not.toContain('Client ID');
+    });
+
+    it('refuses when the account has no UI apps rather than offering OAuth ones', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+        {
+          app_id: '1',
+          name: 'OAuth App',
+          client_id: 'cli-1',
+          redirect_uris: ['https://example.com/callback'],
+        },
+      ]);
+
+      await expect(appInstallCommand({ accountId: '99999', force: true })).rejects.toThrow(
+        /no UI apps/i,
+      );
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(appService.installApp).not.toHaveBeenCalled();
+    });
   });
   // Only a UI app is installed into an account — the rule the capability matrix already
   // encoded and nothing on this path enforced, so an OAuth app installed with a 201 and

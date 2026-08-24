@@ -70,7 +70,7 @@ describe('stripUiAppWireOnlyKeys', () => {
       more_info: 'Sends this contact to MyApp',
       redirect_link: 'https://example.com/action',
       surface_point_list: [
-        { surface_point_name: 'contact-details-header-menu', context: ['email'] },
+        { surface_point_name: 'contact-details-header-menu', context: ['recordId'] },
         { surface_point_name: 'deal-details-header-menu' },
       ],
     } as unknown as UiApp;
