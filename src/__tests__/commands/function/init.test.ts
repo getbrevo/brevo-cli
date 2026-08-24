@@ -349,10 +349,10 @@ describe('function/init', () => {
       }),
     );
 
-    // Preview should be executed after iterate with updated draft_id
+    // Preview should be executed after iterate with draft_id
     expect(functionService.fetchContacts).toHaveBeenCalled();
     expect(functionService.executeTemplate).toHaveBeenCalledWith({
-      code: 'v2',
+      draft_id: 'd-2',
       contact_data: [{ id: 200, email_tag: 'iter' }],
     });
 

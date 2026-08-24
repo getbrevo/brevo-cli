@@ -317,7 +317,7 @@ async function aiGenerationFlow(app: OAuthApp): Promise<void> {
         let executeResponse;
         try {
           executeResponse = await functionService.executeTemplate({
-            code: currentCode,
+            draft_id: currentDraftId,
             contact_data: contactData.contacts,
           });
         } finally {
