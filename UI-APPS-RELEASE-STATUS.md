@@ -9,7 +9,10 @@
 > **Branch-local working doc — never merge into `main`** (see CLAUDE.md).
 > References are Jira keys and PR numbers only.
 >
-> ⚠️ The PR #53 docs are dated 2026-08-13 and predate the UI-apps GA flip. They still say
+> ~~⚠️ The PR #53 docs are dated 2026-08-13 and predate the UI-apps GA flip~~ — **RESOLVED
+> 2026-08-24**: all three were rewritten for the current surface and moved from the
+> retired `docs/public-cli-ui-apps-feature-changes` branch onto this branch's root. The
+> original note, kept for context: they still said
 > "UI apps are not GA", call the commands `deploy`/`rollback`, and describe root-level
 > `label`/`more_info`. All three are stale — see "Docs debt" below.
 
@@ -51,6 +54,8 @@ below remain code-verified — on this branch.
   `<location>.<place>.<kind>` grammar) is untouched, and the new slugs are dotted but
   deliberately NOT the grammar names. The CLI needs no code change (it prompts from the
   registry) — but every doc that says "kebab slug" (CLAUDE.md included) is now stale.
+  ✅ **Fixed 2026-08-24** (commit 8e02317): CLAUDE.md, SKILL.md, AGENTS.md, the
+  `rejectRootCtaFields` hint and an `authoring.ts` comment all use the dotted slugs now.
 - **Create persists the block** — `POST /v3/app-store/apps` stores `ui_app` inside the create
   transaction; `GET .../apps/{id}` echoes it. Proven live: first upload after create says
   "Already up to date" (TC-12.5(a) ✅).
@@ -63,8 +68,8 @@ below remain code-verified — on this branch.
   404-for-both mapping, numeric-identifier omission — all confirmed live or by code.
 - **`type === 'corporate'` discriminator on `/v3/account/info` — VERIFIED** (confirmed
   2026-08-21). `resolveInstallTarget()`'s corporate branch and the sub-account picker
-  (`GET /v3/corporate/subAccount`) are no longer assumed. Follow-up: the code comments and
-  `docs.md` (docs branch) still call this unverified — update them to close it out.
+  (`GET /v3/corporate/subAccount`) are no longer assumed. ✅ Follow-up closed 2026-08-24:
+  the code comment (`src/types.ts`), CLAUDE.md and `docs.md` all record it as verified.
 - **No server-side upload gate on install** — `assertUploadedBeforeInstall()` is the only
   gate and covers every resolution path; the 422 branch is kept as dead-but-deliberate.
 
@@ -266,12 +271,17 @@ Server-side serving of BEX-416/426 is no longer an open item.
 - Deal-page rollout gate vs the live PandaDoc legacy mount — the epic's last open
   "key question".
 
-### 7. Docs debt — PR #53's own files are stale
-- `RELEASE-CHECKLIST.md` still carries the full **Before UI-apps GA** section as if pending
-  — it was worked through at BEX-290. Prune it; move survivors (corporate discriminator,
-  install idempotency) into `docs.md` Part 2.
-- `QA-TESTCASES.md` Suite 12 uses `deploy`/`rollback` and root-level `label`/`more_info` —
-  rewrite for `install`/`uninstall` and per-entry fields (BEX-426), and for the
-  single-select single-placement create flow.
-- `docs.md` Part 1 release copy describes the pre-BEX-426 shape (shared root CTA fields,
-  multi-select pages) — re-verify every claim before publishing, as its own header says.
+### 7. Docs debt — ✅ RESOLVED 2026-08-24
+All three files were rewritten for the current surface (docs-branch commit 0437680) and
+then moved onto **this branch's root**; the `docs/public-cli-ui-apps-feature-changes`
+branch is retired (safe to delete — its history is preserved in the closed PR #53 and in
+git). What was done:
+- ✅ `RELEASE-CHECKLIST.md` — the **Before UI-apps GA** checklist collapsed into a record
+  of the flip; the resolved survivors (corporate discriminator, install idempotency) are
+  recorded there and in `docs.md`'s Resolved section.
+- ✅ `QA-TESTCASES.md` Suite 12 — rewritten for `install`/`uninstall`, per-entry fields
+  and `size`, dotted slugs, and the single-placement create flow; the 2026-08-13 results
+  kept and annotated with what they predate.
+- ✅ `docs.md` Part 1 — UI-apps copy marked superseded by this branch's pending changeset
+  and rewritten to match it; Part 2 re-baselined (ship-steps blocking list, `?type=`
+  filter and missing DB uniques as platform asks, resolved items moved).

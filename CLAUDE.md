@@ -18,7 +18,7 @@ Public app distribution is **not live on the Brevo platform**. The repo contains
 - **The guard is the build, not the docs.** This replaced a documentation-only notice (and then a runtime check). `agent-context/SKILL.md` and `AGENTS.md` no longer carry a *⚠️ not available yet* section or an *Exception — internal Brevo accounts* clause; they carry one rule instead — `brevo --help` is the complete surface. Don't reintroduce prohibition prose: an agent can't be led into a command that isn't in the binary.
 - **There is deliberately no runtime escape hatch.** The earlier gate unlocked on an `@brevo.com` account or `BREVO_ENABLE_PREVIEW=1`; both are gone. A compile-time guard any user can switch back on is a runtime guard wearing a costume, and it has to ship the surface in order to reveal it. Internal testing is a different artifact, not a different flag. **Do not add one back.**
 - **Two layers, no soft middle.** The build removes the surface; the Brevo API refuses public-app creation independently (`400 invalid_parameter`). There is no longer a client-side check for a user to talk past, so the old "guardrail, not a security boundary" caveat no longer applies.
-- **`src/lib/preview.ts` → `FEATURE_STAGE` is the single source of truth** for what is gated. Flipping a row to `'ga'` is necessary but **not sufficient** for a command: gated command definitions live in `src/commands/preview-definitions.ts` and are referenced from behind `__BREVO_PREVIEW__`, a *build* flag, so a GA feature left in that module is still eliminated. See the GA runbook (`RELEASE-CHECKLIST.md` on the `docs/public-cli-ui-apps-feature-changes` branch) → *Before public-apps GA* for the full sequence.
+- **`src/lib/preview.ts` → `FEATURE_STAGE` is the single source of truth** for what is gated. Flipping a row to `'ga'` is necessary but **not sufficient** for a command: gated command definitions live in `src/commands/preview-definitions.ts` and are referenced from behind `__BREVO_PREVIEW__`, a *build* flag, so a GA feature left in that module is still eliminated. See the GA runbook (`RELEASE-CHECKLIST.md` at this branch's root) → *Before public-apps GA* for the full sequence.
 - **When public apps go GA**, work through the runbook's *Before public-apps GA* section in one pass.
 
 ## UI apps are GA — they ship in every build (BEX-290)
@@ -76,16 +76,20 @@ The `type === 'corporate'` discriminator on `/v3/account/info` that account reso
 
 **The presence of `ui_app` is the app-type discriminator** — there is no `appType` key in `app-config.json`. Every branch that needs to tell the two types apart goes through `isUiAppConfig()` in `src/lib/config.ts`; use it rather than testing for the key inline, so the discriminator can change in one place.
 
-## Branch-local release-status docs — NEVER merge into `main`
+## Branch-local working docs — NEVER merge into `main`
 
-`UI-APPS-RELEASE-STATUS.md` and `PUBLIC-APPS-RELEASE-STATUS.md` are internal working
-status notes committed on feature branches only (`feat/bex-416-entry-size` carries the
-UI-apps one, `feature_set-brevo-cli-v2` the public-apps one). **They must never land on
-`main`**: this repo is public, and these files consolidate internal release state.
-Before merging any branch that contains either file into `main`, delete the file from
-the branch first. Do not "helpfully" move their content into README, docs, or the
-changelog either — their durable homes are `RELEASE-CHECKLIST.md` / `docs.md` on the
-docs branch.
+The internal working docs are committed on feature branches only and **must never land
+on `main`** — this repo is public, and they consolidate internal release state:
+
+- `UI-APPS-RELEASE-STATUS.md`, `RELEASE-CHECKLIST.md`, `docs.md` and `QA-TESTCASES.md`
+  on `feat/bex-416-entry-size` (this branch)
+- `PUBLIC-APPS-RELEASE-STATUS.md` on `feature_set-brevo-cli-v2`
+
+Before merging any branch that carries one of these files into `main`, delete the file
+from the branch first. Do not "helpfully" move their content into README, docs, or the
+changelog either. (The last three lived on a separate
+`docs/public-cli-ui-apps-feature-changes` branch until 2026-08-24; that branch is
+retired — everything is here now.)
 
 ## Public repository — review before committing
 
@@ -230,20 +234,28 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - Services are tested against mocked API client responses.
 - Template tests verify variable substitution, not file I/O.
 
-## Working docs: `RELEASE-CHECKLIST.md` and `docs.md`
+## Working docs: `RELEASE-CHECKLIST.md`, `docs.md` and `QA-TESTCASES.md`
 
-Two durable docs with different jobs. **Both live on the `docs/public-cli-ui-apps-feature-changes`
-branch, not at this branch's root or on `main`** — they were moved off the feature branch so it
-merges only what it ships. Read this before editing either.
+Three working docs with different jobs, all **at this branch's root**, all branch-local
+(see the never-merge rule above). They lived on a separate
+`docs/public-cli-ui-apps-feature-changes` branch until 2026-08-24; that branch is retired
+and everything is here now. Read this before editing any of them.
 
 - **`RELEASE-CHECKLIST.md` — the GA runbook.** Ordered, mechanical steps for the day a
   feature ships. Its `## Before public-apps GA` section is **durable**: it stays until
-  public apps ship — do not delete it as cleanup. (The `## Before UI-apps GA` section was
-  worked through when UI apps went GA at BEX-290; anything from it that outlives GA — like
-  the unverified corporate discriminator — lives on in `docs.md`.)
-- **`docs.md` — the open-questions log.** Part 1 is release copy held until GA; Part 2 is
-  everything still unknown or undecided, including assumptions that survive a GA. Not in
-  `package.json` `files:`, so it never ships to npm.
+  public apps ship — do not delete it as cleanup. (The `## Before UI-apps GA` checklist
+  was worked through when UI apps went GA at BEX-290 and collapsed into a record of the
+  flip; the record stays until the release publishes.)
+- **`docs.md` — the open-questions log.** Part 1 is release copy held until GA (the
+  UI-apps half is superseded by this branch's pending changeset and kept as background);
+  Part 2 is everything still unknown or undecided, including assumptions that survive a
+  GA.
+- **`QA-TESTCASES.md` — the manual test plan** for public apps and UI apps, with the
+  recorded sweep results. Suite 12 (UI apps) matches this branch's surface and runs on a
+  plain build; the public-app suites need `PREVIEW=1`.
+
+None of the three is in `package.json` `files:`, so nothing ships to npm — but the
+never-merge rule applies regardless, because branches are public too.
 
 The split is *what to do on the day* versus *what is still unknown*. An item moves from
 `docs.md` to `RELEASE-CHECKLIST.md` when it turns into a release step, and is deleted from
@@ -252,12 +264,16 @@ The split is *what to do on the day* versus *what is still unknown*. An item mov
 Working rules:
 
 - **Whenever you identify follow-up work that isn't done in the current change**, add it to
-  `docs.md` → *Part 2* on the docs branch rather than letting it fall through silently.
-  (There was a `TODO.md` here; it was folded into `docs.md` because its contents were
-  entirely public-app / UI-app follow-ups.)
+  `docs.md` → *Part 2* rather than letting it fall through silently. (There was a
+  `TODO.md` here; it was folded into `docs.md` because its contents were entirely
+  public-app / UI-app follow-ups.)
 - **Per-branch verification notes are scratch.** When a branch keeps a
   `## Per-branch verification` section in a local `RELEASE-CHECKLIST.md`, clear it before
   merging into `main` — per-branch working state doesn't belong in `main`'s history.
+- **`feature_set-brevo-cli-v2` carries none of these files.** The public-apps release
+  copy, GA runbook and QA suites live only here — copy the public-apps halves across (or
+  work them from this branch) before this branch merges and the files are deleted per the
+  never-merge rule.
 
 ## Adding a new command
 

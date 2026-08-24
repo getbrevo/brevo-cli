@@ -264,14 +264,15 @@ export interface SurfacePointRow {
 /**
  * The row as it may arrive on the wire, before normalization.
  *
- * Both spellings are tolerated on read because the endpoint is specified but NOT BUILT
- * (tracked in `docs.md` on the `docs/public-cli-ui-apps-feature-changes` branch), and
- * the two candidate namings are the
- * registry's column names (above) and the pre-BEX-361 draft's `extension_point` /
- * `location` / `place` / `kind` / `supported_extension_types`. Keying strictly on either
- * one would fail CLOSED against the other: every row gets dropped, and the partner is told
- * the registry "has not been seeded" — pointing them at a data problem that doesn't exist.
- * Cheap to tolerate now, and the alias branch can go once the endpoint ships.
+ * Both spellings are tolerated on read; the two candidate namings are the registry's
+ * column names (above) and the pre-BEX-361 draft's `extension_point` / `location` /
+ * `place` / `kind` / `supported_extension_types`. Keying strictly on either one would
+ * fail CLOSED against the other: every row gets dropped, and the partner is told the
+ * registry "has not been seeded" — pointing them at a data problem that doesn't exist.
+ * The tolerance was added while the endpoint was specified but not built; BEX-361 has
+ * since shipped and the row shape is confirmed from the deployed handlers, so the alias
+ * branch is cleanup-ready — tracked in `docs.md` (repo root) → *CLI cleanups now
+ * unblocked*.
  */
 export interface RawSurfacePointRow extends Partial<SurfacePointRow> {
   extension_point?: string;
@@ -430,9 +431,9 @@ export interface UploadAppPayload {
   distribution_type: 'public' | 'private';
   // Absent for UI apps: their config carries an empty `auth: {}` and no
   // OAuth block travels on the wire — the key is omitted, not sent empty.
-  // ASSUMED contract until the server side ships (tracked in docs.md on the
-  // docs/public-cli-ui-apps-feature-changes branch). Always present for OAuth apps. Same block, same
-  // semantics on the create request (unified payload structure).
+  // Confirmed live (2026-08-12, production): create and upload both accepted
+  // the omission. Always present for OAuth apps. Same block, same semantics
+  // on the create request (unified payload structure).
   auth?: {
     scopes: string[];
     redirect_uris: string[];
