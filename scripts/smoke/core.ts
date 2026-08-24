@@ -42,6 +42,10 @@ export interface Options {
   reportPath: string | null;
   ci: boolean;
   against: 'local' | 'published';
+  // Minimum wall-clock gap between two `brevo` invocations, in ms. Proactive
+  // spacing so the run stays under the API's throttle instead of discovering it
+  // after the fact — see paceBrevoCall.
+  gapMs: number;
   // Which suite modules to run, in order. See SUITES in the runner.
   suites: string[];
 }
@@ -102,6 +106,10 @@ export interface State {
   // How many times a call was retried after a rate limit — a slow run is then
   // explicable from the report rather than looking like a hang.
   rateLimitWaits: number;
+  // Epoch ms at which the last `brevo` invocation STARTED, and the total time
+  // paceBrevoCall has slept. Both are reporting/throttling state, not results.
+  lastBrevoCallAt: number;
+  pacedMs: number;
   // Apps the cleanup could not delete. Non-empty means a real leak.
   orphanedAppIds: string[];
   // Absolute path to the CLI under test, resolved once in stepReinstall.
@@ -254,12 +262,38 @@ export function looksRateLimited(r: ExecResult, opts: ExecOptions): boolean {
   return RATE_LIMIT_RE.test(r.stderr + r.stdout);
 }
 
+/**
+ * Keep at least `gapMs` between the STARTS of two `brevo` invocations.
+ *
+ * The retry above is reactive — it discovers the throttle by tripping it, and by then
+ * the run has already spent a 429 and everything after it is competing for the same
+ * budget. A full run makes ~40 API-backed calls back to back, which is what pushes a
+ * busy account over the limit in the first place; spacing them keeps the run under it.
+ * A leaked app (cleanup exhausting its retries) costs far more than a slower run.
+ *
+ * Measured start-to-start, not end-to-start, so a command that already took longer than
+ * the gap adds no delay — only bursts are slowed. Applies solely to the CLI under test:
+ * `yarn`, `npm` and `which` calls hit no API and are never paced.
+ */
+function paceBrevoCall(cmd: string, state: State): void {
+  if (!state.brevoBin || cmd !== state.brevoBin) return;
+  const gap = state.opts.gapMs;
+  const since = Date.now() - state.lastBrevoCallAt;
+  if (gap > 0 && state.lastBrevoCallAt > 0 && since < gap) {
+    const wait = gap - since;
+    state.pacedMs += wait;
+    sleepSync(wait);
+  }
+  state.lastBrevoCallAt = Date.now();
+}
+
 export function execWithRateLimitRetry(
   cmd: string,
   args: string[],
   state: State,
   opts: ExecOptions,
 ): ExecResult {
+  paceBrevoCall(cmd, state);
   let r = execOnce(cmd, args, state, opts);
   for (let attempt = 0; attempt < RATE_LIMIT_BACKOFF_MS.length; attempt++) {
     if (!looksRateLimited(r, opts)) break;
@@ -843,6 +877,25 @@ export function requireFeature(state: State, name: GatedFeature): void {
 /** True when the feature is known-absent, for callers that branch rather than skip. */
 export function featureMissing(state: State, name: GatedFeature): boolean {
   return state.caps?.[name] === false;
+}
+
+/**
+ * Downgrade a capability the build advertises but the environment refuses.
+ *
+ * `detectCapabilities` can only read the CLIENT: it greps `--help`, so it answers "does
+ * this build offer the flag", never "will the server accept it". Those come apart for
+ * `--distribution public` — a preview build offers the flag and Brevo declines the
+ * request (`public apps cannot be created with source "cli"`), which is the expected
+ * state until public apps go GA. Without this, the whole public lifecycle reports nine
+ * hard failures on every default run, and a permanently-red suite is one nobody reads.
+ *
+ * Called by the step that discovers the refusal, so every later `requireFeature` on the
+ * same feature skips for the same reason instead of raising "no public app from the
+ * create step".
+ */
+export function markFeatureUnavailable(state: State, name: GatedFeature, reason: string): void {
+  state.caps = { ...(state.caps ?? {}), [name]: false };
+  logToFile(state, `capability ${name} downgraded to unavailable: ${reason}`);
 }
 
 // ──────────────────────────── port helpers ────────────────────────────

@@ -65,6 +65,11 @@ const SUITES: Record<string, Suite> = {
 
 const DEFAULT_SUITES = ['private', 'public'];
 
+// Minimum spacing between `brevo` invocations. Chosen to cost ~40s across a full
+// ~40-call run — cheap next to the 126s a single rate-limited delete burned before
+// leaking its app. `--gap=0` restores the old unpaced behaviour.
+const DEFAULT_GAP_MS = 1000;
+
 function uniq(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -92,6 +97,14 @@ function parsePortValue(arg: string): number {
   const n = Number.parseInt(arg.slice('--port='.length), 10);
   if (!Number.isInteger(n) || n <= 0 || n > 65535) {
     throw new Error(`invalid --port value: ${arg}`);
+  }
+  return n;
+}
+
+function parseGapValue(arg: string): number {
+  const n = Number.parseInt(arg.slice('--gap='.length), 10);
+  if (!Number.isInteger(n) || n < 0 || n > 60_000) {
+    throw new Error(`invalid --gap value (expected 0-60000 ms): ${arg}`);
   }
   return n;
 }
@@ -131,6 +144,8 @@ function applyValueFlag(opts: Options, arg: string): boolean {
     opts.against = parseAgainstValue(arg);
   } else if (arg.startsWith('--suite=')) {
     opts.suites = parseSuiteValue(arg);
+  } else if (arg.startsWith('--gap=')) {
+    opts.gapMs = parseGapValue(arg);
   } else return false;
   return true;
 }
@@ -144,6 +159,7 @@ function parseArgs(argv: string[]): Options {
     reportPath: null,
     ci: false,
     against: 'local',
+    gapMs: DEFAULT_GAP_MS,
     suites: [...DEFAULT_SUITES],
   };
   for (const arg of argv) {
@@ -172,6 +188,9 @@ Flags:
   --report=<path>              Write JSON run summary to <path>.
   --ci                         CI mode: API-key auth via BREVO_API_KEY (instead of browser).
   --against=local|published    Install strategy (default local).
+  --gap=<ms>                   Minimum spacing between brevo invocations
+                               (default 1000). Proactive throttle avoidance;
+                               --gap=0 disables it.
   --suite=<names>              Which suites to run, comma-separated, in order.
                                private  private-app lifecycle + client guardrails
                                public   public-app submission/review lifecycle
@@ -251,6 +270,8 @@ function writeReport(state: State, ok: boolean): void {
     suites: state.opts.suites,
     publicFlow: state.opts.suites.includes('public') ? state.publicObs : 'suite not selected',
     rateLimitWaits: state.rateLimitWaits,
+    gapMs: state.opts.gapMs,
+    pacedMs: state.pacedMs,
     // Anything here is a real leak on the account, not a test detail.
     orphanedAppIds: state.orphanedAppIds,
     steps: state.stepResults,
@@ -382,6 +403,8 @@ async function main(): Promise<void> {
     stepResults: [],
     publicObs: {},
     rateLimitWaits: 0,
+    lastBrevoCallAt: 0,
+    pacedMs: 0,
     orphanedAppIds: [],
     brevoBin: null,
   };
@@ -445,6 +468,13 @@ function printColouredSummary(state: State, allOk: boolean, firstFailed: number)
   if (state.rateLimitWaits > 0) {
     process.stdout.write(
       `  ${COLOR.yellow}${state.rateLimitWaits} rate-limit wait(s) — the API throttled this run${COLOR.reset}\n`,
+    );
+  }
+  // Reported even at zero waits: it is the reason there were none, and it explains
+  // where the wall-clock went to anyone comparing runs.
+  if (state.pacedMs > 0) {
+    process.stdout.write(
+      `  ${COLOR.dim}paced ${formatMs(state.pacedMs)} across the run (--gap=${state.opts.gapMs})${COLOR.reset}\n`,
     );
   }
   if (state.orphanedAppIds.length > 0) {
