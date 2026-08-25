@@ -277,6 +277,25 @@ const coreMessages = {
     }
     return name ? `${name} (account ${accountId})` : `account ${accountId}`;
   },
+  /**
+   * Header of the pre-confirmation summary. Says "on the server" because that is the whole
+   * point of the box: an install serves the configuration the last successful `app upload`
+   * stored, so what a partner needs to see before confirming is the stored copy — not the
+   * `app-config.json` sitting in front of them, which may have moved on since.
+   */
+  APP_INSTALL_SUMMARY: 'Installing this configuration (as stored on the server):',
+  // Only reachable on a server build that answers the read without a version. The install
+  // gate needs one, so in practice this is a "the server told us nothing" placeholder
+  // rather than a state a partner can get into by not uploading.
+  APP_INSTALL_SUMMARY_NO_VERSION: '(unknown)',
+  /**
+   * Printed under the summary when the linked project's `ui_app` block no longer matches
+   * the stored one. Not an error and not a gate: installing a previously uploaded
+   * configuration is legitimate (that is what the server has, and it works), and the local
+   * edits may well be work in progress. What the partner must not do is walk away believing
+   * the account now renders the file they were just editing.
+   */
+  APP_INSTALL_CONFIG_DRIFT: `Your local app-config.json differs from the configuration above. The install uses what the server has stored — run \`${CLI.APP_UPLOAD}\` first if you meant to install your local changes.`,
   APP_INSTALL_CONFIRM: (name: string, appId: string, account: string) =>
     `Install app "${name}" (${appId}) into ${account}?`,
   APP_INSTALL_CANCELLED: 'Install cancelled.',
@@ -408,6 +427,29 @@ const coreMessages = {
     `Invalid redirect URL "${url}". Must use http:// or https://.`,
   APP_UPLOAD_SUMMARY: 'Upload summary:',
   APP_UPLOAD_CONFIRM: 'Proceed with upload?',
+  /**
+   * The UI-app form of the question. A UI app's `ui_app` block is not a record the
+   * platform merely stores — it is what every account the app is installed in renders, and
+   * an upload replaces it there with no separate publish step. So the prompt names the
+   * consequence instead of asking about an abstract "upload".
+   *
+   * OAuth apps keep `APP_UPLOAD_CONFIRM`: there is nothing installed to affect (an OAuth
+   * app becomes usable when a user authorizes it), so this wording there would warn about
+   * nothing.
+   */
+  APP_UPLOAD_CONFIRM_INSTALLED:
+    'Proceed with upload and update every account this app is installed in?',
+  /**
+   * Printed above that prompt, and printed under `--yes` too — `--yes` skips the question,
+   * not the warning, the same way `app delete --force` still prints its install-loss line.
+   *
+   * Deliberately "may already be installed" rather than a count: the CLI has no way to
+   * list an app's installs (the platform exposes no such read), so claiming a number — or
+   * claiming there are none — would be an assertion the CLI cannot make. Naming the
+   * possibility is both honest and enough to make the partner check.
+   */
+  APP_UPLOAD_INSTALLED_IMPACT:
+    'This app may already be installed in Brevo accounts. Uploading replaces the configuration those accounts render, and the change is live as soon as the upload succeeds.',
   APP_UPLOAD_CANCELLED: 'Upload cancelled.',
   APP_UPLOAD_SUCCESS: 'App uploaded.',
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,

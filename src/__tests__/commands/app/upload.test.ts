@@ -1152,5 +1152,216 @@ describe('app/upload', () => {
       expect(output).not.toContain('Link target');
       expect(output).not.toContain('Redirect URLs');
     });
+
+    // ─── what changed in the block, not just what it will be ───
+    // The summary printed the desired state with a bare `(changed)` beside it, so a partner
+    // could see that something in the block differed but not what — which for an app that
+    // is already installed somewhere is the one thing worth seeing before confirming.
+    describe('the ui_app diff', () => {
+      /** The remote app WITH a stored block, as GET /cli/apps/{id} echoes it. */
+      const remoteWith = (uiApp: Record<string, unknown>) => ({
+        ...UI_REMOTE,
+        ui_app: {
+          ...uiApp,
+          // Server-managed keys live on the echo only. They must not surface as changes.
+          version: '1.0.0',
+        },
+      });
+      const output = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+      it('shows each changed field as before → after', async () => {
+        (appService.fetchApp as jest.Mock).mockResolvedValue(
+          remoteWith(
+            withLinkTargets(
+              withUiEntry({
+                label: 'Open in Acme',
+                redirect_link: 'https://example.com/old',
+                more_info: undefined,
+              }),
+            ),
+          ),
+        );
+
+        await uploadCommand({ yes: true });
+
+        const printed = output();
+        expect(printed).toContain('label:         Open in Acme → View in CRM');
+        expect(printed).toContain(
+          'redirect link: https://example.com/old → https://example.com/brevo',
+        );
+        expect(printed).toContain(
+          'more info:     (none) → Open this contact in your connected CRM to see full activity history.',
+        );
+      });
+
+      it('leaves an unchanged field as a plain value', async () => {
+        (appService.fetchApp as jest.Mock).mockResolvedValue(
+          remoteWith(withLinkTargets(withUiEntry({ label: 'Open in Acme' }))),
+        );
+
+        await uploadCommand({ yes: true });
+
+        const printed = output();
+        expect(printed).toContain('label:         Open in Acme → View in CRM');
+        expect(printed).toContain('redirect link: https://example.com/brevo');
+        expect(printed).not.toContain('redirect link: https://example.com/brevo →');
+      });
+
+      it('tags an added placement and trails a removed one', async () => {
+        const dealEntry = {
+          ...UI_APP_ENTRY,
+          surface_point_name: 'deal-details-header-menu',
+          label: 'View deal',
+          redirect_link: 'https://example.com/deal',
+        };
+        // Local config gains the deal placement; the server still has an old one the local
+        // file has dropped.
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: { ...UI_APP, surface_point_list: [UI_APP_ENTRY, dealEntry] },
+        });
+        (appService.fetchApp as jest.Mock).mockResolvedValue(
+          remoteWith({
+            ...UI_APP,
+            surface_point_list: [
+              { ...UI_APP_ENTRY, link_target: '_blank' },
+              { ...UI_APP_ENTRY, surface_point_name: 'company-details-header-menu' },
+            ],
+          }),
+        );
+
+        await uploadCommand({ yes: true });
+
+        const printed = output();
+        expect(printed).toContain('deal-details-header-menu  (context: recordId)  (new)');
+        expect(printed).toContain('label:         View deal');
+        expect(printed).toContain('company-details-header-menu  (removed)');
+      });
+
+      // Order is not meaningful — the server returns registry order. Matching by index
+      // would report a reordered list as a wholesale rewrite.
+      it('matches placements by slot, not by position', async () => {
+        const dealEntry = {
+          ...UI_APP_ENTRY,
+          surface_point_name: 'deal-details-header-menu',
+          redirect_link: 'https://example.com/deal',
+        };
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: { ...UI_APP, surface_point_list: [UI_APP_ENTRY, dealEntry] },
+        });
+        (appService.fetchApp as jest.Mock).mockResolvedValue(
+          remoteWith({ ...UI_APP, surface_point_list: [dealEntry, UI_APP_ENTRY] }),
+        );
+
+        await uploadCommand({ yes: true });
+
+        const printed = output();
+        expect(printed).not.toContain('(new)');
+        expect(printed).not.toContain('(removed)');
+        expect(printed).not.toContain('→');
+      });
+
+      it('shows a changed extension type and a changed context', async () => {
+        (appService.fetchApp as jest.Mock).mockResolvedValue(
+          remoteWith({
+            ...UI_APP,
+            extension_type: 'iframeExtension',
+            surface_point_list: [{ ...UI_APP_ENTRY, context: ['recordId', 'accountId'] }],
+          }),
+        );
+
+        await uploadCommand({ yes: true });
+
+        const printed = output();
+        expect(printed).toContain('Extension type: iframeExtension → actionLink');
+        expect(printed).toContain('(context: recordId, accountId → recordId)');
+      });
+
+      // A build that accepts the block on write but echoes none on read leaves nothing to
+      // compare with. Printing every placement as `(new)` there would assert something the
+      // absent block is no evidence of.
+      it('prints plain lines when the server echoes no block', async () => {
+        await uploadCommand({ yes: true });
+
+        const printed = output();
+        expect(printed).toContain('Placement:      contact-details-header-menu');
+        expect(printed).not.toContain('(new)');
+      });
+    });
+
+    // ─── the installed-app warning ───
+    // A UI app's block IS what its installs render, and an upload replaces it there with
+    // no separate publish step. The CLI cannot list an app's installs, so the notice names
+    // the possibility rather than a count.
+    describe('the installed-app impact notice', () => {
+      const output = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+      beforeEach(() => {
+        // Something to upload — the notice belongs to a push, not to an up-to-date run.
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: withUiEntry({ label: 'Renamed' }),
+        });
+      });
+
+      it('warns before the confirmation and names the consequence in the prompt', async () => {
+        mockPrompt.mockResolvedValueOnce({ confirmed: true });
+
+        await uploadCommand({});
+
+        expect(output()).toMatch(/may already be installed in Brevo accounts/);
+        expect(mockPrompt.mock.calls[0]![0][0].message).toBe(
+          'Proceed with upload and update every account this app is installed in?',
+        );
+      });
+
+      // --yes skips the question, not the warning — same as `app delete --force`.
+      it('still prints the warning under --yes', async () => {
+        await uploadCommand({ yes: true });
+
+        expect(output()).toMatch(/may already be installed in Brevo accounts/);
+        expect(appService.uploadApp).toHaveBeenCalled();
+      });
+
+      // --json output stays one parseable document.
+      it('prints nothing extra under --json', async () => {
+        await uploadCommand({ json: true });
+
+        expect(() => JSON.parse(output())).not.toThrow();
+      });
+
+      it('does not warn for an OAuth app, which has nothing installed', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          appId: '1',
+          appName: 'Renamed OAuth App',
+          distribution_type: 'private' as const,
+          logoUri: '',
+          version: '1.0.0',
+          auth: { scopes: ['contacts:read'], redirectUris: ['https://example.com/callback'] },
+        });
+        (appService.fetchApp as jest.Mock).mockResolvedValue(UI_REMOTE);
+        mockPrompt.mockResolvedValueOnce({ confirmed: true });
+
+        await uploadCommand({});
+
+        expect(output()).not.toMatch(/may already be installed/);
+        expect(mockPrompt.mock.calls[0]![0][0].message).toBe('Proceed with upload?');
+      });
+
+      // Nothing to push means nothing to warn about: the command returns before the prompt.
+      it('does not warn when the app is already up to date', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(UI_CONFIG);
+        (appService.fetchApp as jest.Mock).mockResolvedValue({
+          ...UI_REMOTE,
+          ui_app: { ...UI_APP, version: '1.0.0' },
+        });
+
+        await uploadCommand({});
+
+        expect(output()).not.toMatch(/may already be installed/);
+        expect(appService.uploadApp).not.toHaveBeenCalled();
+      });
+    });
   });
 });

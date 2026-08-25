@@ -52,6 +52,10 @@ describe('app/install', () => {
     // mockRejectedValue/mockResolvedValue in an earlier test (this repo's jest
     // config doesn't enable resetMocks), so re-assert the happy path here.
     (appService.installApp as jest.Mock).mockResolvedValue(undefined);
+    // Default: the server read comes back empty, so no test inherits another's record
+    // (see the note above — implementations survive clearAllMocks). Tests that care about
+    // what the summary prints, or about the gate reading a record, set their own.
+    (appService.fetchApp as jest.Mock).mockResolvedValue(null);
     (readProjectConfig as jest.Mock).mockReturnValue(UPLOADED_CONFIG);
     // Default identity: a plain (non-corporate) account whose own ID is 12345.
     (accountService.getAccount as jest.Mock).mockResolvedValue({ type: 'user' });
@@ -231,13 +235,21 @@ describe('app/install', () => {
       expect(appService.installApp).toHaveBeenCalled();
     });
 
-    // A linked project is still answered locally — the whole point of keeping the
-    // local branch is that the common path costs no round trip.
-    it('does not read the app when a linked project answers the question', async () => {
+    // A linked project is still answered LOCALLY. The command does now read the app —
+    // it has to, to show the configuration it is about to install — but the gate keeps
+    // its own precedence: a server record that reads as an OAuth app cannot reclassify
+    // an app whose local config says otherwise.
+    it('still answers the gate from the linked project, not from the record it read', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(UPLOADED_CONFIG);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        client_id: 'client-abc',
+        redirect_uris: ['https://example.com/callback'],
+        version: '3',
+      });
 
       await appInstallCommand({ accountId: '99999', force: true });
-      expect(appService.fetchApp).not.toHaveBeenCalled();
+      expect(appService.installApp).toHaveBeenCalledWith('42', '99999', 'Invoice Manager');
     });
   });
 
@@ -511,6 +523,8 @@ describe('app/install', () => {
       });
 
       // One read now answers both halves of the gate; it used to be fetched twice.
+      // Three jobs, one read: the type check, the upload gate, and the summary the
+      // confirmation is answered against.
       it('reads the app once for both checks', async () => {
         (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: 'app-1', version: '3' });
 
@@ -605,6 +619,138 @@ describe('app/install', () => {
         accountId: '12345',
         accountName: 'Acme Retail',
       });
+    });
+  });
+
+  // What the install is about to make visible inside the account. Sourced from the server,
+  // because that is what an install serves — the last successfully uploaded configuration,
+  // not whatever app-config.json now says.
+  describe('the configuration summary', () => {
+    const SERVER_UI_APP = {
+      extension_type: 'actionLink',
+      // Server-managed, and stripped before any comparison — see the drift test below.
+      version: '4',
+      surface_point_list: [
+        {
+          surface_point_name: 'contactDetails.header.menu',
+          // Stamped by the server, never authored; must not count as local drift.
+          extension_point_name: 'contactDetails.headerMenu.action',
+          context: ['recordId'],
+          label: 'View in CRM',
+          more_info: 'Opens the customer record',
+          redirect_link: 'https://example.com/crm',
+          link_target: '_blank',
+        },
+      ],
+    };
+    // The same block as app-config.json carries it: no server-stamped keys.
+    const LOCAL_UI_APP = {
+      extension_type: 'actionLink',
+      surface_point_list: [
+        {
+          surface_point_name: 'contactDetails.header.menu',
+          context: ['recordId'],
+          label: 'View in CRM',
+          more_info: 'Opens the customer record',
+          redirect_link: 'https://example.com/crm',
+        },
+      ],
+    };
+    const output = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+    beforeEach(() => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'Invoice Manager',
+        version: '4',
+        ui_app: SERVER_UI_APP,
+      });
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UPLOADED_CONFIG,
+        ui_app: LOCAL_UI_APP,
+      });
+    });
+
+    it('prints the server version and the stored ui_app block before confirming', async () => {
+      await appInstallCommand({ accountId: '99999', force: true });
+
+      const printed = output();
+      expect(printed).toMatch(/Installing this configuration \(as stored on the server\)/);
+      expect(printed).toContain('Version:       4');
+      expect(printed).toContain('Extension type: actionLink');
+      expect(printed).toContain('Placement:      contactDetails.header.menu  (context: recordId)');
+      expect(printed).toContain('label:         View in CRM');
+      expect(printed).toContain('redirect link: https://example.com/crm');
+    });
+
+    // The box is what the confirmation is answered against, so it has to be on screen
+    // before the question — not after it.
+    it('prints the summary before asking to confirm', async () => {
+      mockPrompt.mockResolvedValueOnce({ confirmed: false });
+
+      await appInstallCommand({ accountId: '99999' });
+
+      expect(output()).toMatch(/Installing this configuration/);
+      expect(appService.installApp).not.toHaveBeenCalled();
+    });
+
+    // Key order, placement order and the server's own stamped keys are not drift.
+    it('does not warn when the local config matches the stored block', async () => {
+      await appInstallCommand({ accountId: '99999', force: true });
+
+      expect(output()).not.toMatch(/differs from the configuration above/);
+    });
+
+    it('warns when the linked config has drifted from what will be installed', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UPLOADED_CONFIG,
+        ui_app: {
+          ...LOCAL_UI_APP,
+          surface_point_list: [{ ...LOCAL_UI_APP.surface_point_list[0], label: 'Open in Acme' }],
+        },
+      });
+
+      await appInstallCommand({ accountId: '99999', force: true });
+
+      const printed = output();
+      expect(printed).toMatch(/differs from the configuration above/);
+      expect(printed).toMatch(/brevo app upload/);
+      // Informational: the install still happens, because the stored configuration is a
+      // legitimate thing to install.
+      expect(appService.installApp).toHaveBeenCalled();
+    });
+
+    // Drift can only be claimed against a file that describes THIS app. `--app-id` names
+    // a different one, so the directory's config says nothing about it.
+    it('does not compare against the local config when --app-id named the app', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UPLOADED_CONFIG,
+        appId: 'some-other-app',
+        ui_app: { ...LOCAL_UI_APP, extension_type: 'iframeExtension' },
+      });
+
+      await appInstallCommand({ accountId: '99999', appId: '42', force: true });
+
+      expect(output()).not.toMatch(/differs from the configuration above/);
+    });
+
+    it('surfaces the installed configuration in --json too', async () => {
+      await appInstallCommand({ accountId: '99999', json: true });
+
+      const parsed = JSON.parse(output());
+      expect(parsed).toMatchObject({ installed: true, version: '4', ui_app: SERVER_UI_APP });
+    });
+
+    // An unavailable read already leaves the gates open (see above); it must not print a
+    // summary sourced from the local file either, which would be a claim about the server
+    // the CLI never verified.
+    it('prints no summary when the app could not be read', async () => {
+      (appService.fetchApp as jest.Mock).mockResolvedValue(null);
+
+      await appInstallCommand({ accountId: '99999', force: true });
+
+      expect(output()).not.toMatch(/Installing this configuration/);
+      expect(appService.installApp).toHaveBeenCalled();
     });
   });
 });

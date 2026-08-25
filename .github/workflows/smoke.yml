@@ -1,0 +1,113 @@
+name: Smoke
+
+# The single definition of the smoke test, and the only manual "Run workflow"
+# button for it. Two thin trigger workflows call it — smoke-pre-merge.yml
+# (release PR / push to main) and smoke-post-merge.yml (release published) —
+# so an ad-hoc run reproduces CI exactly instead of drifting from it.
+#
+# Manual run: pick the branch or tag in "Use workflow from", then
+#   against = published  → smoke whatever npm serves as @getbrevo/cli@latest
+#                          (the default: touch nothing, hit Run workflow, and
+#                          the ref only supplies the smoke script itself)
+#   against = local      → build that ref and smoke the build it produces
+on:
+  workflow_call:
+    inputs:
+      against:
+        description: "'local' (build this ref) or 'published' (npm latest)"
+        required: true
+        type: string
+      expected_version:
+        description: 'Release tag to wait for on npm first (published only)'
+        required: false
+        type: string
+        default: ''
+      non_blocking:
+        description: 'Report a smoke failure without failing the run'
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      against:
+        description: 'published = npm latest; local = build the branch/tag selected above'
+        type: choice
+        required: true
+        default: published
+        options:
+          - published
+          - local
+
+concurrency:
+  # Reached through workflow_call, `github.workflow` is the *caller's* name, so
+  # each trigger keeps its own lane and a manual run never cancels a release
+  # one. Only a superseded PR push is cancelled.
+  group: smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # Reached through workflow_call the check reads
+    # `<caller workflow> / smoke / <this name>`, so name it for the target only
+    # — anything with "Smoke" in it says the word three times.
+    name: ${{ inputs.against == 'published' && 'published package' || 'local build' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # No `registry-url`: this job only installs public packages, and under
+      # setup-node@v7 the token-auth .npmrc that input writes makes Yarn 1
+      # fail when NODE_AUTH_TOKEN is unset (see release.yaml).
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20.15.0
+          cache: yarn
+
+      # `--ignore-scripts`: this job needs nothing a lifecycle script provides — the
+      # only one in the tree is husky's `prepare`, which installs git hooks — and
+      # running package scripts on a job that holds an API-key secret is the hotspot
+      # SonarCloud raises on a fresh install step. Verified against this lockfile:
+      # `yarn build` (esbuild) and `yarn smoke` (tsx) both work without them.
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --ignore-scripts
+
+      - name: Wait for npm propagation
+        if: inputs.against == 'published' && inputs.expected_version != ''
+        env:
+          EXPECTED_TAG: ${{ inputs.expected_version }}
+        run: |
+          set -eu
+          # Release tags from changesets look like `@getbrevo/cli@1.2.3`.
+          # `${var##*@}` strips everything up to and including the last `@`,
+          # leaving the bare version.
+          want="${EXPECTED_TAG##*@}"
+          echo "waiting for @getbrevo/cli@${want} to appear on npm..."
+          for i in $(seq 1 30); do
+            got=$(npm view @getbrevo/cli@latest version 2>/dev/null || true)
+            if [ "$got" = "$want" ]; then
+              echo "npm now serves ${got}"
+              exit 0
+            fi
+            echo "  npm has '${got}', expected '${want}' — retrying in 10s (${i}/30)"
+            sleep 10
+          done
+          echo "::error::npm did not serve ${want} within 5 minutes; aborting"
+          exit 1
+
+      - name: Run smoke test
+        # Non-blocking only where the caller asks for it (the pre-merge release
+        # PR). Absent on workflow_dispatch, where `inputs.non_blocking` is null.
+        continue-on-error: ${{ inputs.non_blocking == true }}
+        env:
+          AGAINST: ${{ inputs.against }}
+          BREVO_API_KEY: ${{ secrets.BREVO_TEST_API_KEY }}
+        run: yarn smoke --ci --against="$AGAINST" --report=smoke-report.json

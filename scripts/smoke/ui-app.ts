@@ -321,7 +321,10 @@ function stepUiInstall(state: State): string {
   }
   const res = parseJson<Record<string, unknown>>(r.stdout);
   must(res.installed === true, `install did not report installed: ${JSON.stringify(res)}`);
-  return `installed into account ${optStr(res.accountId)}`;
+  // `version` / `ui_app` are the machine-readable form of the configuration summary a human
+  // sees before confirming. Reported, not asserted: both are present only when the app read
+  // succeeded, and an unavailable read deliberately does not fail the install.
+  return `installed into account ${optStr(res.accountId)} at version ${optStr(res.version) || '(not reported)'}`;
 }
 
 function stepUiUninstall(state: State): string {
