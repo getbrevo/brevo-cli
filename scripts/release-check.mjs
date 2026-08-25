@@ -311,7 +311,18 @@ async function postflight(version) {
 
   const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-release-fetch-'));
   const tarball = path.join(dest, path.basename(meta.dist.tarball));
-  run('curl', ['-fsSL', '-o', tarball, meta.dist.tarball]);
+  // `--proto`/`--proto-redir`: the URL comes from registry metadata, so pin the
+  // scheme rather than letting `-L` follow a redirect down to http.
+  run('curl', [
+    '-fsSL',
+    '--proto',
+    '=https',
+    '--proto-redir',
+    '=https',
+    '-o',
+    tarball,
+    meta.dist.tarball,
+  ]);
 
   check('downloaded tarball matches the advertised integrity', () => {
     const digest = crypto.createHash('sha512').update(fs.readFileSync(tarball)).digest('base64');
