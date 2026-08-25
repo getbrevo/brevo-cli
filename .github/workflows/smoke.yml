@@ -6,20 +6,17 @@ name: Smoke
 # (release PR / push to main) and smoke-post-merge.yml (release published) —
 # so an ad-hoc run reproduces CI exactly instead of drifting from it.
 #
-# Keep `workflow_dispatch` here: release.yaml drives the post-publish smoke
-# through it (`gh workflow run smoke.yml`), because the GitHub release that
-# changesets/action creates cannot fire the `release` trigger — see the comment
-# on that step. Removing the trigger, or the `expected_version` input, fails
-# the release job with `HTTP 422: Workflow does not have 'workflow_dispatch'
-# trigger`.
+# Keep `workflow_dispatch` and its `expected_version` input: release.yaml drives
+# the post-publish smoke through them, and removing either fails that job with
+# `HTTP 422: Workflow does not have 'workflow_dispatch' trigger`.
 #
 # Manual run: pick the branch or tag in "Use workflow from", then
 #   against = published  → smoke whatever npm serves as @getbrevo/cli@latest
 #                          (the default: touch nothing, hit Run workflow, and
 #                          the ref only supplies the smoke script itself)
 #   against = local      → build that ref and smoke the build it produces
-# Leave expected_version blank on a manual run — it only matters right after a
-# publish, when npm may still be serving the previous version.
+# Leave expected_version blank on a manual run; it only matters right after a
+# publish, while npm may still be serving the previous version.
 on:
   workflow_call:
     inputs:
