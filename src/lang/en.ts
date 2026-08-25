@@ -112,7 +112,13 @@ const coreMessages = {
 
   // App create
   APP_CREATE_NAME_PROMPT: 'App name:',
-  APP_CREATE_TYPE_PROMPT: 'Distribution type?',
+  // A `list` choice prompt, same as APP_CREATE_APP_TYPE_PROMPT right below it — but this
+  // one used to be a terse noun phrase with a question mark stapled on ('Distribution
+  // type?'), while every other choice prompt in the flow (this one, the app-type prompt,
+  // and every UI-app prompt in resolveUiApp) is phrased as a full question. Matched to
+  // that convention rather than to APP_CREATE_NAME_PROMPT's label-and-colon style, because
+  // this is a choice between options, not a value to type in.
+  APP_CREATE_TYPE_PROMPT: 'What distribution type should this app use?',
   APP_CREATE_APP_TYPE_PROMPT: 'What type of app are you building?',
   APP_CREATE_APP_TYPE_OAUTH:
     'OAuth app  (Authorize against Brevo and call the API on a user’s behalf)',
@@ -220,16 +226,24 @@ const coreMessages = {
   // partner arrives with. Only Link is offered for now: the disabled "coming soon"
   // Iframe choice was removed 2026-08-19 until iframe support is ready to author.
   APP_CREATE_UI_INTEGRATION_PROMPT: 'What type of integration are you adding?',
-  APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link            (Opens your URL in a new tab)',
-  // Each field says what it renders as, so a partner filling the form knows what
-  // they are writing. Both fields render in two places, and the prompt names both:
-  // `label` is the menu entry's text AND a card's CTA button, `more_info` is the
-  // menu entry's second line AND a card's description.
-  APP_CREATE_UI_LABEL_PROMPT: 'Label — the menu entry text, and the button text on a card:',
+  APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link (Opens your URL in a new tab)',
+  // Each field renders in two places (`label` is the menu entry's text AND a card's CTA
+  // button; `more_info` is the menu entry's second line AND a card's description) and
+  // `redirect_link`'s query-param behaviour is easy to miss — all three explanations stay
+  // INLINE in the prompt, not on a separate `Tip:` line above it (an earlier draft tried
+  // that, mirroring `APP_CREATE_REDIRECT_HINT`; reverted — that hint is genuinely
+  // supplementary, a pre-filled default the prompt still makes sense without, while what
+  // these fields render as is the meaning of the question itself. Push that above the
+  // prompt and a partner who has scrolled past the tip is left answering a bare `Label:`
+  // with nothing to go on). Tightened instead of the original compound sentences, and the
+  // redirect-link prompt no longer carries its own example — the created-app box already
+  // prints a live one (`renderExampleContextUrlLines`), so the prompt only needs to warn
+  // the behaviour exists, not demonstrate it twice.
+  APP_CREATE_UI_LABEL_PROMPT: 'Label — the menu entry’s text, and the card’s button text:',
   APP_CREATE_UI_MORE_INFO_PROMPT:
-    'More info — supporting text under the menu entry, and a card’s description (optional):',
+    'More info (optional) — the menu entry’s subtext, and the card’s description:',
   APP_CREATE_UI_REDIRECT_LINK_PROMPT:
-    'Redirect link — the destination URL your app opens (record context arrives as query parameters):',
+    'Redirect link — the destination URL (record context arrives as query params):',
   APP_CREATE_UI_BOX_TITLE: 'UI app created',
   // `label` labels the menu entry (BEX-290). The one piece of rendered text that has
   // no field is a CARD's title, which is the app name — worth saying, since it is now
