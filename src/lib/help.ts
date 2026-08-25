@@ -32,7 +32,7 @@ export function createDescription(): string {
  * The root `brevo --help` screen.
  *
  * Hand-aligned rather than generated: it groups commands by what they're for
- * (app / deployment / review / skill / scope) and shows each one's flags inline,
+ * (app / install / review / skill / scope) and shows each one's flags inline,
  * which Commander's default two-column layout can't express. The grouping
  * mirrors the capability gates in `commands/definitions.ts` — see
  * `command-capabilities.test.ts`, which is the executable copy of that rule.
@@ -74,6 +74,20 @@ function formatRootHelp(description: string): string {
     `  brevo app delete            [--app-id <id>] [--force] [--json]`,
     `                                                        Delete an app`,
     ``,
+    // GA (UI apps shipped): `account-install` is 'ga' in FEATURE_STAGE, so this renders
+    // in every build. What GA removed is the `__BREVO_PREVIEW__` wrapper (still on the
+    // review-lifecycle block below) — the gatedSection call stays, so the section keeps
+    // lining up 1:1 with the commands' `requires: 'account-install'`: an emergency flip
+    // of the row back to 'preview' hides it here exactly as registerCommand hides the
+    // commands, instead of root help advertising what the runtime refuses.
+    ...gatedSection('account-install', [
+      `App-install commands (UI apps only):`,
+      `  brevo app install           [account-id] [--app-id <id>] [--force] [--json]`,
+      `                                                        Install an app into an account`,
+      `  brevo app uninstall         [account-id] [--app-id <id>] [--force] [--json]`,
+      `                                                        Uninstall an app from an account`,
+      ``,
+    ]),
     // ELIMINATION SITE — `__BREVO_PREVIEW__` wraps the call rather than living inside a
     // helper, because an array passed as a function *argument* is still evaluated: a
     // `previewOnlySection(feature, [...])` helper left every one of these lines in the
@@ -83,19 +97,10 @@ function formatRootHelp(description: string): string {
     // **The build flag is therefore the outer authority for help text, above
     // `FEATURE_STAGE`.** At GA that is a trap — flipping a row to `'ga'` is not enough,
     // since a published build still has `__BREVO_PREVIEW__ === false` and would keep
-    // hiding the restored section. The wrapper must be removed by hand at the same time;
-    // `RELEASE-CHECKLIST.md` lists it, alongside the identical trap in
-    // `commands/preview-definitions.ts`.
-    ...(__BREVO_PREVIEW__
-      ? gatedSection('account-install', [
-          `App-deployment commands (UI apps only):`,
-          `  brevo app deploy            [account-id] [--app-id <id>] [--force] [--json]`,
-          `                                                        Make an app available in an account`,
-          `  brevo app rollback          [account-id] [--app-id <id>] [--force] [--json]`,
-          `                                                        Roll back an app from an account`,
-          ``,
-        ])
-      : []),
+    // hiding the restored section. The wrapper must be removed by hand at the same time
+    // (exactly what happened to the App-install section above at UI-apps GA); the GA
+    // runbook (`RELEASE-CHECKLIST.md` on `feature_set-brevo-cli-v2`) lists it, alongside
+    // the identical trap in `commands/preview-definitions.ts`.
     ...(__BREVO_PREVIEW__
       ? gatedSection('review-lifecycle', [
           `App-review commands (public apps only):`,

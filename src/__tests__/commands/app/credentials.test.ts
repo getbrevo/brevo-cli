@@ -255,6 +255,63 @@ describe('app/credentials', () => {
     expect(output).not.toContain('Backfilled');
   });
 
+  // A UI app has no OAuth material, so there are no credentials to show. Without
+  // this gate the command printed an empty credential form — blank client ID,
+  // "(none)" scopes and URLs — which reads as "your app lost its credentials",
+  // and cached the emptiness locally. Routed through the capability matrix
+  // ('oauth-flow'), whose header has named `app credentials` as OAuth-only since
+  // it was written.
+  describe('on a UI app', () => {
+    function mockUiApp(overrides = {}) {
+      return {
+        app: {
+          app_id: 'ui-1',
+          client_id: '',
+          redirect_uris: null,
+          distribution_type: 'private',
+          ui_app: { extension_type: 'actionLink', surface_point_list: [] },
+          ...overrides,
+        },
+        diffs: [],
+      };
+    }
+
+    it('refuses instead of printing an empty credential form', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(mockUiApp());
+
+      await expect(credentialsCommand({ appId: 'ui-1' })).rejects.toThrow(
+        /UI apps have no OAuth credentials/i,
+      );
+      expect(appService.syncAppCredentials).not.toHaveBeenCalled();
+      expect(mockBackfill).not.toHaveBeenCalled();
+      expect(mockPrompt).not.toHaveBeenCalled();
+    });
+
+    it('refuses under --json instead of emitting a blank credential document', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(mockUiApp());
+
+      await expect(credentialsCommand({ appId: 'ui-1', json: true })).rejects.toThrow(
+        /UI apps have no OAuth credentials/i,
+      );
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).not.toContain('clientId');
+    });
+
+    // The record classifier calls a record with no OAuth material a UI app even
+    // when the response omits the ui_app block — same bias as install's gate,
+    // and right here for the same reason: there is nothing to print either way.
+    it('refuses a record with no OAuth material and no ui_app block', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+        app: { app_id: 'ui-2', client_id: '', redirect_uris: null },
+        diffs: [],
+      });
+
+      await expect(credentialsCommand({ appId: 'ui-2' })).rejects.toThrow(
+        /UI apps have no OAuth credentials/i,
+      );
+    });
+  });
+
   it('should warn and prompt to update when local credentials differ', async () => {
     const originalIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });

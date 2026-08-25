@@ -9,6 +9,7 @@ import { createSpinner } from '../../lib/ui';
 import { saveAppName, backfillProjectConfigFromServer } from '../../lib/config';
 import { assertAppSelectionAllowed } from './select-app';
 import { CLI } from '../../lib/constants';
+import { assertCapability, resolveFromRecord, type Distribution } from '../../app-types';
 
 type AppDetails = Awaited<ReturnType<typeof appService.resolveAppCredentials>>;
 
@@ -113,6 +114,20 @@ export const credentialsCommand = withCommandHandler(
       throw new CliError(`App ${appId} not found.`);
     }
     const { app, diffs } = result;
+
+    // A UI app has no OAuth material, so there is nothing to show — refuse
+    // before any side effect (name cache, credential cache, config backfill)
+    // rather than printing a blank credential form. The classifier's bias
+    // (a record with no OAuth material reads as UI even without the ui_app
+    // block) is right here for the same reason it is on install's gate: a
+    // record with neither client_id nor callbacks has no credentials either way.
+    const distribution: Distribution = app.distribution_type === 'public' ? 'public' : 'private';
+    assertCapability(
+      resolveFromRecord(app).id,
+      distribution,
+      'oauth-flow',
+      messages.APP_CREDENTIALS_UI_APP(appId),
+    );
 
     if (app.name) saveAppName(appId, app.name);
 

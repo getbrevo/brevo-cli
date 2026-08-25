@@ -23,13 +23,15 @@ function asBuild(previewBuild: boolean): void {
 
 describe('lib/preview', () => {
   describe('FEATURE_STAGE', () => {
-    // Guards the intent of this release: all four are pre-GA. When one ships, this is
-    // the assertion that fails and points at the GA checklist.
-    it('lists every gated feature as preview', () => {
+    // Guards the intent of the current release state: UI apps (the create choice and
+    // install/uninstall) are GA, public distribution and its review lifecycle are not.
+    // When another feature ships, this is the assertion that fails and points at the
+    // GA checklist.
+    it('matches the released feature set', () => {
       expect(FEATURE_STAGE).toEqual({
-        'account-install': 'preview',
+        'account-install': 'ga',
         'review-lifecycle': 'preview',
-        'ui-app-type': 'preview',
+        'ui-app-type': 'ga',
         'public-distribution': 'preview',
       });
     });
@@ -38,9 +40,9 @@ describe('lib/preview', () => {
   describe('a published (public) build', () => {
     asBuild(false);
 
-    it('reports every preview feature as unavailable', () => {
-      for (const feature of Object.keys(FEATURE_STAGE)) {
-        expect(isFeatureAvailable(feature as keyof typeof FEATURE_STAGE)).toBe(false);
+    it('reports every preview-staged feature as unavailable, and every GA one as available', () => {
+      for (const [feature, stage] of Object.entries(FEATURE_STAGE)) {
+        expect(isFeatureAvailable(feature as keyof typeof FEATURE_STAGE)).toBe(stage === 'ga');
       }
     });
 
@@ -112,7 +114,7 @@ describe('lib/preview', () => {
   describe('the suite default', () => {
     it('runs as a preview build', () => {
       expect(isFeatureAvailable('review-lifecycle')).toBe(true);
-      expect(() => assertFeatureAvailable('account-install')).not.toThrow();
+      expect(() => assertFeatureAvailable('public-distribution')).not.toThrow();
     });
   });
 });
