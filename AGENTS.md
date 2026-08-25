@@ -24,6 +24,8 @@ UI apps (action links that render inside Brevo CRM records) are **out of the pre
 
 A UI app is **prompt-only**: there is no `--type` flag and no per-field flags, so non-interactive runs always create an OAuth app. `extension_type` values are camelCase (`actionLink`, `iframeExtension`, `legacyComponent`) and the old snake_case spellings are rejected. The `ui_app` block's **field names are confirmed** against both of the platform's consumers, the manifest read path and the extensibility UI kit (BEX-308 / BEX-350) — it is the stored app snapshot verbatim. See `CLAUDE.md` → *UI apps are GA* for the full contract.
 
+**One stored configuration, shared by every install.** `brevo app upload` is what changes an installed UI app — there is no per-account copy, no publish step and no re-install — so both commands show the change before making it: `upload`'s diff renders the block placement by placement (`formatPlacementDiffLines`, `before → after`, `(new)` / `(removed)`) and warns that the app may already be installed before its confirmation, and `install` prints the **server's** stored configuration and version before asking. The warning is unconditional for a UI app because the CLI cannot count installs — no install-listing read exists — so a claim either way would be invented.
+
 ## Public repository
 
 Repo (`github.com/getbrevo/brevo-cli`) and package (`@getbrevo/cli` on the public npm registry) are **public**. Every commit, PR, and issue is world-readable.

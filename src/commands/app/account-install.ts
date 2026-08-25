@@ -13,7 +13,7 @@ import {
 import { accountService, appService } from '../../container';
 import { getCallerAccountId } from '../../services/app';
 import { createSpinner } from '../../lib/ui';
-import { SubAccount } from '../../types';
+import { OAuthApp, SubAccount } from '../../types';
 import { assertAppSelectionAllowed, promptAppSelection } from './select-app';
 
 /**
@@ -245,6 +245,30 @@ export async function resolveInstallTarget(
 }
 
 /**
+ * Read the app as the *server* has it, for the callers that need to show or check it.
+ *
+ * A failure is deliberately not fatal and not reported: both consumers degrade to doing
+ * less rather than to failing. `assertInstallable` skips a gate whose whole purpose is
+ * preventing a silent no-op — refusing to act because a GET was unavailable would be the
+ * worse failure — and `app install`'s summary simply has nothing to print. Returning null
+ * for both "not found" and "request failed" is enough for that: neither caller has a
+ * different answer for the two.
+ */
+export async function fetchInstallSnapshot(
+  appId: string,
+  opts: { silent?: boolean } = {},
+): Promise<OAuthApp | null> {
+  const spinner = createSpinner('Fetching app configuration...', { silent: opts.silent });
+  try {
+    return await appService.fetchApp(appId);
+  } catch {
+    return null;
+  } finally {
+    spinner.stop();
+  }
+}
+
+/**
  * Both pre-flight checks that stand between the resolved target and the request: the app
  * is the right *type* to be installed at all, and — for install only — it has been
  * through a successful `brevo app upload`.
@@ -292,7 +316,23 @@ export async function resolveInstallTarget(
  */
 export async function assertInstallable(
   appId: string | undefined,
-  opts: { requireUploaded: boolean; notUiAppMessage: string; fromLinkedConfig: boolean },
+  opts: {
+    requireUploaded: boolean;
+    notUiAppMessage: string;
+    fromLinkedConfig: boolean;
+    /**
+     * The app record, when the caller has already read it — `app install` fetches it to
+     * show the configuration it is about to install (`renderInstallSummary`), and the
+     * whole point of `fetchInstallSnapshot` is that the two of them share one read rather
+     * than each making their own. Pass `null` for "read attempted, nothing came back",
+     * which this treats exactly as its own failed read does: skip the gate rather than
+     * refuse over an unavailable GET.
+     *
+     * Absent (not `null`) means "no read has happened", and this fetches as before — which
+     * is what `app uninstall`, with no summary to render, still does.
+     */
+    serverApp?: OAuthApp | null;
+  },
 ): Promise<void> {
   const distributionOf = (value: string | undefined): Distribution =>
     value === 'public' ? 'public' : 'private';
@@ -312,12 +352,7 @@ export async function assertInstallable(
   }
   if (!appId) return;
 
-  let app;
-  try {
-    app = await appService.fetchApp(appId);
-  } catch {
-    return;
-  }
+  const app = 'serverApp' in opts ? opts.serverApp : await fetchInstallSnapshot(appId);
   if (!app) return;
 
   // `resolveFromRecord` is weaker than the config path and biased the safe way for this
