@@ -1,4 +1,5 @@
 # {{APP_NAME}}
+{{#if oauth}}
 
 Brevo OAuth integration for testing and implementing app authorization flows, scaffolded with the Brevo CLI.
 
@@ -80,3 +81,104 @@ To avoid unintentionally accumulating stale redirect URLs over time, periodicall
 - [Brevo API Documentation](https://developers.brevo.com)
 - [Brevo CLI reference](https://developers.brevo.com/docs/cli-reference)
 - [Brevo CLI](https://github.com/getbrevo/brevo-cli)
+{{/if}}
+{{#if ui_app}}
+
+Brevo **UI app** — an action link that renders inside Brevo CRM records, scaffolded with the Brevo CLI.
+
+> **There is no local server to run and no code to install.** A UI app has no OAuth callback. Brevo opens a URL you already host, and this project is the app's configuration.
+
+## Setup
+
+1. Open `app-config.json` and check the `ui_app` block — the placement, its label, and the URL Brevo will open.
+
+2. Push it to Brevo (the CLI shows a diff of local vs. server first):
+
+   ```bash
+   brevo app upload
+   # or skip the confirmation: brevo app upload --yes
+   ```
+
+3. Make it available in an account, then open a CRM record to see it:
+
+   ```bash
+   brevo app install
+   # or target a specific sub-account: brevo app install <account-id>
+   ```
+
+   Remove it again with `brevo app uninstall` (same optional `<account-id>`).
+
+## Project structure
+
+```
+.
+├── app-config.json           App metadata + the `ui_app` block (the whole app)
+├── .gitignore                Ignores .env.local and build artifacts
+├── AGENTS.md                 AI agent guidance
+├── CLAUDE.md                 Claude Code guidance
+└── README.md                 (this file)
+```
+
+## The `ui_app` block
+
+`ui_app` is what makes this a UI app rather than an OAuth one, which is why `auth` is `{}` — leave it empty.
+
+`extension_type` sits at the root and picks how the app opens:
+
+| Value | What it does | Destination field |
+|-------|--------------|-------------------|
+| `actionLink` | Opens your URL in a new tab | `redirect_link` |
+| `iframeExtension` | Embeds your URL in a modal | `modal_iframe_url` |
+
+Each entry in `surface_point_list` is one placement, with its own text and destination:
+
+| Key | Required | Notes |
+|-----|----------|-------|
+| `surface_point_name` | yes | Where it appears, as a dotted slug — e.g. `contactDetails.header.menu` |
+| `label` | yes | Max 48 chars — the menu entry's text, or a card's button |
+| `more_info` | no | Max 255 chars — the menu entry's second line, or a card's description |
+| `redirect_link` | for `actionLink` | `https://` (or `http://localhost`) |
+| `modal_iframe_url` | for `iframeExtension` | `https://` (or `http://localhost`) |
+| `context` | no | Narrows the record context Brevo sends |
+| `size` | no | `{ "width": "280px", "height": "160px" }` — `px`, or `%` up to 100 |
+
+A card's title is the app name — there is no field for it. Don't add `link_target`: the CLI sets it on upload, and a copy in this file shows up as drift you can't clear.
+
+## Record context
+
+Brevo appends the record context to your URL as **query parameters** — the path is never templated. For example:
+
+```
+https://example.com/open?recordId=123&recordType=contact&accountId=456
+```
+
+These values reach you through the browser, so validate them like any other user input.
+
+## Adding a placement
+
+`brevo app create` sets up one. To add another, append a `surface_point_list` entry with its own `label` and destination, then:
+
+```bash
+brevo app upload
+```
+
+Slot names are checked by Brevo, not locally — `brevo app upload` fails and names any slot that isn't registered.
+
+## Updating your app
+
+`brevo app upload` has no edit flags — it always pushes the full contents of `app-config.json`. To change the app's name, label, destination or placement, edit the file and run:
+
+```bash
+brevo app upload
+```
+
+It fetches the current server state first and shows a diff before pushing — review it before confirming (or pass `--yes` to skip the prompt).
+
+`brevo app upload` has no `--app-id` flag either: it always resolves the app from this directory's `app-config.json`. To manage a different app, `cd` into that app's project directory.
+
+## Docs
+
+- [Brevo API Documentation](https://developers.brevo.com)
+- [Brevo CLI reference](https://developers.brevo.com/docs/cli-reference)
+- [Brevo CLI](https://github.com/getbrevo/brevo-cli)
+{{/if}}

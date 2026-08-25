@@ -79,6 +79,8 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 
 A **UI app** is an action link that renders inside Brevo CRM record pages (contact, company, deal). It is the second app type next to OAuth apps — created by the same `brevo app create` (interactive only, see the decision tree), pushed by the same `brevo app upload`, and made visible in an account with `brevo app install`.
 
+A UI-app project is **configuration only**: there is no feature to scaffold and no `src/oauth/`, because an action link has no local server to run — `brevo app scaffold` inside one says so and exits `0`, and `brevo app start` does not apply. The base docs the scaffold writes (`AGENTS.md` / `CLAUDE.md` / `README.md`) describe whichever type the app is, so a UI app's copies document the `ui_app` block and the `upload` → `install` flow rather than an OAuth server.
+
 The `ui_app` block in `app-config.json`:
 
 - `extension_type` (root) — one of `actionLink`, `iframeExtension`, `legacyComponent` (camelCase; snake_case spellings like `action_link` are rejected).
