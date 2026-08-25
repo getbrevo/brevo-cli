@@ -85,11 +85,13 @@ function check(label, fn) {
   checks += 1;
   try {
     const detail = fn();
-    console.log(`  ✓ ${label}${detail ? ` — ${detail}` : ''}`);
+    const suffix = detail ? ` — ${detail}` : '';
+    console.log(`  ✓ ${label}${suffix}`);
   } catch (error) {
     failures.push({ label, message: error.message });
+    const indented = error.message.replaceAll('\n', '\n      ');
     console.log(`  ✗ ${label}`);
-    console.log(`      ${error.message.split('\n').join('\n      ')}`);
+    console.log(`      ${indented}`);
   }
 }
 
@@ -107,7 +109,8 @@ function run(cmd, args, opts = {}) {
     const stderr = (error.stderr ?? '').toString().trim();
     const stdout = (error.stdout ?? '').toString().trim();
     const detail = stderr || stdout;
-    throw new Error(`${cmd} ${args.join(' ')} failed${detail ? `:\n${detail}` : ''}`);
+    const reason = detail ? `:\n${detail}` : '';
+    throw new Error(`${cmd} ${args.join(' ')} failed${reason}`);
   }
 }
 
@@ -305,23 +308,23 @@ function npmView(spec) {
   }
 }
 
-function waitForRegistry(spec, attempts, delayMs) {
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForRegistry(spec, attempts, delayMs) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const meta = npmView(spec);
     if (meta) return meta;
     console.log(`  … ${spec} not on the registry yet (${attempt}/${attempts}), retrying`);
-    // Deliberately synchronous: this script is a gate, not a server, and the
-    // sleep must block the step.
-    execFileSync('sleep', [String(delayMs / 1000)]);
+    await wait(delayMs);
   }
   return null;
 }
 
-function postflight(version) {
+async function postflight(version) {
   const spec = `${pkg.name}@${version}`;
   console.log(`Post-publish checks for ${spec}\n`);
 
-  const meta = waitForRegistry(spec, 30, 10_000);
+  const meta = await waitForRegistry(spec, 30, 10_000);
   assert(meta, `${spec} never appeared on the registry (waited 5 minutes).`);
 
   check('registry serves the published version', () => {
@@ -398,7 +401,7 @@ if (mode === 'pre') {
   // `##*@` on the tag is how release.yaml already derives the version.
   const raw = flag('version') ?? flag('tag');
   assert(raw, 'post mode needs --version=<x.y.z> (or --tag=@scope/name@x.y.z)');
-  postflight(raw.slice(raw.lastIndexOf('@') + 1));
+  await postflight(raw.slice(raw.lastIndexOf('@') + 1));
 } else {
   console.error('usage: release-check.mjs pre | post --version=<x.y.z>');
   process.exit(2);
