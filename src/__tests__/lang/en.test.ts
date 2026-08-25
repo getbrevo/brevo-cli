@@ -109,6 +109,12 @@ describe('messages (lang/en)', () => {
   // Every interactive prompt has to fit an 80-column terminal once inquirer's own `? `
   // prefix is counted, because inquirer wraps a prompt without indenting the
   // continuation — the tail lands flush-left and reads as a separate line.
+  //
+  // The three UI-app field prompts (label/more_info/redirect_link) were missing from
+  // this list until a copy pass noticed `APP_CREATE_UI_REDIRECT_LINK_PROMPT` had drifted
+  // to ~100 chars with nothing catching it — the whole point of this test, silently
+  // not applying to the prompts most likely to grow a clause too many. Added so the
+  // same drift can't happen again unnoticed.
   it('keeps interactive prompts inside 80 columns including inquirer’s prefix', () => {
     const PREFIX = 2; // '? '
     const prompts: Array<[string, string]> = [
@@ -118,6 +124,9 @@ describe('messages (lang/en)', () => {
       ['APP_CREATE_APP_TYPE_PROMPT', messages.APP_CREATE_APP_TYPE_PROMPT],
       ['APP_CREATE_REDIRECT_PROMPT', messages.APP_CREATE_REDIRECT_PROMPT],
       ['APP_SCAFFOLD_FEATURE_EXISTS', messages.APP_SCAFFOLD_FEATURE_EXISTS],
+      ['APP_CREATE_UI_LABEL_PROMPT', messages.APP_CREATE_UI_LABEL_PROMPT],
+      ['APP_CREATE_UI_MORE_INFO_PROMPT', messages.APP_CREATE_UI_MORE_INFO_PROMPT],
+      ['APP_CREATE_UI_REDIRECT_LINK_PROMPT', messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT],
     ];
     for (const [name, text] of prompts) {
       expect([...text].length + PREFIX).toBeLessThanOrEqual(80);
