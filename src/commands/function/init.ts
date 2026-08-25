@@ -1,10 +1,7 @@
 import inquirer from 'inquirer';
 import { logInfo, color } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { appService, client, sseDeps } from '../../container';
-import { createFunctionService } from '../../services/function';
-
-const functionService = createFunctionService(client);
+import { appService, functionService, sseDeps } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { createSpinner, indentChoices, printBox } from '../../lib/ui';
 import { ApiError, CliError } from '../../lib/errors';
@@ -23,10 +20,10 @@ interface GenerateResult {
 
 /** Stage -> colored spinner message. ANSI codes: 36=cyan, 33=yellow, 35=magenta, 32=green. */
 const STAGE_LABELS: Record<string, { label: string; colorCode: string }> = {
-  enriching: { label: 'Analyzing the request', colorCode: '36' },
-  planning_agent: { label: 'Contacting databases', colorCode: '33' },
-  executing_agent: { label: 'Creating the function', colorCode: '35' },
-  validating: { label: 'Testing the function', colorCode: '32' },
+  enriching: { label: messages.FUNCTION_INIT_STAGE_ENRICHING, colorCode: '36' },
+  planning_agent: { label: messages.FUNCTION_INIT_STAGE_PLANNING, colorCode: '33' },
+  executing_agent: { label: messages.FUNCTION_INIT_STAGE_GENERATING, colorCode: '35' },
+  validating: { label: messages.FUNCTION_INIT_STAGE_VALIDATING, colorCode: '32' },
 };
 
 /** Update the spinner based on a progress event's stage or message. */
@@ -263,8 +260,9 @@ async function aiGenerationFlow(app: OAuthApp): Promise<void> {
       source: 'cli',
     });
     result = await processGenerateStream(stream, genSpinner);
-  } catch {
+  } catch (err) {
     genSpinner.stop();
+    if (err instanceof ApiError || err instanceof CliError) throw err;
     throw new CliError(messages.FUNCTION_INIT_GENERATION_ERROR);
   }
   genSpinner.stop();
@@ -323,10 +321,14 @@ async function aiGenerationFlow(app: OAuthApp): Promise<void> {
       },
     ]);
 
+    if (!current.draftId) {
+      throw new CliError(messages.FUNCTION_INIT_GENERATION_FAILED);
+    }
+
     const iterateSpinner = createSpinner(messages.FUNCTION_INIT_ITERATING);
     try {
       const iterateStream = functionService.iterateStream(sseDeps, {
-        draft_function_id: current.draftId || '',
+        draft_function_id: current.draftId,
         user_prompt: iterateDescription.trim(),
         previous_code: current.code,
         chat_history: chatHistory,
@@ -341,17 +343,20 @@ async function aiGenerationFlow(app: OAuthApp): Promise<void> {
       );
 
       current = mergeGenerateResult(current, iterateResult);
-    } catch {
+    } catch (err) {
       iterateSpinner.stop();
+      if (err instanceof ApiError || err instanceof CliError) throw err;
       logInfo(`  ${color('31', messages.FUNCTION_INIT_ITERATE_ERROR)}`);
       continue;
     }
 
     // Execute preview with the updated code
-    try {
-      await executePreview(current.draftId);
-    } catch {
-      logInfo(`  ${color('33', messages.FUNCTION_INIT_PREVIEW_ERROR)}`);
+    if (current.draftId) {
+      try {
+        await executePreview(current.draftId);
+      } catch {
+        logInfo(`  ${color('33', messages.FUNCTION_INIT_PREVIEW_ERROR)}`);
+      }
     }
   }
 }
@@ -369,7 +374,7 @@ function deriveAttributeId(name: string): string {
 }
 
 function isDuplicateNameError(err: unknown): boolean {
-  if (err instanceof ApiError && err.message.toLowerCase().includes('already exists')) {
+  if (err instanceof ApiError && err.statusCode === 409) {
     return true;
   }
   return false;
@@ -388,7 +393,11 @@ function formatCellValue(value: unknown): string {
 
 function printResultsTable(rows: Record<string, unknown>[]): void {
   if (rows.length === 0) return;
-  const cols = Object.keys(rows[0]!).filter((k) => !PREVIEW_EXCLUDED_KEYS.has(k));
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const key of Object.keys(row)) seen.add(key);
+  }
+  const cols = [...seen].filter((k) => !PREVIEW_EXCLUDED_KEYS.has(k));
   if (cols.length === 0) return;
 
   const widths = cols.map((col) =>

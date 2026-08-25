@@ -212,7 +212,7 @@ export const previewFunctionGroup: SubcommandGroupDefinition = {
         'brevo function get --id fn-001 --json',
       ],
       options: [
-        { flags: '--id [id]', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--id <id>', description: 'Function ID (shows a picker if omitted)' },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
@@ -227,7 +227,7 @@ export const previewFunctionGroup: SubcommandGroupDefinition = {
         'brevo function activate --id fn-001 --json',
       ],
       options: [
-        { flags: '--id [id]', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--id <id>', description: 'Function ID (shows a picker if omitted)' },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
@@ -242,7 +242,7 @@ export const previewFunctionGroup: SubcommandGroupDefinition = {
         'brevo function deactivate --id fn-001 --json',
       ],
       options: [
-        { flags: '--id [id]', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--id <id>', description: 'Function ID (shows a picker if omitted)' },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
@@ -261,7 +261,7 @@ export const previewFunctionGroup: SubcommandGroupDefinition = {
         'brevo function delete --id fn-001 --json',
       ],
       options: [
-        { flags: '--id [id]', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--id <id>', description: 'Function ID (shows a picker if omitted)' },
         { flags: '--force', description: 'Skip confirmation' },
         { flags: '--json', description: 'Output as JSON' },
       ],

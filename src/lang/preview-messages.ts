@@ -182,14 +182,12 @@ export const previewMessages = {
   FUNCTION_DELETE_SELECT: 'Select a function to delete:',
 
   // Function activate
-  FUNCTION_ACTIVATE_SUCCESS: (id: string) => `Brevo Function "${id}" activated.`,
   FUNCTION_ACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
   FUNCTION_ACTIVATE_CARD_TITLE: 'Function Activated',
   FUNCTION_ACTIVATE_CARD_LABEL: 'Status',
   FUNCTION_ACTIVATE_CARD_MESSAGE: (id: string) => `"${id}" is now active and processing data.`,
 
   // Function deactivate
-  FUNCTION_DEACTIVATE_SUCCESS: (id: string) => `Brevo Function "${id}" deactivated.`,
   FUNCTION_DEACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
   FUNCTION_DEACTIVATE_CARD_TITLE: 'Function Deactivated',
   FUNCTION_DEACTIVATE_CARD_LABEL: 'Status',
@@ -198,7 +196,6 @@ export const previewMessages = {
   // Function delete
   FUNCTION_DELETE_CONFIRM: (id: string) =>
     `Are you sure you want to delete Brevo Function "${id}"? This cannot be undone.`,
-  FUNCTION_DELETE_SUCCESS: (id: string) => `Brevo Function "${id}" deleted.`,
   FUNCTION_DELETE_CANCELLED: 'Deletion cancelled.',
   FUNCTION_DELETE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
   FUNCTION_DELETE_CARD_TITLE: 'Function Deleted',
@@ -215,10 +212,10 @@ export const previewMessages = {
   FUNCTION_INIT_DESCRIPTION_REQUIRED: 'Description cannot be empty.',
   FUNCTION_INIT_TEMPLATE_PROMPT: 'Select a template:',
   FUNCTION_INIT_NO_TEMPLATES: 'No templates available.',
-  FUNCTION_INIT_STAGE_ENRICHING: 'Enriching prompt...',
-  FUNCTION_INIT_STAGE_PLANNING: 'Planning function...',
-  FUNCTION_INIT_STAGE_GENERATING: 'Generating code...',
-  FUNCTION_INIT_STAGE_VALIDATING: 'Validating function...',
+  FUNCTION_INIT_STAGE_ENRICHING: 'Analyzing the request',
+  FUNCTION_INIT_STAGE_PLANNING: 'Contacting databases',
+  FUNCTION_INIT_STAGE_GENERATING: 'Creating the function',
+  FUNCTION_INIT_STAGE_VALIDATING: 'Testing the function',
   FUNCTION_INIT_GENERATING: 'Generating function...',
   FUNCTION_INIT_ITERATE_PROMPT: 'What would you like to do?',
   FUNCTION_INIT_ITERATE_UPDATE: 'Update / iterate on the prompt',
@@ -226,9 +223,6 @@ export const previewMessages = {
   FUNCTION_INIT_ITERATE_DESCRIPTION: 'Describe the changes you want:',
   FUNCTION_INIT_ITERATING: 'Iterating on function...',
   FUNCTION_INIT_SAVE_SPINNER: 'Creating function...',
-  FUNCTION_INIT_SAVE_SUCCESS: (name: string, id: string) =>
-    `Function "${name}" created (ID: ${id}).`,
-  FUNCTION_INIT_FILE_WRITTEN: (path: string) => `Code written to ${path}`,
   FUNCTION_INIT_GENERATION_FAILED: 'Function generation failed.',
   FUNCTION_INIT_GENERATION_ERROR: 'Failed to generate function. Please try again.',
   FUNCTION_INIT_ITERATE_ERROR: 'Failed to update function. Please try again.',
@@ -237,7 +231,6 @@ export const previewMessages = {
   FUNCTION_INIT_FETCHING_CONTACTS: 'Fetching sample contacts...',
   FUNCTION_INIT_EXECUTING_PREVIEW: 'Previewing function...',
   FUNCTION_INIT_PREVIEW_HEADER: 'Preview results:',
-  FUNCTION_INIT_PREVIEW_CODE: 'Generated code:',
   FUNCTION_INIT_NAME_PROMPT: 'Enter a name for this function:',
   FUNCTION_INIT_NAME_REQUIRED: 'Name cannot be empty.',
   FUNCTION_INIT_DEPLOY_WARNING: 'This will activate the function and run it with real-time data.',

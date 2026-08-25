@@ -44,6 +44,9 @@ async function performSSEFetch(
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
+      // Deadline for the entire stream, not an idle timeout between events.
+      // AI generation can legitimately take a while; 120s is a safety net
+      // against orphaned connections, not a latency budget.
       signal: AbortSignal.timeout(120_000),
     });
   } catch (err) {

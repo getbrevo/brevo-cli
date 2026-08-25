@@ -18,13 +18,9 @@ const mockAppService = {
   fetchAppsList: jest.fn(),
 };
 
-jest.mock('../../../services/function', () => ({
-  createFunctionService: jest.fn(() => mockFunctionService),
-}));
-
 jest.mock('../../../container', () => ({
   appService: mockAppService,
-  client: {},
+  functionService: mockFunctionService,
   sseDeps: { baseUrl: 'https://test.example.com', getAuthHeader: () => ({}) },
 }));
 
@@ -541,7 +537,7 @@ describe('function/init', () => {
     });
 
     await expect(initFunctionCommand({ json: false })).rejects.toThrow(
-      'Failed to generate function',
+      'Function generation failed.',
     );
   });
 
@@ -567,9 +563,7 @@ describe('function/init', () => {
       yield { data: JSON.stringify({ error: 'Generation quota exceeded' }) };
     });
 
-    await expect(initFunctionCommand({ json: false })).rejects.toThrow(
-      'Failed to generate function',
-    );
+    await expect(initFunctionCommand({ json: false })).rejects.toThrow('Generation quota exceeded');
   });
 
   it('should filter out public apps from eligible list', async () => {
