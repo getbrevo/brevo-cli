@@ -1,21 +1,15 @@
 #!/usr/bin/env node
 /**
- * Release gates. Two modes, one set of assertions.
+ * Release gates.
  *
- *   node scripts/release-check.mjs pre
- *   node scripts/release-check.mjs post --version=2.2.0
+ *   node scripts/release-check.mjs pre                     # the tarball npm pack produces
+ *   node scripts/release-check.mjs post --version=2.2.0    # the one the registry serves
  *
- * `pre` runs before the publish and inspects the tarball `npm pack` produces.
- * `post` runs after it and inspects the tarball the registry actually serves.
- * Both feed the SAME `assertTarball()`, which is the point: a pre-publish gate
- * that checks something other than what the registry ends up with is a gate on
- * a different artifact. The only asymmetry is registry metadata — dist-tag,
- * provenance attestation, integrity — which exists only in `post`.
+ * Both feed the same `assertTarball()`: a pre-publish gate on a different
+ * artifact than the post-publish one isn't a gate on the release.
  *
- * What this deliberately does NOT check: the gated public-app surface. That is
- * `scripts/build.mjs`'s job (LEAK_MARKERS / LEAK_STRINGS / GA_MARKERS), it
- * throws at build time, and `prepublishOnly` rebuilds so it runs again on the
- * publish itself. A second copy of that list here could only drift from it.
+ * The gated public-app surface is NOT checked here — build.mjs owns that
+ * (LEAK_MARKERS / GA_MARKERS) and `prepublishOnly` reruns it on the publish.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -28,14 +22,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'));
 
-// ---------------------------------------------------------------------------
-// Expectations
-// ---------------------------------------------------------------------------
-
-// Paths that must be in the tarball, relative to the package root. `files:` in
-// package.json is an allow-list, so a missing entry here is always a silent
-// loss: the CLI publishes, installs, and then can't scaffold (templates), or
-// every agent helping a user reads a skill that isn't there (agent-context).
+// `files:` is an allow-list, so anything dropped from it publishes silently.
 const REQUIRED_FILES = [
   'package.json',
   'README.md',
@@ -46,10 +33,7 @@ const REQUIRED_FILES = [
   'agent-context/AGENTS.md',
 ];
 
-// The mirror image, and the reason this gate is worth having on a PUBLIC
-// package: `files:` can only ship these by mistake, and the mistake is
-// unrecoverable once the tarball is on npm. The branch-local working docs are
-// the never-merge-to-main set from CLAUDE.md; the rest is credential material.
+// Unrecoverable once on npm. The docs are CLAUDE.md's never-merge-to-main set.
 const FORBIDDEN_PATTERNS = [
   { re: /^RELEASE-CHECKLIST\.md$/, why: 'branch-local working doc' },
   { re: /^QA-TESTCASES\.md$/, why: 'branch-local working doc' },
@@ -58,25 +42,18 @@ const FORBIDDEN_PATTERNS = [
   { re: /(^|\/)\.env(\.|$)/, why: 'environment file' },
   { re: /(^|\/)credentials\.json$/, why: 'credential store' },
   { re: /(^|\/)\.brevo\.json$/, why: 'linked-project config' },
-  // Not `.tmpl`: `dist/bin/files/app-config.json.tmpl` is the scaffold
-  // template and must ship. A real `app-config.json` must not.
   { re: /(^|\/)app-config\.json$/, why: 'real app config' },
   { re: /(^|\/)\.npmrc$/, why: 'registry auth' },
   { re: /\.(pem|p12|key)$/, why: 'private key' },
 ];
 
-// Secret shapes, scanned across every packed file. `xkeysib-test-` is the
-// placeholder the repo's fixtures use, so it must not trip this.
+// The `test-` lookaheads keep the repo's own `xkeysib-test-…` fixtures passing.
 const SECRET_PATTERNS = [
   { re: /xkeysib-(?!test-)[A-Za-z0-9]{8}/, why: 'Brevo API key' },
   { re: /xsmtpsib-(?!test-)[A-Za-z0-9]{8}/, why: 'Brevo SMTP key' },
   { re: /ghp_[A-Za-z0-9]{20}/, why: 'GitHub token' },
   { re: /npm_[A-Za-z0-9]{20}/, why: 'npm token' },
 ];
-
-// ---------------------------------------------------------------------------
-// Reporting
-// ---------------------------------------------------------------------------
 
 const failures = [];
 let checks = 0;
@@ -99,9 +76,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-// execFileSync's own message is just the command line; the reason is on
-// stderr, which it captures and then hides. A gate that says "command failed"
-// and nothing else is a gate someone re-runs locally to find out why.
+// execFileSync captures stderr and then hides it, leaving only the command line.
 function run(cmd, args, opts = {}) {
   try {
     return execFileSync(cmd, args, { encoding: 'utf-8', ...opts });
@@ -114,14 +89,7 @@ function run(cmd, args, opts = {}) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Tarball assertions — shared by both modes
-// ---------------------------------------------------------------------------
-
-/**
- * Extract to a temp dir and return { dir, files } where `files` are paths
- * relative to the package root, npm's `package/` prefix stripped.
- */
+// `files` come back relative to the package root, npm's `package/` prefix stripped.
 function unpack(tarball) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-release-check-'));
   run('tar', ['-xzf', tarball, '-C', dir]);
@@ -152,10 +120,8 @@ function assertTarball(tarball, expectedVersion) {
   check('no forbidden files', () => {
     const hits = [];
     for (const file of files) {
-      // `.tmpl` files are scaffold samples by construction — the set includes
-      // `.env.example.tmpl` and `app-config.json.tmpl`, which are exactly the
-      // names these patterns hunt for. They ship on purpose (and are gated by
-      // the template count below); their *content* is still secret-scanned.
+      // Scaffold templates include `.env.example.tmpl` and `app-config.json.tmpl` —
+      // the exact names these patterns hunt for. Content is still secret-scanned.
       if (file.endsWith('.tmpl')) continue;
       for (const { re, why } of FORBIDDEN_PATTERNS) {
         if (re.test(file)) hits.push(`${file} (${why})`);
@@ -165,9 +131,7 @@ function assertTarball(tarball, expectedVersion) {
     return `${files.length - files.filter((f) => f.endsWith('.tmpl')).length} entries scanned`;
   });
 
-  // Self-maintaining on purpose: a twelfth template needs no edit here, but a
-  // template that stops being copied into dist/ fails the gate. `app scaffold`
-  // is dead without these and nothing else in the release path looks at them.
+  // Counted against the source dir, so a twelfth template needs no edit here.
   check('every scaffold template shipped', () => {
     const sourceDir = path.join(root, 'src/templates/files');
     const expected = fs
@@ -203,14 +167,10 @@ function assertTarball(tarball, expectedVersion) {
     return packed.version;
   });
 
-  // The dependency closure, which is the one thing neither jest nor the build
-  // can see: esbuild keeps `commander`/`inquirer` external (`packages:
-  // 'external'` in build.mjs), so the bundle `require`s them at runtime from
-  // node_modules. A dependency that drifted into devDependencies builds, tests
-  // and packs perfectly, then fails on the first user's machine with
-  // MODULE_NOT_FOUND. Installing the tarball into an empty tree is the only
-  // way to prove the closure is complete — running the bundle in this repo
-  // would resolve against the repo's own node_modules and always pass.
+  // The only check on the dependency closure. Deps stay external (build.mjs
+  // `packages: 'external'`), so one that drifted into devDependencies packs fine
+  // and dies on the first install. Running the bundle here would resolve against
+  // this repo's node_modules and always pass — hence a real install.
   check('tarball installs and the installed CLI runs', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-release-install-'));
     fs.writeFileSync(
@@ -218,10 +178,8 @@ function assertTarball(tarball, expectedVersion) {
       JSON.stringify({ name: 'brevo-release-check', version: '0.0.0', private: true }),
     );
     try {
-      // `--cache` into the temp tree: the install must prove the tarball's own
-      // dependency closure, not inherit whatever the shared cache happens to
-      // hold — and it must not fail for reasons that belong to the machine
-      // (a permission-broken ~/.npm is the usual one locally).
+      // `--cache` into the temp tree: don't inherit the shared cache, and don't
+      // fail for reasons that belong to the machine (a broken ~/.npm, locally).
       run(
         'npm',
         [
@@ -267,10 +225,6 @@ function assertTarball(tarball, expectedVersion) {
   fs.rmSync(path.dirname(dir), { recursive: true, force: true });
 }
 
-// ---------------------------------------------------------------------------
-// pre
-// ---------------------------------------------------------------------------
-
 function preflight() {
   console.log(`Pre-publish checks for ${pkg.name}@${pkg.version}\n`);
 
@@ -280,9 +234,8 @@ function preflight() {
   );
 
   const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-release-pack-'));
-  // `--ignore-scripts`: packing must not run `prepare` (husky) — this gate
-  // inspects the tree as built, and lifecycle scripts are the hotspot Sonar
-  // raises on a step that can see release secrets.
+  // `--ignore-scripts`: inspect the tree as built, and run no lifecycle script on
+  // a step that can see release secrets.
   const out = run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', dest], {
     cwd: root,
   });
@@ -293,10 +246,6 @@ function preflight() {
   assertTarball(tarball, pkg.version);
   fs.rmSync(dest, { recursive: true, force: true });
 }
-
-// ---------------------------------------------------------------------------
-// post
-// ---------------------------------------------------------------------------
 
 function npmView(spec) {
   try {
@@ -338,9 +287,6 @@ async function postflight(version) {
     return `latest → ${tags.latest}`;
   });
 
-  // The whole OIDC posture in one assertion: a token publish produces neither a
-  // provenance attestation nor this publisher identity. If this fails, do not
-  // paper it over with an NPM_TOKEN — fix the trusted publisher on npmjs.com.
   check('provenance attestation attached', () => {
     const predicate = meta.dist?.attestations?.provenance?.predicateType;
     assert(predicate, 'no dist.attestations.provenance on the published version');
@@ -352,9 +298,7 @@ async function postflight(version) {
   });
 
   check('published by GitHub Actions via OIDC', () => {
-    // `npm view` flattens this to a `Name <email>` string; the raw packument
-    // carries `{name, email}`. Accept either so an npm-CLI change can't turn
-    // this gate into a false failure.
+    // `npm view` flattens this to `Name <email>`; the raw packument keeps an object.
     const raw = meta._npmUser;
     const publisher = typeof raw === 'string' ? raw : `${raw?.name} <${raw?.email}>`;
     assert(
@@ -384,10 +328,6 @@ async function postflight(version) {
   fs.rmSync(dest, { recursive: true, force: true });
 }
 
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
-
 const [mode, ...rest] = process.argv.slice(2);
 const flag = (name) => {
   const hit = rest.find((a) => a.startsWith(`--${name}=`));
@@ -397,8 +337,6 @@ const flag = (name) => {
 if (mode === 'pre') {
   preflight();
 } else if (mode === 'post') {
-  // Accepts a bare version or a changesets release tag (`@getbrevo/cli@2.2.0`);
-  // `##*@` on the tag is how release.yaml already derives the version.
   const raw = flag('version') ?? flag('tag');
   assert(raw, 'post mode needs --version=<x.y.z> (or --tag=@scope/name@x.y.z)');
   await postflight(raw.slice(raw.lastIndexOf('@') + 1));

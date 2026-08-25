@@ -74,21 +74,10 @@ jobs:
       - name: Test
         run: yarn test
 
-      # Pre-publish gate. Packs the tarball this job is about to publish and
-      # asserts what npm will actually serve: the required files are in it
-      # (`files:` is an allow-list, so a loss is silent), no branch-local
-      # working doc or credential file is, all scaffold templates made it into
-      # dist/, no secret-shaped string is in the packed content, and the
-      # tarball installs into an empty tree with a complete dependency closure
-      # — the bundle keeps `commander`/`inquirer` external, so a dep that
-      # drifted into devDependencies would build, test and pack fine and then
-      # fail on the first user's machine.
-      #
-      # Runs on every push to main, publish or not: it is the same artifact
-      # either way, and finding it broken on the release PR run beats finding
-      # it on the run that publishes. Deliberately does NOT re-check the gated
-      # public-app surface — scripts/build.mjs owns that and already threw
-      # above.
+      # Packs the tarball this job is about to publish and asserts its shape —
+      # see the header of scripts/release-check.mjs. Runs on every push to main,
+      # publish or not: finding the artifact broken on the release-PR run beats
+      # finding it on the run that publishes.
       - name: Pre-publish checks
         run: node scripts/release-check.mjs pre
 
@@ -136,19 +125,10 @@ jobs:
           # @getbrevo/cli@x.y.z came from this repo + this workflow run.
           NPM_CONFIG_PROVENANCE: "true"
 
-      # Post-publish gate. Same assertions as the pre-publish step, run against
-      # the tarball the registry hands out rather than the one we packed, plus
-      # the registry metadata that only exists after a publish: the version is
-      # served, `latest` moved to it, a SLSA provenance attestation is attached,
-      # the publisher is the OIDC identity (a token publish is not), and the
-      # download matches the integrity npm advertises.
-      #
-      # This runs BEFORE the Slack announcement on purpose — a release worth
-      # announcing is one that was verified. It cannot un-publish anything;
-      # what it buys is a red run and a named reason within a minute of the
-      # publish instead of a user finding out. Distinct from the smoke test,
-      # which authenticates and drives real commands; this only proves the
-      # artifact and its provenance.
+      # The same assertions against the tarball the registry hands out, plus the
+      # metadata that only exists after a publish (dist-tag, provenance, OIDC
+      # publisher, integrity). Ahead of the Slack announcement on purpose: a
+      # release worth announcing is one that was verified.
       - name: Post-publish checks
         if: steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true'
         env:
