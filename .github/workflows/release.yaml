@@ -62,11 +62,16 @@ jobs:
       # npm Trusted Publishing (OIDC) requires npm >= 11.5.1, which in
       # turn requires Node ^20.17.0 || >=22.9.0. Node 20.19.0 ships with
       # npm 10.x, so upgrade explicitly. Pin the version — do not use @latest.
+      # `--ignore-scripts`: npm's own tarball needs no lifecycle script to be
+      # usable, and this job goes on to hold publish credentials.
       - name: Upgrade npm for OIDC trusted publishing
-        run: npm install -g npm@11.5.1
+        run: npm install -g npm@11.5.1 --ignore-scripts
 
+      # `--ignore-scripts`: the only lifecycle script in the tree is husky's
+      # `prepare`, which installs git hooks — nothing a CI job needs. Verified
+      # against this lockfile: build, test and lint all work without them.
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: yarn build
@@ -296,7 +301,8 @@ jobs:
           # can lag a few seconds behind the publish.
           sha256=""
           for attempt in 1 2 3 4 5; do
-            sha256=$(curl -fsSL "$tarball_url" | shasum -a 256 | awk '{print $1}') && break || true
+            sha256=$(curl -fsSL --proto '=https' --proto-redir '=https' "$tarball_url" \
+              | shasum -a 256 | awk '{print $1}') && break || true
             echo "tarball not ready yet (attempt $attempt), retrying in 10s…"
             sleep 10
           done
