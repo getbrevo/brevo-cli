@@ -72,8 +72,13 @@ jobs:
           node-version: 20.15.0
           cache: yarn
 
+      # `--ignore-scripts`: this job needs nothing a lifecycle script provides — the
+      # only one in the tree is husky's `prepare`, which installs git hooks — and
+      # running package scripts on a job that holds an API-key secret is the hotspot
+      # SonarCloud raises on a fresh install step. Verified against this lockfile:
+      # `yarn build` (esbuild) and `yarn smoke` (tsx) both work without them.
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-scripts
 
       - name: Wait for npm propagation
         if: inputs.against == 'published' && inputs.expected_version != ''
