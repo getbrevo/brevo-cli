@@ -239,6 +239,60 @@ async function saveGeneratedFunction(args: SaveFunctionArgs): Promise<void> {
   }
 }
 
+/** Run one iterate round: prompt, stream, merge, preview. Returns the updated result or null on failure. */
+async function runIterateRound(
+  current: GenerateResult,
+  chatHistory: ChatHistoryEntry[],
+): Promise<GenerateResult | null> {
+  const { iterateDescription } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'iterateDescription',
+      message: messages.FUNCTION_INIT_ITERATE_DESCRIPTION,
+      validate: (v: string) => (v.trim() ? true : messages.FUNCTION_INIT_DESCRIPTION_REQUIRED),
+    },
+  ]);
+
+  if (!current.draftId) {
+    throw new CliError(messages.FUNCTION_INIT_GENERATION_FAILED);
+  }
+
+  const iterateSpinner = createSpinner(messages.FUNCTION_INIT_ITERATING);
+  try {
+    const iterateStream = functionService.iterateStream(sseDeps, {
+      draft_function_id: current.draftId,
+      user_prompt: iterateDescription.trim(),
+      previous_code: current.code,
+      chat_history: chatHistory,
+      source: 'cli',
+    });
+    const iterateResult = await processGenerateStream(iterateStream, iterateSpinner);
+    iterateSpinner.stop();
+
+    chatHistory.push(
+      { role: 'user', content: iterateDescription.trim() },
+      { role: 'assistant', content: iterateResult.code },
+    );
+
+    return mergeGenerateResult(current, iterateResult);
+  } catch (err) {
+    iterateSpinner.stop();
+    if (err instanceof ApiError || err instanceof CliError) throw err;
+    logInfo(`  ${color('31', messages.FUNCTION_INIT_ITERATE_ERROR)}`);
+    return null;
+  }
+}
+
+/** Try running a preview, logging a warning on failure. */
+async function tryPreview(draftId: string | undefined): Promise<void> {
+  if (!draftId) return;
+  try {
+    await executePreview(draftId);
+  } catch {
+    logInfo(`  ${color('33', messages.FUNCTION_INIT_PREVIEW_ERROR)}`);
+  }
+}
+
 async function aiGenerationFlow(app: OAuthApp): Promise<void> {
   const { description } = await inquirer.prompt([
     {
@@ -272,14 +326,7 @@ async function aiGenerationFlow(app: OAuthApp): Promise<void> {
     { role: 'assistant', content: result.code },
   );
 
-  // Fetch contacts and execute preview using the draft_id
-  if (result.draftId) {
-    try {
-      await executePreview(result.draftId);
-    } catch {
-      logInfo(`  ${color('33', messages.FUNCTION_INIT_PREVIEW_ERROR)}`);
-    }
-  }
+  await tryPreview(result.draftId);
 
   // Iteration loop
   let current = { ...result };
@@ -311,52 +358,10 @@ async function aiGenerationFlow(app: OAuthApp): Promise<void> {
       break;
     }
 
-    // Update / iterate
-    const { iterateDescription } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'iterateDescription',
-        message: messages.FUNCTION_INIT_ITERATE_DESCRIPTION,
-        validate: (v: string) => (v.trim() ? true : messages.FUNCTION_INIT_DESCRIPTION_REQUIRED),
-      },
-    ]);
-
-    if (!current.draftId) {
-      throw new CliError(messages.FUNCTION_INIT_GENERATION_FAILED);
-    }
-
-    const iterateSpinner = createSpinner(messages.FUNCTION_INIT_ITERATING);
-    try {
-      const iterateStream = functionService.iterateStream(sseDeps, {
-        draft_function_id: current.draftId,
-        user_prompt: iterateDescription.trim(),
-        previous_code: current.code,
-        chat_history: chatHistory,
-        source: 'cli',
-      });
-      const iterateResult = await processGenerateStream(iterateStream, iterateSpinner);
-      iterateSpinner.stop();
-
-      chatHistory.push(
-        { role: 'user', content: iterateDescription.trim() },
-        { role: 'assistant', content: iterateResult.code },
-      );
-
-      current = mergeGenerateResult(current, iterateResult);
-    } catch (err) {
-      iterateSpinner.stop();
-      if (err instanceof ApiError || err instanceof CliError) throw err;
-      logInfo(`  ${color('31', messages.FUNCTION_INIT_ITERATE_ERROR)}`);
-      continue;
-    }
-
-    // Execute preview with the updated code
-    if (current.draftId) {
-      try {
-        await executePreview(current.draftId);
-      } catch {
-        logInfo(`  ${color('33', messages.FUNCTION_INIT_PREVIEW_ERROR)}`);
-      }
+    const updated = await runIterateRound(current, chatHistory);
+    if (updated) {
+      current = updated;
+      await tryPreview(current.draftId);
     }
   }
 }
