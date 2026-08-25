@@ -177,8 +177,15 @@ function resolveTemplateFlags(vars: Record<string, string>): Set<TemplateFlag> {
   const distribution: Distribution = vars['{{DISTRIBUTION}}'] === 'public' ? 'public' : 'private';
   const isUiApp = !!vars['{{UI_APP_JSON}}'];
   const isBrevoFunction = !!vars['{{BREVO_FUNCTION_JSON}}'];
-  const flags = new Set<TemplateFlag>([distribution, isUiApp ? 'ui_app' : 'oauth']);
-  if (isBrevoFunction) flags.add('brevo_function');
+  let appTypeFlag: TemplateFlag;
+  if (isUiApp) {
+    appTypeFlag = 'ui_app';
+  } else if (isBrevoFunction) {
+    appTypeFlag = 'brevo_function';
+  } else {
+    appTypeFlag = 'oauth';
+  }
+  const flags = new Set<TemplateFlag>([distribution, appTypeFlag]);
   return flags;
 }
 

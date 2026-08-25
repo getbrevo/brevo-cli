@@ -1,5 +1,8 @@
 import { ApiClient } from '../../api/client';
 import { createFunctionService } from '../../services/function';
+import * as sseStreamModule from '../../api/sse-stream';
+
+jest.mock('../../api/sse-stream');
 
 function createMockClient() {
   return {
@@ -198,6 +201,100 @@ describe('services/function', () => {
       (mockClient.delete as jest.Mock).mockRejectedValue(new Error('Forbidden'));
 
       await expect(service.deleteFunction('fn-001')).rejects.toThrow('Forbidden');
+    });
+  });
+
+  describe('fetchTemplates', () => {
+    it('should call client.get with the templates endpoint and unwrap the response', async () => {
+      const templates = [
+        { id: 't-1', name: 'Lead Score', description: 'Score leads', code: 'return 1;' },
+      ];
+      (mockClient.get as jest.Mock).mockResolvedValue({ templates });
+
+      const result = await service.fetchTemplates();
+
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/dp-functions/functions/templates');
+      expect(result).toEqual(templates);
+    });
+
+    it('should propagate API errors', async () => {
+      (mockClient.get as jest.Mock).mockRejectedValue(new Error('Forbidden'));
+
+      await expect(service.fetchTemplates()).rejects.toThrow('Forbidden');
+    });
+  });
+
+  describe('createFunction', () => {
+    it('should call client.post with correct endpoint and payload', async () => {
+      const payload = { name: 'My Fn', code: 'return 42;', category: 'scoring' };
+      const response = { id: 'fn-new', name: 'My Fn', version: 1 };
+      (mockClient.post as jest.Mock).mockResolvedValue(response);
+
+      const result = await service.createFunction(payload);
+
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/dp-functions/functions', payload);
+      expect(result).toEqual(response);
+    });
+
+    it('should propagate API errors', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new Error('Bad request'));
+
+      await expect(service.createFunction({ name: 'x', code: 'x' })).rejects.toThrow('Bad request');
+    });
+  });
+
+  describe('generateStream', () => {
+    it('should delegate to sseStream with POST and the generate endpoint', async () => {
+      const mockEvent = { data: '{"stage":"enriching"}' };
+      (sseStreamModule.sseStream as jest.Mock).mockImplementation(async function* () {
+        yield mockEvent;
+      });
+
+      const deps = { baseUrl: 'https://api.example.com', getAuthHeader: () => ({}) };
+      const payload = { user_prompt: 'create a scoring function' };
+
+      const events = [];
+      for await (const event of service.generateStream(deps, payload)) {
+        events.push(event);
+      }
+
+      expect(sseStreamModule.sseStream).toHaveBeenCalledWith(
+        deps,
+        'POST',
+        '/v3/dp-functions/generate/stream',
+        payload,
+      );
+      expect(events).toEqual([mockEvent]);
+    });
+  });
+
+  describe('iterateStream', () => {
+    it('should delegate to sseStream with PATCH and the generate endpoint', async () => {
+      const mockEvent = { data: '{"code":"updated"}' };
+      (sseStreamModule.sseStream as jest.Mock).mockImplementation(async function* () {
+        yield mockEvent;
+      });
+
+      const deps = { baseUrl: 'https://api.example.com', getAuthHeader: () => ({}) };
+      const payload = {
+        draft_function_id: 'd-1',
+        user_prompt: 'add error handling',
+        previous_code: 'return 1;',
+        chat_history: [],
+      };
+
+      const events = [];
+      for await (const event of service.iterateStream(deps, payload)) {
+        events.push(event);
+      }
+
+      expect(sseStreamModule.sseStream).toHaveBeenCalledWith(
+        deps,
+        'PATCH',
+        '/v3/dp-functions/generate/stream',
+        payload,
+      );
+      expect(events).toEqual([mockEvent]);
     });
   });
 });

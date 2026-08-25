@@ -4,7 +4,13 @@ import { ApiError } from '../../../lib/errors';
 jest.mock('../../../container', () => ({
   functionService: {
     deactivateFunction: jest.fn(),
+    fetchFunctionList: jest.fn(),
   },
+}));
+
+jest.mock('../../../commands/function/select-function', () => ({
+  assertFunctionSelectionAllowed: jest.fn(),
+  promptFunctionSelection: jest.fn(),
 }));
 
 import { functionService } from '../../../container';
@@ -28,7 +34,8 @@ describe('function/deactivate', () => {
 
     expect(functionService.deactivateFunction).toHaveBeenCalledWith('fn-001');
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).toContain('Brevo Function "fn-001" deactivated');
+    expect(output).toContain('Function Deactivated');
+    expect(output).toContain('"fn-001" is now inactive.');
   });
 
   it('should output JSON on success with --json', async () => {

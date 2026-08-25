@@ -6,11 +6,15 @@
   "distribution_type": "{{DISTRIBUTION}}",
 {{#if ui_app}}
   "ui_app": {{UI_APP_JSON}},
+  "auth": {}
 {{/if}}
-  "auth": {
+{{#if brevo_function}}
+  "brevo_function": {}
+{{/if}}
 {{#if oauth}}
+  "auth": {
     "scopes": {{SCOPES_JSON}},
     "redirectUris": {{REDIRECT_URLS_JSON}}
-{{/if}}
   }
+{{/if}}
 }

@@ -30,53 +30,18 @@ describe('functionCommandGroup', () => {
     expect(names).toContain('delete');
   });
 
-  it('list command supports --json and --draft', () => {
-    const cmd = functionCommandGroup!.commands.find((c) => c.name === 'list');
+  it.each([
+    { command: 'list', expectedFlags: ['--json', '--draft'] },
+    { command: 'get', expectedFlags: ['--id <id>', '--json'] },
+    { command: 'activate', expectedFlags: ['--id <id>', '--json'] },
+    { command: 'deactivate', expectedFlags: ['--id <id>', '--json'] },
+    { command: 'delete', expectedFlags: ['--id <id>', '--force', '--json'] },
+  ])('$command command supports expected flags', ({ command, expectedFlags }) => {
+    const cmd = functionCommandGroup!.commands.find((c) => c.name === command);
     expect(cmd).toBeDefined();
     const flags = (cmd!.options ?? []).map((o) => o.flags);
-    expect(flags).toContain('--json');
-    expect(flags).toContain('--draft');
-  });
-
-  it('get command supports --json', () => {
-    const cmd = functionCommandGroup!.commands.find((c) => c.name === 'get');
-    expect(cmd).toBeDefined();
-    const flags = (cmd!.options ?? []).map((o) => o.flags);
-    expect(flags).toContain('--json');
-  });
-
-  it('get command takes an <id> argument', () => {
-    const cmd = functionCommandGroup!.commands.find((c) => c.name === 'get');
-    expect(cmd).toBeDefined();
-    expect(cmd!.arguments).toBeDefined();
-    expect(cmd!.arguments!.some((a) => a.name.includes('id'))).toBe(true);
-  });
-
-  it('activate command supports --json and takes <id>', () => {
-    const cmd = functionCommandGroup!.commands.find((c) => c.name === 'activate');
-    expect(cmd).toBeDefined();
-    const flags = (cmd!.options ?? []).map((o) => o.flags);
-    expect(flags).toContain('--json');
-    expect(cmd!.arguments).toBeDefined();
-    expect(cmd!.arguments!.some((a) => a.name.includes('id'))).toBe(true);
-  });
-
-  it('deactivate command supports --json and takes <id>', () => {
-    const cmd = functionCommandGroup!.commands.find((c) => c.name === 'deactivate');
-    expect(cmd).toBeDefined();
-    const flags = (cmd!.options ?? []).map((o) => o.flags);
-    expect(flags).toContain('--json');
-    expect(cmd!.arguments).toBeDefined();
-    expect(cmd!.arguments!.some((a) => a.name.includes('id'))).toBe(true);
-  });
-
-  it('delete command supports --force, --json and takes <id>', () => {
-    const cmd = functionCommandGroup!.commands.find((c) => c.name === 'delete');
-    expect(cmd).toBeDefined();
-    const flags = (cmd!.options ?? []).map((o) => o.flags);
-    expect(flags).toContain('--force');
-    expect(flags).toContain('--json');
-    expect(cmd!.arguments).toBeDefined();
-    expect(cmd!.arguments!.some((a) => a.name.includes('id'))).toBe(true);
+    for (const flag of expectedFlags) {
+      expect(flags).toContain(flag);
+    }
   });
 });

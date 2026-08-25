@@ -8,7 +8,13 @@ jest.mock('inquirer', () => ({
 jest.mock('../../../container', () => ({
   functionService: {
     deleteFunction: jest.fn(),
+    fetchFunctionList: jest.fn(),
   },
+}));
+
+jest.mock('../../../commands/function/select-function', () => ({
+  assertFunctionSelectionAllowed: jest.fn(),
+  promptFunctionSelection: jest.fn(),
 }));
 
 import inquirer from 'inquirer';
@@ -34,7 +40,8 @@ describe('function/delete', () => {
     expect(inquirer.prompt).not.toHaveBeenCalled();
     expect(functionService.deleteFunction).toHaveBeenCalledWith('fn-001');
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).toContain('Brevo Function "fn-001" deleted');
+    expect(output).toContain('Function Deleted');
+    expect(output).toContain('"fn-001" has been permanently deleted.');
   });
 
   it('should output JSON with --force --json', async () => {
@@ -58,7 +65,8 @@ describe('function/delete', () => {
     expect(inquirer.prompt).toHaveBeenCalled();
     expect(functionService.deleteFunction).toHaveBeenCalledWith('fn-001');
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).toContain('Brevo Function "fn-001" deleted');
+    expect(output).toContain('Function Deleted');
+    expect(output).toContain('"fn-001" has been permanently deleted.');
   });
 
   it('should cancel when user declines', async () => {

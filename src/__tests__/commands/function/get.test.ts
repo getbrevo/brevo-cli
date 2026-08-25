@@ -4,7 +4,13 @@ import { ApiError } from '../../../lib/errors';
 jest.mock('../../../container', () => ({
   functionService: {
     fetchFunction: jest.fn(),
+    fetchFunctionList: jest.fn(),
   },
+}));
+
+jest.mock('../../../commands/function/select-function', () => ({
+  assertFunctionSelectionAllowed: jest.fn(),
+  promptFunctionSelection: jest.fn(),
 }));
 
 import { functionService } from '../../../container';
@@ -37,7 +43,7 @@ describe('function/get', () => {
   };
 
   describe('getFunctionCommand', () => {
-    it('should display all function details for a valid ID', async () => {
+    it('should display function details without global field', async () => {
       (functionService.fetchFunction as jest.Mock).mockResolvedValue(sampleFunction);
 
       await getFunctionCommand({ id: 'fn-001', json: false });
@@ -47,11 +53,10 @@ describe('function/get', () => {
       expect(output).toContain('fn-001');
       expect(output).toContain('active');
       expect(output).toContain('Scores leads based on activity');
-      expect(output).toContain('Uses engagement data');
       expect(output).toContain('SUM(clicks) * 10');
       expect(output).toContain('scoring');
       expect(output).toContain('2026-01-01T00:00:00Z');
-      expect(output).toContain('2026-01-15T00:00:00Z');
+      expect(output).not.toContain('Global');
       expect(functionService.fetchFunction).toHaveBeenCalledWith('fn-001');
     });
 
@@ -65,17 +70,6 @@ describe('function/get', () => {
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
       expect(output).toContain('inactive');
-    });
-
-    it('should omit optional fields when absent', async () => {
-      const { category, last_recalculated_at, ...minimal } = sampleFunction;
-      (functionService.fetchFunction as jest.Mock).mockResolvedValue(minimal);
-
-      await getFunctionCommand({ id: 'fn-001', json: false });
-
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-      expect(output).not.toContain('Category');
-      expect(output).not.toContain('Recalculated');
     });
 
     it('should output JSON when --json is set', async () => {

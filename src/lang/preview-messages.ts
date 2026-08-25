@@ -173,18 +173,72 @@ export const previewMessages = {
   APP_SUBMIT_NOT_PUBLIC: (appId: string): string =>
     `App ${appId} is private. Private apps cannot be submitted for review. Only public apps are eligible for the approval process. Please make your app public before submitting it for review.`,
 
+  // Function selection (shared picker)
+  FUNCTION_SELECT_NON_INTERACTIVE: (command: string) =>
+    `Cannot show the function picker in non-interactive mode. Name the function instead:\n\n      ${command}\n\n  \`${CLI.FUNCTION_LIST}\` shows the IDs.`,
+  FUNCTION_GET_SELECT: 'Select a function:',
+  FUNCTION_ACTIVATE_SELECT: 'Select a function to activate:',
+  FUNCTION_DEACTIVATE_SELECT: 'Select a function to deactivate:',
+  FUNCTION_DELETE_SELECT: 'Select a function to delete:',
+
   // Function activate
-  FUNCTION_ACTIVATE_SUCCESS: (id: string) => `Brevo Function "${id}" activated.`,
   FUNCTION_ACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+  FUNCTION_ACTIVATE_CARD_TITLE: 'Function Activated',
+  FUNCTION_ACTIVATE_CARD_LABEL: 'Status',
+  FUNCTION_ACTIVATE_CARD_MESSAGE: (id: string) => `"${id}" is now active and processing data.`,
 
   // Function deactivate
-  FUNCTION_DEACTIVATE_SUCCESS: (id: string) => `Brevo Function "${id}" deactivated.`,
   FUNCTION_DEACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+  FUNCTION_DEACTIVATE_CARD_TITLE: 'Function Deactivated',
+  FUNCTION_DEACTIVATE_CARD_LABEL: 'Status',
+  FUNCTION_DEACTIVATE_CARD_MESSAGE: (id: string) => `"${id}" is now inactive.`,
 
   // Function delete
   FUNCTION_DELETE_CONFIRM: (id: string) =>
     `Are you sure you want to delete Brevo Function "${id}"? This cannot be undone.`,
-  FUNCTION_DELETE_SUCCESS: (id: string) => `Brevo Function "${id}" deleted.`,
   FUNCTION_DELETE_CANCELLED: 'Deletion cancelled.',
   FUNCTION_DELETE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+  FUNCTION_DELETE_CARD_TITLE: 'Function Deleted',
+  FUNCTION_DELETE_CARD_LABEL: 'Removed',
+  FUNCTION_DELETE_CARD_MESSAGE: (id: string) => `"${id}" has been permanently deleted.`,
+
+  // Function init
+  FUNCTION_INIT_SELECT_APP: 'Select a Brevo Function app:',
+  FUNCTION_INIT_NO_APPS: `No Brevo Function apps found. Create one first with \`${CLI.APP_CREATE}\`.`,
+  FUNCTION_INIT_METHOD_PROMPT: 'How would you like to create your function?',
+  FUNCTION_INIT_METHOD_AI: 'Generate using AI',
+  FUNCTION_INIT_METHOD_TEMPLATE: 'Use a predefined template',
+  FUNCTION_INIT_DESCRIPTION_PROMPT: 'Describe what this function should do:',
+  FUNCTION_INIT_DESCRIPTION_REQUIRED: 'Description cannot be empty.',
+  FUNCTION_INIT_TEMPLATE_PROMPT: 'Select a template:',
+  FUNCTION_INIT_NO_TEMPLATES: 'No templates available.',
+  FUNCTION_INIT_STAGE_ENRICHING: 'Analyzing the request',
+  FUNCTION_INIT_STAGE_PLANNING: 'Contacting databases',
+  FUNCTION_INIT_STAGE_GENERATING: 'Creating the function',
+  FUNCTION_INIT_STAGE_VALIDATING: 'Testing the function',
+  FUNCTION_INIT_GENERATING: 'Generating function...',
+  FUNCTION_INIT_ITERATE_PROMPT: 'What would you like to do?',
+  FUNCTION_INIT_ITERATE_UPDATE: 'Update / iterate on the prompt',
+  FUNCTION_INIT_ITERATE_SAVE: 'Deploy',
+  FUNCTION_INIT_ITERATE_DESCRIPTION: 'Describe the changes you want:',
+  FUNCTION_INIT_ITERATING: 'Iterating on function...',
+  FUNCTION_INIT_SAVE_SPINNER: 'Creating function...',
+  FUNCTION_INIT_GENERATION_FAILED: 'Function generation failed.',
+  FUNCTION_INIT_GENERATION_ERROR: 'Failed to generate function. Please try again.',
+  FUNCTION_INIT_ITERATE_ERROR: 'Failed to update function. Please try again.',
+  FUNCTION_INIT_PREVIEW_ERROR: 'Failed to preview function results.',
+  FUNCTION_INIT_NON_INTERACTIVE: `\`${CLI.FUNCTION_INIT}\` requires an interactive terminal. It cannot run with --json or piped input.`,
+  FUNCTION_INIT_FETCHING_CONTACTS: 'Fetching sample contacts...',
+  FUNCTION_INIT_EXECUTING_PREVIEW: 'Previewing function...',
+  FUNCTION_INIT_PREVIEW_HEADER: 'Preview results:',
+  FUNCTION_INIT_NAME_PROMPT: 'Enter a name for this function:',
+  FUNCTION_INIT_NAME_REQUIRED: 'Name cannot be empty.',
+  FUNCTION_INIT_DEPLOY_WARNING: 'This will activate the function and run it with real-time data.',
+  FUNCTION_INIT_DEPLOY_PROMPT: 'Are you sure you want to deploy?',
+  FUNCTION_INIT_NAME_EXISTS:
+    'A function with this name already exists. Please choose a different name.',
+  FUNCTION_INIT_DEPLOY_CANCELLED: 'Deployment cancelled.',
+  FUNCTION_INIT_CREATING_FROM_TEMPLATE: 'Deploying function...',
+  FUNCTION_INIT_BOX_TITLE: 'Function deployed',
+  FUNCTION_INIT_BOX_ID: (id: string) => `ID:   ${id}`,
 } as const;

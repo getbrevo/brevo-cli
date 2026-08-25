@@ -388,29 +388,25 @@ interface CreatedApp {
 
 function buildCreatePayload(inputs: CreateAppInputs) {
   const isUiApp = !!inputs.uiApp;
+  const isFunction = inputs.appType === 'function';
+
+  // Each app type sends its own discriminator block on the wire:
+  // - OAuth: `auth` with scopes and redirect URIs
+  // - UI app: `ui_app` with placements and destination
+  // - Function: `brevo_function` as an empty object (no OAuth flow)
+  let typeBlock;
+  if (isUiApp) {
+    typeBlock = { ui_app: inputs.uiApp };
+  } else if (isFunction) {
+    typeBlock = { brevo_function: {} };
+  } else {
+    typeBlock = { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } };
+  }
+
   return {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
-    // OAuth fields travel inside the `auth` block, same as the upload payload
-    // (unified structure). A UI app has no OAuth block at all (`auth: {}` in
-    // its config) — the key is omitted entirely, not sent empty. Sending empty
-    // arrays (or worse, the default localhost URI) would register OAuth state
-    // the app type never uses.
-    //
-    // `ui_app` is what tells create the omission is deliberate. It is the
-    // app-type discriminator on the wire exactly as it is in app-config.json
-    // (`isUiAppConfig`), so create can apply the same branch the CLI does:
-    // without it the endpoint reads a UI app as an OAuth app missing its
-    // callbacks and answers `redirect_uris is required and must not be empty`.
-    // `app upload` still sends the block and remains the platform's validation
-    // authority for it — this is the same block under the same key, sent early
-    // enough that the record is created with the right app type.
-    ...(isUiApp
-      ? { ui_app: inputs.uiApp }
-      : { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } }),
-    // Brevo Function apps are created as OAuth apps on the wire — the server
-    // does not accept a `brevo_function` block on create. The discriminator
-    // lives in the local app-config.json snapshot instead (see the template).
+    ...typeBlock,
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
 }
@@ -567,6 +563,25 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
   printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 }
 
+/**
+ * Cache the credentials locally. Not because this is the only copy — `GET
+ * /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
+ * too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
+ * `app start` can read them without a round trip.
+ * Guarded because a UI app has no OAuth credentials to cache: writing the pair
+ * unconditionally stored `{clientId: undefined, clientSecret: undefined}` under
+ * its ID, which is a cache entry that can only mislead a later read.
+ */
+function cacheCreatedAppCredentials(result: CreateAppResponse, appName: string): void {
+  if (result.client_id && result.client_secret) {
+    saveAppCredentials(result.app_id, {
+      clientId: result.client_id,
+      clientSecret: result.client_secret,
+    });
+  }
+  if (appName) saveAppName(result.app_id, appName);
+}
+
 export const createCommand = withCommandHandler(
   async (options: {
     name?: string;
@@ -591,8 +606,8 @@ export const createCommand = withCommandHandler(
     const distribution = await resolveDistribution(options.distribution, interactive);
     const appType = await resolveAppType(interactive, distribution);
 
-    // The app types diverge here: OAuth and Function apps collect callback URLs,
-    // UI apps collect placement + destination. Neither path runs the other's prompts.
+    // The app types diverge here: OAuth apps collect callback URLs, UI apps collect
+    // placement + destination, Function apps need neither. No path runs another's prompts.
     let redirectUris: string[] = [];
     let uiApp: UiApp | undefined;
     // Same elimination site as `resolveAppType`: this is the only call to
@@ -602,8 +617,8 @@ export const createCommand = withCommandHandler(
     // so this changes nothing at runtime.
     if (__BREVO_PREVIEW__ && appType === 'ui') {
       uiApp = await resolveUiApp();
-    } else {
-      // Both OAuth and Function apps follow the OAuth path (collect redirect URIs).
+    } else if (appType !== 'function') {
+      // Only OAuth apps collect redirect URIs. Function apps have no OAuth flow.
       redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
     }
 
@@ -627,20 +642,7 @@ export const createCommand = withCommandHandler(
     // this line a failed create left a stray directory and a moved cwd behind.
     applyCreateDirectory(dir, jsonMode);
 
-    // Cache the credentials locally. Not because this is the only copy — `GET
-    // /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
-    // too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
-    // `app start` can read them without a round trip.
-    // Guarded because a UI app has no OAuth credentials to cache: writing the pair
-    // unconditionally stored `{clientId: undefined, clientSecret: undefined}` under
-    // its ID, which is a cache entry that can only mislead a later read.
-    if (result.client_id && result.client_secret) {
-      saveAppCredentials(result.app_id, {
-        clientId: result.client_id,
-        clientSecret: result.client_secret,
-      });
-    }
-    if (finalAppName) saveAppName(result.app_id, finalAppName);
+    cacheCreatedAppCredentials(result, finalAppName);
 
     // Shared JSON shape for both exits below. `redirectUri` is omitted for UI
     // apps rather than emitted as an empty array, so a consumer can distinguish
