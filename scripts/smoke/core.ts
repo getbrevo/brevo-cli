@@ -916,7 +916,7 @@ export function featureMissing(state: State, name: GatedFeature): boolean {
  * create step".
  */
 export function markFeatureUnavailable(state: State, name: GatedFeature, reason: string): void {
-  state.caps = { ...(state.caps ?? {}), [name]: false };
+  state.caps = { ...state.caps, [name]: false };
   logToFile(state, `capability ${name} downgraded to unavailable: ${reason}`);
 }
 
