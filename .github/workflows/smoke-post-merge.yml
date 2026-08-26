@@ -4,6 +4,12 @@ name: Smoke (post-merge)
 # the new version. Manual runs live on the `Smoke` workflow instead — pick
 # `against: published` there; this workflow has no dispatch trigger of its own.
 # Steps, timeout and concurrency all live in smoke.yml.
+#
+# Only reachable from a release created by a human or a PAT — Actions suppresses
+# events the default GITHUB_TOKEN generates, so the release changesets/action
+# opens does not fire this. release.yaml dispatches `smoke.yml` for that path;
+# pointing it back here 422s, since a workflow_call-only workflow can't be
+# dispatched.
 on:
   release:
     types: [published]
@@ -16,5 +22,19 @@ jobs:
     uses: ./.github/workflows/smoke.yml
     with:
       against: published
+      # Pinned for the same reason as the pre-merge lane.
+      #
+      # `private,ui` — the LIVE surface, which is the whole point of this lane:
+      # it installs from npm, so it is the only check on what a customer
+      # actually gets. `ui` is not implied by `private` (the two suites are
+      # disjoint) and UI apps have shipped in every build since 2.2.0, so
+      # omitting it left `app install` / `app uninstall` and the whole `ui_app`
+      # path unverified against the published package.
+      #
+      # No 'public': those commands are eliminated from the published bundle, so
+      # the steps could only ever skip — and smoke.yml now refuses that pairing
+      # outright rather than skipping through it to a green run.
+      suite: private,ui
+      account: default
       expected_version: ${{ github.event.release.tag_name }}
     secrets: inherit

@@ -235,6 +235,14 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 
 **What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
 
+**A feature going GA must join the smoke test's live suites, in the same PR.** The smoke runner splits by surface: `scripts/smoke-test.ts`'s `SUITES` registry holds one suite per app type, and `.github/workflows/smoke.yml`'s `suite` input defaults to the **live** set — the suites whose commands are in the published bundle. A preview suite (today: `public`) is only meaningful on a `PREVIEW=1` build, which is why `smoke.yml` **refuses** a public-containing suite unless `against=local` rather than letting its steps auto-skip into a green run. So when a feature leaves `FEATURE_STAGE`'s `'preview'`:
+
+1. Move its steps out of the preview suite, or add a suite for it, in `scripts/smoke/`.
+2. Add it to `smoke.yml`'s `suite` **default** and its `options`, so the manual button and any new lane cover it.
+3. Decide, deliberately, whether the release lanes should cover it — `smoke-pre-merge.yml`, `smoke-post-merge.yml` and `release.yaml`'s dispatch each **pin** `suite` explicitly so a retuned default can never silently change what a publish gate verifies. Widening a gate is a real decision: verify the suite passes on `ubuntu-latest` first, since a suite that only ever ran on a dev machine (a pty-driven one especially) has not been proven headless.
+
+A GA'd feature the smoke never exercises is the mirror of the docs problem above: the release gate reports green on a surface it never touched.
+
 **Skill version tracks the CLI version automatically.** `SKILL_CATALOG[brevo-cli].version` is computed at module-init from `package.json` (`CLI_VERSION` in `src/skills/index.ts`), so every published CLI release auto-refreshes installed skills — even when `SKILL.md` content didn't change. You only need to land your changeset; the skill version takes care of itself.
 
 ## Testing patterns
@@ -312,6 +320,12 @@ yarn publish:packages     # publish to npm
 - `.github/workflows/push.yaml` — runs lint, test, build on every push/PR to `main`
 - `.github/workflows/release.yaml` — when changesets merge to `main`, opens a "Version Packages" PR; merging that PR publishes to npm
 - `.github/workflows/pre-release.yaml` — pushes to `release-*` branches publish alpha prereleases to npm
+
+**Release gates: `scripts/release-check.mjs`.** `release.yaml` runs `pre` before the publish (on the tarball `npm pack` produces) and `post` after it (on the tarball the registry serves), both through the same assertions — a pre-publish gate on a different artifact than the post-publish one isn't a gate. Run either locally: `yarn release:check pre`, `yarn release:check post --version=2.2.0`.
+
+Shared: required files present, forbidden files absent (the branch-local working docs above, plus `.env` / `credentials.json` / `.brevo.json` / keys), every `src/templates/files/*.tmpl` shipped, no secret-shaped string in packed content, and **the tarball installs into an empty tree where `brevo --version` runs** — the only check on the dependency closure, since deps stay external and one that drifted into `devDependencies` would pack fine and die on the first install. `post` adds the registry metadata: `latest` moved, a SLSA provenance attestation is attached, the publisher is the OIDC identity, and the download matches `dist.integrity`. If those last two fail, fix the trusted publisher on npmjs.com — **do not** add an `NPM_TOKEN`.
+
+Two things it deliberately doesn't do: re-check the gated public-app surface (`scripts/build.mjs` owns `LEAK_MARKERS` / `GA_MARKERS` and `prepublishOnly` reruns it, so a copy here could only drift), and stand in for the smoke test (`smoke.yml` authenticates and drives real commands; this only proves the artifact). `.tmpl` paths are skipped in the forbidden-*filename* scan — the template set includes `.env.example.tmpl` and `app-config.json.tmpl` on purpose — but their content is still secret-scanned.
 
 **npm auth: Trusted Publishing (OIDC), no long-lived token.** Publishes authenticate to npm via the GitHub Actions OIDC token (`id-token: write`) — there is no `NPM_TOKEN` secret. The trust relationship is configured on npmjs.com for `@getbrevo/cli` and binds publishes to: repo `getbrevo/brevo-cli`, the specific workflow file, and the GitHub environment (`npm-publish` for stable, `npm-prerelease` for alphas). See https://docs.npmjs.com/trusted-publishers.
 

@@ -25,8 +25,11 @@ jobs:
           node-version: 20.15.0
           cache: yarn
 
+      # `--ignore-scripts`: the only lifecycle script in the tree is husky's
+      # `prepare`, which installs git hooks — nothing a CI job needs. Verified
+      # against this lockfile: build, test and lint all work without them.
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-scripts
 
       - name: Lint
         run: yarn lint

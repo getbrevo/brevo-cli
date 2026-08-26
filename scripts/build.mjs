@@ -52,6 +52,14 @@ await esbuild.build({
   format: 'cjs',
   packages: 'external',
   sourcemap: true,
+  // The map ships — `package.json` `files:` publishes the whole of `dist/` — so its
+  // contents are as public as the bundle's. With `sourcesContent` on, esbuild embeds the
+  // untouched TypeScript of every surviving module, comments included, which quietly
+  // undid the scrubbing `minifyWhitespace` performs below: `brevo app submit` was gone
+  // from `index.js` and one grep away in `index.js.map`. Off, the map still resolves a
+  // stack trace to `src/lib/foo.ts:123` (that is `sources` + `mappings`, not the text);
+  // a maintainer who wants the source alongside it has the repo, which is public.
+  sourcesContent: false,
   legalComments: 'none',
   // No `metafile`: nothing reads one. `logLevel: 'info'` is what prints the per-output
   // sizes this build reports, and the gate's assertions below read the emitted file
@@ -152,6 +160,24 @@ const LEAK_MARKERS = [
 // path fragment like `/withdraw` would false-positive on unrelated text.
 const LEAK_STRINGS = ['brevo app submit', 'brevo app withdraw', 'brevo app status'];
 
+// Every file the tarball carries, because that is the scope this particular check has
+// always claimed: not "what did the bundler emit" but "what can someone read in an
+// installed copy". `dist/` ships whole, so the sourcemap and the scaffold templates are
+// published artifacts exactly as `index.js` is. Scanning only the bundle is what let the
+// map carry the surface the bundle had been cleared of; `sourcesContent: false` removes
+// that text, and reading the directory rather than one path is what stops the next file
+// we add to `dist/` from repeating it.
+//
+// `LEAK_MARKERS` deliberately stays on the bundle alone: it asks whether a gated MODULE
+// survived elimination, which is a fact about the bundle and answerable only there.
+function publishedFiles() {
+  const dist = path.join(root, 'dist');
+  return fs
+    .readdirSync(dist, { recursive: true, encoding: 'utf-8' })
+    .map((entry) => path.join(dist, entry))
+    .filter((file) => fs.statSync(file).isFile());
+}
+
 // The mirror image of LEAK_MARKERS, for surface that went GA: bindings that must be
 // PRESENT in every build. Without this, only the jest gate suite notices a refactor
 // that re-routes an install import behind `__BREVO_PREVIEW__` (or back into
@@ -207,11 +233,16 @@ if (!preview) {
         'esbuild cannot fold across modules) and that nothing else imports it.',
     );
   }
-  const leakedStrings = LEAK_STRINGS.filter((s) => bundle.includes(s));
+  const leakedStrings = publishedFiles().flatMap((file) => {
+    const content = fs.readFileSync(file, 'utf-8');
+    return LEAK_STRINGS.filter((s) => content.includes(s)).map(
+      (s) => `${s} (${path.relative(root, file)})`,
+    );
+  });
   if (leakedStrings.length > 0) {
     throw new Error(
       `Gated command strings are readable in a public build: ${leakedStrings.join(', ')}.\n` +
-        'No command is registered for them, but `strings` on the published binary names ' +
+        'No command is registered for them, but `strings` on the published files names ' +
         'an unreleased feature. Move the string into `lib/preview-constants.ts` (or ' +
         '`lang/preview-messages.ts` if it is user-facing copy) so the object carrying it ' +
         'is eliminated, rather than deleting the check.',
