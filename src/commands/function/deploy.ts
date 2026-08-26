@@ -96,9 +96,10 @@ function isDuplicateNameError(err: unknown): boolean {
 function deriveNameFromDescription(description: string): string {
   const trimmed = description.trim();
   if (!trimmed) return 'Untitled Function';
-  // Take up to first 50 chars, cut at last word boundary
-  const capped = trimmed.length > 50 ? trimmed.slice(0, 50).replace(/\s+\S*$/, '') : trimmed;
-  return capped || trimmed.slice(0, 50);
+  if (trimmed.length <= 50) return trimmed;
+  // Cut at last space within 50 chars to land on a word boundary
+  const lastSpace = trimmed.lastIndexOf(' ', 50);
+  return lastSpace > 0 ? trimmed.slice(0, lastSpace) : trimmed.slice(0, 50);
 }
 
 /** Deploy in --json mode: derive name from description, skip prompts. */
