@@ -226,7 +226,27 @@ export const DEFAULT_APP_FOLDER = 'my-app';
 export const DEFAULT_PORT = 3009;
 export const DEFAULT_REDIRECT_URI = `http://localhost:${DEFAULT_PORT}/auth/callback`;
 export const PLACEHOLDER_CLIENT_ID = 'YOUR_CLIENT_ID';
-export const OAUTH_BASE = 'https://oauth.brevo.com';
+
+// Override with BREVO_OAUTH_BASE_URL to point scope lookups and scaffolded
+// project templates (project-writer.ts's `{{OAUTH_BASE}}`) at a non-production
+// environment.
+function resolveOauthBaseUrl(): string {
+  const raw = process.env.BREVO_OAUTH_BASE_URL || 'https://oauth.brevo.com';
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new CliError(`Invalid BREVO_OAUTH_BASE_URL: "${raw}" is not a valid URL.`);
+  }
+  if (parsed.protocol !== 'https:' && !isLocalHttpAllowed(parsed)) {
+    throw new CliError(
+      `BREVO_OAUTH_BASE_URL must use HTTPS. Got: ${raw}\n  HTTP is only allowed for localhost/127.0.0.1.`,
+    );
+  }
+  return parsed.origin;
+}
+
+export const OAUTH_BASE = resolveOauthBaseUrl();
 export const OAUTH_REALM = 'partner';
 export const OAUTH_SCOPES_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/scopes`;
 

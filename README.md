@@ -143,6 +143,7 @@ Environment overrides:
 
 - `BREVO_API_URL` — points the CLI at a different Brevo API (defaults to `https://api.brevo.com`).
 - `BREVO_OAUTH_PROXY_URL` — points the browser-login flow at a different OAuth proxy (defaults to `https://oauth-cli.brevo.com`; useful for local development or non-default environments).
+- `BREVO_OAUTH_BASE_URL` — points scope lookups and scaffolded project templates at a different OAuth realm (defaults to `https://oauth.brevo.com`).
 
 ## Exit codes
 
@@ -162,6 +163,7 @@ Environment overrides:
 | `BREVO_API_KEY` | API key used for non-interactive `brevo login` | – |
 | `BREVO_API_URL` | API base URL (HTTPS required, except for `localhost`) | `https://api.brevo.com` |
 | `BREVO_OAUTH_PROXY_URL` | OAuth proxy used by browser login (HTTPS required, except for `localhost`) | `https://oauth-cli.brevo.com` |
+| `BREVO_OAUTH_BASE_URL` | OAuth realm used for scope lookups and scaffolded project templates (HTTPS required, except for `localhost`) | `https://oauth.brevo.com` |
 | `BREVO_CONFIG_HOME` | Override for the credentials directory | `~/.brevo/` |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs | off |
 | `NO_COLOR` / `FORCE_COLOR` | Disable / force ANSI colour output | – |

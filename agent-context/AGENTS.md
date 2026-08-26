@@ -156,6 +156,7 @@ Writing `app-config.json` for an app whose remote scopes contain `'all'` never p
 | `BREVO_API_KEY` | Non-interactive login |
 | `BREVO_API_URL` | Override API base (HTTPS required, except `localhost`) |
 | `BREVO_OAUTH_PROXY_URL` | Override OAuth proxy used by browser login |
+| `BREVO_OAUTH_BASE_URL` | Override OAuth realm used for scope lookups and scaffolded project templates (HTTPS required, except `localhost`) |
 | `BREVO_APP_STORE_URL` | Override the app-store service base used for the update notice and the server-side block check (HTTPS required, except `localhost`) |
 | `BREVO_CONFIG_HOME` | Override credentials directory (default `~/.brevo/`) |
 | `BREVO_CLAUDE_HOME` | Override Claude Code home used by `skill:cli` (default `~/.claude/`) |
