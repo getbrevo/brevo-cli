@@ -19,6 +19,11 @@ name: Smoke
 #                          teardown; see the input's own notes below
 #   account              → WHICH test account, by naming a configured secret —
 #                          never by pasting a key, see the input's note
+#   environment           → 'production' (default, api.brevo.com) or 'staging'
+#                          — see the input's own note. Staging URLs live only
+#                          in repo secrets, never inline here: this repo is
+#                          public and CLAUDE.md forbids committing internal
+#                          infra hostnames to it.
 # Leave expected_version blank on a manual run; it only matters right after a
 # publish, while npm may still be serving the previous version.
 #
@@ -47,6 +52,11 @@ on:
         required: false
         type: string
         default: 'default'
+      environment:
+        description: "'production' (api.brevo.com) or 'staging' (non-prod backend, from repo secrets)"
+        required: false
+        type: string
+        default: 'production'
       expected_version:
         description: 'Release tag to wait for on npm first (published only)'
         required: false
@@ -111,6 +121,18 @@ on:
         options:
           - default
           - alt
+      environment:
+        # 'staging' points BREVO_API_URL / BREVO_OAUTH_PROXY_URL / BREVO_OAUTH_BASE_URL
+        # at repo secrets (BREVO_STAGING_*) rather than the CLI's production defaults —
+        # see the "Resolve environment URLs" step. Those secrets carry the actual
+        # hostnames; this file never does, because it's public.
+        description: "'production' (api.brevo.com) or 'staging' (non-prod backend)"
+        type: choice
+        required: true
+        default: production
+        options:
+          - production
+          - staging
       expected_version:
         description: 'Release tag to wait for on npm first (published only; blank = trust npm latest)'
         type: string
@@ -200,9 +222,40 @@ jobs:
           echo "::error::npm did not serve ${want} within 5 minutes; aborting"
           exit 1
 
+      # Resolve the non-production backend URLs for `environment: staging` and hand
+      # them on through step outputs. The URLs themselves live only in repo secrets
+      # (BREVO_STAGING_API_URL / BREVO_STAGING_OAUTH_PROXY_URL /
+      # BREVO_STAGING_OAUTH_BASE_URL) — never inline in this file, which is public.
+      # `environment: production` (the default) leaves the outputs empty, which the
+      # CLI's own `BREVO_API_URL` / `BREVO_OAUTH_PROXY_URL` / `BREVO_OAUTH_BASE_URL`
+      # resolution (src/lib/constants.ts) already treats as "use the built-in default".
+      - name: Resolve environment URLs
+        id: environment
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          STAGING_API_URL: ${{ secrets.BREVO_STAGING_API_URL }}
+          STAGING_OAUTH_PROXY_URL: ${{ secrets.BREVO_STAGING_OAUTH_PROXY_URL }}
+          STAGING_OAUTH_BASE_URL: ${{ secrets.BREVO_STAGING_OAUTH_BASE_URL }}
+        run: |
+          set -eu
+          if [ "${ENVIRONMENT:-production}" != 'staging' ]; then
+            echo "targeting production (CLI defaults)"
+            exit 0
+          fi
+          if [ -z "${STAGING_API_URL:-}" ] || [ -z "${STAGING_OAUTH_PROXY_URL:-}" ] || [ -z "${STAGING_OAUTH_BASE_URL:-}" ]; then
+            echo "::error::environment 'staging' selected but BREVO_STAGING_API_URL / BREVO_STAGING_OAUTH_PROXY_URL / BREVO_STAGING_OAUTH_BASE_URL are not all configured on this repository."
+            exit 1
+          fi
+          echo "api_url=$STAGING_API_URL" >> "$GITHUB_OUTPUT"
+          echo "oauth_proxy_url=$STAGING_OAUTH_PROXY_URL" >> "$GITHUB_OUTPUT"
+          echo "oauth_base_url=$STAGING_OAUTH_BASE_URL" >> "$GITHUB_OUTPUT"
+          echo "targeting staging environment"
+
       # Pick the account's key by name and hand it on through the step output.
-      # Both candidate secrets are exposed to THIS step only, and a `case`
-      # selects between them: an expression like
+      # Candidate secrets are exposed to THIS step only, and a `case` selects
+      # between them, keyed on environment:account together — a staging key is
+      # not interchangeable with a production one, they're different backends.
+      # An expression like
       #   inputs.account == 'alt' && secrets.ALT || secrets.DEFAULT
       # silently falls back to the default account when ALT is unset, which is
       # the one outcome that must not happen — a run that reports on an account
@@ -220,25 +273,30 @@ jobs:
         continue-on-error: ${{ inputs.non_blocking == true }}
         env:
           ACCOUNT: ${{ inputs.account }}
+          ENVIRONMENT: ${{ inputs.environment }}
           KEY_DEFAULT: ${{ secrets.BREVO_TEST_API_KEY }}
           KEY_ALT: ${{ secrets.BREVO_TEST_API_KEY_ALT }}
+          KEY_STAGING_DEFAULT: ${{ secrets.BREVO_TEST_API_KEY_STAGING }}
+          KEY_STAGING_ALT: ${{ secrets.BREVO_TEST_API_KEY_STAGING_ALT }}
         run: |
           set -eu
-          case "${ACCOUNT:-default}" in
-            default) key="$KEY_DEFAULT"; name='BREVO_TEST_API_KEY' ;;
-            alt)     key="$KEY_ALT";     name='BREVO_TEST_API_KEY_ALT' ;;
+          case "${ENVIRONMENT:-production}:${ACCOUNT:-default}" in
+            production:default) key="$KEY_DEFAULT";        name='BREVO_TEST_API_KEY' ;;
+            production:alt)     key="$KEY_ALT";             name='BREVO_TEST_API_KEY_ALT' ;;
+            staging:default)    key="$KEY_STAGING_DEFAULT"; name='BREVO_TEST_API_KEY_STAGING' ;;
+            staging:alt)        key="$KEY_STAGING_ALT";     name='BREVO_TEST_API_KEY_STAGING_ALT' ;;
             *)
-              echo "::error::unknown account '${ACCOUNT}' — add a case for it in this step"
+              echo "::error::unknown environment:account '${ENVIRONMENT:-production}:${ACCOUNT:-default}' — add a case for it in this step"
               exit 1
               ;;
           esac
           if [ -z "${key:-}" ]; then
-            echo "::error::account '${ACCOUNT:-default}' selects secret ${name}, which is not configured on this repository. Add it, or pick another account."
+            echo "::error::environment:account '${ENVIRONMENT:-production}:${ACCOUNT:-default}' selects secret ${name}, which is not configured on this repository. Add it, or pick another environment/account."
             exit 1
           fi
           echo "::add-mask::$key"
           echo "key=$key" >> "$GITHUB_OUTPUT"
-          echo "authenticating as account '${ACCOUNT:-default}' (secret ${name})"
+          echo "authenticating as account '${ACCOUNT:-default}' on '${ENVIRONMENT:-production}' (secret ${name})"
 
       - name: Run smoke test (${{ inputs.suite || 'private,ui' }})
         # Non-blocking only where the caller asks for it (the pre-merge release
@@ -250,6 +308,12 @@ jobs:
           # workflow_call this is a free-form string, not the dispatch choice.
           SUITE: ${{ inputs.suite }}
           BREVO_API_KEY: ${{ steps.account.outputs.key }}
+          # Empty on `environment: production` — the CLI's own resolveApiBase /
+          # resolveOauthProxyUrl / resolveOauthBaseUrl (src/lib/constants.ts) treat
+          # an empty override the same as an unset one and fall back to production.
+          BREVO_API_URL: ${{ steps.environment.outputs.api_url }}
+          BREVO_OAUTH_PROXY_URL: ${{ steps.environment.outputs.oauth_proxy_url }}
+          BREVO_OAUTH_BASE_URL: ${{ steps.environment.outputs.oauth_base_url }}
         # `${SUITE:-…}` covers unset AND empty — an empty --suite= is a runner
         # error ("needs at least one suite name"), so it must not reach it.
         run: yarn smoke --ci --against="$AGAINST" --suite="${SUITE:-private,ui}" --report=smoke-report.json
