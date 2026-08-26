@@ -275,9 +275,21 @@ jobs:
           version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[0].version')
           tag="${name}@${version}"
           echo "Dispatching Smoke (published) for ${tag}"
+          # suite/account pinned rather than left to smoke.yml's dispatch
+          # defaults, which are tuned for the manual button: this is the
+          # post-publish gate and must not change what it covers because
+          # someone retuned a dropdown.
+          #
+          # MUST match smoke-post-merge.yml's `suite`. This dispatch is the path
+          # that actually runs after a changesets publish — the `release` event
+          # that fires that workflow is suppressed for the default GITHUB_TOKEN
+          # — so a widening applied only there would be cosmetic. `private,ui`
+          # is the live surface; no 'public', which the published bundle omits.
           gh workflow run smoke.yml \
             --ref main \
             -f against=published \
+            -f suite=private,ui \
+            -f account=default \
             -f expected_version="${tag}"
 
       # Homebrew tap auto-bump: after a publish, recompute the tarball url +

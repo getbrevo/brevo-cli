@@ -27,5 +27,19 @@ jobs:
     uses: ./.github/workflows/smoke.yml
     with:
       against: local
+      # Pinned, not inherited. `suite`/`account` have defaults tuned for the
+      # manual "Run workflow" button, and a release gate must not change what it
+      # covers because someone retuned a dropdown.
+      #
+      # `all` = private + public + ui + init. This is the widest lane on
+      # purpose, and it is the right place to be widest: it is `non_blocking`,
+      # so a suite that has never run headless can prove itself here without
+      # gating a merge, and it runs on every push to main — which always
+      # precedes a release, so the post-merge lane inherits proven ground.
+      # Selecting 'public' makes the runner build PREVIEW=1, unchanged from when
+      # this lane ran `private,public`; the published surface is covered by the
+      # post-merge lane, which installs from npm.
+      suite: all
+      account: default
       non_blocking: true
     secrets: inherit

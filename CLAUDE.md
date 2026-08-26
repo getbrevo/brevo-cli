@@ -235,6 +235,14 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 
 **What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
 
+**A feature going GA must join the smoke test's live suites, in the same PR.** The smoke runner splits by surface: `scripts/smoke-test.ts`'s `SUITES` registry holds one suite per app type, and `.github/workflows/smoke.yml`'s `suite` input defaults to the **live** set — the suites whose commands are in the published bundle. A preview suite (today: `public`) is only meaningful on a `PREVIEW=1` build, which is why `smoke.yml` **refuses** a public-containing suite unless `against=local` rather than letting its steps auto-skip into a green run. So when a feature leaves `FEATURE_STAGE`'s `'preview'`:
+
+1. Move its steps out of the preview suite, or add a suite for it, in `scripts/smoke/`.
+2. Add it to `smoke.yml`'s `suite` **default** and its `options`, so the manual button and any new lane cover it.
+3. Decide, deliberately, whether the release lanes should cover it — `smoke-pre-merge.yml`, `smoke-post-merge.yml` and `release.yaml`'s dispatch each **pin** `suite` explicitly so a retuned default can never silently change what a publish gate verifies. Widening a gate is a real decision: verify the suite passes on `ubuntu-latest` first, since a suite that only ever ran on a dev machine (a pty-driven one especially) has not been proven headless.
+
+A GA'd feature the smoke never exercises is the mirror of the docs problem above: the release gate reports green on a surface it never touched.
+
 **Skill version tracks the CLI version automatically.** `SKILL_CATALOG[brevo-cli].version` is computed at module-init from `package.json` (`CLI_VERSION` in `src/skills/index.ts`), so every published CLI release auto-refreshes installed skills — even when `SKILL.md` content didn't change. You only need to land your changeset; the skill version takes care of itself.
 
 ## Testing patterns

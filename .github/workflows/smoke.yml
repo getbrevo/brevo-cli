@@ -15,8 +15,21 @@ name: Smoke
 #                          (the default: touch nothing, hit Run workflow, and
 #                          the ref only supplies the smoke script itself)
 #   against = local      → build that ref and smoke the build it produces
+#   suite                → which app types to exercise between setup and
+#                          teardown; see the input's own notes below
+#   account              → WHICH test account, by naming a configured secret —
+#                          never by pasting a key, see the input's note
 # Leave expected_version blank on a manual run; it only matters right after a
 # publish, while npm may still be serving the previous version.
+#
+# The `suite`/`account` defaults here serve the MANUAL button only. Every
+# automated lane — smoke-pre-merge.yml, smoke-post-merge.yml and release.yaml's
+# post-publish dispatch — pins both explicitly, so retuning a dropdown can never
+# change what a release gate verifies. Widen a gate by editing that lane.
+#
+# The manual default is the LIVE surface: private + ui. Public apps are not live
+# (BEX-405), so the preview suite is opt-in and refused unless against=local —
+# see the "Reject a preview suite" step, which is the rule, not the comment.
 on:
   workflow_call:
     inputs:
@@ -24,6 +37,16 @@ on:
         description: "'local' (build this ref) or 'published' (npm latest)"
         required: true
         type: string
+      suite:
+        description: 'Comma-separated suites for --suite (blank = the live surface)'
+        required: false
+        type: string
+        default: 'private,ui'
+      account:
+        description: 'Which test-account secret to authenticate with'
+        required: false
+        type: string
+        default: 'default'
       expected_version:
         description: 'Release tag to wait for on npm first (published only)'
         required: false
@@ -44,6 +67,50 @@ on:
         options:
           - published
           - local
+      suite:
+        # The values ARE the `--suite` argument, so what the dropdown shows is
+        # what the runner receives — no label-to-flag mapping to keep in sync.
+        #
+        # `private,ui` is the LIVE surface and the default: private apps plus UI
+        # apps, both GA and both in the published build.
+        #
+        # Anything containing `public` is the PREVIEW surface and only means
+        # something against=local, where the runner builds PREVIEW=1. Against a
+        # published package those steps could only ever skip — the commands are
+        # eliminated from the bundle (BEX-405) — so the pairing is refused
+        # outright rather than reported as a pass with holes in it.
+        #
+        # `init` drives the wizard through scripted stdin; `ui` drives create
+        # through a pty. Both work headless, so both can run here.
+        description: 'Which app types to smoke (--suite). public/all = preview, local only'
+        type: choice
+        required: true
+        default: private,ui
+        options:
+          - private,ui
+          - private
+          - ui
+          - init
+          - public
+          - private,ui,public
+          - all
+      account:
+        # Names a SECRET, never a key. workflow_dispatch inputs are recorded on
+        # the run page, and this repo is public — a pasted `xkeysib-…` would be
+        # world-readable and permanent. So the choice selects which configured
+        # secret to read, and the value itself never enters the UI or the logs.
+        #
+        # To add an account: create the secret, add its name to the `case` in
+        # the "Resolve the account key" step, and add the option here. A
+        # selection whose secret is missing FAILS the run — it must never fall
+        # back to the default account, which would silently smoke the wrong one.
+        description: 'Which test account to run against (selects a secret, not a key)'
+        type: choice
+        required: true
+        default: default
+        options:
+          - default
+          - alt
       expected_version:
         description: 'Release tag to wait for on npm first (published only; blank = trust npm latest)'
         type: string
@@ -70,6 +137,24 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      # Fail before checkout: an impossible pairing should cost nothing and say
+      # why. The preview surface exists only in a PREVIEW=1 build, which only
+      # `against=local` produces — against a published package the public steps
+      # would skip and the run would still go green, which reads as coverage the
+      # run never had.
+      - name: Reject a preview suite against a published package
+        if: contains(inputs.suite, 'public') || inputs.suite == 'all'
+        env:
+          AGAINST: ${{ inputs.against }}
+          SUITE: ${{ inputs.suite }}
+        run: |
+          set -eu
+          if [ "$AGAINST" != 'local' ]; then
+            echo "::error::suite '${SUITE}' includes the public-app (preview) surface, which only exists in a PREVIEW=1 build. Re-run with against=local, or pick a suite without 'public'."
+            exit 1
+          fi
+          echo "preview suite '${SUITE}' against a local build — ok"
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -115,11 +200,56 @@ jobs:
           echo "::error::npm did not serve ${want} within 5 minutes; aborting"
           exit 1
 
-      - name: Run smoke test
+      # Pick the account's key by name and hand it on through the step output.
+      # Both candidate secrets are exposed to THIS step only, and a `case`
+      # selects between them: an expression like
+      #   inputs.account == 'alt' && secrets.ALT || secrets.DEFAULT
+      # silently falls back to the default account when ALT is unset, which is
+      # the one outcome that must not happen — a run that reports on an account
+      # nobody chose. Missing key ⇒ hard failure naming the secret to add.
+      #
+      # `add-mask` before the output is written: an output is not automatically
+      # masked the way a `secrets.*` interpolation is.
+      - name: Resolve the account key
+        id: account
+        # Under the same non-blocking umbrella as the smoke itself: the
+        # pre-merge lane is documented as "runs for visibility, never gates the
+        # merge", and a misconfigured secret must not be the one thing that
+        # turns that check red. Failing here leaves the key empty, so the smoke
+        # step below fails too — and is tolerated identically.
+        continue-on-error: ${{ inputs.non_blocking == true }}
+        env:
+          ACCOUNT: ${{ inputs.account }}
+          KEY_DEFAULT: ${{ secrets.BREVO_TEST_API_KEY }}
+          KEY_ALT: ${{ secrets.BREVO_TEST_API_KEY_ALT }}
+        run: |
+          set -eu
+          case "${ACCOUNT:-default}" in
+            default) key="$KEY_DEFAULT"; name='BREVO_TEST_API_KEY' ;;
+            alt)     key="$KEY_ALT";     name='BREVO_TEST_API_KEY_ALT' ;;
+            *)
+              echo "::error::unknown account '${ACCOUNT}' — add a case for it in this step"
+              exit 1
+              ;;
+          esac
+          if [ -z "${key:-}" ]; then
+            echo "::error::account '${ACCOUNT:-default}' selects secret ${name}, which is not configured on this repository. Add it, or pick another account."
+            exit 1
+          fi
+          echo "::add-mask::$key"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "authenticating as account '${ACCOUNT:-default}' (secret ${name})"
+
+      - name: Run smoke test (${{ inputs.suite || 'private,ui' }})
         # Non-blocking only where the caller asks for it (the pre-merge release
         # PR). Absent on workflow_dispatch, where `inputs.non_blocking` is null.
         continue-on-error: ${{ inputs.non_blocking == true }}
         env:
           AGAINST: ${{ inputs.against }}
-          BREVO_API_KEY: ${{ secrets.BREVO_TEST_API_KEY }}
-        run: yarn smoke --ci --against="$AGAINST" --report=smoke-report.json
+          # Through the env, not inlined, for the same reason AGAINST is: on
+          # workflow_call this is a free-form string, not the dispatch choice.
+          SUITE: ${{ inputs.suite }}
+          BREVO_API_KEY: ${{ steps.account.outputs.key }}
+        # `${SUITE:-…}` covers unset AND empty — an empty --suite= is a runner
+        # error ("needs at least one suite name"), so it must not reach it.
+        run: yarn smoke --ci --against="$AGAINST" --suite="${SUITE:-private,ui}" --report=smoke-report.json
