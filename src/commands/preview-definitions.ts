@@ -30,6 +30,7 @@ import { activateFunctionCommand } from './function/activate';
 import { deactivateFunctionCommand } from './function/deactivate';
 import { deleteFunctionCommand } from './function/delete';
 import { initFunctionCommand } from './function/init';
+import { deployFunctionCommand } from './function/deploy';
 
 /** The `brevo app <name>` subcommands gated behind an unreleased feature. */
 export const previewAppCommands: CommandDefinition[] = [
@@ -278,6 +279,21 @@ export const previewFunctionGroup: SubcommandGroupDefinition = {
       examples: ['brevo function init', 'brevo fn init'],
       options: [{ flags: '--json', description: 'Output as JSON' }],
       handler: (opts) => initFunctionCommand({ json: Boolean(opts.json) }),
+    },
+    {
+      name: 'deploy',
+      description: 'Deploy a draft Brevo Function',
+      examples: [
+        'brevo function deploy',
+        'brevo function deploy --id draft-001',
+        'brevo function deploy --id draft-001 --json',
+      ],
+      options: [
+        { flags: '--id <id>', description: 'Draft ID (shows a picker if omitted)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        deployFunctionCommand({ id: opts.id as string | undefined, json: Boolean(opts.json) }),
     },
   ],
 };
