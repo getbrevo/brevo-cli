@@ -241,4 +241,28 @@ export const previewMessages = {
   FUNCTION_INIT_CREATING_FROM_TEMPLATE: 'Deploying function...',
   FUNCTION_INIT_BOX_TITLE: 'Function deployed',
   FUNCTION_INIT_BOX_ID: (id: string) => `ID:   ${id}`,
+
+  // Function deploy
+  FUNCTION_DEPLOY_SELECT: 'Select a draft to deploy:',
+  FUNCTION_DEPLOY_NO_DRAFTS:
+    'No draft functions found. Create one first with `brevo function init`.',
+  FUNCTION_DEPLOY_NON_INTERACTIVE: `Cannot show the draft picker in non-interactive mode. Pass the draft ID instead:\n\n      ${CLI.FUNCTION_DEPLOY}\n\n  \`${CLI.FUNCTION_LIST} --draft\` shows the IDs.`,
+  FUNCTION_DEPLOY_NOT_FOUND: (id: string) => `Draft "${id}" not found.`,
+  FUNCTION_DEPLOY_PREVIEW_HEADER: 'Preview results:',
+  FUNCTION_DEPLOY_PREVIEW_ERROR: 'Failed to preview draft results.',
+  FUNCTION_DEPLOY_NAME_PROMPT: 'Enter a name for this function:',
+  FUNCTION_DEPLOY_NAME_REQUIRED: 'Name cannot be empty.',
+  FUNCTION_DEPLOY_WARNING: 'This will activate the function and run it with real-time data.',
+  FUNCTION_DEPLOY_CONFIRM: 'Are you sure you want to deploy?',
+  FUNCTION_DEPLOY_CANCELLED: 'Deployment cancelled.',
+  FUNCTION_DEPLOY_SPINNER: 'Deploying function...',
+  FUNCTION_DEPLOY_NAME_EXISTS:
+    'A function with this name already exists. Please choose a different name.',
+  FUNCTION_DEPLOY_BOX_TITLE: 'Function deployed',
+  FUNCTION_DEPLOY_BOX_ID: (id: string) => `ID:   ${id}`,
+  FUNCTION_DEPLOY_FETCHING_CONTACTS: 'Fetching sample contacts...',
+  FUNCTION_DEPLOY_EXECUTING_PREVIEW: 'Previewing function...',
+
+  // Function preview — shared across init and deploy
+  FUNCTION_PREVIEW_EXECUTE_FAILED: 'Unable to deploy function.',
 } as const;

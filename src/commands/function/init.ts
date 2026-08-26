@@ -5,6 +5,7 @@ import { appService, functionService, sseDeps } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { createSpinner, indentChoices, printBox } from '../../lib/ui';
 import { ApiError, CliError } from '../../lib/errors';
+import { deriveAttributeId, hasPreviewErrors, printResultsTable } from './preview-table';
 import type { SSEEvent } from '../../api/sse-stream';
 import type { ChatHistoryEntry, FunctionGenerateSSEEvent, OAuthApp } from '../../types';
 
@@ -161,8 +162,12 @@ async function executePreview(draftId: string | undefined): Promise<void> {
     previewSpinner.stop();
   }
 
+  const results = executeResponse.result || [];
+  if (hasPreviewErrors(results)) {
+    throw new CliError(messages.FUNCTION_PREVIEW_EXECUTE_FAILED);
+  }
   logInfo(`\n  ${messages.FUNCTION_INIT_PREVIEW_HEADER}`);
-  printResultsTable(executeResponse.result || []);
+  printResultsTable(results);
 }
 
 interface SaveFunctionArgs {
@@ -283,12 +288,13 @@ async function runIterateRound(
   }
 }
 
-/** Try running a preview, logging a warning on failure. */
+/** Try running a preview — fatal on data errors (__error), non-fatal on network issues. */
 async function tryPreview(draftId: string | undefined): Promise<void> {
   if (!draftId) return;
   try {
     await executePreview(draftId);
-  } catch {
+  } catch (err) {
+    if (err instanceof CliError) throw err;
     logInfo(`  ${color('33', messages.FUNCTION_INIT_PREVIEW_ERROR)}`);
   }
 }
@@ -366,58 +372,11 @@ async function aiGenerationFlow(app: OAuthApp): Promise<void> {
   }
 }
 
-/**
- * Derive an `attribute_id` from a function name by converting to
- * SCREAMING_SNAKE_CASE: "sample test" -> "SAMPLE_TEST".
- */
-function deriveAttributeId(name: string): string {
-  return name
-    .trim()
-    .replace(/[^a-zA-Z0-9]+/g, '_')
-    .replace(/^_|_$/g, '')
-    .toUpperCase();
-}
-
 function isDuplicateNameError(err: unknown): boolean {
   if (err instanceof ApiError && err.statusCode === 409) {
     return true;
   }
   return false;
-}
-
-/** Keys excluded from the execute-result preview table (internal identifiers). */
-const PREVIEW_EXCLUDED_KEYS = new Set(['organization_id', 'attribute_id']);
-
-/** Format a cell value for the preview table, handling objects explicitly. */
-function formatCellValue(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return `${value}`;
-  return JSON.stringify(value);
-}
-
-function printResultsTable(rows: Record<string, unknown>[]): void {
-  if (rows.length === 0) return;
-  const seen = new Set<string>();
-  for (const row of rows) {
-    for (const key of Object.keys(row)) seen.add(key);
-  }
-  const cols = [...seen].filter((k) => !PREVIEW_EXCLUDED_KEYS.has(k));
-  if (cols.length === 0) return;
-
-  const widths = cols.map((col) =>
-    Math.max(col.length, ...rows.map((r) => formatCellValue(r[col]).length)),
-  );
-  const gutter = '  ';
-
-  process.stdout.write(`\n  ${cols.map((c, i) => c.padEnd(widths[i]!)).join(gutter)}\n`);
-  process.stdout.write(`  ${widths.map((w) => '-'.repeat(w)).join(gutter)}\n`);
-  for (const row of rows) {
-    process.stdout.write(
-      `  ${cols.map((c, i) => formatCellValue(row[c]).padEnd(widths[i]!)).join(gutter)}\n`,
-    );
-  }
-  process.stdout.write('\n');
 }
 
 async function templateFlow(app: OAuthApp): Promise<void> {
@@ -473,9 +432,13 @@ async function templateFlow(app: OAuthApp): Promise<void> {
   }
 
   // Step 4: Print preview -- template info + execute results
+  const results = executeResponse.result || [];
+  if (hasPreviewErrors(results)) {
+    throw new CliError(messages.FUNCTION_PREVIEW_EXECUTE_FAILED);
+  }
   logInfo(`\n  ${messages.FUNCTION_INIT_PREVIEW_HEADER}`);
   process.stdout.write(`\n  Description:   ${template.description}\n`);
-  printResultsTable(executeResponse.result || []);
+  printResultsTable(results);
 
   // Steps 5-7: Name -> confirm -> deploy, retrying on duplicate name.
   let defaultName = template.name;

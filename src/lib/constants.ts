@@ -202,6 +202,7 @@ export const CLI = {
   FUNCTION_DEACTIVATE: 'brevo function deactivate --id <id>',
   FUNCTION_DELETE: 'brevo function delete --id <id>',
   FUNCTION_INIT: 'brevo function init',
+  FUNCTION_DEPLOY: 'brevo function deploy --id <draft-id>',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;
