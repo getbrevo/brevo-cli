@@ -1,4 +1,7 @@
 import { messages } from '../../lang/en';
+// Cross-root import on purpose: the assertion is that the smoke suite's
+// patterns and this repo's copy agree, so the test has to see both.
+import { UI_CREATE_EXPECT } from '../../../scripts/smoke/ui-app';
 
 describe('messages (lang/en)', () => {
   it('should export all required static messages', () => {
@@ -208,5 +211,46 @@ describe('messages (lang/en)', () => {
       expect(messages.APP_SCOPES_WEB_LEGACY_TITLE).toMatch(/legacy 'all'/i);
       expect(messages.APP_SCOPES_WEB_DOCS_LINK).toMatch(/cli reference/i);
     });
+  });
+});
+
+// ── Smoke-suite prompt patterns ────────────────────────────────────────────
+//
+// `scripts/smoke/ui-app.ts` drives `brevo app create` through a pty and waits
+// for each prompt by regex. Those regexes duplicate the copy in this file by
+// necessity — the smoke exercises the REAL binary, and under
+// `--against=published` its strings may legitimately lag this repo — so nothing
+// in the smoke itself can catch a reword. This does.
+//
+// It exists because PR #73 (`890b19e`) reworded three UI-app prompts without
+// touching the suite. Nothing failed at PR time; it surfaced as a 122s pty
+// timeout on `main`, six steps deep, reported as "pty run timed out waiting for
+// prompt 6/9" — which reads like a broken terminal, not a stale string.
+describe('smoke-suite prompt patterns', () => {
+  it('every UI-app create pattern still matches the copy it waits for', () => {
+    const pairs: ReadonlyArray<[keyof typeof UI_CREATE_EXPECT, string]> = [
+      ['logo', messages.APP_CREATE_LOGO_PROMPT],
+      ['appTypeOAuth', messages.APP_CREATE_APP_TYPE_OAUTH],
+      ['appTypeUi', messages.APP_CREATE_APP_TYPE_UI],
+      ['integration', messages.APP_CREATE_UI_INTEGRATION_PROMPT],
+      ['page', messages.APP_CREATE_UI_SURFACE_PROMPT],
+      ['placement', messages.APP_CREATE_UI_PLACEMENT_PAGE_PROMPT('contact')],
+      ['label', messages.APP_CREATE_UI_LABEL_PROMPT],
+      ['moreInfo', messages.APP_CREATE_UI_MORE_INFO_PROMPT],
+      ['redirect', messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT],
+      ['outputDir', messages.APP_SCAFFOLD_DIR_PROMPT],
+    ];
+    for (const [key, copy] of pairs) {
+      expect({ key, matches: UI_CREATE_EXPECT[key].test(copy) }).toEqual({ key, matches: true });
+    }
+  });
+
+  // The traps #73 walked into. A pattern spanning a curly apostrophe or an em
+  // dash is brittle against a reword, and a long one can wrap in the pty
+  // transcript — so they are kept short and punctuation-free on purpose.
+  it('keeps the patterns free of typographic punctuation', () => {
+    for (const [key, re] of Object.entries(UI_CREATE_EXPECT)) {
+      expect({ key, clean: !/[’‘“”—–]/.test(re.source) }).toEqual({ key, clean: true });
+    }
   });
 });

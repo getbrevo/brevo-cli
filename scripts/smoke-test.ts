@@ -399,6 +399,7 @@ async function main(): Promise<void> {
     initAppId: null,
     linked: false,
     caps: null,
+    capDowngrades: {},
     startChild: null,
     stepResults: [],
     publicObs: {},
