@@ -9,12 +9,9 @@ import { ApiError, CliError } from '../../lib/errors';
 import { deriveAttributeId, hasPreviewErrors, printResultsTable } from './preview-table';
 import type { DpDraftFunction } from '../../types';
 
-/**
- * Refuse the draft picker when there is no terminal to draw it on.
- * Call BEFORE any picker on this command.
- */
-function assertDraftSelectionAllowed(jsonMode?: boolean): void {
-  if (jsonMode || !process.stdin.isTTY) {
+/** Refuse the draft picker when there is no terminal to draw it on. */
+function assertInteractiveTerminal(): void {
+  if (!process.stdin.isTTY) {
     throw new CliError(messages.FUNCTION_DEPLOY_NON_INTERACTIVE);
   }
 }
@@ -104,6 +101,102 @@ function deriveNameFromDescription(description: string): string {
   return capped || trimmed.slice(0, 50);
 }
 
+/** Deploy in --json mode: derive name from description, skip prompts. */
+async function deployJsonMode(draft: DpDraftFunction): Promise<void> {
+  const name = deriveNameFromDescription(draft.description || '');
+  const deploySpinner = createSpinner(messages.FUNCTION_DEPLOY_SPINNER, { silent: true });
+  try {
+    const created = await functionService.createFunction({
+      source: 'cli',
+      name,
+      code: draft.formula,
+      description: draft.description,
+      explanation: draft.explanation,
+      draft_id: draft.id,
+      attribute_id: deriveAttributeId(name),
+    });
+    deploySpinner.stop();
+    jsonOutput({
+      deployed: true,
+      id: created.id,
+      name: created.name,
+      version: created.version,
+    });
+  } catch (err) {
+    deploySpinner.stop();
+    throw err;
+  }
+}
+
+/** Interactive deploy: name prompt -> confirm -> deploy, retrying on duplicate name (409). */
+async function deployInteractive(draft: DpDraftFunction): Promise<void> {
+  let defaultName = '';
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { functionName } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'functionName',
+        message: messages.FUNCTION_DEPLOY_NAME_PROMPT,
+        default: defaultName || undefined,
+        validate: (v: string) => (v.trim() ? true : messages.FUNCTION_DEPLOY_NAME_REQUIRED),
+      },
+    ]);
+
+    logInfo(`\n  ${messages.FUNCTION_DEPLOY_WARNING}\n`);
+    const { confirmDeploy } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'confirmDeploy',
+        message: messages.FUNCTION_DEPLOY_CONFIRM,
+        default: false,
+      },
+    ]);
+
+    if (!confirmDeploy) {
+      logInfo(messages.FUNCTION_DEPLOY_CANCELLED);
+      return;
+    }
+
+    const deploySpinner = createSpinner(messages.FUNCTION_DEPLOY_SPINNER);
+    try {
+      const created = await functionService.createFunction({
+        source: 'cli',
+        name: functionName.trim(),
+        code: draft.formula,
+        description: draft.description,
+        explanation: draft.explanation,
+        draft_id: draft.id,
+        attribute_id: deriveAttributeId(functionName.trim()),
+      });
+      deploySpinner.stop();
+      printBox(messages.FUNCTION_DEPLOY_BOX_TITLE, [
+        `Name: ${created.name}`,
+        messages.FUNCTION_DEPLOY_BOX_ID(created.id),
+      ]);
+      return;
+    } catch (err) {
+      deploySpinner.stop();
+      if (isDuplicateNameError(err)) {
+        logInfo(messages.FUNCTION_DEPLOY_NAME_EXISTS);
+        defaultName = functionName.trim();
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/** Try running a preview, logging a warning on network failure. Fatal on data errors. */
+async function tryPreview(draftId: string): Promise<void> {
+  try {
+    await executePreview(draftId);
+  } catch (err) {
+    if (err instanceof CliError) throw err;
+    logInfo(`  ${color('33', messages.FUNCTION_DEPLOY_PREVIEW_ERROR)}`);
+  }
+}
+
 export const deployFunctionCommand = withCommandHandler(
   async (options: { id?: string; json?: boolean }): Promise<void> => {
     // Step 1: Resolve draft
@@ -116,103 +209,20 @@ export const deployFunctionCommand = withCommandHandler(
         spinner.stop();
       }
     } else {
-      assertDraftSelectionAllowed(options.json);
+      assertInteractiveTerminal();
       draft = await promptDraftFunctionSelection();
     }
 
     // Step 2: Preview — fatal on data errors (__error), non-fatal on network issues
     if (!options.json) {
-      try {
-        await executePreview(draft.id);
-      } catch (err) {
-        if (err instanceof CliError) throw err;
-        logInfo(`  ${color('33', messages.FUNCTION_DEPLOY_PREVIEW_ERROR)}`);
-      }
+      await tryPreview(draft.id);
     }
 
     // Step 3-4: Name + confirm (interactive) or derive name (--json)
     if (options.json) {
-      const name = deriveNameFromDescription(draft.description || '');
-      const deploySpinner = createSpinner(messages.FUNCTION_DEPLOY_SPINNER, { silent: true });
-      try {
-        const created = await functionService.createFunction({
-          source: 'cli',
-          name,
-          code: draft.formula,
-          description: draft.description,
-          explanation: draft.explanation,
-          draft_id: draft.id,
-          attribute_id: deriveAttributeId(name),
-        });
-        deploySpinner.stop();
-        jsonOutput({
-          deployed: true,
-          id: created.id,
-          name: created.name,
-          version: created.version,
-        });
-      } catch (err) {
-        deploySpinner.stop();
-        throw err;
-      }
-      return;
-    }
-
-    // Interactive: name -> confirm -> deploy, retrying on duplicate name
-    let defaultName = '';
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { functionName } = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'functionName',
-          message: messages.FUNCTION_DEPLOY_NAME_PROMPT,
-          default: defaultName || undefined,
-          validate: (v: string) => (v.trim() ? true : messages.FUNCTION_DEPLOY_NAME_REQUIRED),
-        },
-      ]);
-
-      logInfo(`\n  ${messages.FUNCTION_DEPLOY_WARNING}\n`);
-      const { confirmDeploy } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'confirmDeploy',
-          message: messages.FUNCTION_DEPLOY_CONFIRM,
-          default: false,
-        },
-      ]);
-
-      if (!confirmDeploy) {
-        logInfo(messages.FUNCTION_DEPLOY_CANCELLED);
-        return;
-      }
-
-      const deploySpinner = createSpinner(messages.FUNCTION_DEPLOY_SPINNER);
-      try {
-        const created = await functionService.createFunction({
-          source: 'cli',
-          name: functionName.trim(),
-          code: draft.formula,
-          description: draft.description,
-          explanation: draft.explanation,
-          draft_id: draft.id,
-          attribute_id: deriveAttributeId(functionName.trim()),
-        });
-        deploySpinner.stop();
-        printBox(messages.FUNCTION_DEPLOY_BOX_TITLE, [
-          `Name: ${created.name}`,
-          messages.FUNCTION_DEPLOY_BOX_ID(created.id),
-        ]);
-        return;
-      } catch (err) {
-        deploySpinner.stop();
-        if (isDuplicateNameError(err)) {
-          logInfo(messages.FUNCTION_DEPLOY_NAME_EXISTS);
-          defaultName = functionName.trim();
-          continue;
-        }
-        throw err;
-      }
+      await deployJsonMode(draft);
+    } else {
+      await deployInteractive(draft);
     }
   },
 );
