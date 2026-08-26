@@ -121,6 +121,12 @@ export interface State {
   initAppId: string | null;
   linked: boolean;
   caps: Record<string, boolean> | null;
+  // Why a capability was downgraded at RUNTIME, keyed by feature. Absent for a
+  // capability the build never offered — that distinction is the whole point:
+  // "the command isn't in this binary" and "the server refused it" are
+  // different findings, and a skip that names the wrong one sends the reader to
+  // the wrong repo.
+  capDowngrades: Partial<Record<string, string>>;
   startChild: ChildProcess | null;
   stepResults: StepResult[];
   publicObs: PublicObservations;
@@ -891,9 +897,17 @@ export function requireCommand(state: State, name: GatedCommand): void {
 }
 
 export function requireFeature(state: State, name: GatedFeature): void {
-  if (state.caps?.[name] === false) {
-    skip(`${name} not available in this build (--against=${state.opts.against})`);
-  }
+  if (state.caps?.[name] !== false) return;
+  // A runtime downgrade outranks the build explanation. The build DID offer the
+  // command in that case — a PREVIEW=1 run has the whole public surface — so
+  // saying "not available in this build" would be plainly false, and points a
+  // reader at scripts/build.mjs when the refusal came from the API.
+  const downgraded = state.capDowngrades[name];
+  skip(
+    downgraded
+      ? `${name} refused by the environment: ${downgraded}`
+      : `${name} not available in this build (--against=${state.opts.against})`,
+  );
 }
 
 /** True when the feature is known-absent, for callers that branch rather than skip. */
@@ -917,6 +931,9 @@ export function featureMissing(state: State, name: GatedFeature): boolean {
  */
 export function markFeatureUnavailable(state: State, name: GatedFeature, reason: string): void {
   state.caps = { ...state.caps, [name]: false };
+  // Recorded, not just logged: every later `requireFeature` skip quotes it, so
+  // the summary says WHY rather than guessing at the build.
+  state.capDowngrades[name] = reason;
   logToFile(state, `capability ${name} downgraded to unavailable: ${reason}`);
 }
 

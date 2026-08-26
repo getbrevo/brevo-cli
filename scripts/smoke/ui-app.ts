@@ -92,20 +92,50 @@ async function findUiAppByName(state: State, expectedName: string): Promise<stri
 //
 // Nothing is asked after the POST: `finishProject` prints the UI-app
 // next-steps box and returns — there is no feature offer for a UI app.
+/**
+ * The prompt patterns, named and exported so `en.test.ts` can pin them against
+ * `messages`. They duplicate prompt copy BY NECESSITY — the smoke drives the
+ * real binary, and under `--against=published` that binary's strings may
+ * legitimately be older than this repo's — so the drift they invite has to be
+ * caught somewhere else. That test is the somewhere: PR #73 (`890b19e`)
+ * reworded three of these and this file wasn't touched, which surfaced as a
+ * 122s pty timeout on `main` rather than a failed check on the PR.
+ *
+ * Keep every pattern SHORT and free of typographic punctuation. Two traps, both
+ * of which #73's rewording walked into: the copy uses curly apostrophes (’) and
+ * em dashes (—), so matching a phrase across one is brittle; and the transcript
+ * comes back from a pty at a fixed width, so a long phrase can wrap mid-match.
+ * Anchor on the few distinctive words at the START of the line instead.
+ * Matching is sequential (the runner advances a cursor past each hit), so a
+ * short anchor cannot be satisfied by earlier output.
+ */
+export const UI_CREATE_EXPECT = {
+  logo: /App logo URL \(optional/,
+  appTypeOAuth: /OAuth app\s+\(Authorize against Brevo/,
+  appTypeUi: /UI app\s+\(Render inside Brevo/,
+  integration: /What type of integration are you adding\?/,
+  page: /Which record page should it appear on\?/,
+  placement: /Where should it appear on the .+ page\?/,
+  label: /Label\b/,
+  moreInfo: /More info \(optional\)/,
+  redirect: /Redirect link\b/,
+  outputDir: /Output directory:/,
+} as const;
+
 function createExchanges(): PtyExchange[] {
   return [
-    { expect: /App logo URL \(optional/, send: '' },
+    { expect: UI_CREATE_EXPECT.logo, send: '' },
     {
-      expect: /OAuth app\s+\(Authorize against Brevo/,
-      send: (transcript) => (/UI app\s+\(Render inside Brevo/.test(transcript) ? '2' : null),
+      expect: UI_CREATE_EXPECT.appTypeOAuth,
+      send: (transcript) => (UI_CREATE_EXPECT.appTypeUi.test(transcript) ? '2' : null),
     },
-    { expect: /What type of integration are you adding\?/, send: '' },
-    { expect: /Which record page should it appear on\?/, send: '' },
-    { expect: /Where should it appear on the .+ page\?/, send: '' },
-    { expect: /the menu entry text, and the button text on a card/, send: UI_LABEL },
-    { expect: /supporting text under the menu entry/, send: '' },
-    { expect: /the destination URL your app opens/, send: UI_REDIRECT_LINK },
-    { expect: /Output directory:/, send: '' },
+    { expect: UI_CREATE_EXPECT.integration, send: '' },
+    { expect: UI_CREATE_EXPECT.page, send: '' },
+    { expect: UI_CREATE_EXPECT.placement, send: '' },
+    { expect: UI_CREATE_EXPECT.label, send: UI_LABEL },
+    { expect: UI_CREATE_EXPECT.moreInfo, send: '' },
+    { expect: UI_CREATE_EXPECT.redirect, send: UI_REDIRECT_LINK },
+    { expect: UI_CREATE_EXPECT.outputDir, send: '' },
   ];
 }
 
