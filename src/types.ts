@@ -391,6 +391,10 @@ export interface AppStateResponse {
   // explicit `submittable === false`.
   submittable?: boolean;
   missing_fields?: string[];
+  // Human-readable status message the server computes for the current state.
+  // Optional so an older server that omits it falls back to the CLI's canned
+  // per-state copy (APP_STATUS_MESSAGE); a blank string falls back too.
+  message?: string;
 }
 
 /**
