@@ -168,7 +168,7 @@ async function resolveAppId(options: SubmitOptions, config: ProjectConfig | null
 // before doing any submit work. A failed fetch — network, auth, or a not-found
 // app — propagates to the command handler and aborts the submission. The
 // returned state also carries the submittability signal (BEX-383), consumed by
-// `assertSubmittable` further down.
+// `assertSubmittable` immediately after this read.
 async function preflightAppState(
   appId: string,
   silent: boolean | undefined,
@@ -181,34 +181,20 @@ async function preflightAppState(
   }
 }
 
-// Server field keys the state API reports in `missing_fields` (BEX-383) mapped to
-// the labels the CLI already uses for these fields elsewhere (see
-// `computeConfigDrift` / `renderAppSummary`). Unknown keys fall through to the raw
-// key so a server-added field is still shown, just unlabelled.
-const MISSING_FIELD_LABELS: Record<string, string> = {
-  name: 'Name',
-  logoLink: 'Logo URL',
-  distribution_type: 'Distribution',
-  'oauth.scopes': 'Scopes',
-  'oauth.redirectUris': 'Redirect URLs',
-};
-
-function labelForMissingField(key: string): string {
-  return MISSING_FIELD_LABELS[key] ?? key;
-}
-
 // Block a submission the backend would reject for incompleteness. The state API
 // reports `submittable` plus the specific `missing_fields`; only an explicit
 // `false` gates, so an older server that omits the flag still submits (matches the
-// optional type in AppStateResponse). --json gets the compact raw-key message;
-// humans get the labelled multiline list.
+// optional type in AppStateResponse). Both modes show the field keys exactly as the
+// server returns them (e.g. `logoLink`, `oauth.scopes`) — no local relabelling — so
+// the developer sees the same name the API uses. --json is a compact inline list;
+// humans get the multiline list.
 function assertSubmittable(state: AppStateResponse, jsonMode: boolean, appId: string): void {
   if (state.submittable !== false) return;
   const fields = state.missing_fields ?? [];
   if (jsonMode) {
     throw new CliError(messages.APP_SUBMIT_NOT_SUBMITTABLE(fields, appId));
   }
-  const diff = fields.map((f) => `  ${labelForMissingField(f)}`).join('\n');
+  const diff = fields.map((f) => `  ${f}`).join('\n');
   throw new CliError(messages.APP_SUBMIT_NOT_SUBMITTABLE_DIFF(diff, appId));
 }
 
@@ -234,6 +220,11 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
   // submit. The response also carries the submittability signal used below.
   const state = await preflightAppState(appId, options.json);
 
+  // Block early when the app is still missing fields required for review (BEX-383),
+  // before fetching the full app the developer can't submit yet — the state read
+  // already told us it isn't ready, so the fetch would be wasted work.
+  assertSubmittable(state, !!options.json, appId);
+
   const app = await fetchExistingApp(appId, options.json);
 
   // Only public apps can be submitted for review — expressed as a capability so the rule
@@ -253,10 +244,6 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     'review-lifecycle',
     messages.APP_SUBMIT_NOT_PUBLIC(appId),
   );
-
-  // Block early when the app is still missing fields required for review (BEX-383),
-  // rather than sending the developer to a form the backend would reject.
-  assertSubmittable(state, !!options.json, appId);
 
   // Tracks whether we actually ran a local-vs-server comparison and it came back
   // clean — only then does the "no mismatch" note make sense to show.

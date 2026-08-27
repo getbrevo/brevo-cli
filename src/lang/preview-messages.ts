@@ -35,8 +35,9 @@ export const previewMessages = {
   // Submittability gate (BEX-383). The state API reports which required fields the
   // app still lacks; block before opening the form so the developer isn't sent to
   // complete a submission the backend would reject (`422 app_not_submittable`).
-  // Two shapes, matching OUT_OF_SYNC above: compact raw keys for --json, a labelled
-  // multiline list for humans.
+  // Two shapes, matching OUT_OF_SYNC above, both showing the raw server field keys
+  // (no local relabelling): a compact inline list for --json, a multiline list for
+  // humans.
   APP_SUBMIT_NOT_SUBMITTABLE: (fields: string[], appId: string): string =>
     `Your app isn't ready to submit yet — required fields are still missing (${fields.join(', ')}).\n  Add them to app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_NOT_SUBMITTABLE_DIFF: (diff: string, appId: string): string =>
