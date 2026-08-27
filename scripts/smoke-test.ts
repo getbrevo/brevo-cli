@@ -9,6 +9,9 @@
  *                                 → scaffold → start → delete, + guardrail probes
  *   scripts/smoke/public-app.ts   create → upload → status → submit → submit again
  *                                 → status → withdraw → status → delete
+ *   scripts/smoke/ui-app.ts       UI-app lifecycle: interactive create (pty) → upload
+ *                                 no-op → per-entry edit upload → install → uninstall
+ *                                 → delete (opt-in)
  *   scripts/smoke/init-wizard.ts  the `brevo app init` wizard (opt-in)
  *
  * Shared plumbing lives in scripts/smoke/core.ts.
@@ -47,17 +50,25 @@ import {
 } from './smoke/core';
 import { privateAppSuite } from './smoke/private-app';
 import { publicAppSuite } from './smoke/public-app';
+import { uiAppSuite } from './smoke/ui-app';
 import { initWizardSuite } from './smoke/init-wizard';
 
-// Suite registry. `--suite=<name[,name]>` picks from these; the init wizard is
-// opt-in because it drives interactive prompts through scripted stdin.
+// Suite registry. `--suite=<name[,name]>` picks from these; the ui suite and
+// the init wizard are opt-in because they drive interactive prompts (ui through
+// a pty, init through scripted stdin).
 const SUITES: Record<string, Suite> = {
   private: privateAppSuite,
   public: publicAppSuite,
+  ui: uiAppSuite,
   init: initWizardSuite,
 };
 
 const DEFAULT_SUITES = ['private', 'public'];
+
+// Minimum spacing between `brevo` invocations. Chosen to cost ~40s across a full
+// ~40-call run — cheap next to the 126s a single rate-limited delete burned before
+// leaking its app. `--gap=0` restores the old unpaced behaviour.
+const DEFAULT_GAP_MS = 1000;
 
 function uniq(values: string[]): string[] {
   return [...new Set(values)];
@@ -90,6 +101,14 @@ function parsePortValue(arg: string): number {
   return n;
 }
 
+function parseGapValue(arg: string): number {
+  const n = Number.parseInt(arg.slice('--gap='.length), 10);
+  if (!Number.isInteger(n) || n < 0 || n > 60_000) {
+    throw new Error(`invalid --gap value (expected 0-60000 ms): ${arg}`);
+  }
+  return n;
+}
+
 function parseAgainstValue(arg: string): 'local' | 'published' {
   const v = arg.slice('--against='.length);
   if (v !== 'local' && v !== 'published') {
@@ -107,6 +126,7 @@ function applyBooleanFlag(opts: Options, arg: string): boolean {
     opts.ci = true;
     opts.verbose = true;
   } else if (arg === '--with-init') opts.suites = uniq([...opts.suites, 'init']);
+  else if (arg === '--with-ui') opts.suites = uniq([...opts.suites, 'ui']);
   // Kept as aliases for --suite so existing invocations keep working.
   else if (arg === '--with-public') opts.suites = uniq([...opts.suites, 'public']);
   else if (arg === '--skip-public') opts.suites = opts.suites.filter((s) => s !== 'public');
@@ -124,6 +144,8 @@ function applyValueFlag(opts: Options, arg: string): boolean {
     opts.against = parseAgainstValue(arg);
   } else if (arg.startsWith('--suite=')) {
     opts.suites = parseSuiteValue(arg);
+  } else if (arg.startsWith('--gap=')) {
+    opts.gapMs = parseGapValue(arg);
   } else return false;
   return true;
 }
@@ -137,6 +159,7 @@ function parseArgs(argv: string[]): Options {
     reportPath: null,
     ci: false,
     against: 'local',
+    gapMs: DEFAULT_GAP_MS,
     suites: [...DEFAULT_SUITES],
   };
   for (const arg of argv) {
@@ -165,13 +188,19 @@ Flags:
   --report=<path>              Write JSON run summary to <path>.
   --ci                         CI mode: API-key auth via BREVO_API_KEY (instead of browser).
   --against=local|published    Install strategy (default local).
+  --gap=<ms>                   Minimum spacing between brevo invocations
+                               (default 1000). Proactive throttle avoidance;
+                               --gap=0 disables it.
   --suite=<names>              Which suites to run, comma-separated, in order.
                                private  private-app lifecycle + client guardrails
                                public   public-app submission/review lifecycle
+                               ui       UI-app lifecycle (interactive create via a
+                                        pty; opt-in)
                                init     'brevo app init' wizard (interactive, opt-in)
                                all      every suite
                                Default: private,public
   --with-init                  Append the init suite (same as adding 'init').
+  --with-ui                    Append the ui suite.
   --with-public                Append the public suite.
   --skip-public                Drop the public suite (same as --suite=private).
   -h, --help                   Show this help.
@@ -197,6 +226,10 @@ only hold one build:
   * with only 'private' selected it builds the published surface, i.e. what npm
     actually ships. Run 'yarn smoke --suite=private' when that is the thing you
     want to verify.
+The ui suite needs neither: UI apps are GA (BEX-290) and ship in every build, so
+it runs on whichever artefact the other selected suites decided on. It DOES need
+a pty — 'brevo app create' only offers the UI app type on a real terminal — so
+the suite drives the prompts through script(1) and is opt-in like init.
 `);
 }
 
@@ -237,6 +270,8 @@ function writeReport(state: State, ok: boolean): void {
     suites: state.opts.suites,
     publicFlow: state.opts.suites.includes('public') ? state.publicObs : 'suite not selected',
     rateLimitWaits: state.rateLimitWaits,
+    gapMs: state.opts.gapMs,
+    pacedMs: state.pacedMs,
     // Anything here is a real leak on the account, not a test detail.
     orphanedAppIds: state.orphanedAppIds,
     steps: state.stepResults,
@@ -332,6 +367,7 @@ function hasLeftoverState(state: State): boolean {
   return Boolean(
     state.mainApp ||
     state.publicApp ||
+    state.uiApp ||
     state.initAppId ||
     state.tmpDirs.length > 0 ||
     state.linked ||
@@ -359,13 +395,17 @@ async function main(): Promise<void> {
     tmpDirs: [],
     mainApp: null,
     publicApp: null,
+    uiApp: null,
     initAppId: null,
     linked: false,
     caps: null,
+    capDowngrades: {},
     startChild: null,
     stepResults: [],
     publicObs: {},
     rateLimitWaits: 0,
+    lastBrevoCallAt: 0,
+    pacedMs: 0,
     orphanedAppIds: [],
     brevoBin: null,
   };
@@ -429,6 +469,13 @@ function printColouredSummary(state: State, allOk: boolean, firstFailed: number)
   if (state.rateLimitWaits > 0) {
     process.stdout.write(
       `  ${COLOR.yellow}${state.rateLimitWaits} rate-limit wait(s) — the API throttled this run${COLOR.reset}\n`,
+    );
+  }
+  // Reported even at zero waits: it is the reason there were none, and it explains
+  // where the wall-clock went to anyone comparing runs.
+  if (state.pacedMs > 0) {
+    process.stdout.write(
+      `  ${COLOR.dim}paced ${formatMs(state.pacedMs)} across the run (--gap=${state.opts.gapMs})${COLOR.reset}\n`,
     );
   }
   if (state.orphanedAppIds.length > 0) {

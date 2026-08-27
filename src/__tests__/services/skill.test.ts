@@ -114,7 +114,7 @@ describe('services/skill', () => {
 
     it('installAll installs every catalog entry', () => {
       const results = skillService.installAll();
-      expect(results.length).toBe(SKILL_CATALOG.length);
+      expect(results).toHaveLength(SKILL_CATALOG.length);
       for (const r of results) {
         expect(r.status).toBe('installed');
       }

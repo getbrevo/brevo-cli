@@ -12,8 +12,7 @@
  *
  *   - **Request payload building.** `create` and `upload` still build their own bodies. The
  *     exact wire shape is asserted by a lot of tests and confirmed against the platform, so
- *     moving it is a separate, riskier increment than moving the checks. See
- *     `RELEASE-CHECKLIST.md`.
+ *     moving it is a separate, riskier increment than moving the checks.
  *   - **Interactive authoring.** A type's prompts live beside it (`ui/authoring.ts`) but are
  *     imported directly by `app create` rather than hung off the descriptor. Keeping them off
  *     it means `brevo app list` doesn't drag `inquirer` and the whole prompt flow into memory
@@ -60,14 +59,14 @@ export interface AppTypeModule {
   label: string;
 
   /**
-   * `preview` = shipped in the CLI but not live on the Brevo platform.
+   * `preview` = shipped in the CLI but not live on the Brevo platform; `ga` = live.
+   * Both types are `'ga'` today (UI apps since BEX-290).
    *
-   * This is METADATA ONLY today and must stay that way unless the change is made
-   * deliberately: `CLAUDE.md` records that the CLI accepts preview types without a runtime
-   * guard by design, and that any guard needs the internal-Brevo-account escape hatch. What
-   * this field is for is generating the "⚠️ not available yet" notices that are currently
-   * hand-maintained across five files, so GA becomes flipping one value instead of working
-   * through a 30-item checklist.
+   * This is METADATA ONLY and must stay that way: the CLI deliberately has no runtime
+   * guard on app types — pre-GA surface is removed at *build* time instead
+   * (`scripts/build.mjs`), and `CLAUDE.md` forbids reintroducing a runtime gate or an
+   * internal-account escape hatch. The field exists so docs and a future type can state
+   * their stage in one place instead of five hand-maintained notices.
    */
   availability: 'ga' | 'preview';
 
@@ -85,9 +84,10 @@ export interface AppTypeModule {
    *
    * The answer is type-dependent and the difference is invisible from the command's side.
    * An OAuth app's configuration IS the app record — callbacks and scopes come back on the
-   * read — so it is always recoverable. A UI app's configuration is its `ui_app` block,
-   * which the read endpoint sources from the latest `app_versions` snapshot, so an app that
-   * was created but never uploaded answers with no block and there is nothing to write.
+   * read — so it is always recoverable. A UI app's configuration is its `ui_app` block; the
+   * server writes it at create time, but the CLI's own classifier can label a *blockless*
+   * record `ui` (it calls anything with no OAuth material a UI app), and such a record
+   * arrives with nothing to write. See the ui module's note for the full story.
    *
    * A type that answers false must be refused loudly. It cannot be papered over with a
    * partial write: `ui_app`'s presence is the app-type discriminator, so a config missing
