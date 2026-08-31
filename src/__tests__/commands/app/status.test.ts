@@ -57,6 +57,46 @@ describe('app/status', () => {
     });
   });
 
+  it('should prefer the message returned by the API over the canned per-state copy', async () => {
+    mockFetchAppState.mockResolvedValue({
+      state: 'in_review',
+      message: 'Server-authored status note.',
+    });
+
+    await statusCommand({ appId: '42' });
+
+    const out = output();
+    // The state still drives the label/tone…
+    expect(out).toContain('In Review');
+    // …but the body is the server's message, not the canned copy.
+    expect(out).toContain('Server-authored status note.');
+    expect(out).not.toContain('currently being reviewed');
+  });
+
+  it('should surface the API message in --json output', async () => {
+    mockFetchAppState.mockResolvedValue({
+      state: 'approved',
+      message: 'Congratulations — your app is live.',
+    });
+
+    await statusCommand({ appId: '42', json: true });
+
+    const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
+    expect(parsed).toEqual({
+      state: 'approved',
+      message: 'Congratulations — your app is live.',
+    });
+  });
+
+  it('should fall back to the canned copy when the API message is blank', async () => {
+    mockFetchAppState.mockResolvedValue({ state: 'approved', message: '   ' });
+
+    await statusCommand({ appId: '42', json: true });
+
+    const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
+    expect(parsed.message).toBe('Your app has been approved.');
+  });
+
   it('should resolve the app id from app-config.json when no flag is given', async () => {
     mockReadProjectConfig.mockReturnValue({ appId: '77' });
     mockFetchAppState.mockResolvedValue({ state: 'submitted' });
