@@ -12,15 +12,15 @@ const ALL_CAPABILITIES = new Set<Capability>(
 const gated = appCommandGroup.commands.filter((cmd) => cmd.requires);
 
 describe('command capability metadata', () => {
-  // The point of the field: the rule "review commands are public-only, deploy commands are
+  // The point of the field: the rule "review commands are public-only, install commands are
   // UI-only" currently also exists as prose in bin/index.ts's hand-aligned help block and
   // again in the agent docs. This is the executable copy, so the others can be generated
   // from it rather than drifting.
   it('declares the expected gates and no others', () => {
     const byName = Object.fromEntries(gated.map((cmd) => [cmd.name, cmd.requires]));
     expect(byName).toEqual({
-      deploy: 'account-install',
-      rollback: 'account-install',
+      install: 'account-install',
+      uninstall: 'account-install',
       submit: 'review-lifecycle',
       status: 'review-lifecycle',
       withdraw: 'review-lifecycle',

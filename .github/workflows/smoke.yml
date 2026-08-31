@@ -1,0 +1,319 @@
+name: Smoke
+
+# The single definition of the smoke test, and the only dispatchable one — the
+# manual "Run workflow" button and release.yaml's post-publish dispatch both
+# target this file. Two thin trigger workflows call it — smoke-pre-merge.yml
+# (release PR / push to main) and smoke-post-merge.yml (release published) —
+# so an ad-hoc run reproduces CI exactly instead of drifting from it.
+#
+# Keep `workflow_dispatch` and its `expected_version` input: release.yaml drives
+# the post-publish smoke through them, and removing either fails that job with
+# `HTTP 422: Workflow does not have 'workflow_dispatch' trigger`.
+#
+# Manual run: pick the branch or tag in "Use workflow from", then
+#   against = published  → smoke whatever npm serves as @getbrevo/cli@latest
+#                          (the default: touch nothing, hit Run workflow, and
+#                          the ref only supplies the smoke script itself)
+#   against = local      → build that ref and smoke the build it produces
+#   suite                → which app types to exercise between setup and
+#                          teardown; see the input's own notes below
+#   account              → WHICH test account, by naming a configured secret —
+#                          never by pasting a key, see the input's note
+#   environment           → 'production' (default, api.brevo.com) or 'staging'
+#                          — see the input's own note. Staging URLs live only
+#                          in repo secrets, never inline here: this repo is
+#                          public and CLAUDE.md forbids committing internal
+#                          infra hostnames to it.
+# Leave expected_version blank on a manual run; it only matters right after a
+# publish, while npm may still be serving the previous version.
+#
+# The `suite`/`account` defaults here serve the MANUAL button only. Every
+# automated lane — smoke-pre-merge.yml, smoke-post-merge.yml and release.yaml's
+# post-publish dispatch — pins both explicitly, so retuning a dropdown can never
+# change what a release gate verifies. Widen a gate by editing that lane.
+#
+# The manual default is the LIVE surface: private + ui. Public apps are not live
+# (BEX-405), so the preview suite is opt-in and refused unless against=local —
+# see the "Reject a preview suite" step, which is the rule, not the comment.
+on:
+  workflow_call:
+    inputs:
+      against:
+        description: "'local' (build this ref) or 'published' (npm latest)"
+        required: true
+        type: string
+      suite:
+        description: 'Comma-separated suites for --suite (blank = the live surface)'
+        required: false
+        type: string
+        default: 'private,ui'
+      account:
+        description: 'Which test-account secret to authenticate with'
+        required: false
+        type: string
+        default: 'default'
+      environment:
+        description: "'production' (api.brevo.com) or 'staging' (non-prod backend, from repo secrets)"
+        required: false
+        type: string
+        default: 'production'
+      expected_version:
+        description: 'Release tag to wait for on npm first (published only)'
+        required: false
+        type: string
+        default: ''
+      non_blocking:
+        description: 'Report a smoke failure without failing the run'
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      against:
+        description: 'published = npm latest; local = build the branch/tag selected above'
+        type: choice
+        required: true
+        default: published
+        options:
+          - published
+          - local
+      suite:
+        # The values ARE the `--suite` argument, so what the dropdown shows is
+        # what the runner receives — no label-to-flag mapping to keep in sync.
+        #
+        # `private,ui` is the LIVE surface and the default: private apps plus UI
+        # apps, both GA and both in the published build.
+        #
+        # Anything containing `public` is the PREVIEW surface and only means
+        # something against=local, where the runner builds PREVIEW=1. Against a
+        # published package those steps could only ever skip — the commands are
+        # eliminated from the bundle (BEX-405) — so the pairing is refused
+        # outright rather than reported as a pass with holes in it.
+        #
+        # `init` drives the wizard through scripted stdin; `ui` drives create
+        # through a pty. Both work headless, so both can run here.
+        description: 'Which app types to smoke (--suite). public/all = preview, local only'
+        type: choice
+        required: true
+        default: private,ui
+        options:
+          - private,ui
+          - private
+          - ui
+          - init
+          - public
+          - private,ui,public
+          - all
+      account:
+        # Names a SECRET, never a key. workflow_dispatch inputs are recorded on
+        # the run page, and this repo is public — a pasted `xkeysib-…` would be
+        # world-readable and permanent. So the choice selects which configured
+        # secret to read, and the value itself never enters the UI or the logs.
+        #
+        # To add an account: create the secret, add its name to the `case` in
+        # the "Resolve the account key" step, and add the option here. A
+        # selection whose secret is missing FAILS the run — it must never fall
+        # back to the default account, which would silently smoke the wrong one.
+        description: 'Which test account to run against (selects a secret, not a key)'
+        type: choice
+        required: true
+        default: default
+        options:
+          - default
+          - alt
+      environment:
+        # 'staging' points BREVO_API_URL / BREVO_OAUTH_PROXY_URL / BREVO_OAUTH_BASE_URL
+        # at repo secrets (BREVO_STAGING_*) rather than the CLI's production defaults —
+        # see the "Resolve environment URLs" step. Those secrets carry the actual
+        # hostnames; this file never does, because it's public.
+        description: "'production' (api.brevo.com) or 'staging' (non-prod backend)"
+        type: choice
+        required: true
+        default: production
+        options:
+          - production
+          - staging
+      expected_version:
+        description: 'Release tag to wait for on npm first (published only; blank = trust npm latest)'
+        type: string
+        required: false
+        default: ''
+
+concurrency:
+  # Reached through workflow_call, `github.workflow` is the *caller's* name, so
+  # each trigger keeps its own lane and a manual run never cancels a release
+  # one. Only a superseded PR push is cancelled.
+  group: smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # Reached through workflow_call the check reads
+    # `<caller workflow> / smoke / <this name>`, so name it for the target only
+    # — anything with "Smoke" in it says the word three times.
+    name: ${{ inputs.against == 'published' && 'published package' || 'local build' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # Fail before checkout: an impossible pairing should cost nothing and say
+      # why. The preview surface exists only in a PREVIEW=1 build, which only
+      # `against=local` produces — against a published package the public steps
+      # would skip and the run would still go green, which reads as coverage the
+      # run never had.
+      - name: Reject a preview suite against a published package
+        if: contains(inputs.suite, 'public') || inputs.suite == 'all'
+        env:
+          AGAINST: ${{ inputs.against }}
+          SUITE: ${{ inputs.suite }}
+        run: |
+          set -eu
+          if [ "$AGAINST" != 'local' ]; then
+            echo "::error::suite '${SUITE}' includes the public-app (preview) surface, which only exists in a PREVIEW=1 build. Re-run with against=local, or pick a suite without 'public'."
+            exit 1
+          fi
+          echo "preview suite '${SUITE}' against a local build — ok"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # No `registry-url`: this job only installs public packages, and under
+      # setup-node@v7 the token-auth .npmrc that input writes makes Yarn 1
+      # fail when NODE_AUTH_TOKEN is unset (see release.yaml).
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20.15.0
+          cache: yarn
+
+      # `--ignore-scripts`: this job needs nothing a lifecycle script provides — the
+      # only one in the tree is husky's `prepare`, which installs git hooks — and
+      # running package scripts on a job that holds an API-key secret is the hotspot
+      # SonarCloud raises on a fresh install step. Verified against this lockfile:
+      # `yarn build` (esbuild) and `yarn smoke` (tsx) both work without them.
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --ignore-scripts
+
+      - name: Wait for npm propagation
+        if: inputs.against == 'published' && inputs.expected_version != ''
+        env:
+          EXPECTED_TAG: ${{ inputs.expected_version }}
+        run: |
+          set -eu
+          # Release tags from changesets look like `@getbrevo/cli@1.2.3`.
+          # `${var##*@}` strips everything up to and including the last `@`,
+          # leaving the bare version.
+          want="${EXPECTED_TAG##*@}"
+          echo "waiting for @getbrevo/cli@${want} to appear on npm..."
+          for i in $(seq 1 30); do
+            got=$(npm view @getbrevo/cli@latest version 2>/dev/null || true)
+            if [ "$got" = "$want" ]; then
+              echo "npm now serves ${got}"
+              exit 0
+            fi
+            echo "  npm has '${got}', expected '${want}' — retrying in 10s (${i}/30)"
+            sleep 10
+          done
+          echo "::error::npm did not serve ${want} within 5 minutes; aborting"
+          exit 1
+
+      # Resolve the non-production backend URLs for `environment: staging` and hand
+      # them on through step outputs. The URLs themselves live only in repo secrets
+      # (BREVO_STAGING_API_URL / BREVO_STAGING_OAUTH_PROXY_URL /
+      # BREVO_STAGING_OAUTH_BASE_URL) — never inline in this file, which is public.
+      # `environment: production` (the default) leaves the outputs empty, which the
+      # CLI's own `BREVO_API_URL` / `BREVO_OAUTH_PROXY_URL` / `BREVO_OAUTH_BASE_URL`
+      # resolution (src/lib/constants.ts) already treats as "use the built-in default".
+      - name: Resolve environment URLs
+        id: environment
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          STAGING_API_URL: ${{ secrets.BREVO_STAGING_API_URL }}
+          STAGING_OAUTH_PROXY_URL: ${{ secrets.BREVO_STAGING_OAUTH_PROXY_URL }}
+          STAGING_OAUTH_BASE_URL: ${{ secrets.BREVO_STAGING_OAUTH_BASE_URL }}
+        run: |
+          set -eu
+          if [ "${ENVIRONMENT:-production}" != 'staging' ]; then
+            echo "targeting production (CLI defaults)"
+            exit 0
+          fi
+          if [ -z "${STAGING_API_URL:-}" ] || [ -z "${STAGING_OAUTH_PROXY_URL:-}" ] || [ -z "${STAGING_OAUTH_BASE_URL:-}" ]; then
+            echo "::error::environment 'staging' selected but BREVO_STAGING_API_URL / BREVO_STAGING_OAUTH_PROXY_URL / BREVO_STAGING_OAUTH_BASE_URL are not all configured on this repository."
+            exit 1
+          fi
+          echo "api_url=$STAGING_API_URL" >> "$GITHUB_OUTPUT"
+          echo "oauth_proxy_url=$STAGING_OAUTH_PROXY_URL" >> "$GITHUB_OUTPUT"
+          echo "oauth_base_url=$STAGING_OAUTH_BASE_URL" >> "$GITHUB_OUTPUT"
+          echo "targeting staging environment"
+
+      # Pick the account's key by name and hand it on through the step output.
+      # Candidate secrets are exposed to THIS step only, and a `case` selects
+      # between them, keyed on environment:account together — a staging key is
+      # not interchangeable with a production one, they're different backends.
+      # An expression like
+      #   inputs.account == 'alt' && secrets.ALT || secrets.DEFAULT
+      # silently falls back to the default account when ALT is unset, which is
+      # the one outcome that must not happen — a run that reports on an account
+      # nobody chose. Missing key ⇒ hard failure naming the secret to add.
+      #
+      # `add-mask` before the output is written: an output is not automatically
+      # masked the way a `secrets.*` interpolation is.
+      - name: Resolve the account key
+        id: account
+        # Under the same non-blocking umbrella as the smoke itself: the
+        # pre-merge lane is documented as "runs for visibility, never gates the
+        # merge", and a misconfigured secret must not be the one thing that
+        # turns that check red. Failing here leaves the key empty, so the smoke
+        # step below fails too — and is tolerated identically.
+        continue-on-error: ${{ inputs.non_blocking == true }}
+        env:
+          ACCOUNT: ${{ inputs.account }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          KEY_DEFAULT: ${{ secrets.BREVO_TEST_API_KEY }}
+          KEY_ALT: ${{ secrets.BREVO_TEST_API_KEY_ALT }}
+          KEY_STAGING_DEFAULT: ${{ secrets.BREVO_TEST_API_KEY_STAGING }}
+          KEY_STAGING_ALT: ${{ secrets.BREVO_TEST_API_KEY_STAGING_ALT }}
+        run: |
+          set -eu
+          case "${ENVIRONMENT:-production}:${ACCOUNT:-default}" in
+            production:default) key="$KEY_DEFAULT";        name='BREVO_TEST_API_KEY' ;;
+            production:alt)     key="$KEY_ALT";             name='BREVO_TEST_API_KEY_ALT' ;;
+            staging:default)    key="$KEY_STAGING_DEFAULT"; name='BREVO_TEST_API_KEY_STAGING' ;;
+            staging:alt)        key="$KEY_STAGING_ALT";     name='BREVO_TEST_API_KEY_STAGING_ALT' ;;
+            *)
+              echo "::error::unknown environment:account '${ENVIRONMENT:-production}:${ACCOUNT:-default}' — add a case for it in this step"
+              exit 1
+              ;;
+          esac
+          if [ -z "${key:-}" ]; then
+            echo "::error::environment:account '${ENVIRONMENT:-production}:${ACCOUNT:-default}' selects secret ${name}, which is not configured on this repository. Add it, or pick another environment/account."
+            exit 1
+          fi
+          echo "::add-mask::$key"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "authenticating as account '${ACCOUNT:-default}' on '${ENVIRONMENT:-production}' (secret ${name})"
+
+      - name: Run smoke test (${{ inputs.suite || 'private,ui' }})
+        # Non-blocking only where the caller asks for it (the pre-merge release
+        # PR). Absent on workflow_dispatch, where `inputs.non_blocking` is null.
+        continue-on-error: ${{ inputs.non_blocking == true }}
+        env:
+          AGAINST: ${{ inputs.against }}
+          # Through the env, not inlined, for the same reason AGAINST is: on
+          # workflow_call this is a free-form string, not the dispatch choice.
+          SUITE: ${{ inputs.suite }}
+          BREVO_API_KEY: ${{ steps.account.outputs.key }}
+          # Empty on `environment: production` — the CLI's own resolveApiBase /
+          # resolveOauthProxyUrl / resolveOauthBaseUrl (src/lib/constants.ts) treat
+          # an empty override the same as an unset one and fall back to production.
+          BREVO_API_URL: ${{ steps.environment.outputs.api_url }}
+          BREVO_OAUTH_PROXY_URL: ${{ steps.environment.outputs.oauth_proxy_url }}
+          BREVO_OAUTH_BASE_URL: ${{ steps.environment.outputs.oauth_base_url }}
+        # `${SUITE:-…}` covers unset AND empty — an empty --suite= is a runner
+        # error ("needs at least one suite name"), so it must not reach it.
+        run: yarn smoke --ci --against="$AGAINST" --suite="${SUITE:-private,ui}" --report=smoke-report.json

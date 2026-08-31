@@ -1,73 +1,40 @@
 name: Smoke (post-merge)
 
+# Smokes the published package as soon as a release goes out, once npm serves
+# the new version. Manual runs live on the `Smoke` workflow instead — pick
+# `against: published` there; this workflow has no dispatch trigger of its own.
+# Steps, timeout and concurrency all live in smoke.yml.
+#
+# Only reachable from a release created by a human or a PAT — Actions suppresses
+# events the default GITHUB_TOKEN generates, so the release changesets/action
+# opens does not fire this. release.yaml dispatches `smoke.yml` for that path;
+# pointing it back here 422s, since a workflow_call-only workflow can't be
+# dispatched.
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to test (defaults to npm `latest` tag)"
-        required: false
-
-concurrency:
-  group: smoke-post-merge
-  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   smoke:
-    name: Smoke test (published)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      # No `registry-url`: this job only installs public packages, and under
-      # setup-node@v7 the token-auth .npmrc that input writes makes Yarn 1
-      # fail when NODE_AUTH_TOKEN is unset (see release.yaml).
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 20.15.0
-          cache: yarn
-
-      - name: Install dependencies
-        run: yarn install --frozen-lockfile
-
-      - name: Wait for npm propagation
-        env:
-          EXPECTED_TAG: ${{ github.event.release.tag_name || inputs.version }}
-        run: |
-          set -eu
-          # Release tags from changesets look like `@getbrevo/cli@1.2.3`.
-          # `${var##*@}` strips everything up to and including the last `@`,
-          # leaving the bare version. If no tag is provided we just trust npm's
-          # `latest` and proceed.
-          if [ -z "$EXPECTED_TAG" ]; then
-            echo "no expected tag supplied; trusting npm latest"
-            exit 0
-          fi
-          want="${EXPECTED_TAG##*@}"
-          echo "waiting for @getbrevo/cli@${want} to appear on npm..."
-          for i in $(seq 1 30); do
-            got=$(npm view @getbrevo/cli@latest version 2>/dev/null || true)
-            if [ "$got" = "$want" ]; then
-              echo "npm now serves ${got}"
-              exit 0
-            fi
-            echo "  npm has '${got}', expected '${want}' — retrying in 10s (${i}/30)"
-            sleep 10
-          done
-          echo "::error::npm did not serve ${want} within 5 minutes; aborting"
-          exit 1
-
-      - name: Run smoke test against published version
-        run: yarn smoke --ci --against=published --report=smoke-report.json
-        env:
-          BREVO_API_KEY: ${{ secrets.BREVO_TEST_API_KEY }}
+    uses: ./.github/workflows/smoke.yml
+    with:
+      against: published
+      # Pinned for the same reason as the pre-merge lane.
+      #
+      # `private,ui` — the LIVE surface, which is the whole point of this lane:
+      # it installs from npm, so it is the only check on what a customer
+      # actually gets. `ui` is not implied by `private` (the two suites are
+      # disjoint) and UI apps have shipped in every build since 2.2.0, so
+      # omitting it left `app install` / `app uninstall` and the whole `ui_app`
+      # path unverified against the published package.
+      #
+      # No 'public': those commands are eliminated from the published bundle, so
+      # the steps could only ever skip — and smoke.yml now refuses that pairing
+      # outright rather than skipping through it to a green run.
+      suite: private,ui
+      account: default
+      expected_version: ${{ github.event.release.tag_name }}
+    secrets: inherit

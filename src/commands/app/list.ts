@@ -121,18 +121,12 @@ function printScopes(app: OAuthApp): void {
  */
 function printUiApp(uiApp: UiApp): void {
   process.stdout.write(`    Extension:     ${uiApp.extension_type}\n`);
-  // One row per placement, each with its own context: the two are per-entry, so
-  // a shared row would hide that two record pages can forward different fields.
+  // One group of rows per placement, each with its own context, label and destination:
+  // everything CTA is per-entry now (BEX-426), so shared rows would hide that two record
+  // pages can forward different fields, show different labels and open different URLs.
   formatPlacementLines(uiApp).forEach((line, i) => {
     process.stdout.write(`    ${i === 0 ? 'Placement:     ' : '               '}${line}\n`);
   });
-  if (uiApp.label) process.stdout.write(`    Label:         ${uiApp.label}\n`);
-  if (uiApp.more_info) process.stdout.write(`    More info:     ${uiApp.more_info}\n`);
-  if (uiApp.redirect_link) process.stdout.write(`    Link:          ${uiApp.redirect_link}\n`);
-  // An iframeExtension's modal URL is the destination, so it earns a row too.
-  if (uiApp.modal_iframe_url) {
-    process.stdout.write(`    Modal URL:     ${uiApp.modal_iframe_url}\n`);
-  }
   // No link_target row: app-config.json does not carry the field (upload injects
   // `_blank`), so surfacing it only sends a partner looking for one to edit.
 }

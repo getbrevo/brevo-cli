@@ -105,11 +105,11 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
 //    asked before the flow splits.
 //
 //    Prompt-only, deliberately: there is no `--type` flag, so a UI app can only
-//    be authored from an interactive terminal. UI apps aren't live on the
-//    platform yet, and a scriptable create surface would invite pipelines to pin
-//    to a shape that can still change. Any non-interactive run — piped stdin or
-//    `--json` — creates an OAuth app, exactly as it did before BEX-290, so
-//    existing scripted `app create` calls are unaffected.
+//    be authored from an interactive terminal — a scriptable create surface
+//    would invite pipelines to pin to a shape that can still change. Any
+//    non-interactive run — piped stdin or `--json` — creates an OAuth app,
+//    exactly as it did before BEX-290, so existing scripted `app create` calls
+//    are unaffected.
 export type AppType = 'oauth' | 'ui' | 'function';
 
 async function resolveAppType(interactive: boolean, distribution?: string): Promise<AppType> {
@@ -123,17 +123,15 @@ async function resolveAppType(interactive: boolean, distribution?: string): Prom
   // app type still names it, so the flow reads the same everywhere and the user is told
   // what they are getting rather than having it applied silently.
   //
-  // ELIMINATION SITE — the raw global, not `isFeatureAvailable('ui-app-type')` alone.
-  // esbuild cannot fold a function call, so the helper by itself would leave this branch
-  // live and keep `messages.APP_CREATE_APP_TYPE_UI` reachable. `isFeatureAvailable` is
-  // still consulted, so flipping `FEATURE_STAGE` to `'ga'` releases the choice without
-  // touching this line. The elimination that actually matters — the whole UI-authoring
-  // layer (registry reads, placement prompts, the summary box) — hangs off the
-  // `resolveUiApp` call site, which is guarded by the same global.
+  // `ui-app-type` is GA, so `isFeatureAvailable` answers true in every build — the call
+  // stays so the choice keeps reading the same `FEATURE_STAGE` table as everything
+  // else. The `__BREVO_PREVIEW__ &&` guard this site carried pre-GA is gone with the
+  // gate; the UI-authoring layer (registry reads, placement prompts, the summary box)
+  // now ships in the published bundle.
   const choices: Array<{ name: string; value: AppType }> = [
     { name: messages.APP_CREATE_APP_TYPE_OAUTH, value: 'oauth' },
   ];
-  if (__BREVO_PREVIEW__ && isFeatureAvailable('ui-app-type')) {
+  if (isFeatureAvailable('ui-app-type')) {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' });
   }
   // ELIMINATION SITE — same pattern as the UI-app choice: the raw global lets esbuild
@@ -610,12 +608,7 @@ export const createCommand = withCommandHandler(
     // placement + destination, Function apps need neither. No path runs another's prompts.
     let redirectUris: string[] = [];
     let uiApp: UiApp | undefined;
-    // Same elimination site as `resolveAppType`: this is the only call to
-    // `resolveUiApp`, so guarding it on the build global is what lets the bundler drop
-    // `app-types/ui/authoring.ts`. In a public build `appType` can never be `'ui'`
-    // anyway — the prompt is asked, but `UI app` is not among the choices it offers —
-    // so this changes nothing at runtime.
-    if (__BREVO_PREVIEW__ && appType === 'ui') {
+    if (appType === 'ui') {
       uiApp = await resolveUiApp();
     } else if (appType !== 'function') {
       // Only OAuth apps collect redirect URIs. Function apps have no OAuth flow.
@@ -663,11 +656,8 @@ export const createCommand = withCommandHandler(
       ...(result.version ? { version: result.version } : {}),
     };
 
-    // `uiApp` is always undefined in a public build, but an unguarded reference to
-    // `renderCreatedUiApp` still keeps its module in the bundle — hence the global here
-    // as well. Both call sites have to be guarded or neither elimination happens.
     const renderBox = (): void =>
-      __BREVO_PREVIEW__ && uiApp
+      uiApp
         ? renderCreatedUiApp(result, finalAppName, uiApp, logoUri)
         : renderCreatedApp(result, finalAppName, logoUri);
 

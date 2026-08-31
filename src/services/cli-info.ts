@@ -156,13 +156,12 @@ export async function fetchCliInfo(
   const baseUrl = opts.baseUrl ?? APP_STORE_BASE;
 
   const cached = readCliInfoCache(cachePath);
-  if (
-    cached &&
-    cached.cliVersion === query.cliVersion &&
-    cached.baseUrl === baseUrl &&
-    now - cached.lastChecked <= ttlMs
-  ) {
-    return cached.info;
+  if (cached) {
+    const fresh =
+      cached.cliVersion === query.cliVersion &&
+      cached.baseUrl === baseUrl &&
+      now - cached.lastChecked <= ttlMs;
+    if (fresh) return cached.info;
   }
 
   const fetchImpl = opts.fetchImpl ?? fetch;

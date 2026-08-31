@@ -193,3 +193,80 @@ describe('app-config.json template branching', () => {
     }
   });
 });
+
+// The three project docs branch on app type as well as distribution. They are the only
+// thing a UI app gets besides app-config.json — it never receives a `src/oauth/` feature
+// (`finishProject` returns early, `app scaffold` refuses with
+// APP_SCAFFOLD_NO_FEATURES_FOR_UI_APP) — so an OAuth-shaped doc set doesn't merely read
+// oddly, it instructs the partner to install and start a directory that does not exist.
+describe('project doc template branching by app type', () => {
+  const DOC_TEMPLATES = ['CLAUDE.md.tmpl', 'AGENTS.md.tmpl', 'README.md.tmpl'] as const;
+
+  const VARS = {
+    '{{APP_ID}}': 'a1b2c3d4-0000-0000-0000-000000000000',
+    '{{APP_NAME}}': 'Invoice Manager',
+  };
+  const render = (file: string, appType: 'oauth' | 'ui_app', d: Distribution = 'private'): string =>
+    applyVars(applyConditionals(loadTemplate(file), new Set<TemplateFlag>([d, appType])), VARS);
+
+  it.each(DOC_TEMPLATES)('%s: a UI app is told nothing about src/oauth', (file) => {
+    const ui = render(file, 'ui_app');
+    // The feature directory a UI app never gets, and the commands that need it.
+    expect(ui).not.toContain('src/oauth');
+    expect(ui).not.toContain('brevo app start');
+    // The OAuth server surface has no bearing on an app with no callback.
+    expect(ui).not.toContain('/realms/');
+    expect(ui).not.toContain('client_secret');
+  });
+
+  it.each(DOC_TEMPLATES)('%s: a UI app is pointed at upload then install', (file) => {
+    const ui = render(file, 'ui_app');
+    expect(ui).toContain('brevo app upload');
+    expect(ui).toContain('brevo app install');
+    expect(ui).toContain('ui_app');
+  });
+
+  it.each(DOC_TEMPLATES)('%s: an OAuth app is told nothing about ui_app', (file) => {
+    const oauth = render(file, 'oauth');
+    expect(oauth).not.toContain('ui_app');
+    expect(oauth).not.toContain('surface_point_list');
+    expect(oauth).toContain('src/oauth');
+  });
+
+  // Both branches must render; an empty one means a marker was mis-nested and the file
+  // would be written as a bare title.
+  it.each(DOC_TEMPLATES)('%s: neither branch renders empty', (file) => {
+    for (const appType of ['oauth', 'ui_app'] as const) {
+      expect(render(file, appType).trim().split('\n').length).toBeGreaterThan(10);
+    }
+  });
+
+  // The two slot identities are easy to confuse — same dot notation, different
+  // segmentation — and only the slug is authorable. Docs that quote the dotted
+  // `extension_point_name` as the value to write would teach a 400.
+  it.each(DOC_TEMPLATES)('%s: quotes the authorable slug, not the dotted name', (file) => {
+    const ui = render(file, 'ui_app');
+    expect(ui).toContain('surface_point_name');
+    expect(ui).toContain('contactDetails.header.menu');
+    for (const line of ui.split('\n')) {
+      if (!line.includes('contactDetails.headerMenu.action')) continue;
+      // Present only to warn it off — a line that quotes it neutrally would teach a 400.
+      expect(line.toLowerCase()).toMatch(/\bnot\b/);
+    }
+  });
+
+  // Server-owned keys must never be presented as fields to author: writing one into
+  // app-config.json makes every later upload report drift the partner cannot clear.
+  it.each(DOC_TEMPLATES)('%s: names link_target only as hands-off', (file) => {
+    const ui = render(file, 'ui_app');
+    if (!ui.includes('link_target')) return;
+    expect(ui).toMatch(
+      /link_target[\s\S]{0,400}?(Don't add|Never author|do not add|platform owns|CLI sets)/i,
+    );
+  });
+
+  it.each(DOC_TEMPLATES)('%s: substitutes vars in the UI branch', (file) => {
+    const ui = render(file, 'ui_app');
+    expect(ui).not.toContain('{{');
+  });
+});

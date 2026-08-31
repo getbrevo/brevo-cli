@@ -1,11 +1,13 @@
 /**
  * The pre-GA gate (BEX-405).
  *
- * Public app distribution and UI apps are built in this repo but **not live on the
- * Brevo platform**. The published package must not expose either: not in help, not to
- * a direct invocation, and — because the guard is applied at build time — not in the
- * shipped code at all. `scripts/build.mjs` eliminates every gated branch and
- * tree-shakes the command modules only those branches referenced.
+ * Public app distribution is built in this repo but **not live on the Brevo
+ * platform**. The published package must not expose it: not in help, not to a direct
+ * invocation, and — because the guard is applied at build time — not in the shipped
+ * code at all. `scripts/build.mjs` eliminates every gated branch and tree-shakes the
+ * command modules only those branches referenced. (UI apps — the *UI app* create
+ * choice and `app install` / `app uninstall` — went GA and ship in every build; their
+ * rows below are flipped to `'ga'` and their modules are referenced live.)
  *
  * ## Why this has no runtime escape hatch
  *
@@ -19,17 +21,20 @@
  *
  * That also means this is no longer "a guardrail, not a security boundary": there is
  * nothing client-side left to bypass. The Brevo API remains the real authority and
- * refuses both features per account independently (`400 invalid_parameter` on a public
- * create, `403 ui_app_not_enabled` on a UI app), so the two layers are the build and
- * the server, with nothing in between for a user to talk their way past.
+ * refuses the gated feature per account independently (`400 invalid_parameter` on a
+ * public create), so the two layers are the build and the server, with nothing in
+ * between for a user to talk their way past.
  *
- * ## One table, so GA is one edit
+ * ## One table for readiness — but GA is a sequence, not one edit
  *
- * `FEATURE_STAGE` is the only place a feature's readiness is stated. Help filtering,
+ * `FEATURE_STAGE` is the only place a feature's readiness is *stated*. Help filtering,
  * the runtime refusal, the command registry and the two `app create` prompts all read
- * it through `isFeatureAvailable`, so flipping a row to `'ga'` releases that feature
- * everywhere at once. See `RELEASE-CHECKLIST.md` → *Before public-apps GA* /
- * *Before UI-apps GA*.
+ * it through `isFeatureAvailable`. Flipping a row to `'ga'` is necessary but NOT
+ * sufficient for a command: gated definitions live in `commands/preview-definitions.ts`
+ * and gated help sections sit behind `__BREVO_PREVIEW__`, a *build* flag, so both must
+ * be moved/unwrapped by hand in the same change — UI-apps GA (BEX-290) touched 17 files
+ * doing exactly that. The full sequence is the GA runbook, `RELEASE-CHECKLIST.md` on
+ * `feature_set-brevo-cli-v2` → *Before public-apps GA*.
  *
  * Two of the four names are `Capability` values from `app-types/capabilities.ts`,
  * deliberately: commands already declare `requires` in `commands/definitions.ts`, so
@@ -40,7 +45,7 @@ import { CliError } from './errors';
 import { messages } from '../lang/en';
 
 export type PreviewFeature =
-  /** `app deploy` / `app rollback`. Also a `Capability`. */
+  /** `app install` / `app uninstall`. Also a `Capability`. */
   | 'account-install'
   /** `app submit` / `app status` / `app withdraw`. Also a `Capability`. */
   | 'review-lifecycle'
@@ -54,15 +59,17 @@ export type PreviewFeature =
 export type FeatureStage = 'ga' | 'preview';
 
 /**
- * Readiness per feature. Flip a row to `'ga'` to release it.
+ * Readiness per feature. Flipping a row to `'ga'` is the first step of releasing it —
+ * a gated *command* also needs its definition moved out of `preview-definitions.ts`
+ * and its help section unwrapped, see the header.
  *
  * Everything not listed here is GA by construction — absence from this table is not a
  * gate, so a new command is public unless someone opts it in.
  */
 export const FEATURE_STAGE: Readonly<Record<PreviewFeature, FeatureStage>> = {
-  'account-install': 'preview',
+  'account-install': 'ga',
   'review-lifecycle': 'preview',
-  'ui-app-type': 'preview',
+  'ui-app-type': 'ga',
   'public-distribution': 'preview',
   'brevo-function-type': 'preview',
 } as const;

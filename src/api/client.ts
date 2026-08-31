@@ -24,6 +24,16 @@ const MAX_RETRIES = 3;
 const DEFAULT_RETRY_AFTER_SECONDS = 5;
 const MAX_RETRY_AFTER_SECONDS = 300;
 
+// Methods the 502 retry below may replay. A 502 comes from a gateway, not the origin,
+// so the origin may have processed the request before the response was lost — replaying
+// a POST can redo the work rather than repeat the answer. Observed live on
+// `POST /v3/app-store/apps`: the first create landed, its response surfaced as a 502,
+// and the blind replay created the same app twice. GET/PUT/DELETE replays can only
+// repeat a result; PATCH is excluded with POST because it is not idempotent in general.
+// (The 401 and 429 retries are different: those statuses mean the origin refused the
+// request without processing it, so replaying any method there is safe.)
+const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set(['GET', 'PUT', 'DELETE']);
+
 const apiCodeMessages: Record<string, string> = {
   APP_LIMIT_REACHED: messages.APP_CREATE_LIMIT_REACHED,
   REGISTRY_ERROR: messages.ERR_REGISTRY,
@@ -283,7 +293,7 @@ export class ApiClient {
       return this.request<T>(opts, isRetry, retryCount + 1);
     }
 
-    if (response.status === 502 && retryCount < 1) {
+    if (response.status === 502 && retryCount < 1 && IDEMPOTENT_METHODS.has(opts.method)) {
       await new Promise((r) => setTimeout(r, 2000));
       return this.request<T>(opts, isRetry, retryCount + 1);
     }
