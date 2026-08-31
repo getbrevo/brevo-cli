@@ -337,6 +337,62 @@ describe('api client', () => {
     });
   });
 
+  describe('bad gateway (502)', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const mock502 = {
+      ok: false,
+      status: 502,
+      headers: new Map(),
+      text: () => Promise.resolve('Bad Gateway'),
+    };
+    const mock200 = {
+      ok: true,
+      status: 200,
+      headers: new Map(),
+      text: () => Promise.resolve(JSON.stringify({ ok: true })),
+    };
+
+    it('retries a GET once after a 502', async () => {
+      jest.useFakeTimers({ advanceTimers: true });
+      mockFetch.mockResolvedValueOnce(mock502).mockResolvedValueOnce(mock200);
+
+      const promise = client.get('/v3/account');
+      await jest.advanceTimersByTimeAsync(2000);
+      expect(await promise).toEqual({ ok: true });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    // A 502 comes from a gateway, so the origin may already have processed the
+    // request — replaying a create can duplicate the resource (observed live on
+    // POST /v3/app-store/apps). Non-idempotent methods surface the error instead.
+    it('does not retry a POST on 502', async () => {
+      mockFetch.mockResolvedValue(mock502);
+      await expect(client.post('/v3/app-store/apps', { name: 'x' })).rejects.toMatchObject({
+        statusCode: 502,
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a PATCH on 502', async () => {
+      mockFetch.mockResolvedValue(mock502);
+      await expect(client.patch('/v3/thing', {})).rejects.toMatchObject({ statusCode: 502 });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a DELETE once after a 502', async () => {
+      jest.useFakeTimers({ advanceTimers: true });
+      mockFetch.mockResolvedValueOnce(mock502).mockResolvedValueOnce(mock200);
+
+      const promise = client.delete('/v3/thing');
+      await jest.advanceTimersByTimeAsync(2000);
+      expect(await promise).toEqual({ ok: true });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('rate limiting (429)', () => {
     // Restore real timers in afterEach so a failed assertion inside a test
     // can't leak fake-timer state into unrelated tests below.

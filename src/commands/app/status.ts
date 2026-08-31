@@ -57,7 +57,11 @@ export const statusCommand = withCommandHandler(
     // Normalize a missing/empty state to a non-empty sentinel so both the
     // header label and --json output stay meaningful.
     const state = typeof raw.state === 'string' && raw.state ? raw.state : 'unknown';
-    const message = messages.APP_STATUS_MESSAGE(state);
+    // Prefer the server-provided message; fall back to the CLI's per-state copy
+    // when the API omits it (older server) or sends a blank string.
+    const apiMessage =
+      typeof raw.message === 'string' && raw.message.trim() ? raw.message : undefined;
+    const message = apiMessage ?? messages.APP_STATUS_MESSAGE(state);
 
     if (options.json) {
       jsonOutput({ state, message });

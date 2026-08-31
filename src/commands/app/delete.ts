@@ -26,6 +26,7 @@ function isSafeToDelete(dir: string): boolean {
 }
 
 async function confirmDeletion(appLabel: string, appId: string): Promise<boolean> {
+  logWarn(`\n  ${messages.APP_DELETE_WARNING(appLabel, appId)}\n`);
   const { confirmed } = await inquirer.prompt([
     {
       type: 'confirm',
@@ -87,7 +88,13 @@ export const deleteCommand = withCommandHandler(
       appLabel = selection.appLabel;
     }
 
-    if (!options.force && !(await confirmDeletion(appLabel || appId, appId))) {
+    if (options.force) {
+      // No prompt in force mode, but a scripted delete still records the consequence.
+      // Kept off stdout-JSON: logWarn writes to stdout and would corrupt --json output.
+      if (!options.json) {
+        logWarn(`\n  ${messages.APP_DELETE_WARNING(appLabel || appId, appId)}\n`);
+      }
+    } else if (!(await confirmDeletion(appLabel || appId, appId))) {
       return;
     }
 

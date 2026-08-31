@@ -15,9 +15,11 @@ import {
   createSmokeApp,
   deleteSmokeApp,
   ensureWorkRoot,
+  errMsg,
   exec,
   execOrThrow,
   firstLine,
+  markFeatureUnavailable,
   must,
   optStr,
   parseJson,
@@ -63,6 +65,15 @@ function requirePublicApp(state: State): SmokeApp {
   return requireApp(state.publicApp, 'public');
 }
 
+/**
+ * Brevo declining public-app creation, in either voice: the CLI's typed refusal
+ * ("Public apps can't be created from the CLI yet") or the server text it quotes
+ * ("public apps cannot be created with source \"cli\""). Matched loosely because only
+ * the shape of the refusal is stable — the copy on both sides is not.
+ */
+const SERVER_REFUSES_PUBLIC =
+  /public apps?\s+(?:can'?t|cannot)\s+be\s+created|cannot be created with source/i;
+
 async function stepPublicAppCreate(state: State): Promise<string> {
   // --distribution public is accepted since BEX-327; the old negative step that
   // asserted the CLI rejected it has been removed. --logo-uri exercises the
@@ -71,11 +82,26 @@ async function stepPublicAppCreate(state: State): Promise<string> {
   // Gated since BEX-405: a published-surface build refuses the flag outright, so this is a
   // skip, not a failure. See GATED_FEATURES in core.ts.
   requireFeature(state, 'public-distribution');
-  const app = await createSmokeApp(state, {
-    label: 'public',
-    distribution: 'public',
-    logoUri: SMOKE_LOGO_URI,
-  });
+  let app: SmokeApp;
+  try {
+    app = await createSmokeApp(state, {
+      label: 'public',
+      distribution: 'public',
+      logoUri: SMOKE_LOGO_URI,
+    });
+  } catch (err) {
+    // The second half of the gate, and the one capability detection cannot see: the
+    // build offers `--distribution public`, and Brevo refuses it anyway. That is the
+    // expected state until public apps go GA, so it is a skip — and it downgrades the
+    // capability so the eight steps that need this app skip too, rather than each
+    // reporting "no public app from the create step".
+    const message = errMsg(err);
+    if (SERVER_REFUSES_PUBLIC.test(message)) {
+      markFeatureUnavailable(state, 'public-distribution', firstLine(message));
+      skip(`Brevo refuses public-app creation in this environment: ${firstLine(message)}`);
+    }
+    throw err;
+  }
   return `public app ${app.appId} created in ${app.projectDir}, listed`;
 }
 

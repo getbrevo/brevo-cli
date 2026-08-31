@@ -298,9 +298,8 @@ describe('app/submit', () => {
 
   // ── Submittability gate (BEX-383) ──
 
-  it('blocks and lists the missing fields (labelled) when the app is not submittable', async () => {
+  it('blocks and lists the missing fields (raw server keys) when the app is not submittable', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
-    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
     (appService.fetchAppState as jest.Mock).mockResolvedValue({
       state: 'draft',
       submittable: false,
@@ -310,16 +309,17 @@ describe('app/submit', () => {
     const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain("isn't ready to submit");
-    // Server field keys are shown with the CLI's friendly labels.
-    expect((error as Error).message).toContain('Logo URL');
-    expect((error as Error).message).toContain('Scopes');
+    // Field keys are shown exactly as the state API returns them — no relabelling.
+    expect((error as Error).message).toContain('logoLink');
+    expect((error as Error).message).toContain('oauth.scopes');
     expect((error as Error).message).toContain('brevo app upload');
+    // The gate runs before the app fetch, so a not-submittable app is never fetched.
+    expect(appService.fetchApp).not.toHaveBeenCalled();
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
   it('reports the raw missing-field keys in --json mode when not submittable', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
-    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
     (appService.fetchAppState as jest.Mock).mockResolvedValue({
       state: 'draft',
       submittable: false,
@@ -331,6 +331,8 @@ describe('app/submit', () => {
     // --json keeps the compact raw-key form (no label translation).
     expect((error as Error).message).toContain('logoLink');
     expect((error as Error).message).toContain('oauth.scopes');
+    // The gate runs before the app fetch, so a not-submittable app is never fetched.
+    expect(appService.fetchApp).not.toHaveBeenCalled();
     expect(openBrowser).not.toHaveBeenCalled();
   });
 

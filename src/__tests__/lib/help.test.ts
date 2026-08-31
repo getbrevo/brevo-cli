@@ -49,7 +49,7 @@ describe('help formatting', () => {
 
       expect(out).toContain('Usage: brevo [options] [command]');
       expect(out).toContain('App commands:');
-      expect(out).toContain('App-deployment commands (UI apps only):');
+      expect(out).toContain('App-install commands (UI apps only):');
       expect(out).toContain('App-review commands (public apps only):');
       expect(out).toContain('Skill commands:');
       expect(out).toContain('Run `brevo <command> --help` for details on a specific command.');
@@ -85,9 +85,9 @@ describe('help formatting', () => {
     });
 
     it('documents positional arguments', () => {
-      const out = renderHelp(findCommand(buildProgram(), ['app', 'deploy']));
+      const out = renderHelp(findCommand(buildProgram(), ['app', 'install']));
 
-      expect(out).toContain('Usage: brevo app deploy [options] [account-id]');
+      expect(out).toContain('Usage: brevo app install [options] [account-id]');
       expect(out).toContain('Arguments:');
       expect(out).toContain('account-id');
     });
