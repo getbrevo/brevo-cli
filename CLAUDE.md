@@ -268,7 +268,8 @@ Three working docs at this branch's root, all **branch-local, never merged into 
   with the recorded sweep results. Every case needs a preview build
   (`PREVIEW=1 yarn link:dev`).
 
-None of the three is in `package.json` `files:`, so nothing ships to npm.
+None of the three is in `package.json` `files:`, so nothing ships to npm — but the
+never-merge rule applies regardless, because branches are public too.
 
 The split is *what to do on the day* versus *what is still unknown*. An item moves from
 `docs.md` to `RELEASE-CHECKLIST.md` when it turns into a release step, and is deleted from
