@@ -30,9 +30,20 @@ const DRAFT = {
   expires_at: '2026-02-01T00:00:00Z',
 };
 
+const DRAFT_LIST = { drafts: [DRAFT], total: 1, limit: 50, offset: 0, has_more: false };
+const EMPTY_DRAFT_LIST = { drafts: [], total: 0, limit: 50, offset: 0, has_more: false };
 const APP = { app_id: 'app-001', name: 'Test App', client_id: 'c1', redirect_uris: [] };
-
 const CREATED = { id: 'fn-001', name: 'My Function', version: 1 };
+
+/** Set up the standard mocks for a successful interactive deploy flow. */
+function setupHappyPath(): void {
+  (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue(DRAFT_LIST);
+  (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
+  (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
+  (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+  (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
+  (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
+}
 
 describe('function/deploy', () => {
   let stdoutSpy: jest.SpyInstance;
@@ -47,22 +58,11 @@ describe('function/deploy', () => {
   });
 
   it('should deploy with --id and success', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
-    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
-    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
-    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
+    setupHappyPath();
     (inquirer.prompt as unknown as jest.Mock)
       .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'My Function' })
       .mockResolvedValueOnce({ confirmDeploy: true });
-    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
 
     await deployFunctionCommand({ id: 'draft-001' });
 
@@ -83,15 +83,7 @@ describe('function/deploy', () => {
   });
 
   it('should output JSON with --json and report linked/app_id', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
-    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
+    setupHappyPath();
 
     await deployFunctionCommand({ id: 'draft-001', json: true, appId: 'app-001' });
 
@@ -106,16 +98,8 @@ describe('function/deploy', () => {
     expect(parsed.app_id).toBe('app-001');
   });
 
-  // Point 2: --json without --app-id reports linked: false
   it('should output JSON without --app-id and report linked: false', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
+    setupHappyPath();
 
     await deployFunctionCommand({ id: 'draft-001', json: true });
 
@@ -127,16 +111,8 @@ describe('function/deploy', () => {
     expect(functionService.linkFunctionToApp).not.toHaveBeenCalled();
   });
 
-  // Point 1: link failure in --json doesn't corrupt stdout
   it('should report linked: false in JSON when link fails', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
+    setupHappyPath();
     (functionService.linkFunctionToApp as jest.Mock).mockRejectedValue(new Error('403 Forbidden'));
 
     await deployFunctionCommand({ id: 'draft-001', json: true, appId: 'app-001' });
@@ -155,17 +131,7 @@ describe('function/deploy', () => {
     const origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
 
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
-    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
-    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
-    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
+    setupHappyPath();
     (inquirer.prompt as unknown as jest.Mock)
       .mockResolvedValueOnce({ selected: 'draft-001' }) // draft picker
       .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
@@ -183,13 +149,7 @@ describe('function/deploy', () => {
   });
 
   it('should throw when draft not found', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [],
-      total: 0,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
+    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue(EMPTY_DRAFT_LIST);
 
     await expect(deployFunctionCommand({ id: 'draft-999' })).rejects.toThrow(
       'Draft "draft-999" not found',
@@ -200,17 +160,7 @@ describe('function/deploy', () => {
     const origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
 
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
-    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
-    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
-    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
+    setupHappyPath();
     (functionService.createFunction as jest.Mock)
       .mockRejectedValueOnce(new ApiError('Conflict', 409))
       .mockResolvedValueOnce(CREATED);
@@ -232,16 +182,7 @@ describe('function/deploy', () => {
   });
 
   it('should cancel when user declines confirmation', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
-    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
-    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+    setupHappyPath();
     (inquirer.prompt as unknown as jest.Mock)
       .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'My Function' })
@@ -258,13 +199,7 @@ describe('function/deploy', () => {
     const origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
 
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [],
-      total: 0,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
+    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue(EMPTY_DRAFT_LIST);
 
     await expect(deployFunctionCommand({})).rejects.toThrow('No draft functions found');
 
@@ -283,16 +218,7 @@ describe('function/deploy', () => {
   });
 
   it('should propagate non-409 API errors', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
-    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
-    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+    setupHappyPath();
     (inquirer.prompt as unknown as jest.Mock)
       .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'My Function' })
@@ -305,16 +231,8 @@ describe('function/deploy', () => {
   });
 
   it('should treat network preview failure as non-fatal', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
+    setupHappyPath();
     (functionService.fetchContacts as jest.Mock).mockRejectedValue(new Error('Network error'));
-    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
     (inquirer.prompt as unknown as jest.Mock)
       .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'My Function' })
@@ -330,15 +248,7 @@ describe('function/deploy', () => {
   });
 
   it('should stop the flow when preview returns __error data', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
-    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
+    setupHappyPath();
     (functionService.executeTemplate as jest.Mock).mockResolvedValue({
       result: [{ __error: 'MCP tool error: query failed' }],
     });
@@ -350,19 +260,8 @@ describe('function/deploy', () => {
     expect(functionService.createFunction).not.toHaveBeenCalled();
   });
 
-  // Point 7: test --app-id supplied (non-interactive link path)
   it('should use --app-id directly without showing the app picker', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
-    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
-    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
-    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
+    setupHappyPath();
     (inquirer.prompt as unknown as jest.Mock)
       .mockResolvedValueOnce({ functionName: 'My Function' })
       .mockResolvedValueOnce({ confirmDeploy: true });
@@ -377,38 +276,18 @@ describe('function/deploy', () => {
     });
   });
 
-  // Point 7: test FUNCTION_DEPLOY_NO_APPS throw
   it('should throw when no function apps exist', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
+    setupHappyPath();
     (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
-    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
-    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
 
     await expect(deployFunctionCommand({ id: 'draft-001' })).rejects.toThrow(
       'No Brevo Function apps found',
     );
   });
 
-  // Point 7: link failure warning path in interactive mode
   it('should show warning on link failure in interactive mode', async () => {
-    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
-      drafts: [DRAFT],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      has_more: false,
-    });
-    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
-    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
-    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+    setupHappyPath();
     (functionService.linkFunctionToApp as jest.Mock).mockRejectedValue(new Error('500 Internal'));
-    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
     (inquirer.prompt as unknown as jest.Mock)
       .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'My Function' })

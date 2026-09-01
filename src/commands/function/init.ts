@@ -5,9 +5,9 @@ import { functionService, sseDeps } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { createSpinner, indentChoices } from '../../lib/ui';
 import { ApiError, CliError } from '../../lib/errors';
-import { deriveAttributeId, hasPreviewErrors, printResultsTable } from './preview-table';
+import { deriveAttributeId } from './preview-table';
 import { selectFunctionApp } from './select-app';
-import { tryPreview, nameConfirmDeployLoop } from './deploy-helpers';
+import { executePreview, tryPreview, nameConfirmDeployLoop } from './deploy-helpers';
 import type { SSEEvent } from '../../api/sse-stream';
 import type { ChatHistoryEntry, FunctionGenerateSSEEvent } from '../../types';
 
@@ -242,7 +242,7 @@ async function aiGenerationFlow(appId: string): Promise<void> {
     { role: 'assistant', content: result.code },
   );
 
-  await tryPreview(result.draftId, PREVIEW_MSGS);
+  await tryPreview({ draft_id: result.draftId }, PREVIEW_MSGS);
 
   // Iteration loop
   let current = { ...result };
@@ -277,7 +277,7 @@ async function aiGenerationFlow(appId: string): Promise<void> {
     const updated = await runIterateRound(current, chatHistory);
     if (updated) {
       current = updated;
-      await tryPreview(current.draftId, PREVIEW_MSGS);
+      await tryPreview({ draft_id: current.draftId }, PREVIEW_MSGS);
     }
   }
 }
@@ -313,35 +313,11 @@ async function templateFlow(appId: string): Promise<void> {
 
   const template = templates.find((t) => t.id === templateId)!;
 
-  // Step 2: Fetch sample contacts
-  const contactSpinner = createSpinner(messages.FUNCTION_INIT_FETCHING_CONTACTS);
-  let contactData;
-  try {
-    contactData = await functionService.fetchContacts();
-  } finally {
-    contactSpinner.stop();
-  }
-
-  // Step 3: Execute template preview
-  const previewSpinner = createSpinner(messages.FUNCTION_INIT_EXECUTING_PREVIEW);
-  let executeResponse;
-  try {
-    executeResponse = await functionService.executeTemplate({
-      template_id: template.id,
-      contact_data: contactData.contacts,
-    });
-  } finally {
-    previewSpinner.stop();
-  }
-
-  // Step 4: Print preview -- template info + execute results
-  const results = executeResponse.result || [];
-  if (hasPreviewErrors(results)) {
-    throw new CliError(messages.FUNCTION_PREVIEW_EXECUTE_FAILED);
-  }
-  logInfo(`\n  ${messages.FUNCTION_INIT_PREVIEW_HEADER}`);
-  process.stdout.write(`\n  Description:   ${template.description}\n`);
-  printResultsTable(results);
+  // Steps 2-4: Fetch contacts, execute template preview, print results
+  await executePreview(
+    { template_id: template.id },
+    { ...PREVIEW_MSGS, afterHeader: `\n  Description:   ${template.description}\n` },
+  );
 
   // Steps 5-7: Name -> confirm -> deploy, retrying on duplicate name.
   await nameConfirmDeployLoop({

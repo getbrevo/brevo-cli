@@ -17,6 +17,14 @@ export interface PreviewMessages {
   previewHeader: string;
   previewError: string;
   previewFailed: string;
+  /** Optional extra line printed between the header and the results table. */
+  afterHeader?: string;
+}
+
+/** Args forwarded to `functionService.executeTemplate` (minus `contact_data`). */
+export interface PreviewTemplateArgs {
+  draft_id?: string;
+  template_id?: string;
 }
 
 /**
@@ -24,7 +32,7 @@ export interface PreviewMessages {
  * Throws `CliError` on data errors (`__error` in results).
  */
 export async function executePreview(
-  draftId: string | undefined,
+  templateArgs: PreviewTemplateArgs,
   msgs: PreviewMessages,
 ): Promise<void> {
   const contactSpinner = createSpinner(msgs.fetchingContacts);
@@ -39,7 +47,7 @@ export async function executePreview(
   let executeResponse;
   try {
     executeResponse = await functionService.executeTemplate({
-      draft_id: draftId,
+      ...templateArgs,
       contact_data: contactData.contacts,
     });
   } finally {
@@ -51,20 +59,23 @@ export async function executePreview(
     throw new CliError(msgs.previewFailed);
   }
   logInfo(`\n  ${msgs.previewHeader}`);
+  if (msgs.afterHeader) {
+    process.stdout.write(msgs.afterHeader);
+  }
   printResultsTable(results);
 }
 
 /**
  * Try running a preview — fatal on data errors (__error), non-fatal on network issues.
- * Returns without error if `draftId` is undefined.
+ * Returns without error if no template args are provided.
  */
 export async function tryPreview(
-  draftId: string | undefined,
+  templateArgs: PreviewTemplateArgs,
   msgs: PreviewMessages,
 ): Promise<void> {
-  if (!draftId) return;
+  if (!templateArgs.draft_id && !templateArgs.template_id) return;
   try {
-    await executePreview(draftId, msgs);
+    await executePreview(templateArgs, msgs);
   } catch (err) {
     if (err instanceof CliError) throw err;
     logInfo(`  ${color('33', msgs.previewError)}`);

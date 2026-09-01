@@ -29,10 +29,13 @@ export async function selectFunctionApp(
       message: promptMessage,
       pageSize: 15,
       choices: indentChoices(
-        apps.map((a) => ({
-          name: `${a.name || `App ${a.app_id}`}  (ID: ${a.app_id})`,
-          value: a.app_id,
-        })),
+        apps.map((a) => {
+          const label = a.name || `App ${a.app_id}`;
+          return {
+            name: `${label}  (ID: ${a.app_id})`,
+            value: a.app_id,
+          };
+        }),
       ),
     },
   ]);

@@ -133,7 +133,7 @@ export const deployFunctionCommand = withCommandHandler(
 
     // Step 2: Preview — fatal on data errors (__error), non-fatal on network issues
     if (!options.json) {
-      await tryPreview(draft.id, PREVIEW_MSGS);
+      await tryPreview({ draft_id: draft.id }, PREVIEW_MSGS);
     }
 
     // Step 3: Resolve app to link the function to
