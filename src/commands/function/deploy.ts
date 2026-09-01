@@ -1,62 +1,19 @@
 import inquirer from 'inquirer';
 import { logInfo, color } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { appService, functionService } from '../../container';
+import { functionService } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { createSpinner, indentChoices, printBox } from '../../lib/ui';
 import { ApiError, CliError } from '../../lib/errors';
 import { deriveAttributeId, hasPreviewErrors, printResultsTable } from './preview-table';
-import type { DpDraftFunction, OAuthApp } from '../../types';
+import { selectFunctionApp, tryLinkFunctionToApp } from './select-app';
+import type { DpDraftFunction } from '../../types';
 
 /** Refuse the draft picker when there is no terminal to draw it on. */
 function assertInteractiveTerminal(): void {
   if (!process.stdin.isTTY) {
     throw new CliError(messages.FUNCTION_DEPLOY_NON_INTERACTIVE);
-  }
-}
-
-/** Fetch brevo_function apps and prompt the user to pick one. */
-async function selectApp(): Promise<OAuthApp> {
-  const spinner = createSpinner('Fetching apps...');
-  let apps: OAuthApp[];
-  try {
-    apps = await appService.fetchAppsList({ type: 'brevo_function' });
-  } finally {
-    spinner.stop();
-  }
-
-  if (apps.length === 0) {
-    throw new CliError(messages.FUNCTION_DEPLOY_NO_APPS);
-  }
-
-  const { selected } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'selected',
-      message: messages.FUNCTION_DEPLOY_SELECT_APP,
-      pageSize: 15,
-      choices: indentChoices(
-        apps.map((a) => ({
-          name: `${a.name || 'App ' + a.app_id}  (ID: ${a.app_id})`,
-          value: a.app_id,
-        })),
-      ),
-    },
-  ]);
-
-  return apps.find((a) => a.app_id === selected)!;
-}
-
-/** Link a deployed function to an app. Non-fatal — logs a warning on failure. */
-async function tryLinkFunctionToApp(appId: string, functionId: string): Promise<void> {
-  const spinner = createSpinner(messages.FUNCTION_DEPLOY_LINKING);
-  try {
-    await functionService.linkFunctionToApp({ app_id: appId, function_id: functionId });
-  } catch {
-    logInfo(`  ${color('33', messages.FUNCTION_DEPLOY_LINK_ERROR)}`);
-  } finally {
-    spinner.stop();
   }
 }
 
@@ -162,8 +119,10 @@ async function deployJsonMode(draft: DpDraftFunction, appId?: string): Promise<v
     });
     deploySpinner.stop();
 
+    // Point 1 & 2: link silently in JSON mode, report status in the payload
+    let linked = false;
     if (appId) {
-      await tryLinkFunctionToApp(appId, created.id);
+      linked = await tryLinkFunctionToApp(appId, created.id, { silent: true });
     }
 
     jsonOutput({
@@ -171,6 +130,8 @@ async function deployJsonMode(draft: DpDraftFunction, appId?: string): Promise<v
       id: created.id,
       name: created.name,
       version: created.version,
+      linked,
+      ...(appId ? { app_id: appId } : {}),
     });
   } catch (err) {
     deploySpinner.stop();
@@ -266,23 +227,28 @@ export const deployFunctionCommand = withCommandHandler(
       draft = await promptDraftFunctionSelection();
     }
 
-    // Step 2: Resolve app to link the function to
-    let appId: string | undefined = options.appId;
-    if (!appId && !options.json) {
-      const app = await selectApp();
-      appId = app.app_id;
-    }
-
-    // Step 3: Preview — fatal on data errors (__error), non-fatal on network issues
+    // Step 2: Preview — fatal on data errors (__error), non-fatal on network issues
+    // Point 4: moved before app selection so a preview failure doesn't waste a round-trip
     if (!options.json) {
       await tryPreview(draft.id);
+    }
+
+    // Step 3: Resolve app to link the function to
+    // Point 5: narrowed appId type so the non-null assertion is unnecessary
+    let appId: string | undefined = options.appId;
+    if (!appId && !options.json) {
+      appId = await selectFunctionApp(
+        messages.FUNCTION_DEPLOY_SELECT_APP,
+        messages.FUNCTION_DEPLOY_NO_APPS,
+      );
     }
 
     // Step 4-5: Name + confirm (interactive) or derive name (--json)
     if (options.json) {
       await deployJsonMode(draft, appId);
     } else {
-      await deployInteractive(draft, appId!);
+      // appId is always defined here: either from --app-id or from the picker above
+      await deployInteractive(draft, appId as string);
     }
   },
 );

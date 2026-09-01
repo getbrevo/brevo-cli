@@ -82,7 +82,32 @@ describe('function/deploy', () => {
     expect(output).toContain('My Function');
   });
 
-  it('should output JSON with --json', async () => {
+  it('should output JSON with --json and report linked/app_id', async () => {
+    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
+      drafts: [DRAFT],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      has_more: false,
+    });
+    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
+    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
+
+    await deployFunctionCommand({ id: 'draft-001', json: true, appId: 'app-001' });
+
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    const output = stdoutSpy.mock.calls[0][0];
+    const parsed = JSON.parse(output);
+    expect(parsed.deployed).toBe(true);
+    expect(parsed.id).toBe('fn-001');
+    expect(parsed.name).toBe('My Function');
+    expect(parsed.version).toBe(1);
+    expect(parsed.linked).toBe(true);
+    expect(parsed.app_id).toBe('app-001');
+  });
+
+  // Point 2: --json without --app-id reports linked: false
+  it('should output JSON without --app-id and report linked: false', async () => {
     (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
       drafts: [DRAFT],
       total: 1,
@@ -94,13 +119,36 @@ describe('function/deploy', () => {
 
     await deployFunctionCommand({ id: 'draft-001', json: true });
 
-    expect(inquirer.prompt).not.toHaveBeenCalled();
     const output = stdoutSpy.mock.calls[0][0];
     const parsed = JSON.parse(output);
     expect(parsed.deployed).toBe(true);
-    expect(parsed.id).toBe('fn-001');
-    expect(parsed.name).toBe('My Function');
-    expect(parsed.version).toBe(1);
+    expect(parsed.linked).toBe(false);
+    expect(parsed.app_id).toBeUndefined();
+    expect(functionService.linkFunctionToApp).not.toHaveBeenCalled();
+  });
+
+  // Point 1: link failure in --json doesn't corrupt stdout
+  it('should report linked: false in JSON when link fails', async () => {
+    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
+      drafts: [DRAFT],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      has_more: false,
+    });
+    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
+    (functionService.linkFunctionToApp as jest.Mock).mockRejectedValue(new Error('403 Forbidden'));
+
+    await deployFunctionCommand({ id: 'draft-001', json: true, appId: 'app-001' });
+
+    const output = stdoutSpy.mock.calls[0][0];
+    const parsed = JSON.parse(output);
+    expect(parsed.deployed).toBe(true);
+    expect(parsed.linked).toBe(false);
+    expect(parsed.app_id).toBe('app-001');
+    // No warning text on stdout — silent mode
+    const allOutput = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(allOutput).not.toContain('failed to link');
   });
 
   it('should use picker flow when no --id', async () => {
@@ -294,11 +342,83 @@ describe('function/deploy', () => {
     (functionService.executeTemplate as jest.Mock).mockResolvedValue({
       result: [{ __error: 'MCP tool error: query failed' }],
     });
-    (inquirer.prompt as unknown as jest.Mock).mockResolvedValueOnce({ selected: 'app-001' }); // app picker
+    // No app picker prompt needed — preview fails before app selection (point 4)
 
     await expect(deployFunctionCommand({ id: 'draft-001' })).rejects.toThrow(
       'Unable to deploy function',
     );
     expect(functionService.createFunction).not.toHaveBeenCalled();
+  });
+
+  // Point 7: test --app-id supplied (non-interactive link path)
+  it('should use --app-id directly without showing the app picker', async () => {
+    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
+      drafts: [DRAFT],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      has_more: false,
+    });
+    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
+    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
+    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
+    (inquirer.prompt as unknown as jest.Mock)
+      .mockResolvedValueOnce({ functionName: 'My Function' })
+      .mockResolvedValueOnce({ confirmDeploy: true });
+
+    await deployFunctionCommand({ id: 'draft-001', appId: 'explicit-app' });
+
+    // App picker should NOT have been called
+    expect(appService.fetchAppsList).not.toHaveBeenCalled();
+    expect(functionService.linkFunctionToApp).toHaveBeenCalledWith({
+      app_id: 'explicit-app',
+      function_id: 'fn-001',
+    });
+  });
+
+  // Point 7: test FUNCTION_DEPLOY_NO_APPS throw
+  it('should throw when no function apps exist', async () => {
+    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
+      drafts: [DRAFT],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      has_more: false,
+    });
+    (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
+    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
+    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+
+    await expect(deployFunctionCommand({ id: 'draft-001' })).rejects.toThrow(
+      'No Brevo Function apps found',
+    );
+  });
+
+  // Point 7: link failure warning path in interactive mode
+  it('should show warning on link failure in interactive mode', async () => {
+    (functionService.fetchDraftFunctionList as jest.Mock).mockResolvedValue({
+      drafts: [DRAFT],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      has_more: false,
+    });
+    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
+    (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
+    (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+    (functionService.linkFunctionToApp as jest.Mock).mockRejectedValue(new Error('500 Internal'));
+    (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
+    (inquirer.prompt as unknown as jest.Mock)
+      .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
+      .mockResolvedValueOnce({ functionName: 'My Function' })
+      .mockResolvedValueOnce({ confirmDeploy: true });
+
+    await deployFunctionCommand({ id: 'draft-001' });
+
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).toContain('failed to link');
+    // Deploy still succeeds
+    expect(output).toContain('Function deployed');
   });
 });

@@ -1,13 +1,14 @@
 import inquirer from 'inquirer';
 import { logInfo, color } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { appService, functionService, sseDeps } from '../../container';
+import { functionService, sseDeps } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { createSpinner, indentChoices, printBox } from '../../lib/ui';
 import { ApiError, CliError } from '../../lib/errors';
 import { deriveAttributeId, hasPreviewErrors, printResultsTable } from './preview-table';
+import { selectFunctionApp, tryLinkFunctionToApp } from './select-app';
 import type { SSEEvent } from '../../api/sse-stream';
-import type { ChatHistoryEntry, FunctionGenerateSSEEvent, OAuthApp } from '../../types';
+import type { ChatHistoryEntry, FunctionGenerateSSEEvent } from '../../types';
 
 interface GenerateResult {
   code: string;
@@ -110,37 +111,6 @@ function mergeGenerateResult(base: GenerateResult, update: GenerateResult): Gene
   };
 }
 
-async function selectApp(): Promise<OAuthApp> {
-  const spinner = createSpinner('Fetching apps...');
-  let apps: OAuthApp[];
-  try {
-    apps = await appService.fetchAppsList({ type: 'brevo_function' });
-  } finally {
-    spinner.stop();
-  }
-
-  if (apps.length === 0) {
-    throw new CliError(messages.FUNCTION_INIT_NO_APPS);
-  }
-
-  const { selected } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'selected',
-      message: messages.FUNCTION_INIT_SELECT_APP,
-      pageSize: 15,
-      choices: indentChoices(
-        apps.map((a) => ({
-          name: `${a.name || 'App ' + a.app_id}  (ID: ${a.app_id})`,
-          value: a.app_id,
-        })),
-      ),
-    },
-  ]);
-
-  return apps.find((a) => a.app_id === selected)!;
-}
-
 /** Fetch sample contacts and execute a preview, printing a results table. */
 async function executePreview(draftId: string | undefined): Promise<void> {
   const contactSpinner = createSpinner(messages.FUNCTION_INIT_FETCHING_CONTACTS);
@@ -170,20 +140,8 @@ async function executePreview(draftId: string | undefined): Promise<void> {
   printResultsTable(results);
 }
 
-/** Link a deployed function to an app. Non-fatal — logs a warning on failure. */
-async function tryLinkFunctionToApp(appId: string, functionId: string): Promise<void> {
-  const linkSpinner = createSpinner(messages.FUNCTION_DEPLOY_LINKING);
-  try {
-    await functionService.linkFunctionToApp({ app_id: appId, function_id: functionId });
-  } catch {
-    logInfo(`  ${color('33', messages.FUNCTION_DEPLOY_LINK_ERROR)}`);
-  } finally {
-    linkSpinner.stop();
-  }
-}
-
 interface SaveFunctionArgs {
-  app: OAuthApp;
+  appId: string;
   code: string;
   draftId?: string;
   name?: string;
@@ -234,13 +192,13 @@ async function saveGeneratedFunction(args: SaveFunctionArgs): Promise<void> {
         category: args.category,
         description: args.description,
         explanation: args.explanation,
-        app_id: args.app.app_id,
+        app_id: args.appId,
         draft_id: args.draftId,
         attribute_id: deriveAttributeId(functionName.trim()),
       });
       saveSpinner.stop();
 
-      await tryLinkFunctionToApp(args.app.app_id, created.id);
+      await tryLinkFunctionToApp(args.appId, created.id);
 
       printBox(messages.FUNCTION_INIT_BOX_TITLE, [
         `Name: ${created.name}`,
@@ -314,7 +272,7 @@ async function tryPreview(draftId: string | undefined): Promise<void> {
   }
 }
 
-async function aiGenerationFlow(app: OAuthApp): Promise<void> {
+async function aiGenerationFlow(appId: string): Promise<void> {
   const { description } = await inquirer.prompt([
     {
       type: 'input',
@@ -368,7 +326,7 @@ async function aiGenerationFlow(app: OAuthApp): Promise<void> {
 
     if (action === 'save') {
       await saveGeneratedFunction({
-        app,
+        appId,
         code: current.code,
         draftId: current.draftId,
         name: current.name,
@@ -394,7 +352,7 @@ function isDuplicateNameError(err: unknown): boolean {
   return false;
 }
 
-async function templateFlow(app: OAuthApp): Promise<void> {
+async function templateFlow(appId: string): Promise<void> {
   // Step 1: Fetch and select template
   const templateSpinner = createSpinner('Fetching templates...');
   let templates;
@@ -499,7 +457,7 @@ async function templateFlow(app: OAuthApp): Promise<void> {
       });
       createSpinnerInstance.stop();
 
-      await tryLinkFunctionToApp(app.app_id, created.id);
+      await tryLinkFunctionToApp(appId, created.id);
 
       printBox(messages.FUNCTION_INIT_BOX_TITLE, [
         `Name: ${created.name}`,
@@ -526,7 +484,10 @@ export const initFunctionCommand = withCommandHandler(
     }
 
     // Step 1: App selection
-    const app = await selectApp();
+    const appId = await selectFunctionApp(
+      messages.FUNCTION_INIT_SELECT_APP,
+      messages.FUNCTION_INIT_NO_APPS,
+    );
 
     // Step 2: Method selection
     const { method } = await inquirer.prompt([
@@ -542,9 +503,9 @@ export const initFunctionCommand = withCommandHandler(
     ]);
 
     if (method === 'ai') {
-      await aiGenerationFlow(app);
+      await aiGenerationFlow(appId);
     } else {
-      await templateFlow(app);
+      await templateFlow(appId);
     }
   },
 );
