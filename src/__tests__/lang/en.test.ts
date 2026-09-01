@@ -233,12 +233,15 @@ describe('smoke-suite prompt patterns', () => {
       ['appTypeOAuth', messages.APP_CREATE_APP_TYPE_OAUTH],
       ['appTypeUi', messages.APP_CREATE_APP_TYPE_UI],
       ['integration', messages.APP_CREATE_UI_INTEGRATION_PROMPT],
+      ['integrationLink', messages.APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK],
+      ['integrationIframe', messages.APP_CREATE_UI_INTEGRATION_MODAL_IFRAME],
       ['page', messages.APP_CREATE_UI_SURFACE_PROMPT],
       // Any non-empty page name works; 'contact' is representative.
       ['placement', messages.APP_CREATE_UI_PLACEMENT_PAGE_PROMPT('contact')],
       ['label', messages.APP_CREATE_UI_LABEL_PROMPT],
       ['moreInfo', messages.APP_CREATE_UI_MORE_INFO_PROMPT],
       ['redirect', messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT],
+      ['iframeUrl', messages.APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT],
       ['outputDir', messages.APP_SCAFFOLD_DIR_PROMPT],
     ];
     for (const [key, copy] of pairs) {

@@ -579,7 +579,10 @@ export const createCommand = withCommandHandler(
     let redirectUris: string[] = [];
     let uiApp: UiApp | undefined;
     if (appType === 'ui') {
-      uiApp = await resolveUiApp();
+      // Distribution gates the integration-type choices: Iframe is private-only (v1),
+      // so the prompt on a public app offers Link alone rather than a choice that the
+      // validator and the platform would both refuse two questions later.
+      uiApp = await resolveUiApp(distribution);
     } else {
       redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
     }

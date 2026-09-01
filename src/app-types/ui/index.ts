@@ -1,5 +1,7 @@
 /**
- * The UI app type (BEX-290) — an action link that renders inside a Brevo CRM record.
+ * The UI app type (BEX-290) — an extension that renders inside a Brevo CRM record: an
+ * action link that opens the partner's URL, or an iframe extension whose page opens in a
+ * modal (private-only in v1).
  *
  * GA since BEX-290: live on the platform (private distribution) and shipped in every
  * build. `availability` is metadata for doc generation only — the CLI deliberately has
@@ -10,6 +12,7 @@
  * just to print a `Type:` row.
  */
 import { messages } from '../../lang/en';
+import { CliError } from '../../lib/errors';
 import { validateUiApp } from '../../lib/validators';
 import type { AppTypeModule } from '../contract';
 import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
@@ -73,6 +76,18 @@ export const uiAppType: AppTypeModule = {
     // pre-BEX-290 field name. Whether a slot is registered is the upload endpoint's call; the
     // CLI holds no copy of that registry, on purpose.
     validateUiApp(config.ui_app);
+    // The one cross-field rule, and it IS answerable from the file alone: iframe
+    // extensions are private-only (v1). The create prompt never authors the combination
+    // (Iframe is hidden on a public app), so this catches the hand-edited config before a
+    // round trip the platform would 400 with the same rule. Not folded into
+    // `validateUiApp`: that validator judges the block, and `distribution_type` lives
+    // outside it.
+    if (
+      config.ui_app?.extension_type === 'iframeExtension' &&
+      config.distribution_type !== 'private'
+    ) {
+      throw new CliError(messages.APP_UI_IFRAME_PRIVATE_ONLY);
+    }
   },
 
   wireOnlyKeys: UI_APP_WIRE_ONLY_KEYS,

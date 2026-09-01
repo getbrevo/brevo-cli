@@ -1,6 +1,9 @@
 /*
  * UI-app lifecycle: interactive create (pty) -> upload no-op -> per-entry edit
- * upload -> install -> uninstall -> uninstall again -> delete.
+ * upload -> install -> uninstall -> uninstall again -> delete — run for an
+ * actionLink, then again (create -> upload -> install -> uninstall -> delete)
+ * for an iframeExtension, whose leg skips on a build or environment that
+ * predates the iframe-extension launch.
  *
  * UI apps are GA (BEX-290) and ship in every build, so this suite runs on the
  * published surface — it does NOT need a PREVIEW=1 artefact. What it does need
@@ -58,6 +61,7 @@ const UI_LABEL = 'Smoke menu entry';
 const UI_LABEL_EDITED = 'Smoke menu entry edited';
 const UI_MORE_INFO = 'Added by the smoke test';
 const UI_REDIRECT_LINK = 'https://example.com/brevo-cli-smoke/action';
+const UI_IFRAME_URL = 'https://example.com/brevo-cli-smoke/embed';
 
 // Same secondary appId recovery as the init suite: the unique stamped name
 // makes the app identifiable even when parsing the pty transcript fails.
@@ -82,12 +86,15 @@ async function findUiAppByName(state: State, expectedName: string): Promise<stri
 //                                    question so the choices have provably
 //                                    rendered before the transcript is
 //                                    inspected for the UI one.
-//   3. integration type (list)     → Enter (Link is the only choice)
+//   3. integration type (list)     → Enter (Link, the first choice) on the link leg;
+//                                    '2' = Iframe on the iframe leg, or abort → skip
+//                                    when the rendered choices carry no Iframe entry
 //   4. record page (list)          → Enter (first registry location)
 //   5. placement on page (list)    → Enter (first registry row)
 //   6. label (input)               → UI_LABEL
 //   7. more_info (input, optional) → Enter (blank must be OMITTED from config)
-//   8. redirect link (input)       → UI_REDIRECT_LINK
+//   8. destination URL (input)     → UI_REDIRECT_LINK, or UI_IFRAME_URL on the
+//                                    iframe leg (a different question: modal_iframe_url)
 //   9. output directory (input)    → Enter (default ./<slug>)
 //
 // Nothing is asked after the POST: `finishProject` prints the UI-app
@@ -114,27 +121,46 @@ export const UI_CREATE_EXPECT = {
   appTypeOAuth: /OAuth app\s+\(Authorize against Brevo/,
   appTypeUi: /UI app\s+\(Render inside Brevo/,
   integration: /What type of integration are you adding\?/,
+  // The two integration choices, matched on the transcript once the question has
+  // rendered: Link is always offered; Iframe only on a private app since the
+  // iframe-extension launch, so its absence is how an older build is detected.
+  integrationLink: /Link\s+\(Opens your URL in a new tab/,
+  integrationIframe: /Iframe\s+\(Embeds your page in a modal/,
   page: /Which record page should it appear on\?/,
   placement: /Where should it appear on the .+ page\?/,
   label: /Label\b/,
   moreInfo: /More info \(optional\)/,
   redirect: /Redirect link\b/,
+  iframeUrl: /Iframe URL\b/,
   outputDir: /Output directory:/,
 } as const;
 
-function createExchanges(): PtyExchange[] {
+/** Which integration the create authors; decides the choice sent and the URL question. */
+type UiIntegration = 'link' | 'iframe';
+
+function createExchanges(integration: UiIntegration): PtyExchange[] {
   return [
     { expect: UI_CREATE_EXPECT.logo, send: '' },
     {
       expect: UI_CREATE_EXPECT.appTypeOAuth,
       send: (transcript) => (UI_CREATE_EXPECT.appTypeUi.test(transcript) ? '2' : null),
     },
-    { expect: UI_CREATE_EXPECT.integration, send: '' },
+    // The iframe path selects by number-key jump, and aborts (→ skip) when the
+    // rendered choices carry no Iframe entry — an older build, same detection
+    // pattern as the app-type prompt above.
+    integration === 'iframe'
+      ? {
+          expect: UI_CREATE_EXPECT.integration,
+          send: (transcript) => (UI_CREATE_EXPECT.integrationIframe.test(transcript) ? '2' : null),
+        }
+      : { expect: UI_CREATE_EXPECT.integration, send: '' },
     { expect: UI_CREATE_EXPECT.page, send: '' },
     { expect: UI_CREATE_EXPECT.placement, send: '' },
     { expect: UI_CREATE_EXPECT.label, send: UI_LABEL },
     { expect: UI_CREATE_EXPECT.moreInfo, send: '' },
-    { expect: UI_CREATE_EXPECT.redirect, send: UI_REDIRECT_LINK },
+    integration === 'iframe'
+      ? { expect: UI_CREATE_EXPECT.iframeUrl, send: UI_IFRAME_URL }
+      : { expect: UI_CREATE_EXPECT.redirect, send: UI_REDIRECT_LINK },
     { expect: UI_CREATE_EXPECT.outputDir, send: '' },
   ];
 }
@@ -162,27 +188,42 @@ function requireUiEntry(cfg: Record<string, unknown>): {
   return { uiApp: uiApp as Record<string, unknown>, entry };
 }
 
-async function stepUiAppCreate(state: State): Promise<string> {
+async function createUiSmokeApp(state: State, integration: UiIntegration): Promise<string> {
   const tmp = trackTmpDir(state, 'brevo-smoke-ui-');
-  const name = stampedName(state, 'ui');
+  const name = stampedName(state, integration === 'iframe' ? 'ui-ifr' : 'ui');
 
   const r = await execExpectPty(
     brevoCmd(state),
     ['app', 'create', '--name', name, '--distribution', 'private'],
     state,
-    { cwd: tmp, exchanges: createExchanges() },
+    { cwd: tmp, exchanges: createExchanges(integration) },
   );
 
-  // Aborted at the app-type prompt: the choices rendered without a UI app, so
-  // the installed build predates UI apps GA. Nothing was created — create makes
-  // no API call until every prompt is answered.
+  // Aborted at a list prompt whose choices rendered without the one this path
+  // selects: the installed build predates UI apps GA (app-type prompt) or the
+  // iframe-extension launch (integration prompt). Nothing was created — create
+  // makes no API call until every prompt is answered.
   if (r.aborted) {
     skip(
-      `the installed build's app-type prompt offers no UI app (--against=${state.opts.against})`,
+      integration === 'iframe'
+        ? `the installed build's integration prompt offers no Iframe (--against=${state.opts.against})`
+        : `the installed build's app-type prompt offers no UI app (--against=${state.opts.against})`,
     );
   }
   if (r.exitCode !== 0) {
-    throw new Error(`brevo app create exited ${r.exitCode}: ${firstLine(stripAnsi(r.stdout))}`);
+    // The iframe choice exists but the registry has no slot enabled for it yet —
+    // the environment predates the iframe-extension registry flip. An environment
+    // state, not a CLI defect, so the step skips and names the fix.
+    const transcript = stripAnsi(r.stdout);
+    if (
+      integration === 'iframe' &&
+      /(no available placements|None of the available placements)/i.test(transcript)
+    ) {
+      skip(
+        'the registry has no slot enabled for iframeExtension — apply the registry flip (app-store-bo-be specs/database.sql) in this environment first',
+      );
+    }
+    throw new Error(`brevo app create exited ${r.exitCode}: ${firstLine(transcript)}`);
   }
 
   // Primary appId recovery: the created-app box. UUID format only, same as the
@@ -234,9 +275,10 @@ async function stepUiAppCreate(state: State): Promise<string> {
   must('version' in cfg, 'app-config.json has no version key');
 
   const { uiApp, entry } = requireUiEntry(cfg);
+  const expectedType = integration === 'iframe' ? 'iframeExtension' : 'actionLink';
   must(
-    uiApp.extension_type === 'actionLink',
-    `extension_type ${JSON.stringify(uiApp.extension_type)} != actionLink (camelCase, BEX-350)`,
+    uiApp.extension_type === expectedType,
+    `extension_type ${JSON.stringify(uiApp.extension_type)} != ${expectedType} (camelCase, BEX-350)`,
   );
   // The CTA fields live per entry; their superseded root spellings must not be
   // written (validateUiApp refuses them by name — so would the next upload).
@@ -251,10 +293,27 @@ async function stepUiAppCreate(state: State): Promise<string> {
     entry.label === UI_LABEL,
     `entry label ${JSON.stringify(entry.label)} != ${JSON.stringify(UI_LABEL)}`,
   );
-  must(
-    entry.redirect_link === UI_REDIRECT_LINK,
-    `entry redirect_link ${JSON.stringify(entry.redirect_link)} != ${UI_REDIRECT_LINK}`,
-  );
+  // One destination field, per type — the platform refuses the other type's URL on an
+  // entry, so its presence here means the create authored a block its own upload 400s.
+  if (integration === 'iframe') {
+    must(
+      entry.modal_iframe_url === UI_IFRAME_URL,
+      `entry modal_iframe_url ${JSON.stringify(entry.modal_iframe_url)} != ${UI_IFRAME_URL}`,
+    );
+    must(
+      !('redirect_link' in entry),
+      `iframe entry must carry no redirect_link: ${JSON.stringify(entry)}`,
+    );
+  } else {
+    must(
+      entry.redirect_link === UI_REDIRECT_LINK,
+      `entry redirect_link ${JSON.stringify(entry.redirect_link)} != ${UI_REDIRECT_LINK}`,
+    );
+    must(
+      !('modal_iframe_url' in entry),
+      `link entry must carry no modal_iframe_url: ${JSON.stringify(entry)}`,
+    );
+  }
   must(
     !('more_info' in entry),
     'blank more_info must be omitted from the entry, not written empty',
@@ -271,7 +330,18 @@ async function stepUiAppCreate(state: State): Promise<string> {
     `app ${appId} not present in list after create (after retries)`,
   );
 
-  return `UI app ${appId} created in ${projectDir}, slot ${String(entry.surface_point_name)}`;
+  return `${expectedType} app ${appId} created in ${projectDir}, slot ${String(entry.surface_point_name)}`;
+}
+
+async function stepUiAppCreate(state: State): Promise<string> {
+  return createUiSmokeApp(state, 'link');
+}
+
+// The iframe leg reuses the shared lifecycle steps below — they read `state.uiApp`
+// without caring which extension type authored it — and runs AFTER the actionLink
+// leg's delete has cleared that slot.
+async function stepIframeAppCreate(state: State): Promise<string> {
+  return createUiSmokeApp(state, 'iframe');
 }
 
 // Create writes the app_versions snapshot inside its own transaction, so the
@@ -416,5 +486,13 @@ export const uiAppSuite: Suite = {
     ['UI app uninstall', stepUiUninstall],
     ['UI app uninstall (not installed)', stepUiUninstallAgain],
     ['Delete UI app', stepDeleteUiApp],
+    // The iframe leg (iframe-extension launch): same lifecycle, second app, after the
+    // first one's delete has freed the state slot. Skips — rather than fails — on a
+    // build without the Iframe choice or an environment without the registry flip.
+    ['Iframe app create (pty)', stepIframeAppCreate],
+    ['Iframe upload (no-op after create)', stepUiUploadNoop],
+    ['Iframe app install', stepUiInstall],
+    ['Iframe app uninstall', stepUiUninstall],
+    ['Delete iframe app', stepDeleteUiApp],
   ],
 };

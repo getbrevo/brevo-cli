@@ -13,7 +13,7 @@
  * only correct in the order this flow calls them.
  */
 import inquirer from 'inquirer';
-import { EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
+import { EXTENSION_TYPE_ACTION_LINK, EXTENSION_TYPE_IFRAME } from '../../lib/constants';
 import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import {
@@ -39,7 +39,9 @@ import { formatPlacementLines } from './fields';
 //       3. placement        → single-select of real registry rows on that page.
 //       4. label            → menu entry text / card CTA, for THAT placement.
 //       5. more_info        → optional supporting line, for THAT placement.
-//       6. redirect link    → the destination, for THAT placement.
+//       6. destination URL  → for THAT placement: `redirect_link` for a Link,
+//                             `modal_iframe_url` for an Iframe — the type picked at
+//                             step 1 decides which single URL question this is.
 //
 //     Five questions, one optional, and two registry reads that ask for different things:
 //     `surface-points/locations` for the pages, then `surface-points?location=<csv>` for
@@ -65,10 +67,11 @@ import { formatPlacementLines } from './fields';
 //
 //     Placement choices are read from the platform's extension-point registry (BEX-361),
 //     fetch-only with NO local-mirror fallback, so a partner can never author a slot the
-//     platform doesn't have. Only `actionLink` is offered at the integration-type
-//     prompt: the `iframeExtension` choice (previously shown disabled as "coming soon")
-//     was removed 2026-08-19 until iframe authoring is ready, though the upload endpoint
-//     still accepts a hand-edited block — see validateUiApp.
+//     platform doesn't have. Both uploadable types are offered at the integration-type
+//     prompt since the iframe-extension launch — Iframe only on a PRIVATE app, because
+//     iframe extensions are private-only in v1 (the same rule `validateConfig` and the
+//     platform enforce; the choice is hidden rather than shown disabled, so the prompt
+//     never advertises a combination every layer refuses).
 //
 //     The collected block is the app snapshot the platform stores, verbatim, so there is
 //     no vocabulary translation between what a partner authors and what the platform
@@ -337,13 +340,15 @@ async function promptSurfacePoint(
 }
 
 /**
- * Ask what the app integrates as. Only Link (`actionLink`) is offered — the Iframe
- * choice (previously a disabled "coming soon" entry) was removed 2026-08-19 until
- * iframe authoring is ready. The question is still asked with one choice, same as the
- * gated app-type and distribution prompts: the user is told what they are getting
- * rather than having it applied silently.
+ * Ask what the app integrates as: a Link (`actionLink`) always, an Iframe
+ * (`iframeExtension`) only on a private app — iframe extensions are private-only in v1,
+ * and the choice is HIDDEN rather than shown disabled: a disabled entry would advertise
+ * a combination the CLI validator and the platform both refuse, which is a roadmap hint
+ * about a rule, not a feature. On a public app the question is still asked with its one
+ * choice, same as the gated app-type and distribution prompts: the user is told what
+ * they are getting rather than having it applied silently.
  */
-async function promptIntegrationType(): Promise<UiApp['extension_type']> {
+async function promptIntegrationType(offerIframe: boolean): Promise<UiApp['extension_type']> {
   const { integrationType } = await inquirer.prompt([
     {
       type: 'list',
@@ -354,6 +359,14 @@ async function promptIntegrationType(): Promise<UiApp['extension_type']> {
           name: messages.APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK,
           value: EXTENSION_TYPE_ACTION_LINK,
         },
+        ...(offerIframe
+          ? [
+              {
+                name: messages.APP_CREATE_UI_INTEGRATION_MODAL_IFRAME,
+                value: EXTENSION_TYPE_IFRAME,
+              },
+            ]
+          : []),
       ]),
     },
   ]);
@@ -366,11 +379,14 @@ async function promptIntegrationType(): Promise<UiApp['extension_type']> {
  * field is asked for, with no flag or default fallback path. (That also means
  * the fetch spinner never needs a `silent` option: the UI path is unreachable
  * under `--json`.)
+ *
+ * `distribution` is the answer the create flow already collected; it gates the Iframe
+ * choice (private-only in v1) rather than being re-asked or inferred here.
  */
-export async function resolveUiApp(): Promise<UiApp> {
+export async function resolveUiApp(distribution: string): Promise<UiApp> {
   // Integration type first: it is the decision a partner arrives with, and it decides
   // which registry rows can host the app at all.
-  const extensionType = await promptIntegrationType();
+  const extensionType = await promptIntegrationType(distribution === 'private');
   const locations = await fetchRecordPageLocations(extensionType);
   const selectedRows = await promptSurfacePoint(locations, extensionType);
 
@@ -392,11 +408,18 @@ export async function resolveUiApp(): Promise<UiApp> {
     },
   ]);
 
+  // ONE URL question either way — the integration type decides which field it answers.
+  // A Link's destination opens in a new tab (`redirect_link`); an Iframe's page is
+  // embedded in a modal inside Brevo (`modal_iframe_url`). Same validator: both fields
+  // carry the same https contract, judged again server-side at upload.
+  const isIframe = extensionType === EXTENSION_TYPE_IFRAME;
   const { url } = await inquirer.prompt([
     {
       type: 'input',
       name: 'url',
-      message: messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
+      message: isIframe
+        ? messages.APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT
+        : messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
       validate: validateUiAppUrl,
     },
   ]);
@@ -417,7 +440,8 @@ export async function resolveUiApp(): Promise<UiApp> {
       contextFor: (row) => row.default_context_field ?? [],
       label: String(label ?? '').trim(),
       more_info: String(more_info ?? '').trim(),
-      redirect_link: String(url ?? '').trim(),
+      urlField: isIframe ? 'modal_iframe_url' : 'redirect_link',
+      url: String(url ?? '').trim(),
     }),
     // No link_target: `brevo app upload` injects `_blank`. See the field's note in
     // types.ts — the server refuses `_self`, so a field in the file would only
@@ -456,6 +480,10 @@ export async function resolveUiApp(): Promise<UiApp> {
  * partner who wants them to differ edits the entries in `app-config.json`, which is the
  * documented path to more placements anyway. `more_info` is omitted when blank, same
  * contract as `context`.
+ *
+ * `urlField` names which destination the answered URL is: `redirect_link` for a Link,
+ * `modal_iframe_url` for an Iframe. One field, never both — the platform refuses the
+ * other type's URL on an entry, so writing both would author a block upload 400s on.
  */
 function buildSurfacePointList(
   rows: UsableSurfacePoint[],
@@ -463,7 +491,8 @@ function buildSurfacePointList(
     contextFor: (row: UsableSurfacePoint) => string[];
     label: string;
     more_info: string;
-    redirect_link: string;
+    urlField: 'redirect_link' | 'modal_iframe_url';
+    url: string;
   },
 ): SurfacePointEntry[] {
   const entries: SurfacePointEntry[] = [];
@@ -480,7 +509,7 @@ function buildSurfacePointList(
       ...(context.length ? { context } : {}),
       label: fields.label,
       ...(fields.more_info ? { more_info: fields.more_info } : {}),
-      redirect_link: fields.redirect_link,
+      [fields.urlField]: fields.url,
     });
   }
   return entries;
@@ -515,18 +544,23 @@ function buildExampleContextUrl(redirectLink: string, context: readonly string[]
 /**
  * The example-URL lines for the created-app box, or none at all.
  *
- * Built from the FIRST placement that declares both a context and its own
- * `redirect_link` (the two live on the same entry since BEX-426): entries can differ,
- * but one example makes the point without turning the box into a list. Nothing is
- * printed when no placement declares a context — the entry's plain `redirect link` line
- * above already says everything there is to say in that case.
+ * Built from the FIRST placement that declares both a context and its own destination —
+ * `redirect_link` or `modal_iframe_url`, whichever the entry's type carries (the two live
+ * on the same entry since BEX-426): entries can differ, but one example makes the point
+ * without turning the box into a list. Nothing is printed when no placement declares a
+ * context — the entry's plain destination line above already says everything there is to
+ * say in that case. Context reaches an iframe's URL the same way it reaches a redirect:
+ * as query parameters, appended by the kit's one URL builder.
  */
 function renderExampleContextUrlLines(uiApp: UiApp): string[] {
   const withContext = uiApp.surface_point_list.find(
-    (entry) => entry.context?.length && entry.redirect_link,
+    (entry) => entry.context?.length && (entry.redirect_link || entry.modal_iframe_url),
   );
   if (!withContext) return [];
-  const example = buildExampleContextUrl(withContext.redirect_link!, withContext.context ?? []);
+  const example = buildExampleContextUrl(
+    (withContext.redirect_link ?? withContext.modal_iframe_url)!,
+    withContext.context ?? [],
+  );
   if (!example) return [];
   return [
     '',
