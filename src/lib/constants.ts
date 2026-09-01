@@ -155,6 +155,7 @@ const coreEndpoints = {
   DP_FUNCTION_CONTACTS: '/v3/dp-functions/live-data/contacts',
   DP_FUNCTION_EXECUTE: '/v3/dp-functions/execute',
   DP_FUNCTION_CREATE_FROM_TEMPLATE: '/v3/dp-functions/functions/from-template',
+  APP_STORE_APP_FUNCTIONS: '/v3/app-store/app-functions',
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;

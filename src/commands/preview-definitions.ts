@@ -222,14 +222,23 @@ export const previewFunctionGroup: SubcommandGroupDefinition = {
       examples: [
         'brevo function deploy',
         'brevo function deploy --id draft-001',
-        'brevo function deploy --id draft-001 --json',
+        'brevo function deploy --id draft-001 --app-id my-app-id --json',
       ],
       options: [
         { flags: '--id <id>', description: 'Draft ID (shows a picker if omitted)' },
+        {
+          flags: '--app-id <id>',
+          description: 'App to link the deployed function to',
+          parser: (v) => parseAppId(v),
+        },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
-        deployFunctionCommand({ id: opts.id as string | undefined, json: Boolean(opts.json) }),
+        deployFunctionCommand({
+          id: opts.id as string | undefined,
+          appId: opts.appId as string | undefined,
+          json: Boolean(opts.json),
+        }),
     },
   ],
 };

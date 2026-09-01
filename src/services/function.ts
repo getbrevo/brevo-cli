@@ -14,6 +14,8 @@ import {
   FunctionExecuteRequest,
   FunctionExecuteResponse,
   FunctionCreateFromTemplateRequest,
+  LinkFunctionToAppRequest,
+  LinkFunctionToAppResponse,
 } from '../types';
 
 export function createFunctionService(client: ApiClient) {
@@ -84,6 +86,10 @@ export function createFunctionService(client: ApiClient) {
         ENDPOINTS.DP_FUNCTION_CREATE_FROM_TEMPLATE,
         payload,
       );
+    },
+
+    async linkFunctionToApp(payload: LinkFunctionToAppRequest): Promise<LinkFunctionToAppResponse> {
+      return client.post<LinkFunctionToAppResponse>(ENDPOINTS.APP_STORE_APP_FUNCTIONS, payload);
     },
   };
 }

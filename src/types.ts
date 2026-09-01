@@ -652,3 +652,13 @@ export interface FunctionCreateFromTemplateRequest {
   attribute_id: string;
   source: string;
 }
+
+export interface LinkFunctionToAppRequest {
+  app_id: string;
+  function_id: string;
+}
+
+export interface LinkFunctionToAppResponse {
+  app_id: string;
+  function_id: string;
+}
