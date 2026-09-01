@@ -79,7 +79,7 @@ Or step by step:
    ```bash
    brevo app list
    brevo app create --name "My App" --distribution private
-   brevo app scaffold --app-id 42
+   brevo app scaffold --app-id 3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93
    brevo app start oauth --port 3000
    ```
 
@@ -93,18 +93,41 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`) |
-| `brevo app list` | List apps in your account |
+| `brevo app create` | Create an app — an OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`), or a UI app via the interactive prompts (there is no `--type` flag; non-interactive runs always create an OAuth app) |
+| `brevo app list` | List apps in your account (each row names its type) |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
-| `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff (`--yes`) |
+| `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff — field by field, including every `ui_app` placement (`--yes`) |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Add a feature to the app in the current directory, or set an empty directory up for an app you already have — picked interactively, or named with `--app-id` (`--overwrite`, `--json`) |
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |
+| `brevo app install` | Install a UI app into a Brevo account, after showing the configuration and version it will install (`[account-id]` optional — a regular account installs into itself; a corporate account is prompted to pick a sub-account, so pass the ID explicitly in scripts; `--app-id`, `--force`) |
+| `brevo app uninstall` | Uninstall a UI app from a Brevo account (same arguments as `install`) |
 | `brevo app available-scopes` | List the OAuth scopes the IdP supports (`--web` opens the catalog in a browser) |
 
 Most commands require a successful `brevo login` first, except authentication/help flows (`brevo login`, `brevo logout`, `brevo app init`, `--help`). Every command accepts `--json` for machine-readable output.
 
 The table above is the complete command surface of a published release. Features that aren't live on the Brevo platform yet aren't built into the package — `brevo --help` always lists everything the binary can do, so there is nothing hidden behind a flag or an environment variable.
+
+### Uploading a UI app that is already installed
+
+A UI app's `ui_app` block is what every account it is installed in renders, and there is no
+separate publish step — an upload is live in those accounts as soon as it succeeds. So the two
+commands show you what you are about to change:
+
+- **`brevo app upload`** diffs the block against the server placement by placement, printing
+  each changed value as `before → after` and tagging placements as `(new)` / `(removed)`. It
+  then warns that the app may already be installed in Brevo accounts and asks for confirmation
+  naming that consequence. `--yes` skips the question, not the warning; `--json` prints neither
+  and stays a single parseable document.
+- **`brevo app install`** prints the configuration it is about to install — **as stored on the
+  server**, since that is what the install makes visible — with the app's version, extension
+  type and every placement, before asking to confirm. If the `app-config.json` in the current
+  directory has drifted from it, the command says so and points at `brevo app upload`; the
+  install still proceeds, because the stored configuration is a legitimate thing to install.
+  Under `--json` the same information comes back as `version` and `ui_app`.
+
+To change what an installed app renders: edit `app-config.json`, run `brevo app upload`, and the
+accounts it is installed in pick the change up — no re-install needed.
 
 ### Browser login
 
@@ -120,6 +143,7 @@ Environment overrides:
 
 - `BREVO_API_URL` — points the CLI at a different Brevo API (defaults to `https://api.brevo.com`).
 - `BREVO_OAUTH_PROXY_URL` — points the browser-login flow at a different OAuth proxy (defaults to `https://oauth-cli.brevo.com`; useful for local development or non-default environments).
+- `BREVO_OAUTH_BASE_URL` — points scope lookups and scaffolded project templates at a different OAuth realm (defaults to `https://oauth.brevo.com`).
 
 ## Exit codes
 
@@ -139,6 +163,7 @@ Environment overrides:
 | `BREVO_API_KEY` | API key used for non-interactive `brevo login` | – |
 | `BREVO_API_URL` | API base URL (HTTPS required, except for `localhost`) | `https://api.brevo.com` |
 | `BREVO_OAUTH_PROXY_URL` | OAuth proxy used by browser login (HTTPS required, except for `localhost`) | `https://oauth-cli.brevo.com` |
+| `BREVO_OAUTH_BASE_URL` | OAuth realm used for scope lookups and scaffolded project templates (HTTPS required, except for `localhost`) | `https://oauth.brevo.com` |
 | `BREVO_CONFIG_HOME` | Override for the credentials directory | `~/.brevo/` |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs | off |
 | `NO_COLOR` / `FORCE_COLOR` | Disable / force ANSI colour output | – |

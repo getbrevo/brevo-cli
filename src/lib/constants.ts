@@ -1,4 +1,5 @@
 import { CliError } from './errors';
+import { previewCli, previewEndpoints } from './preview-constants';
 
 // Track whether URL suffix parts were stripped for deferred warning (avoid side effects at import time)
 let strippedUrlSuffix: string | undefined;
@@ -110,36 +111,34 @@ export const CLI_AUTH_METHODS = {
   OAUTH: 'oauth',
 } as const;
 
-export const ENDPOINTS = {
+const coreEndpoints = {
   ACCOUNT: '/v3/account/info',
   // Sub-accounts of a master (corporate) account — `{ count, subAccounts: [...] }`.
   // `offset` and `limit` are both required (there is no "return everything" call),
-  // so `count` is the paging terminator. `app deploy` / `app rollback` read this to
-  // resolve a deploy target when no <account-id> was given.
+  // so `count` is the paging terminator. `app install` / `app uninstall` read this to
+  // resolve a target account when no <account-id> was given.
   CORPORATE_SUB_ACCOUNTS: '/v3/corporate/subAccount',
   APP_STORE_APPS: '/v3/app-store/apps',
   APP_STORE_APP: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}`,
   // Served by the app-store service directly (APP_STORE_BASE), not via the v3
   // gateway — see resolveAppStoreUrl above and services/cli-info.ts.
   CLI_INFO: '/cli/info',
-  APP_STATE: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/state`,
   APP_STORE_APP_UPLOAD: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/upload`,
-  APP_STORE_APP_WITHDRAW: (appId: string) =>
-    `/v3/app-store/apps/${encodeURIComponent(appId)}/withdraw`,
   // Per-account availability for UI apps (BEX-290). Until an in-product
   // enable/disable surface ships, this endpoint *is* the install mechanism for
   // an action link: POST to install into an account, DELETE to remove.
   //
   // Both verbs take the same body — `client_id` (the *caller's* organization ID,
   // which the server uses to resolve the app, and which it falls back to as the
-  // install target), `deploy_client_id` (the numeric account being deployed to),
-  // `name`, `is_developer`. Note the `deploy` / `rollback` *commands* are named
-  // for the partner-facing verb, not the resource; the resource is an install.
+  // install target), `deploy_client_id` (the numeric account being installed into),
+  // `name`, `is_developer`. The `install` / `uninstall` *commands* are named for
+  // the resource itself; `deploy_client_id` is the one wire field that still
+  // carries the old server-side vocabulary — never rename it.
   //
   // DELETE resolves the install from this body rather than from an installation ID
   // (BEX-364) — the developer never sees one — so it answers 404 both for an unknown
-  // app and for an install that isn't there. `app rollback` reads either as
-  // "not deployed"; see the comment on its catch block.
+  // app and for an install that isn't there. `app uninstall` reads either as
+  // "not installed"; see the comment on its catch block.
   APP_STORE_APP_INSTALLS: (appId: string) =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/installs`,
   APP_STORE_SURFACE_POINTS: '/v3/app-store/surface-points',
@@ -160,13 +159,31 @@ export const ENDPOINTS = {
   OAUTH_TOKEN: '/oauth/token',
 } as const;
 
-export const CLI = {
+// ELIMINATION SITE — see the note on `CLI` below; same reasoning, same shape.
+export const ENDPOINTS = {
+  ...coreEndpoints,
+  ...(__BREVO_PREVIEW__ ? previewEndpoints : ({} as typeof previewEndpoints)),
+};
+
+/**
+ * The app ID shown in `--help` examples.
+ *
+ * A UUID, because that is what an app ID is: `app create` issues one and `app-config.json`
+ * stores it. The examples used to say `42`, which is short and copy-pasteable and reads as
+ * a database row — so the first thing a user learned about `--app-id` was the wrong shape,
+ * and every command taught it the same way. One constant so the eight commands that take
+ * the flag cannot drift into showing two different shapes.
+ *
+ * Deliberately not a real app ID (see the public-repo rules in `CLAUDE.md`).
+ */
+export const EXAMPLE_APP_ID = '3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93';
+
+const coreCli = {
   LOGIN: 'brevo login',
   INIT: 'brevo app init',
   HELP: 'brevo --help',
   APP_CREATE: 'brevo app create',
   APP_LIST: 'brevo app list',
-  APP_STATUS: 'brevo app status',
   APP_SCAFFOLD: 'brevo app scaffold',
   // The bootstrap form, kept separate from the bare `APP_SCAFFOLD` above rather than
   // folding both into one function: the bare string is quoted in a dozen messages that
@@ -184,15 +201,18 @@ export const CLI = {
   APP_UPLOAD: 'brevo app upload',
   // The account ID is optional — omitted, both commands resolve the target from the
   // authenticated account. The no-argument form is the one to show in guidance copy.
-  APP_DEPLOY: (accountId?: string) =>
-    accountId ? `brevo app deploy ${accountId}` : 'brevo app deploy',
-  APP_ROLLBACK: (accountId?: string) =>
-    accountId ? `brevo app rollback ${accountId}` : 'brevo app rollback',
+  APP_INSTALL: (accountId?: string) =>
+    accountId ? `brevo app install ${accountId}` : 'brevo app install',
+  APP_UNINSTALL: (accountId?: string) =>
+    accountId ? `brevo app uninstall ${accountId}` : 'brevo app uninstall',
+  // The `--app-id` forms, used only by the non-interactive picker refusal: that message
+  // offers a copy-pasteable replacement for the picker, so it has to NAME the app, which
+  // the bare forms above deliberately don't.
+  APP_INSTALL_APP_ID: (appId?: string) =>
+    appId ? `brevo app install --app-id ${appId}` : 'brevo app install --app-id <id>',
+  APP_UNINSTALL_APP_ID: (appId?: string) =>
+    appId ? `brevo app uninstall --app-id ${appId}` : 'brevo app uninstall --app-id <id>',
   APP_DELETE: 'brevo app delete',
-  APP_WITHDRAW: (appId?: string) =>
-    appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
-  APP_SUBMIT: (appId?: string) =>
-    appId ? `brevo app submit --app-id ${appId}` : 'brevo app submit --app-id <id>',
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
@@ -207,11 +227,41 @@ export const CLI = {
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;
 
+// ELIMINATION SITE — the raw global rather than `isFeatureAvailable`, so esbuild folds
+// the spread to `{}` and drops ./preview-constants entirely. `CLI` is one object literal,
+// so a property can only be removed by removing the whole object it arrived in. The
+// `as typeof previewCli` cast keeps every call site type-safe in both builds; see that
+// module for why the lie is safe.
+export const CLI = {
+  ...coreCli,
+  ...(__BREVO_PREVIEW__ ? previewCli : ({} as typeof previewCli)),
+};
+
 export const DEFAULT_APP_FOLDER = 'my-app';
 export const DEFAULT_PORT = 3009;
 export const DEFAULT_REDIRECT_URI = `http://localhost:${DEFAULT_PORT}/auth/callback`;
 export const PLACEHOLDER_CLIENT_ID = 'YOUR_CLIENT_ID';
-export const OAUTH_BASE = 'https://oauth.brevo.com';
+
+// Override with BREVO_OAUTH_BASE_URL to point scope lookups and scaffolded
+// project templates (project-writer.ts's `{{OAUTH_BASE}}`) at a non-production
+// environment.
+function resolveOauthBaseUrl(): string {
+  const raw = process.env.BREVO_OAUTH_BASE_URL || 'https://oauth.brevo.com';
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new CliError(`Invalid BREVO_OAUTH_BASE_URL: "${raw}" is not a valid URL.`);
+  }
+  if (parsed.protocol !== 'https:' && !isLocalHttpAllowed(parsed)) {
+    throw new CliError(
+      `BREVO_OAUTH_BASE_URL must use HTTPS. Got: ${raw}\n  HTTP is only allowed for localhost/127.0.0.1.`,
+    );
+  }
+  return parsed.origin;
+}
+
+export const OAUTH_BASE = resolveOauthBaseUrl();
 export const OAUTH_REALM = 'partner';
 export const OAUTH_SCOPES_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/scopes`;
 
@@ -252,41 +302,18 @@ export const DEFAULT_SCOPES: readonly string[] = [
  */
 
 /**
- * The `kind` segment. Both extension types render on both kinds — a widget slot gets a
- * card, an action slot a menu entry — so kind is a placement choice, not a consequence
- * of the extension type.
- */
-export const EXTENSION_KIND_ACTION = 'action';
-export const EXTENSION_KIND_WIDGET = 'widget';
-
-/**
- * Friendly labels for the placement prompt — partners think in page regions, the wire
- * wants the `place` segment (served as `section_name`).
+ * There is deliberately no friendly-name map for record pages OR for placements, and no
+ * default page.
  *
- * These are CLI-OWNED and stay that way. An earlier version of this comment claimed they
- * mirror `extension_points.surface_point_name`, "the platform's own display text" — that
- * is false: the seeded values of that column are kebab-case slugs
- * (`contact-details-header-menu`), so rendering them to a partner would be worse than
- * these. The registry exposes no display-name column, so until it does, this map is the
- * only source of partner-facing placement labels.
- */
-export const EXTENSION_PLACE_LABELS: Readonly<Record<string, string>> = {
-  headerMenu: 'Header "More" (•••) menu',
-  overviewMain: 'Main column',
-  overviewSidebar: 'Sidebar',
-  overviewAttributes: 'Attributes panel',
-} as const;
-
-/**
- * There is deliberately no friendly-name map for record pages, and no default page.
- *
- * `app create`'s record-page prompt shows the registry's own `location_name` values
- * verbatim (`contactDetails`, …) and pre-selects none of them. A local `contact →
- * contactDetails` map used to sit here: it gave every page a second, CLI-owned name that
- * had to be kept in step with the platform, needed a strip-`Details` guess for any page
- * the map didn't know, and let the prompt show something the API never said. Do not
- * reintroduce it. `EXTENSION_PLACE_LABELS` above is not a counter-example: it labels a
- * fixed segment of the BEX-350 grammar, not a server-supplied identifier.
+ * `app create`'s prompts show the registry's own values verbatim: `location_name`
+ * (`contactDetails`, …) for the page, then `section_name — component_type`
+ * (`headerMenu — action`) for the placement on it. Two local maps used to sit here — a
+ * `contact → contactDetails` page map, and an `EXTENSION_PLACE_LABELS` placement map that
+ * rendered `headerMenu` as `Header "More" (•••) menu` and the kind segment as
+ * `menu entry` / `card`. Both are gone for the same reason: each gave a server-supplied
+ * identifier a second, CLI-owned name that had to be kept in step with the platform,
+ * needed a guess for anything the map didn't know (so the prompt mixed two vocabularies),
+ * and let the prompt show something the API never said. Do not reintroduce either.
  */
 
 /**
@@ -300,7 +327,9 @@ export const EXTENSION_PLACE_LABELS: Readonly<Record<string, string>> = {
  * `legacy_component`) are deliberately NOT accepted. The kit still maps them for
  * backward compatibility, but that map is slated for removal once every producer
  * emits camelCase — and the CLI is a producer, so it only ever writes canonical
- * values. UI apps aren't live yet, so there is no authored config to migrate.
+ * values. The CLI never wrote snake_case and UI apps went GA (BEX-290) already on
+ * camelCase, so no authored config in the wild carries the old spellings; a respelling
+ * from here on would need a migration path.
  */
 export const EXTENSION_TYPE_ACTION_LINK = 'actionLink';
 export const EXTENSION_TYPE_IFRAME = 'iframeExtension';

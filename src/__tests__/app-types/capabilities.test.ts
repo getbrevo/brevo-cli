@@ -36,7 +36,7 @@ describe('capability matrix', () => {
     }
   });
 
-  // account-install is the UI app's one lifecycle verb, and `app deploy` is documented as
+  // account-install is the UI app's one lifecycle verb, and `app install` is documented as
   // UI-only. An OAuth app gaining it would make that documentation wrong.
   it('grants account-install to UI apps only', () => {
     for (const distribution of DISTRIBUTIONS) {
@@ -120,8 +120,8 @@ describe('app-type registry', () => {
     ]);
   });
 
-  it('marks the ui type as preview and oauth as GA', () => {
+  it('marks both types as GA', () => {
     expect(APP_TYPES.oauth.availability).toBe('ga');
-    expect(APP_TYPES.ui.availability).toBe('preview');
+    expect(APP_TYPES.ui.availability).toBe('ga');
   });
 });

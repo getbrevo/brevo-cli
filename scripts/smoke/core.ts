@@ -21,6 +21,40 @@ import { ChildProcess, spawn, spawnSync } from 'node:child_process';
 import * as http from 'node:http';
 import * as net from 'node:net';
 
+// A literal single quote inside a single-quoted shell word: close the quote,
+// backslash-escape the quote, reopen. Hoisted out of the template that uses it
+// so that template isn't a nested one (Sonar S4624, and it reads better).
+const SQ_IN_SQ = String.raw`'\''`;
+
+// The pty driver's shell. Absolute by POSIX guarantee rather than resolved
+// through PATH — a writable PATH entry must not be able to decide what runs
+// (Sonar S4036).
+const POSIX_SHELL = '/bin/sh';
+
+// The pipeline that shell interprets is absolute too. This used to leave `cat`
+// and `script` on PATH, on the reasoning that `script` sits in different places
+// across the platforms this supports and the command string holds only this
+// file's own literals — Sonar flagged it anyway (S4036, on PR #68) and it was
+// right to: the point of pinning the shell is that nothing PATH-writable
+// decides what the pty driver executes, and two of the three words in the
+// pipeline were still doing exactly that. Cheap to close, so closed.
+//
+// Fixed candidates per binary, first hit wins, and deliberately NO bare-name
+// fallback — a fallback would hand the decision back to PATH on precisely the
+// machine where the absolute lookup failed.
+const PTY_SCRIPT_PATHS = ['/usr/bin/script', '/bin/script'];
+const PTY_CAT_PATHS = ['/bin/cat', '/usr/bin/cat'];
+
+function resolveSystemBinary(label: string, candidates: string[]): string {
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (!found) {
+    throw new Error(
+      `smoke: ${label} not found at ${candidates.join(' or ')} — the pty suite needs it to allocate a terminal`,
+    );
+  }
+  return found;
+}
+
 export interface Options {
   skipAuth: boolean;
   verbose: boolean;
@@ -29,6 +63,10 @@ export interface Options {
   reportPath: string | null;
   ci: boolean;
   against: 'local' | 'published';
+  // Minimum wall-clock gap between two `brevo` invocations, in ms. Proactive
+  // spacing so the run stays under the API's throttle instead of discovering it
+  // after the fact — see paceBrevoCall.
+  gapMs: number;
   // Which suite modules to run, in order. See SUITES in the runner.
   suites: string[];
 }
@@ -78,15 +116,27 @@ export interface State {
   tmpDirs: string[];
   mainApp: SmokeApp | null;
   publicApp: SmokeApp | null;
+  // The UI app the `ui` suite created (`redirectUri` is '' — a UI app has none).
+  uiApp: SmokeApp | null;
   initAppId: string | null;
   linked: boolean;
   caps: Record<string, boolean> | null;
+  // Why a capability was downgraded at RUNTIME, keyed by feature. Absent for a
+  // capability the build never offered — that distinction is the whole point:
+  // "the command isn't in this binary" and "the server refused it" are
+  // different findings, and a skip that names the wrong one sends the reader to
+  // the wrong repo.
+  capDowngrades: Partial<Record<string, string>>;
   startChild: ChildProcess | null;
   stepResults: StepResult[];
   publicObs: PublicObservations;
   // How many times a call was retried after a rate limit — a slow run is then
   // explicable from the report rather than looking like a hang.
   rateLimitWaits: number;
+  // Epoch ms at which the last `brevo` invocation STARTED, and the total time
+  // paceBrevoCall has slept. Both are reporting/throttling state, not results.
+  lastBrevoCallAt: number;
+  pacedMs: number;
   // Apps the cleanup could not delete. Non-empty means a real leak.
   orphanedAppIds: string[];
   // Absolute path to the CLI under test, resolved once in stepReinstall.
@@ -239,12 +289,38 @@ export function looksRateLimited(r: ExecResult, opts: ExecOptions): boolean {
   return RATE_LIMIT_RE.test(r.stderr + r.stdout);
 }
 
+/**
+ * Keep at least `gapMs` between the STARTS of two `brevo` invocations.
+ *
+ * The retry above is reactive — it discovers the throttle by tripping it, and by then
+ * the run has already spent a 429 and everything after it is competing for the same
+ * budget. A full run makes ~40 API-backed calls back to back, which is what pushes a
+ * busy account over the limit in the first place; spacing them keeps the run under it.
+ * A leaked app (cleanup exhausting its retries) costs far more than a slower run.
+ *
+ * Measured start-to-start, not end-to-start, so a command that already took longer than
+ * the gap adds no delay — only bursts are slowed. Applies solely to the CLI under test:
+ * `yarn`, `npm` and `which` calls hit no API and are never paced.
+ */
+function paceBrevoCall(cmd: string, state: State): void {
+  if (!state.brevoBin || cmd !== state.brevoBin) return;
+  const gap = state.opts.gapMs;
+  const since = Date.now() - state.lastBrevoCallAt;
+  if (gap > 0 && state.lastBrevoCallAt > 0 && since < gap) {
+    const wait = gap - since;
+    state.pacedMs += wait;
+    sleepSync(wait);
+  }
+  state.lastBrevoCallAt = Date.now();
+}
+
 export function execWithRateLimitRetry(
   cmd: string,
   args: string[],
   state: State,
   opts: ExecOptions,
 ): ExecResult {
+  paceBrevoCall(cmd, state);
   let r = execOnce(cmd, args, state, opts);
   for (let attempt = 0; attempt < RATE_LIMIT_BACKOFF_MS.length; attempt++) {
     if (!looksRateLimited(r, opts)) break;
@@ -337,6 +413,201 @@ export async function execScriptedStdin(
       await sleep(delay);
       child.stdin?.end();
     })().catch((e) => logToFile(state, `stdin writer error: ${e}`));
+  });
+}
+
+// ──────────────────────────── pty-driven prompts ────────────────────────────
+
+// ANSI escapes (colours, cursor movement) inquirer writes to a real terminal,
+// plus the carriage returns a pty inserts. Stripped before matching so an
+// expect pattern sees the prompt text contiguously, the way a human does.
+const ANSI_RE = /\u001B\[[0-9;?]*[ -/]*[@-~]/g;
+
+export function stripAnsi(s: string): string {
+  return s.replaceAll(ANSI_RE, '').replaceAll('\r', '');
+}
+
+export interface PtyExchange {
+  // Matched against the ANSI-stripped transcript, beyond the previous match.
+  expect: RegExp;
+  // The line to type once the prompt appears ('\n' is appended, so '' is a bare
+  // Enter and '2' is inquirer's number-key jump plus Enter). The function form
+  // gets the full stripped transcript and may return null to abort the run —
+  // the child is killed and the result carries `aborted: true`. That is how a
+  // step tells "this build doesn't offer the choice I need" (skip) apart from
+  // "the flow broke" (fail).
+  send: string | ((strippedTranscript: string) => string | null);
+}
+
+// Drive a child that insists on a real terminal. `execScriptedStdin` gives the
+// child a PIPE, so `process.stdin.isTTY` is undefined in it — which is exactly
+// what `app create` branches on, and why a piped create can never author a UI
+// app. `script(1)` allocates a pty (present on both macOS and Linux, different
+// argument conventions); answers travel stdin → cat → script, which forwards
+// them through the pty master (see shCmd below for why cat is in the middle).
+//
+// Expect-driven rather than blind-paced (contrast execScriptedStdin): registry
+// reads and the create POST happen BETWEEN prompts and take network time, so a
+// fixed inter-line delay is either wastefully long or a race. Each answer is
+// sent only after its prompt has actually rendered.
+export function execExpectPty(
+  cmd: string,
+  args: string[],
+  state: State,
+  opts: {
+    cwd?: string;
+    exchanges: PtyExchange[];
+    // Per-prompt and post-last-prompt patience. Generous by default: the gaps
+    // between prompts hold real API calls.
+    expectTimeoutMs?: number;
+    exitTimeoutMs?: number;
+  },
+): Promise<{ stdout: string; exitCode: number; aborted: boolean }> {
+  const pretty = `$ ${cmd} ${args.join(' ')}  (pty, ${opts.exchanges.length} prompts)`;
+  logToFile(state, pretty);
+
+  // Every layer here is quoting this script's own literals plus the resolved
+  // brevo path — no user input is ever interpolated. Single-quote each word;
+  // the only metacharacter left inside a single-quoted word is the quote itself.
+  const shellQuote = (a: string) => `'${a.replaceAll("'", SQ_IN_SQ)}'`;
+  const quoted = [cmd, ...args].map(shellQuote).join(' ');
+
+  // macOS `script` runs the command directly; util-linux takes a -c command
+  // string (quoted a second time, since it travels as one sh word).
+  const scriptBin = resolveSystemBinary('script(1)', PTY_SCRIPT_PATHS);
+  const scriptInvocation =
+    process.platform === 'darwin'
+      ? `${scriptBin} -q /dev/null ${quoted}`
+      : `${scriptBin} -qec ${shellQuote(quoted)} /dev/null`;
+
+  // `script` copies terminal modes from its own stdin and tolerates only ENOTTY
+  // there. Node's 'pipe' stdio is a SOCKETPAIR on POSIX — and on macOS FIFOs
+  // are socket-backed too — so `script` dies on either outright
+  // ("tcgetattr/ioctl: Operation not supported on socket"). A shell `|` is a
+  // real pipe(2), which answers ENOTTY as script expects: interpose `cat` so
+  // script's stdin is that real pipe while the answers still arrive from this
+  // process. The cost is an EOF obligation — `cat` holds the sh pipeline open
+  // until OUR stdin closes, so it is ended after the last answer (verified
+  // safe: script forwards the EOF but keeps running until its child exits, and
+  // by then no prompt is reading).
+  const shCmd = `${resolveSystemBinary('cat(1)', PTY_CAT_PATHS)} | ${scriptInvocation}`;
+
+  const expectTimeoutMs = opts.expectTimeoutMs ?? 120_000;
+  const exitTimeoutMs = opts.exitTimeoutMs ?? 120_000;
+
+  return new Promise((resolve, reject) => {
+    // detached → own process group, so kills reach cat, script AND the CLI
+    // under test rather than just the sh wrapper.
+    const child = spawn(POSIX_SHELL, ['-c', shCmd], {
+      cwd: opts.cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: process.env,
+      detached: true,
+    });
+
+    const killTree = (sig: NodeJS.Signals) => {
+      if (!child.pid) return;
+      try {
+        process.kill(-child.pid, sig);
+      } catch {
+        try {
+          child.kill(sig);
+        } catch {
+          // already gone
+        }
+      }
+    };
+
+    let raw = '';
+    let cursor = 0; // index into the stripped transcript, past the last match
+    let next = 0; // next exchange to satisfy
+    let aborted = false;
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+
+    const clearTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+    const finish = (exitCode: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimer();
+      resolve({ stdout: raw, exitCode, aborted });
+    };
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimer();
+      killTree('SIGKILL');
+      reject(err);
+    };
+    const armTimer = () => {
+      clearTimer();
+      const waiting =
+        next < opts.exchanges.length
+          ? `prompt ${next + 1}/${opts.exchanges.length} (${String(opts.exchanges[next]?.expect)})`
+          : 'exit';
+      timer = setTimeout(
+        () => fail(new Error(`pty run timed out waiting for ${waiting}`)),
+        next < opts.exchanges.length ? expectTimeoutMs : exitTimeoutMs,
+      );
+    };
+
+    const tryMatch = () => {
+      const stripped = stripAnsi(raw);
+      cursor = Math.min(cursor, stripped.length);
+      while (!aborted && next < opts.exchanges.length) {
+        const ex = opts.exchanges[next];
+        if (!ex) break;
+        const m = ex.expect.exec(stripped.slice(cursor));
+        if (!m) break;
+        cursor += m.index + m[0].length;
+        next++;
+        const line = typeof ex.send === 'function' ? ex.send(stripped) : ex.send;
+        if (line === null) {
+          aborted = true;
+          logToFile(state, `pty: aborting at prompt ${next} (sender returned null)`);
+          killTree('SIGTERM');
+          break;
+        }
+        // Small settle so inquirer has attached its keypress listener after
+        // rendering — same reasoning as execScriptedStdin's paced writes. After
+        // the LAST answer, stdin is ended so `cat` can exit (see shCmd above).
+        setTimeout(() => {
+          if (settled || !child.stdin || child.stdin.destroyed) return;
+          child.stdin.write(line + '\n');
+          logToFile(state, `pty> ${line || '(enter)'}`);
+          if (next >= opts.exchanges.length) {
+            setTimeout(() => child.stdin?.end(), 500);
+          }
+        }, 200);
+      }
+      armTimer();
+    };
+
+    const onData = (d: Buffer) => {
+      const s = d.toString();
+      raw += s;
+      const legible = stripAnsi(s).trim();
+      if (legible) logToFile(state, legible);
+      tryMatch();
+    };
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
+    child.on('error', fail);
+    child.on('exit', (code) => {
+      if (!aborted && next < opts.exchanges.length) {
+        fail(
+          new Error(
+            `child exited (${code ?? -1}) before prompt ${next + 1}/${opts.exchanges.length} appeared`,
+          ),
+        );
+        return;
+      }
+      finish(code ?? -1);
+    });
+    armTimer();
   });
 }
 
@@ -508,10 +779,19 @@ export function assertMappedFailure(r: ExecResult, exp: FailureExpectation): str
 
 // ──────────────────────────── capability detection ────────────────────────────
 
-// Commands whose presence the public-app steps depend on. Each landed in its
-// own ticket (BEX-250/251/252/253), and `--against=published` runs whatever
-// npm currently serves — so detect instead of assuming.
-export const GATED_COMMANDS = ['upload', 'submit', 'status', 'withdraw'] as const;
+// Commands whose presence suite steps depend on. The review-lifecycle four each
+// landed in their own ticket (BEX-250/251/252/253); `install`/`uninstall`
+// shipped with UI apps GA (BEX-290/362/364) and the `ui` suite needs them. All
+// are detected rather than assumed because `--against=published` runs whatever
+// npm currently serves.
+export const GATED_COMMANDS = [
+  'upload',
+  'submit',
+  'status',
+  'withdraw',
+  'install',
+  'uninstall',
+] as const;
 
 export type GatedCommand = (typeof GATED_COMMANDS)[number];
 
@@ -617,14 +897,44 @@ export function requireCommand(state: State, name: GatedCommand): void {
 }
 
 export function requireFeature(state: State, name: GatedFeature): void {
-  if (state.caps?.[name] === false) {
-    skip(`${name} not available in this build (--against=${state.opts.against})`);
-  }
+  if (state.caps?.[name] !== false) return;
+  // A runtime downgrade outranks the build explanation. The build DID offer the
+  // command in that case — a PREVIEW=1 run has the whole public surface — so
+  // saying "not available in this build" would be plainly false, and points a
+  // reader at scripts/build.mjs when the refusal came from the API.
+  const downgraded = state.capDowngrades[name];
+  skip(
+    downgraded
+      ? `${name} refused by the environment: ${downgraded}`
+      : `${name} not available in this build (--against=${state.opts.against})`,
+  );
 }
 
 /** True when the feature is known-absent, for callers that branch rather than skip. */
 export function featureMissing(state: State, name: GatedFeature): boolean {
   return state.caps?.[name] === false;
+}
+
+/**
+ * Downgrade a capability the build advertises but the environment refuses.
+ *
+ * `detectCapabilities` can only read the CLIENT: it greps `--help`, so it answers "does
+ * this build offer the flag", never "will the server accept it". Those come apart for
+ * `--distribution public` — a preview build offers the flag and Brevo declines the
+ * request (`public apps cannot be created with source "cli"`), which is the expected
+ * state until public apps go GA. Without this, the whole public lifecycle reports nine
+ * hard failures on every default run, and a permanently-red suite is one nobody reads.
+ *
+ * Called by the step that discovers the refusal, so every later `requireFeature` on the
+ * same feature skips for the same reason instead of raising "no public app from the
+ * create step".
+ */
+export function markFeatureUnavailable(state: State, name: GatedFeature, reason: string): void {
+  state.caps = { ...state.caps, [name]: false };
+  // Recorded, not just logged: every later `requireFeature` skip quotes it, so
+  // the summary says WHY rather than guessing at the build.
+  state.capDowngrades[name] = reason;
+  logToFile(state, `capability ${name} downgraded to unavailable: ${reason}`);
 }
 
 // ──────────────────────────── port helpers ────────────────────────────
@@ -790,8 +1100,16 @@ export function ensureWorkRoot(state: State): string {
 
 // Render an optional string field for a step detail line without leaking
 // "undefined" into the summary.
+// Numbers are rendered as well as strings because the values this reports on come
+// straight off `--json` and an identifier is a string in some responses and a number
+// in others (an account ID is either, depending on the resolution path). Anything
+// else — object, array, null, NaN — is '(none)' rather than "[object Object]": the
+// caller must never have to pre-stringify an `unknown`, which is how a stringified
+// object reached a step's summary line in the first place.
 export function optStr(value: unknown): string {
-  return typeof value === 'string' && value ? value : '(none)';
+  if (typeof value === 'string') return value || '(none)';
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '(none)';
 }
 
 // Mirrors computeSlug() in src/commands/app/scaffold.ts — the default project
@@ -1099,6 +1417,13 @@ export function stepDeleteLeftoverApps(state: State): string {
       clear: () => (state.publicApp = null),
     });
   }
+  if (state.uiApp) {
+    leftovers.push({
+      label: 'ui',
+      appId: state.uiApp.appId,
+      clear: () => (state.uiApp = null),
+    });
+  }
   if (state.initAppId) {
     leftovers.push({
       label: 'init',
@@ -1197,7 +1522,12 @@ export function stepFinalCleanup(state: State): string {
 // is worse than no cleanup at all because nobody goes looking for the orphan.
 export function trapDeleteApps(state: State): void {
   const orphans: string[] = [];
-  for (const appId of [state.mainApp?.appId, state.publicApp?.appId, state.initAppId]) {
+  for (const appId of [
+    state.mainApp?.appId,
+    state.publicApp?.appId,
+    state.uiApp?.appId,
+    state.initAppId,
+  ]) {
     if (!appId) continue;
     try {
       const r = spawnSync(
@@ -1222,6 +1552,7 @@ export function trapDeleteApps(state: State): void {
   }
   state.mainApp = null;
   state.publicApp = null;
+  state.uiApp = null;
   state.initAppId = null;
 
   if (orphans.length > 0) {

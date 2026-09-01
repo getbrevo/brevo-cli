@@ -107,13 +107,15 @@ jobs:
       # npm Trusted Publishing (OIDC) requires npm >= 11.5.1, which in
       # turn requires Node ^20.17.0 || >=22.9.0. Node 20.19.0 ships with
       # npm 10.x, so upgrade explicitly. Pin the version — do not use @latest.
+      # `--ignore-scripts`: npm's own tarball needs no lifecycle script to be
+      # usable, and this job goes on to hold publish credentials.
       - name: Upgrade npm for OIDC trusted publishing
-        run: npm install -g npm@11.5.1
+        run: npm install -g npm@11.5.1 --ignore-scripts
 
+      # `--ignore-scripts` for the same reasons as the smoke job above, and it
+      # supersedes the `HUSKY: 0` this step used to carry.
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
-        env:
-          HUSKY: 0
+        run: yarn install --frozen-lockfile --ignore-scripts
 
       - name: Check for pre.json file existence
         id: check_files

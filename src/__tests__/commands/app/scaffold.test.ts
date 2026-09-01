@@ -680,10 +680,11 @@ describe('app/scaffold', () => {
       });
     });
 
-    // The server's `ui_app` echo carries keys the platform owns — it injects
+    // The server's `ui_app` echo carries keys the platform owns — it defaults each entry's
     // `link_target`, manages the snapshot `version`, and stamps the dotted
     // `extension_point_name` onto each entry. None is authored, and writing one into
-    // app-config.json puts a value in the file that the very next upload rejects.
+    // app-config.json puts a value in the file that the very next upload rejects. Two of
+    // the three sit INSIDE an entry, which is why the strip recurses.
     it('strips server-owned keys from the ui_app block it bootstraps into the config', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(null);
       (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
@@ -694,13 +695,13 @@ describe('app/scaffold', () => {
           redirect_uris: null,
           ui_app: {
             extension_type: 'actionLink',
-            label: 'Open in MyApp',
-            link_target: '_blank',
             version: '4',
             surface_point_list: [
               {
                 surface_point_name: 'contact-details-header-menu',
                 extension_point_name: 'contactDetails.headerMenu.action',
+                label: 'Open in MyApp',
+                link_target: '_blank',
               },
             ],
           },

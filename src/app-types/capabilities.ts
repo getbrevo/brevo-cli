@@ -25,7 +25,7 @@ export type Capability =
   | 'redirect-uris'
   /** There is local code to generate. A UI app runs on the partner's own infra. */
   | 'scaffold-feature'
-  /** `app deploy` / `app rollback` — per-account availability. */
+  /** `app install` / `app uninstall` — per-account availability. */
   | 'account-install'
   /** `app submit` / `app status` / `app withdraw`. */
   | 'review-lifecycle';
