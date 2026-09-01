@@ -246,10 +246,13 @@ const coreMessages = {
   APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
     `Where should it appear on the ${page} page?`,
   // Integration type — asked SECOND, before any placement, because it is the decision a
-  // partner arrives with. Only Link is offered for now: the disabled "coming soon"
-  // Iframe choice was removed 2026-08-19 until iframe support is ready to author.
+  // partner arrives with. Iframe is back since the iframe-extension launch (it was removed
+  // 2026-08-19 while authoring wasn't ready) but is offered only on a PRIVATE app —
+  // iframe extensions are private-only in v1, and the same rule is enforced by
+  // `validateConfig` locally and by the platform at upload/create.
   APP_CREATE_UI_INTEGRATION_PROMPT: 'What type of integration are you adding?',
   APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link (Opens your URL in a new tab)',
+  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe (Embeds your page in a modal)',
   // Each field renders in two places (`label` is the menu entry's text AND a card's CTA
   // button; `more_info` is the menu entry's second line AND a card's description) and
   // `redirect_link`'s query-param behaviour is easy to miss — all three explanations stay
@@ -267,6 +270,11 @@ const coreMessages = {
     'More info (optional) — the menu entry’s subtext, and the card’s description:',
   APP_CREATE_UI_REDIRECT_LINK_PROMPT:
     'Redirect link — the destination URL (record context arrives as query params):',
+  // The iframe counterpart of the question above: same slot in the flow, different field —
+  // the answer lands in `modal_iframe_url`, and the page opens INSIDE Brevo rather than in
+  // a new tab, which is what the wording has to make unmistakable.
+  APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT:
+    'Iframe URL — the page Brevo embeds in the modal (record context arrives as query params):',
   APP_CREATE_UI_BOX_TITLE: 'UI app created',
   // `label` labels the menu entry (BEX-290). The one piece of rendered text that has
   // no field is a CARD's title, which is the app name — worth saying, since it is now
@@ -280,7 +288,14 @@ const coreMessages = {
     'Values are placeholders. Read them as query parameters — the path is never templated.',
   // Also the pointer to MORE placements: the flow authors one, and each further one is a
   // hand-written `surface_point_list` entry carrying its own label and destination.
-  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and destination URL — then run \`${CLI.APP_UPLOAD}\`.`,
+  // The private-only rule (iframe-extension v1), enforced in three places that all say the
+  // same thing: the create prompt only offers Iframe on a private app, this message refuses
+  // a hand-authored combination locally before any round trip, and the platform 400s it at
+  // upload/create. Named the same way the server's own refusal is, so the two read as one
+  // rule rather than two opinions.
+  APP_UI_IFRAME_PRIVATE_ONLY:
+    'ui_app.extension_type "iframeExtension" requires distribution_type "private" — iframe extensions are private-only. Change distribution_type to "private", or use "actionLink".',
 
   // App install / uninstall — per-account availability for UI apps (BEX-290).
   // Moved here from `preview-messages.ts` at UI-apps GA.

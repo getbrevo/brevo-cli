@@ -74,11 +74,11 @@ export interface SubAccountsResponse {
  * the extension-point grammar; the pre-BEX-350 snake_case spellings are not
  * accepted (see the note on the constants in `lib/constants.ts`).
  *
- * - `actionLink` — a redirect-only CTA driven by `redirect_link`. The only type
- *   the CLI authors today.
+ * - `actionLink` — a redirect-only CTA driven by `redirect_link`.
  * - `iframeExtension` — opens `modal_iframe_url` in a modal iframe. The UI kit
  *   keeps `modal_iframe_url` *only* for this type, so authoring one on any other
- *   type is silently dropped.
+ *   type is silently dropped. Authorable since the iframe-extension launch, on
+ *   private apps only (v1).
  * - `legacyComponent` — the pre-extensibility interpreter path used by earlier
  *   integrations. Never CLI-authored; listed so a hand-edited config round-trips.
  */

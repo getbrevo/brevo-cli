@@ -651,12 +651,18 @@ async function createAppWithRetry(
 }
 
 /** The `appType === 'ui'` vs OAuth branch of `createCommand` — collects the one thing the
- * chosen type needs (a placement, or callback URLs) and nothing the other type would. */
+ * chosen type needs (a placement, or callback URLs) and nothing the other type would.
+ *
+ * `distribution` gates the interactive integration-type choices: Iframe is private-only
+ * (v1), so the prompt on a public app offers Link alone rather than a choice the
+ * validator and the platform would both refuse two questions later. The non-interactive
+ * path doesn't take it — that path authors actionLink only, by design. */
 async function resolveUiAppOrRedirectUris(
   appType: AppType,
   nonInteractiveUiAppInput: UiAppNonInteractiveInput | undefined,
   redirectUriFlag: string[] | undefined,
   jsonMode: boolean,
+  distribution: string,
 ): Promise<{ redirectUris: string[]; uiApp: UiApp | undefined }> {
   if (appType !== 'ui') {
     return {
@@ -666,7 +672,7 @@ async function resolveUiAppOrRedirectUris(
   }
   const uiApp = nonInteractiveUiAppInput
     ? await resolveUiAppNonInteractive(nonInteractiveUiAppInput)
-    : await resolveUiApp();
+    : await resolveUiApp(distribution);
   return { redirectUris: [], uiApp };
 }
 
@@ -800,6 +806,7 @@ export const createCommand = withCommandHandler(
       nonInteractiveUiAppInput,
       options.redirectUri,
       jsonMode,
+      distribution,
     );
 
     const dir = await resolveCreateDirectory(appName, interactive);

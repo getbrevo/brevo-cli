@@ -949,6 +949,22 @@ describe('app/upload', () => {
       expect(payload.ui_app).toEqual(IFRAME_UI_APP);
     });
 
+    // Iframe extensions are private-only (v1). The create prompt never authors the
+    // combination (Iframe is hidden on a public app), so this local refusal exists for
+    // the hand-edited config — caught before the round trip the platform 400s with the
+    // same rule. readProjectConfig defaults an absent distribution_type to 'private',
+    // so only an explicit 'public' can reach it.
+    it('rejects an iframeExtension on a public app before any round trip', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        distribution_type: 'public',
+        ui_app: IFRAME_UI_APP,
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/private-only/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
     it('rejects an iframeExtension entry carrying a redirect_link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,

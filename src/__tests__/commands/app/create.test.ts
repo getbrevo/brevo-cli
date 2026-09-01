@@ -1756,13 +1756,10 @@ describe('app/create', () => {
       expect(questionNamed(name)).toBeUndefined();
     });
 
-    // Decision 2026-08-19: only actionLink is authorable, and the Iframe choice is
-    // GONE from the prompt — it was shown as a disabled "coming soon" entry until
-    // iframe authoring stalled, and a roadmap hint that outlives its date misleads.
-    // The prompt is still asked with its one choice, so the user is told what they
-    // are getting. (The platform still accepts a hand-edited iframeExtension block
-    // at upload.)
-    it('offers the integration-type prompt with Link as the only choice', async () => {
+    // The iframe-extension launch: Iframe is back in the prompt (it was removed
+    // 2026-08-19 while authoring wasn't ready), enabled rather than shown as a disabled
+    // "coming soon" entry — on a PRIVATE app.
+    it('offers Link and Iframe, both enabled, on a private app', async () => {
       await createCommand(CLI_OPTIONS);
 
       const question = questionNamed('integrationType');
@@ -1772,8 +1769,56 @@ describe('app/create', () => {
       const iframe = choices.find((c) => c.value === 'iframeExtension');
       expect(link).toBeDefined();
       expect(link?.disabled).toBeUndefined();
-      expect(iframe).toBeUndefined();
+      expect(iframe).toBeDefined();
+      expect(iframe?.disabled).toBeUndefined();
       expect(collectedUiApp().extension_type).toBe('actionLink');
+    });
+
+    // Iframe extensions are private-only (v1). The choice is HIDDEN on a public app, not
+    // disabled: a disabled entry would advertise a combination the CLI validator and the
+    // platform both refuse. (Public distribution is itself preview-gated, which jest's
+    // setup enables — see jest.setup.js.)
+    it('hides the Iframe choice on a public app', async () => {
+      await createCommand({ name: 'Invoice Manager', distribution: 'public' });
+
+      const question = questionNamed('integrationType');
+      expect(question).toBeDefined();
+      const choices = (question?.choices ?? []) as Array<{ value?: string }>;
+      expect(choices.find((c) => c.value === 'actionLink')).toBeDefined();
+      expect(choices.find((c) => c.value === 'iframeExtension')).toBeUndefined();
+    });
+
+    // The Iframe branch: same five questions, but the URL answer lands in
+    // `modal_iframe_url` — never `redirect_link`, which the platform refuses on an
+    // iframeExtension entry — and both registry reads narrow by the chosen type.
+    it('authors modal_iframe_url, not redirect_link, when Iframe is chosen', async () => {
+      answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(appService.fetchSurfacePointLocations).toHaveBeenCalledWith('iframeExtension');
+      expect(appService.fetchSurfacePoints).toHaveBeenCalledWith(
+        ['contactDetails'],
+        'iframeExtension',
+      );
+      const uiApp = collectedUiApp();
+      expect(uiApp.extension_type).toBe('iframeExtension');
+      expect(uiApp.surface_point_list).toHaveLength(1);
+      const entry = uiApp.surface_point_list[0];
+      expect(entry.modal_iframe_url).toBe('https://example.com/embed');
+      expect(entry).not.toHaveProperty('redirect_link');
+      expect(entry).not.toHaveProperty('link_target');
+    });
+
+    // One URL question either way, but the wording must say what actually happens to the
+    // page: a Link opens in a new tab, an Iframe is embedded in a modal inside Brevo.
+    it('asks the iframe-specific URL question on the Iframe branch', async () => {
+      answerPrompts({ integrationType: 'iframeExtension' });
+
+      await createCommand(CLI_OPTIONS);
+
+      const question = questionNamed('url');
+      expect(String(question?.message)).toContain('Iframe URL');
     });
 
     // ──────── The two registry reads ────────
