@@ -3,10 +3,11 @@ import { logInfo, color } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { functionService, sseDeps } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
-import { createSpinner, indentChoices, printBox } from '../../lib/ui';
+import { createSpinner, indentChoices } from '../../lib/ui';
 import { ApiError, CliError } from '../../lib/errors';
 import { deriveAttributeId, hasPreviewErrors, printResultsTable } from './preview-table';
-import { selectFunctionApp, tryLinkFunctionToApp } from './select-app';
+import { selectFunctionApp } from './select-app';
+import { tryPreview, nameConfirmDeployLoop } from './deploy-helpers';
 import type { SSEEvent } from '../../api/sse-stream';
 import type { ChatHistoryEntry, FunctionGenerateSSEEvent } from '../../types';
 
@@ -111,34 +112,27 @@ function mergeGenerateResult(base: GenerateResult, update: GenerateResult): Gene
   };
 }
 
-/** Fetch sample contacts and execute a preview, printing a results table. */
-async function executePreview(draftId: string | undefined): Promise<void> {
-  const contactSpinner = createSpinner(messages.FUNCTION_INIT_FETCHING_CONTACTS);
-  let contactData;
-  try {
-    contactData = await functionService.fetchContacts();
-  } finally {
-    contactSpinner.stop();
-  }
+/** Preview messages for the init flow. */
+const PREVIEW_MSGS = {
+  fetchingContacts: messages.FUNCTION_INIT_FETCHING_CONTACTS,
+  executingPreview: messages.FUNCTION_INIT_EXECUTING_PREVIEW,
+  previewHeader: messages.FUNCTION_INIT_PREVIEW_HEADER,
+  previewError: messages.FUNCTION_INIT_PREVIEW_ERROR,
+  previewFailed: messages.FUNCTION_PREVIEW_EXECUTE_FAILED,
+} as const;
 
-  const previewSpinner = createSpinner(messages.FUNCTION_INIT_EXECUTING_PREVIEW);
-  let executeResponse;
-  try {
-    executeResponse = await functionService.executeTemplate({
-      draft_id: draftId,
-      contact_data: contactData.contacts,
-    });
-  } finally {
-    previewSpinner.stop();
-  }
-
-  const results = executeResponse.result || [];
-  if (hasPreviewErrors(results)) {
-    throw new CliError(messages.FUNCTION_PREVIEW_EXECUTE_FAILED);
-  }
-  logInfo(`\n  ${messages.FUNCTION_INIT_PREVIEW_HEADER}`);
-  printResultsTable(results);
-}
+/** Name-confirm-deploy messages for the init flow. */
+const DEPLOY_MSGS = {
+  namePrompt: messages.FUNCTION_INIT_NAME_PROMPT,
+  nameRequired: messages.FUNCTION_INIT_NAME_REQUIRED,
+  warning: messages.FUNCTION_INIT_DEPLOY_WARNING,
+  confirmPrompt: messages.FUNCTION_INIT_DEPLOY_PROMPT,
+  cancelled: messages.FUNCTION_INIT_DEPLOY_CANCELLED,
+  spinner: messages.FUNCTION_INIT_SAVE_SPINNER,
+  nameExists: messages.FUNCTION_INIT_NAME_EXISTS,
+  boxTitle: messages.FUNCTION_INIT_BOX_TITLE,
+  boxId: messages.FUNCTION_INIT_BOX_ID,
+} as const;
 
 interface SaveFunctionArgs {
   appId: string;
@@ -150,71 +144,25 @@ interface SaveFunctionArgs {
   explanation?: string;
 }
 
-/**
- * Name -> confirm -> deploy loop. Retries on duplicate name.
- * The function exits when the user saves successfully or cancels.
- */
+/** Save a generated function via the shared name-confirm-deploy loop. */
 async function saveGeneratedFunction(args: SaveFunctionArgs): Promise<void> {
-  let defaultName = args.name || '';
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { functionName } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'functionName',
-        message: messages.FUNCTION_INIT_NAME_PROMPT,
-        default: defaultName,
-        validate: (v: string) => (v.trim() ? true : messages.FUNCTION_INIT_NAME_REQUIRED),
-      },
-    ]);
-
-    logInfo(`\n  ${messages.FUNCTION_INIT_DEPLOY_WARNING}\n`);
-    const { confirmDeploy } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'confirmDeploy',
-        message: messages.FUNCTION_INIT_DEPLOY_PROMPT,
-        default: false,
-      },
-    ]);
-
-    if (!confirmDeploy) {
-      logInfo(messages.FUNCTION_INIT_DEPLOY_CANCELLED);
-      return;
-    }
-
-    const saveSpinner = createSpinner(messages.FUNCTION_INIT_SAVE_SPINNER);
-    try {
-      const created = await functionService.createFunction({
+  await nameConfirmDeployLoop({
+    appId: args.appId,
+    defaultName: args.name,
+    msgs: DEPLOY_MSGS,
+    createFn: (name) =>
+      functionService.createFunction({
         source: 'cli',
-        name: functionName.trim(),
+        name,
         code: args.code,
         category: args.category,
         description: args.description,
         explanation: args.explanation,
         app_id: args.appId,
         draft_id: args.draftId,
-        attribute_id: deriveAttributeId(functionName.trim()),
-      });
-      saveSpinner.stop();
-
-      await tryLinkFunctionToApp(args.appId, created.id);
-
-      printBox(messages.FUNCTION_INIT_BOX_TITLE, [
-        `Name: ${created.name}`,
-        messages.FUNCTION_INIT_BOX_ID(created.id),
-      ]);
-      return;
-    } catch (err) {
-      saveSpinner.stop();
-      if (isDuplicateNameError(err)) {
-        logInfo(messages.FUNCTION_INIT_NAME_EXISTS);
-        defaultName = functionName.trim();
-        continue;
-      }
-      throw err;
-    }
-  }
+        attribute_id: deriveAttributeId(name),
+      }),
+  });
 }
 
 /** Run one iterate round: prompt, stream, merge, preview. Returns the updated result or null on failure. */
@@ -261,17 +209,6 @@ async function runIterateRound(
   }
 }
 
-/** Try running a preview — fatal on data errors (__error), non-fatal on network issues. */
-async function tryPreview(draftId: string | undefined): Promise<void> {
-  if (!draftId) return;
-  try {
-    await executePreview(draftId);
-  } catch (err) {
-    if (err instanceof CliError) throw err;
-    logInfo(`  ${color('33', messages.FUNCTION_INIT_PREVIEW_ERROR)}`);
-  }
-}
-
 async function aiGenerationFlow(appId: string): Promise<void> {
   const { description } = await inquirer.prompt([
     {
@@ -305,7 +242,7 @@ async function aiGenerationFlow(appId: string): Promise<void> {
     { role: 'assistant', content: result.code },
   );
 
-  await tryPreview(result.draftId);
+  await tryPreview(result.draftId, PREVIEW_MSGS);
 
   // Iteration loop
   let current = { ...result };
@@ -340,16 +277,9 @@ async function aiGenerationFlow(appId: string): Promise<void> {
     const updated = await runIterateRound(current, chatHistory);
     if (updated) {
       current = updated;
-      await tryPreview(current.draftId);
+      await tryPreview(current.draftId, PREVIEW_MSGS);
     }
   }
-}
-
-function isDuplicateNameError(err: unknown): boolean {
-  if (err instanceof ApiError && err.statusCode === 409) {
-    return true;
-  }
-  return false;
 }
 
 async function templateFlow(appId: string): Promise<void> {
@@ -414,66 +344,20 @@ async function templateFlow(appId: string): Promise<void> {
   printResultsTable(results);
 
   // Steps 5-7: Name -> confirm -> deploy, retrying on duplicate name.
-  let defaultName = template.name;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    // Step 5: Ask for a name
-    const { functionName } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'functionName',
-        message: messages.FUNCTION_INIT_NAME_PROMPT,
-        default: defaultName,
-        validate: (v: string) => (v.trim() ? true : messages.FUNCTION_INIT_NAME_REQUIRED),
-      },
-    ]);
-
-    // Step 6: Confirm deploy
-    logInfo(`\n  ${messages.FUNCTION_INIT_DEPLOY_WARNING}\n`);
-    const { confirmDeploy } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'confirmDeploy',
-        message: messages.FUNCTION_INIT_DEPLOY_PROMPT,
-        default: false,
-      },
-    ]);
-
-    if (!confirmDeploy) {
-      logInfo(messages.FUNCTION_INIT_DEPLOY_CANCELLED);
-      return;
-    }
-
-    // Step 7: Create function from template
-    const createSpinnerInstance = createSpinner(messages.FUNCTION_INIT_CREATING_FROM_TEMPLATE);
-    try {
-      const created = await functionService.createFromTemplate({
+  await nameConfirmDeployLoop({
+    appId,
+    defaultName: template.name,
+    msgs: { ...DEPLOY_MSGS, spinner: messages.FUNCTION_INIT_CREATING_FROM_TEMPLATE },
+    createFn: (name) =>
+      functionService.createFromTemplate({
         global_function_id: template.id,
-        name: functionName.trim(),
+        name,
         description: template.description,
         category: template.category || '',
-        attribute_id: deriveAttributeId(functionName.trim()),
+        attribute_id: deriveAttributeId(name),
         source: 'cli',
-      });
-      createSpinnerInstance.stop();
-
-      await tryLinkFunctionToApp(appId, created.id);
-
-      printBox(messages.FUNCTION_INIT_BOX_TITLE, [
-        `Name: ${created.name}`,
-        messages.FUNCTION_INIT_BOX_ID(created.id),
-      ]);
-      return;
-    } catch (err) {
-      createSpinnerInstance.stop();
-      if (isDuplicateNameError(err)) {
-        logInfo(messages.FUNCTION_INIT_NAME_EXISTS);
-        defaultName = functionName.trim();
-        continue;
-      }
-      throw err;
-    }
-  }
+      }),
+  });
 }
 
 export const initFunctionCommand = withCommandHandler(
