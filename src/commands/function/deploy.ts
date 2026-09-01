@@ -1,18 +1,62 @@
 import inquirer from 'inquirer';
 import { logInfo, color } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { functionService } from '../../container';
+import { appService, functionService } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { createSpinner, indentChoices, printBox } from '../../lib/ui';
 import { ApiError, CliError } from '../../lib/errors';
 import { deriveAttributeId, hasPreviewErrors, printResultsTable } from './preview-table';
-import type { DpDraftFunction } from '../../types';
+import type { DpDraftFunction, OAuthApp } from '../../types';
 
 /** Refuse the draft picker when there is no terminal to draw it on. */
 function assertInteractiveTerminal(): void {
   if (!process.stdin.isTTY) {
     throw new CliError(messages.FUNCTION_DEPLOY_NON_INTERACTIVE);
+  }
+}
+
+/** Fetch brevo_function apps and prompt the user to pick one. */
+async function selectApp(): Promise<OAuthApp> {
+  const spinner = createSpinner('Fetching apps...');
+  let apps: OAuthApp[];
+  try {
+    apps = await appService.fetchAppsList({ type: 'brevo_function' });
+  } finally {
+    spinner.stop();
+  }
+
+  if (apps.length === 0) {
+    throw new CliError(messages.FUNCTION_DEPLOY_NO_APPS);
+  }
+
+  const { selected } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'selected',
+      message: messages.FUNCTION_DEPLOY_SELECT_APP,
+      pageSize: 15,
+      choices: indentChoices(
+        apps.map((a) => ({
+          name: `${a.name || 'App ' + a.app_id}  (ID: ${a.app_id})`,
+          value: a.app_id,
+        })),
+      ),
+    },
+  ]);
+
+  return apps.find((a) => a.app_id === selected)!;
+}
+
+/** Link a deployed function to an app. Non-fatal — logs a warning on failure. */
+async function tryLinkFunctionToApp(appId: string, functionId: string): Promise<void> {
+  const spinner = createSpinner(messages.FUNCTION_DEPLOY_LINKING);
+  try {
+    await functionService.linkFunctionToApp({ app_id: appId, function_id: functionId });
+  } catch {
+    logInfo(`  ${color('33', messages.FUNCTION_DEPLOY_LINK_ERROR)}`);
+  } finally {
+    spinner.stop();
   }
 }
 
@@ -103,7 +147,7 @@ function deriveNameFromDescription(description: string): string {
 }
 
 /** Deploy in --json mode: derive name from description, skip prompts. */
-async function deployJsonMode(draft: DpDraftFunction): Promise<void> {
+async function deployJsonMode(draft: DpDraftFunction, appId?: string): Promise<void> {
   const name = deriveNameFromDescription(draft.description || '');
   const deploySpinner = createSpinner(messages.FUNCTION_DEPLOY_SPINNER, { silent: true });
   try {
@@ -117,6 +161,11 @@ async function deployJsonMode(draft: DpDraftFunction): Promise<void> {
       attribute_id: deriveAttributeId(name),
     });
     deploySpinner.stop();
+
+    if (appId) {
+      await tryLinkFunctionToApp(appId, created.id);
+    }
+
     jsonOutput({
       deployed: true,
       id: created.id,
@@ -130,7 +179,7 @@ async function deployJsonMode(draft: DpDraftFunction): Promise<void> {
 }
 
 /** Interactive deploy: name prompt -> confirm -> deploy, retrying on duplicate name (409). */
-async function deployInteractive(draft: DpDraftFunction): Promise<void> {
+async function deployInteractive(draft: DpDraftFunction, appId: string): Promise<void> {
   let defaultName = '';
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -171,6 +220,9 @@ async function deployInteractive(draft: DpDraftFunction): Promise<void> {
         attribute_id: deriveAttributeId(functionName.trim()),
       });
       deploySpinner.stop();
+
+      await tryLinkFunctionToApp(appId, created.id);
+
       printBox(messages.FUNCTION_DEPLOY_BOX_TITLE, [
         `Name: ${created.name}`,
         messages.FUNCTION_DEPLOY_BOX_ID(created.id),
@@ -199,7 +251,7 @@ async function tryPreview(draftId: string): Promise<void> {
 }
 
 export const deployFunctionCommand = withCommandHandler(
-  async (options: { id?: string; json?: boolean }): Promise<void> => {
+  async (options: { id?: string; json?: boolean; appId?: string }): Promise<void> => {
     // Step 1: Resolve draft
     let draft: DpDraftFunction;
     if (options.id) {
@@ -214,16 +266,23 @@ export const deployFunctionCommand = withCommandHandler(
       draft = await promptDraftFunctionSelection();
     }
 
-    // Step 2: Preview — fatal on data errors (__error), non-fatal on network issues
+    // Step 2: Resolve app to link the function to
+    let appId: string | undefined = options.appId;
+    if (!appId && !options.json) {
+      const app = await selectApp();
+      appId = app.app_id;
+    }
+
+    // Step 3: Preview — fatal on data errors (__error), non-fatal on network issues
     if (!options.json) {
       await tryPreview(draft.id);
     }
 
-    // Step 3-4: Name + confirm (interactive) or derive name (--json)
+    // Step 4-5: Name + confirm (interactive) or derive name (--json)
     if (options.json) {
-      await deployJsonMode(draft);
+      await deployJsonMode(draft, appId);
     } else {
-      await deployInteractive(draft);
+      await deployInteractive(draft, appId!);
     }
   },
 );

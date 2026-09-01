@@ -176,6 +176,12 @@ export const previewMessages = {
   FUNCTION_DEPLOY_FETCHING_CONTACTS: 'Fetching sample contacts...',
   FUNCTION_DEPLOY_EXECUTING_PREVIEW: 'Previewing function...',
 
+  // Function deploy — app linking
+  FUNCTION_DEPLOY_LINKING: 'Linking function to app...',
+  FUNCTION_DEPLOY_LINK_ERROR: 'Function deployed but failed to link to app.',
+  FUNCTION_DEPLOY_SELECT_APP: 'Select an app to link this function to:',
+  FUNCTION_DEPLOY_NO_APPS: `No Brevo Function apps found. Create one first with \`${CLI.APP_CREATE}\`.`,
+
   // Function preview — shared across init and deploy
   FUNCTION_PREVIEW_EXECUTE_FAILED: 'Unable to deploy function.',
 } as const;

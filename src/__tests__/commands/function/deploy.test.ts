@@ -11,11 +11,15 @@ jest.mock('../../../container', () => ({
     fetchContacts: jest.fn(),
     executeTemplate: jest.fn(),
     createFunction: jest.fn(),
+    linkFunctionToApp: jest.fn(),
+  },
+  appService: {
+    fetchAppsList: jest.fn(),
   },
 }));
 
 import inquirer from 'inquirer';
-import { functionService } from '../../../container';
+import { functionService, appService } from '../../../container';
 
 const DRAFT = {
   id: 'draft-001',
@@ -25,6 +29,8 @@ const DRAFT = {
   created_at: '2026-01-01T00:00:00Z',
   expires_at: '2026-02-01T00:00:00Z',
 };
+
+const APP = { app_id: 'app-001', name: 'Test App', client_id: 'c1', redirect_uris: [] };
 
 const CREATED = { id: 'fn-001', name: 'My Function', version: 1 };
 
@@ -48,9 +54,12 @@ describe('function/deploy', () => {
       offset: 0,
       has_more: false,
     });
+    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
     (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
     (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
     (inquirer.prompt as unknown as jest.Mock)
+      .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'My Function' })
       .mockResolvedValueOnce({ confirmDeploy: true });
     (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
@@ -64,6 +73,10 @@ describe('function/deploy', () => {
         name: 'My Function',
       }),
     );
+    expect(functionService.linkFunctionToApp).toHaveBeenCalledWith({
+      app_id: 'app-001',
+      function_id: 'fn-001',
+    });
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('Function deployed');
     expect(output).toContain('My Function');
@@ -101,10 +114,13 @@ describe('function/deploy', () => {
       offset: 0,
       has_more: false,
     });
+    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
     (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
     (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
     (inquirer.prompt as unknown as jest.Mock)
-      .mockResolvedValueOnce({ selected: 'draft-001' }) // picker
+      .mockResolvedValueOnce({ selected: 'draft-001' }) // draft picker
+      .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'Picked Function' }) // name
       .mockResolvedValueOnce({ confirmDeploy: true }); // confirm
     (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
@@ -143,12 +159,15 @@ describe('function/deploy', () => {
       offset: 0,
       has_more: false,
     });
+    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
     (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
     (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
+    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
     (functionService.createFunction as jest.Mock)
       .mockRejectedValueOnce(new ApiError('Conflict', 409))
       .mockResolvedValueOnce(CREATED);
     (inquirer.prompt as unknown as jest.Mock)
+      .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'Duplicate Name' }) // first name
       .mockResolvedValueOnce({ confirmDeploy: true }) // first confirm
       .mockResolvedValueOnce({ functionName: 'Unique Name' }) // retry name
@@ -172,9 +191,11 @@ describe('function/deploy', () => {
       offset: 0,
       has_more: false,
     });
+    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
     (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
     (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
     (inquirer.prompt as unknown as jest.Mock)
+      .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'My Function' })
       .mockResolvedValueOnce({ confirmDeploy: false });
 
@@ -221,9 +242,11 @@ describe('function/deploy', () => {
       offset: 0,
       has_more: false,
     });
+    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
     (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
     (functionService.executeTemplate as jest.Mock).mockResolvedValue({ result: [] });
     (inquirer.prompt as unknown as jest.Mock)
+      .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'My Function' })
       .mockResolvedValueOnce({ confirmDeploy: true });
     (functionService.createFunction as jest.Mock).mockRejectedValue(
@@ -241,8 +264,11 @@ describe('function/deploy', () => {
       offset: 0,
       has_more: false,
     });
+    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
     (functionService.fetchContacts as jest.Mock).mockRejectedValue(new Error('Network error'));
+    (functionService.linkFunctionToApp as jest.Mock).mockResolvedValue({});
     (inquirer.prompt as unknown as jest.Mock)
+      .mockResolvedValueOnce({ selected: 'app-001' }) // app picker
       .mockResolvedValueOnce({ functionName: 'My Function' })
       .mockResolvedValueOnce({ confirmDeploy: true });
     (functionService.createFunction as jest.Mock).mockResolvedValue(CREATED);
@@ -263,10 +289,12 @@ describe('function/deploy', () => {
       offset: 0,
       has_more: false,
     });
+    (appService.fetchAppsList as jest.Mock).mockResolvedValue([APP]);
     (functionService.fetchContacts as jest.Mock).mockResolvedValue({ contacts: [] });
     (functionService.executeTemplate as jest.Mock).mockResolvedValue({
       result: [{ __error: 'MCP tool error: query failed' }],
     });
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValueOnce({ selected: 'app-001' }); // app picker
 
     await expect(deployFunctionCommand({ id: 'draft-001' })).rejects.toThrow(
       'Unable to deploy function',

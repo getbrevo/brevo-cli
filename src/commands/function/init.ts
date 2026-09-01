@@ -170,6 +170,18 @@ async function executePreview(draftId: string | undefined): Promise<void> {
   printResultsTable(results);
 }
 
+/** Link a deployed function to an app. Non-fatal — logs a warning on failure. */
+async function tryLinkFunctionToApp(appId: string, functionId: string): Promise<void> {
+  const linkSpinner = createSpinner(messages.FUNCTION_DEPLOY_LINKING);
+  try {
+    await functionService.linkFunctionToApp({ app_id: appId, function_id: functionId });
+  } catch {
+    logInfo(`  ${color('33', messages.FUNCTION_DEPLOY_LINK_ERROR)}`);
+  } finally {
+    linkSpinner.stop();
+  }
+}
+
 interface SaveFunctionArgs {
   app: OAuthApp;
   code: string;
@@ -227,6 +239,9 @@ async function saveGeneratedFunction(args: SaveFunctionArgs): Promise<void> {
         attribute_id: deriveAttributeId(functionName.trim()),
       });
       saveSpinner.stop();
+
+      await tryLinkFunctionToApp(args.app.app_id, created.id);
+
       printBox(messages.FUNCTION_INIT_BOX_TITLE, [
         `Name: ${created.name}`,
         messages.FUNCTION_INIT_BOX_ID(created.id),
@@ -483,6 +498,9 @@ async function templateFlow(app: OAuthApp): Promise<void> {
         source: 'cli',
       });
       createSpinnerInstance.stop();
+
+      await tryLinkFunctionToApp(app.app_id, created.id);
+
       printBox(messages.FUNCTION_INIT_BOX_TITLE, [
         `Name: ${created.name}`,
         messages.FUNCTION_INIT_BOX_ID(created.id),
