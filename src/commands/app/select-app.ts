@@ -4,6 +4,7 @@ import { createSpinner } from '../../lib/ui';
 import { logInfo } from '../../lib/logger';
 import { CliError } from '../../lib/errors';
 import { messages } from '../../lang/en';
+import type { OAuthApp } from '../../types';
 
 /**
  * Refuse an app picker there is no terminal to draw. Call this before any
@@ -28,10 +29,19 @@ export function assertAppSelectionAllowed(command: string, jsonMode?: boolean): 
 /**
  * Fetch the full apps list and prompt the user to pick one, returning both the
  * app id and a human label (name → client_id → id) for use in confirmation
- * copy. Shared by `app delete` and `app withdraw`.
+ * copy. Shared by `app delete`, `app withdraw` and (filtered) `app install` /
+ * `app uninstall`.
+ *
+ * `filter` narrows the list to the apps the caller can act on — install passes
+ * a UI-app test so the picker never offers a choice whose only outcome is the
+ * type-gate refusal one step later. When the filter empties a non-empty list,
+ * `emptyMessage` names the caller's way forward; an already-empty list keeps
+ * the generic APP_LIST_EMPTY either way, because "you have no apps at all" is
+ * the more actionable fact.
  */
 export async function promptAppSelection(
   promptMessage: string,
+  opts?: { filter?: (app: OAuthApp) => boolean; emptyMessage?: string },
 ): Promise<{ appId: string; appLabel: string }> {
   const listSpinner = createSpinner('Fetching apps...');
   let apps;
@@ -44,14 +54,24 @@ export async function promptAppSelection(
     logInfo(`\n  ${messages.APP_LIST_EMPTY}\n`);
     throw new CliError(messages.APP_LIST_EMPTY);
   }
+  if (opts?.filter) {
+    apps = apps.filter(opts.filter);
+    if (apps.length === 0) {
+      throw new CliError(opts.emptyMessage ?? messages.APP_LIST_EMPTY);
+    }
+  }
 
   const { selectedApp } = await inquirer.prompt([
     {
       type: 'rawlist',
       name: 'selectedApp',
       message: promptMessage,
+      // A UI app has no client_id (the list echoes it empty), so the row only
+      // carries the parenthetical the app can actually be identified by.
       choices: apps.map((a) => ({
-        name: `${a.name || 'App ' + a.app_id}  (App ID: ${a.app_id}, Client ID: ${a.client_id})`,
+        name: a.client_id
+          ? `${a.name || 'App ' + a.app_id}  (App ID: ${a.app_id}, Client ID: ${a.client_id})`
+          : `${a.name || 'App ' + a.app_id}  (App ID: ${a.app_id})`,
         value: a.app_id,
       })),
     },

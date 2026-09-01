@@ -252,3 +252,60 @@ describe('OAUTH_PROXY_URL resolution', () => {
     });
   });
 });
+
+describe('OAUTH_BASE resolution', () => {
+  const origEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...origEnv };
+    jest.resetModules();
+  });
+
+  it('defaults to https://oauth.brevo.com when BREVO_OAUTH_BASE_URL is unset', () => {
+    delete process.env.BREVO_OAUTH_BASE_URL;
+    jest.isolateModules(() => {
+      const { OAUTH_BASE, OAUTH_SCOPES_URL } = require('../../lib/constants');
+      expect(OAUTH_BASE).toBe('https://oauth.brevo.com');
+      expect(OAUTH_SCOPES_URL).toBe('https://oauth.brevo.com/realms/partner/scopes');
+    });
+  });
+
+  it('honours BREVO_OAUTH_BASE_URL override, including downstream OAUTH_SCOPES_URL', () => {
+    process.env.BREVO_OAUTH_BASE_URL = 'https://oauth.51b.dev';
+    jest.isolateModules(() => {
+      const { OAUTH_BASE, OAUTH_SCOPES_URL } = require('../../lib/constants');
+      expect(OAUTH_BASE).toBe('https://oauth.51b.dev');
+      expect(OAUTH_SCOPES_URL).toBe('https://oauth.51b.dev/realms/partner/scopes');
+    });
+  });
+
+  it('allows http for localhost', () => {
+    process.env.BREVO_OAUTH_BASE_URL = 'http://localhost:8080';
+    jest.isolateModules(() => {
+      const { OAUTH_BASE } = require('../../lib/constants');
+      expect(OAUTH_BASE).toBe('http://localhost:8080');
+    });
+  });
+
+  it('rejects a non-HTTPS BREVO_OAUTH_BASE_URL that is not localhost', () => {
+    process.env.BREVO_OAUTH_BASE_URL = 'http://evil.example.com';
+    jest.isolateModules(() => {
+      expect(() => require('../../lib/constants')).toThrow(/must use HTTPS/);
+    });
+  });
+
+  it('rejects an unparseable BREVO_OAUTH_BASE_URL', () => {
+    process.env.BREVO_OAUTH_BASE_URL = 'not a url';
+    jest.isolateModules(() => {
+      expect(() => require('../../lib/constants')).toThrow(/Invalid BREVO_OAUTH_BASE_URL/);
+    });
+  });
+
+  it('strips path from BREVO_OAUTH_BASE_URL and keeps origin only', () => {
+    process.env.BREVO_OAUTH_BASE_URL = 'https://oauth.51b.dev/some/path?q=1';
+    jest.isolateModules(() => {
+      const { OAUTH_BASE } = require('../../lib/constants');
+      expect(OAUTH_BASE).toBe('https://oauth.51b.dev');
+    });
+  });
+});

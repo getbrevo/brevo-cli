@@ -84,9 +84,13 @@ function render(cmd: Command): string {
   return captured;
 }
 
-/** Every command the pre-GA gate covers, and the section heading it sits under. */
-const GATED = ['deploy', 'rollback', 'submit', 'status', 'withdraw'];
-const GATED_HEADINGS = ['App-deployment commands', 'App-review commands'];
+/**
+ * Every command the pre-GA gate covers, and the section heading it sits under.
+ * `install` / `uninstall` left this list at UI-apps GA — they ship in every build now
+ * and are asserted alongside the other released commands below.
+ */
+const GATED = ['submit', 'status', 'withdraw'];
+const GATED_HEADINGS = ['App-review commands'];
 
 /**
  * The gated commands a preview build actually advertises.
@@ -100,7 +104,18 @@ const GATED_HEADINGS = ['App-deployment commands', 'App-review commands'];
 const GATED_LISTED = GATED.filter((name) => name !== 'withdraw');
 
 /** A representative ungated command per section, to prove the filter is not too wide. */
-const UNGATED = ['init', 'create', 'list', 'credentials', 'upload', 'delete', 'scaffold', 'start'];
+const UNGATED = [
+  'init',
+  'create',
+  'list',
+  'credentials',
+  'upload',
+  'delete',
+  'scaffold',
+  'start',
+  'install',
+  'uninstall',
+];
 
 describe('the pre-GA gate, end to end', () => {
   describe('a published (public) build', () => {
@@ -117,8 +132,12 @@ describe('the pre-GA gate, end to end', () => {
       expect(tree.rootHelp).not.toContain(heading);
     });
 
+    // Padded like the GATED checks above, and for the mirror-image reason: a bare
+    // `toContain('install')` is satisfied by `uninstall`'s help entry, so the one test
+    // proving `app install` survived a public build would stay green if only `install`
+    // were dropped.
     it.each(UNGATED)('still lists `app %s`', (name) => {
-      expect(tree.appHelp).toContain(name);
+      expect(tree.appHelp).toContain(` ${name} `);
     });
 
     // The flag is GA; only the `public` value is gated. Dropping the flag would be
@@ -128,9 +147,16 @@ describe('the pre-GA gate, end to end', () => {
       expect(tree.rootHelp).not.toContain('private|public');
     });
 
-    it('stops advertising UI apps in the create description', () => {
-      expect(tree.rootHelp).toContain('Create a new OAuth app');
-      expect(tree.rootHelp).not.toMatch(/UI app/i);
+    // UI apps are GA: the published build advertises the choice and the install
+    // section exactly as a preview build does.
+    it('advertises UI apps in the create description', () => {
+      expect(tree.rootHelp).toContain('Create a new app (OAuth, or a UI app via the prompts)');
+    });
+
+    it('keeps the "App-install commands" section on the root help', () => {
+      expect(tree.rootHelp).toContain('App-install commands (UI apps only):');
+      expect(tree.rootHelp).toContain('brevo app install');
+      expect(tree.rootHelp).toContain('brevo app uninstall');
     });
 
     it('drops the --distribution public example from `app create --help`', () => {

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import inquirer from 'inquirer';
-import { logSuccess, logInfo } from '../../lib/logger';
+import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
@@ -20,7 +20,8 @@ import { DEFAULT_LINK_TARGET, EXTENSION_TYPE_ACTION_LINK } from '../../lib/const
 import { OAuthApp, UiApp, UploadAppResponse } from '../../types';
 import { resolveFromConfig } from '../../app-types';
 import { stripUiAppWireOnlyKeysFrom } from '../../app-types/wire';
-import { formatPlacementLines } from '../../app-types/ui/fields';
+import { formatPlacementDiffLines } from '../../app-types/ui/fields';
+import { canonicalizeUiApp } from '../../app-types/ui/compare';
 
 interface UploadOptions {
   yes?: boolean;
@@ -157,20 +158,10 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
 // separately when `link_target` started arriving on the echo and again when
 // `extension_point_name` turned up one level down inside an entry. The scaffold's pull path is
 // now a third consumer, which is what moved it out of here.
+//
+// Only the write-back reaches for it directly now: the equality check went the same way, into
+// `src/app-types/ui/compare.ts`, which strips through the same traversal.
 const stripInjectedKeys = stripUiAppWireOnlyKeysFrom;
-
-/** Recursively sort object keys, so a serialized comparison is key-order-independent. */
-function sortKeysDeep(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeysDeep);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => [k, sortKeysDeep(v)]),
-    );
-  }
-  return value;
-}
 
 /**
  * Drop the wire-only keys above from a block, before it is written back to
@@ -183,26 +174,29 @@ function withoutInjectedKeys(uiApp: UiApp): UiApp {
   return stripInjectedKeys(uiApp) as UiApp;
 }
 
-// Stable serialization for equality checks. Three things vary without the block having
-// changed, and all three are normalized away here:
-//
-//   1. Key order in app-config.json depends on how the file was edited.
-//   2. `surface_point_list` ORDER is not meaningful — the server returns registry order,
-//      which need not match the order the partner picked their pages in. Without sorting,
-//      an authored [deal, contact] against an echoed [contact, deal] is phantom drift.
-//   3. The injected/server-managed keys above exist on one side only — stripped by
-//      `stripInjectedKeys`, the single owner of that list, rather than by a filter
-//      duplicated here.
-function canonicalizeUiApp(uiApp: UiApp | undefined): string {
-  if (!uiApp) return '';
-  const normalized = sortKeysDeep(stripInjectedKeys(uiApp)) as Record<string, unknown>;
-  const entries = normalized.surface_point_list;
-  if (Array.isArray(entries)) {
-    normalized.surface_point_list = [...entries].sort((a, b) =>
-      JSON.stringify(a).localeCompare(JSON.stringify(b)),
-    );
-  }
-  return JSON.stringify(normalized);
+/**
+ * Stamp `link_target: '_blank'` onto every `actionLink` placement on the way to the wire.
+ *
+ * The counterpart of `withoutInjectedKeys`: this puts the key on, that takes it off again
+ * before anything is compared or written back, so the field travels on the payload and never
+ * reaches `app-config.json`. Per entry since BEX-426 — it qualifies THAT entry's
+ * `redirect_link`, and the block root no longer accepts it.
+ *
+ * An `iframeExtension` is returned untouched: it navigates nowhere, and the field is refused
+ * per entry on both sides. An entry that already carries a value keeps it — `validateUiApp`
+ * has pinned anything authored to `_blank` already, so there is nothing to overwrite and
+ * clobbering it would hide a future widening of the pin rather than honour it.
+ */
+function withInjectedLinkTargets(uiApp: UiApp): UiApp {
+  if (uiApp.extension_type !== EXTENSION_TYPE_ACTION_LINK) return uiApp;
+  if (!Array.isArray(uiApp.surface_point_list)) return uiApp;
+  return {
+    ...uiApp,
+    surface_point_list: uiApp.surface_point_list.map((entry) => ({
+      ...entry,
+      link_target: entry.link_target ?? DEFAULT_LINK_TARGET,
+    })),
+  };
 }
 
 function renderUploadDiff(diff: UploadDiff): void {
@@ -246,22 +240,28 @@ function renderUploadDiff(diff: UploadDiff): void {
   logInfo('');
 }
 
-// Field-by-field so the partner can see exactly what the platform will store —
-// this block drives what renders inside Brevo, so a bare "changed" would be
-// useless. Values that differ from the server are tagged.
+// Field-by-field, and against the server's stored block rather than on its own —
+// this is what actually renders inside Brevo, so "(changed)" alone told the partner
+// that something in it differed without telling them what, which for an installed
+// app is the one thing worth seeing before saying yes. Every differing value now
+// reads `before → after`, exactly like the Name / Version / Scopes rows above it.
 function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   const changed = canonicalizeUiApp(next) !== canonicalizeUiApp(current);
   logInfo(`  ${messages.APP_UPLOAD_UI_APP_SUMMARY}${changed ? ' (changed)' : ''}`);
-  logInfo(`    Extension type: ${next.extension_type}`);
-  // Each placement prints its own context, because the two are per-entry now: a
-  // partner targeting a contact page and a deal page can be forwarded different
-  // fields on each, and one shared row would hide that.
-  formatPlacementLines(next).forEach((line, i) => {
+  const typePrefix =
+    current && current.extension_type !== next.extension_type ? `${current.extension_type} → ` : '';
+  logInfo(`    Extension type: ${typePrefix}${next.extension_type}`);
+  // Each placement prints its own context, label and destination, because all of them
+  // are per-entry now (BEX-426): a partner targeting a contact page and a deal page can
+  // label each differently and deep-link each somewhere else, and shared rows would
+  // hide that.
+  //
+  // Matched by slot slug, not by position — `surface_point_list` order is not meaningful
+  // (see `canonicalizeUiApp`), so an index-wise comparison would report a reordered list
+  // as a wholesale rewrite.
+  formatPlacementDiffLines(next, current).forEach((line, i) => {
     logInfo(`    ${i === 0 ? 'Placement:      ' : '                '}${line}`);
   });
-  logInfo(`    Label:          ${next.label ?? ''}`);
-  if (next.more_info) logInfo(`    More info:      ${next.more_info}`);
-  logInfo(`    Redirect link:  ${next.redirect_link ?? ''}`);
   // No link_target row: app-config.json does not carry the field, so printing a value
   // for it only sends a partner looking for one to edit. `_blank` is still injected
   // into an actionLink's payload — see the payload build.
@@ -352,9 +352,9 @@ export async function uploadProjectConfig(
       distribution_type: config.distribution_type,
       // UI apps have no OAuth block — the whole `auth` key is omitted, not sent
       // with empty arrays, mirroring `auth: {}` in the config.
-      // ASSUMED wire contract (server side not built yet, see
-      // RELEASE-CHECKLIST.md → Before UI-apps GA): the upload endpoint must
-      // tolerate an absent auth key for UI apps.
+      // ASSUMED wire contract (server side not built yet; tracked in the
+      // branch-local docs.md — see CLAUDE.md → Working docs): the upload endpoint
+      // must tolerate an absent auth key for UI apps.
       ...(isUiApp
         ? {}
         : {
@@ -373,20 +373,17 @@ export async function uploadProjectConfig(
       // server's own default, which is gated on the pre-BEX-350 spelling of
       // extension_type and therefore no longer fires for CLI-authored apps.
       //
+      // Onto each ENTRY, not the block root (BEX-426): it qualifies that entry's
+      // `redirect_link`, so it followed the destination off the root, and the root
+      // spelling is now refused by name server-side. An entry that already carries
+      // one keeps it — `validateUiApp` has already pinned any authored value to
+      // `_blank`, so this only fills the blanks.
+      //
       // Only for an `actionLink`. An `iframeExtension` embeds its URL in a modal
-      // instead of navigating, has no link target to set, and `validateUiApp`
-      // refuses the field in the authored file — so injecting it would send the
+      // instead of navigating, has no link target to set, and both `validateUiApp`
+      // and the server refuse the field per entry — so injecting it would send the
       // one field the CLI just told the partner not to write.
-      ...(isUiApp && config.ui_app
-        ? {
-            ui_app: {
-              ...config.ui_app,
-              ...(config.ui_app.extension_type === EXTENSION_TYPE_ACTION_LINK
-                ? { link_target: DEFAULT_LINK_TARGET as UiApp['link_target'] }
-                : {}),
-            },
-          }
-        : {}),
+      ...(isUiApp && config.ui_app ? { ui_app: withInjectedLinkTargets(config.ui_app) } : {}),
     });
   } finally {
     spinner.stop();
@@ -481,8 +478,14 @@ function runLocalPreflight(config: ProjectConfig): void {
 /**
  * Ask before pushing. Returns false when the user declined; refuses outright off a TTY,
  * where there is nobody to answer.
+ *
+ * `installed` swaps in the wording that names the consequence: a UI app's configuration is
+ * what every account it is installed in renders, so an upload is not just a change to a
+ * record on the platform — it is a change to a live surface, and the prompt says so. Only
+ * UI apps get it: an OAuth app has no installs (it becomes usable when a user authorizes
+ * it), so the same sentence there would be a warning about nothing.
  */
-async function confirmUpload(): Promise<boolean> {
+async function confirmUpload(installed: boolean): Promise<boolean> {
   if (!process.stdin.isTTY) {
     throw new CliError(NON_INTERACTIVE_CONFIRM_ERROR);
   }
@@ -490,7 +493,7 @@ async function confirmUpload(): Promise<boolean> {
     {
       type: 'confirm',
       name: 'confirmed',
-      message: messages.APP_UPLOAD_CONFIRM,
+      message: installed ? messages.APP_UPLOAD_CONFIRM_INSTALLED : messages.APP_UPLOAD_CONFIRM,
       default: true,
     },
   ]);
@@ -535,7 +538,19 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     return;
   }
 
-  if (!options.json && !options.yes && !(await confirmUpload())) {
+  // A UI app's block IS what its installs render, so an upload edits every account the
+  // app is installed in — immediately, with no separate publish step. There is no way to
+  // ask how many that is (the platform exposes no install listing to the CLI), so the
+  // notice is stated as a possibility rather than a count, and it is printed rather than
+  // gated: `--yes` skips the question, not the warning, exactly as `app delete --force`
+  // still prints its install-loss line. Kept out of `--json`, whose output stays one
+  // parseable document.
+  const affectsInstalls = !!diff.nextUiApp;
+  if (!options.json && affectsInstalls) {
+    logWarn(`  ${messages.APP_UPLOAD_INSTALLED_IMPACT}\n`);
+  }
+
+  if (!options.json && !options.yes && !(await confirmUpload(affectsInstalls))) {
     logInfo(`\n  ${messages.APP_UPLOAD_CANCELLED}\n`);
     return;
   }

@@ -1,8 +1,9 @@
 /**
  * The UI app type (BEX-290) — an action link that renders inside a Brevo CRM record.
  *
- * `preview`: shipped in the CLI, not live on the platform. That is metadata for doc
- * generation only — the CLI deliberately has no runtime guard, see `contract.ts`.
+ * GA since BEX-290: live on the platform (private distribution) and shipped in every
+ * build. `availability` is metadata for doc generation only — the CLI deliberately has
+ * no runtime guard, see `contract.ts`.
  *
  * Note the descriptor does NOT expose this type's prompts. `./authoring` is imported directly
  * by `app create`, so `app list` doesn't pull `inquirer` and the whole registry-read flow in
@@ -17,13 +18,14 @@ import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
  * Keys the platform owns on a stored `ui_app` block, none of which belong in
  * `app-config.json`:
  *
- *   - `link_target`  — `app upload` injects `_blank`; the server also defaults it and echoes
- *                      it back. Authoring it only invited a partner to edit in a `_self` that
- *                      400s.
+ *   - `link_target`  — `app upload` injects `_blank` onto each `actionLink` entry; the server
+ *                      also defaults it and echoes it back. Authoring it only invited a
+ *                      partner to edit in a `_self` that 400s. Lives INSIDE an entry since
+ *                      BEX-426, one level down, next to the `redirect_link` it qualifies.
  *   - `version`      — the snapshot version the server manages.
  *   - `extension_point_name` — the dotted slot name the platform resolves from each entry's
- *                      `surface_point_name` slug and stamps onto its own copy. It lives
- *                      INSIDE an entry, one level down, which is why the strip recurses.
+ *                      `surface_point_name` slug and stamps onto its own copy. Also INSIDE
+ *                      an entry, which — with `link_target` — is why the strip recurses.
  *
  * All three exist on the server's side of a comparison only. Left in, the first successful
  * upload writes them into the file this command just decided to keep them out of, and every
@@ -39,7 +41,7 @@ const UI_APP_WIRE_ONLY_KEYS: readonly string[] = [
 export const uiAppType: AppTypeModule = {
   id: 'ui',
   label: messages.APP_TYPE_UI,
-  availability: 'preview',
+  availability: 'ga',
 
   detectConfig: isUiAppConfigShape,
   detectRecord: isUiAppRecordShape,

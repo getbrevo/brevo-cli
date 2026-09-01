@@ -25,7 +25,7 @@ export interface CommandDefinition {
   examples?: string[];
   /**
    * The capability an app must have for this command to apply — `review-lifecycle` for the
-   * public-app review commands, `account-install` for deploy/rollback. See
+   * public-app review commands, `account-install` for install/uninstall. See
    * `src/app-types/capabilities.ts`.
    *
    * **Declarative metadata, NOT a runtime guard.** The registry does not enforce it, and

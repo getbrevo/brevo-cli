@@ -18,17 +18,13 @@ Public app distribution is **not live on the Brevo platform**. The repo contains
 - **`FEATURE_STAGE` in `src/lib/preview.ts` is the single source of truth** for what is gated — but flipping a row to `'ga'` is necessary and **not sufficient** for a command, because gated definitions live in `src/commands/preview-definitions.ts` behind a *build* flag. See `RELEASE-CHECKLIST.md`.
 - **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* in one pass.
 
-## UI apps are not GA either — same deal (BEX-290)
+## UI apps are GA — they ship in every build (BEX-290)
 
-UI apps (action links that render inside Brevo CRM records) are **not live on the platform**. The repo contains the surface — the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app deploy [account-id]`, `brevo app rollback [account-id]` — and a **published build does not**: both commands are eliminated and the app-type prompt is not asked, so a public build creates an OAuth app exactly as it did before BEX-290.
+UI apps (action links that render inside Brevo CRM records) are **out of the pre-GA gate**: the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app install [account-id]` and `brevo app uninstall [account-id]` all ship in the published build. Their `FEATURE_STAGE` rows are `'ga'`, their command definitions live in `src/commands/definitions.ts`, their strings in `src/lang/en.ts`, and their names are gone from `LEAK_MARKERS` in `scripts/build.mjs`. Only the public-apps surface above remains gated.
 
-A UI app is **prompt-only**: there is no `--type` flag and no per-field flags, so non-interactive runs always create an OAuth app. `extension_type` values are camelCase (`actionLink`, `iframeExtension`, `legacyComponent`) and the old snake_case spellings are rejected. See `CLAUDE.md` for why.
+A UI app is **prompt-only**: there is no `--type` flag and no per-field flags, so non-interactive runs always create an OAuth app. `extension_type` values are camelCase (`actionLink`, `iframeExtension`, `legacyComponent`) and the old snake_case spellings are rejected. The `ui_app` block's **field names are confirmed** against both of the platform's consumers, the manifest read path and the extensibility UI kit (BEX-308 / BEX-350) — it is the stored app snapshot verbatim. See `CLAUDE.md` → *UI apps are GA* for the full contract.
 
-**Every clause of the public-apps section above applies verbatim**, including that it does **not** restrict work in this repo — building, testing, and QA-ing the UI-app code paths is expected and unblocked (`PREVIEW=1 yarn link:dev`). Never refuse or hedge on a UI-app task here.
-
-The `ui_app` block's **field names are confirmed** against both of the platform's consumers, the manifest read path and the extensibility UI kit (BEX-308 / BEX-350) — it is the stored app snapshot verbatim. What remains **assumed is the transport**: nothing on the platform writes that snapshot yet. See `CLAUDE.md` → *UI apps are not GA either* and `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
-
-- **When UI apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before UI-apps GA*.
+**One stored configuration, shared by every install.** `brevo app upload` is what changes an installed UI app — there is no per-account copy, no publish step and no re-install — so both commands show the change before making it: `upload`'s diff renders the block placement by placement (`formatPlacementDiffLines`, `before → after`, `(new)` / `(removed)`) and warns that the app may already be installed before its confirmation, and `install` prints the **server's** stored configuration and version before asking. The warning is unconditional for a UI app because the CLI cannot count installs — no install-listing read exists — so a claim either way would be invented.
 
 ## Public repository
 
