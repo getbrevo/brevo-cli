@@ -71,7 +71,7 @@ export const FEATURE_STAGE: Readonly<Record<PreviewFeature, FeatureStage>> = {
   'review-lifecycle': 'preview',
   'ui-app-type': 'ga',
   'public-distribution': 'preview',
-  'brevo-function-type': 'preview',
+  'brevo-function-type': 'ga',
 } as const;
 
 /**

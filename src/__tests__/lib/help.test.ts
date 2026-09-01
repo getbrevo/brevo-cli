@@ -18,8 +18,7 @@ function buildProgram(): Command {
     .version('0.0.0-test')
     .option('--debug', 'Enable debug logging')
     .configureHelp({ formatHelp: createHelpFormatter(program) });
-  const groups = [appCommandGroup, skillCommandGroup];
-  if (functionCommandGroup) groups.push(functionCommandGroup);
+  const groups = [appCommandGroup, skillCommandGroup, functionCommandGroup];
   registerAll(program, topLevelCommands, groups);
   return program;
 }
@@ -108,8 +107,7 @@ describe('help formatting', () => {
 
     it('gives every registered subcommand its own usage line', () => {
       const program = buildProgram();
-      const groups = [appCommandGroup, skillCommandGroup];
-      if (functionCommandGroup) groups.push(functionCommandGroup);
+      const groups = [appCommandGroup, skillCommandGroup, functionCommandGroup];
 
       for (const group of groups) {
         for (const cmd of group.commands) {

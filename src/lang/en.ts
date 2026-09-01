@@ -393,6 +393,106 @@ const coreMessages = {
   FUNCTION_GET_HEADER: 'Brevo Function details:',
   FUNCTION_GET_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
 
+  // Function selection (shared picker) — moved here from `preview-messages.ts` at
+  // Brevo Functions GA.
+  FUNCTION_SELECT_NON_INTERACTIVE: (command: string) =>
+    `Cannot show the function picker in non-interactive mode. Name the function instead:\n\n      ${command}\n\n  \`${CLI.FUNCTION_LIST}\` shows the IDs.`,
+  FUNCTION_GET_SELECT: 'Select a function:',
+  FUNCTION_ACTIVATE_SELECT: 'Select a function to activate:',
+  FUNCTION_DEACTIVATE_SELECT: 'Select a function to deactivate:',
+  FUNCTION_DELETE_SELECT: 'Select a function to delete:',
+
+  // Function activate
+  FUNCTION_ACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+  FUNCTION_ACTIVATE_CARD_TITLE: 'Function Activated',
+  FUNCTION_ACTIVATE_CARD_LABEL: 'Status',
+  FUNCTION_ACTIVATE_CARD_MESSAGE: (id: string) => `"${id}" is now active and processing data.`,
+
+  // Function deactivate
+  FUNCTION_DEACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+  FUNCTION_DEACTIVATE_CARD_TITLE: 'Function Deactivated',
+  FUNCTION_DEACTIVATE_CARD_LABEL: 'Status',
+  FUNCTION_DEACTIVATE_CARD_MESSAGE: (id: string) => `"${id}" is now inactive.`,
+
+  // Function delete
+  FUNCTION_DELETE_CONFIRM: (id: string) =>
+    `Are you sure you want to delete Brevo Function "${id}"? This cannot be undone.`,
+  FUNCTION_DELETE_CANCELLED: 'Deletion cancelled.',
+  FUNCTION_DELETE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+  FUNCTION_DELETE_CARD_TITLE: 'Function Deleted',
+  FUNCTION_DELETE_CARD_LABEL: 'Removed',
+  FUNCTION_DELETE_CARD_MESSAGE: (id: string) => `"${id}" has been permanently deleted.`,
+
+  // Function init
+  FUNCTION_INIT_SELECT_APP: 'Select a Brevo Function app:',
+  FUNCTION_INIT_NO_APPS: `No Brevo Function apps found. Create one first with \`${CLI.APP_CREATE}\`.`,
+  FUNCTION_INIT_METHOD_PROMPT: 'How would you like to create your function?',
+  FUNCTION_INIT_METHOD_AI: 'Generate using AI',
+  FUNCTION_INIT_METHOD_TEMPLATE: 'Use a predefined template',
+  FUNCTION_INIT_DESCRIPTION_PROMPT: 'Describe what this function should do:',
+  FUNCTION_INIT_DESCRIPTION_REQUIRED: 'Description cannot be empty.',
+  FUNCTION_INIT_TEMPLATE_PROMPT: 'Select a template:',
+  FUNCTION_INIT_NO_TEMPLATES: 'No templates available.',
+  FUNCTION_INIT_STAGE_ENRICHING: 'Analyzing the request',
+  FUNCTION_INIT_STAGE_PLANNING: 'Contacting databases',
+  FUNCTION_INIT_STAGE_GENERATING: 'Creating the function',
+  FUNCTION_INIT_STAGE_VALIDATING: 'Testing the function',
+  FUNCTION_INIT_GENERATING: 'Generating function...',
+  FUNCTION_INIT_ITERATE_PROMPT: 'What would you like to do?',
+  FUNCTION_INIT_ITERATE_UPDATE: 'Update / iterate on the prompt',
+  FUNCTION_INIT_ITERATE_SAVE: 'Deploy',
+  FUNCTION_INIT_ITERATE_DESCRIPTION: 'Describe the changes you want:',
+  FUNCTION_INIT_ITERATING: 'Iterating on function...',
+  FUNCTION_INIT_SAVE_SPINNER: 'Creating function...',
+  FUNCTION_INIT_GENERATION_FAILED: 'Function generation failed.',
+  FUNCTION_INIT_GENERATION_ERROR: 'Failed to generate function. Please try again.',
+  FUNCTION_INIT_ITERATE_ERROR: 'Failed to update function. Please try again.',
+  FUNCTION_INIT_PREVIEW_ERROR: 'Failed to preview function results.',
+  FUNCTION_INIT_NON_INTERACTIVE: `\`${CLI.FUNCTION_INIT}\` requires an interactive terminal. It cannot run with --json or piped input.`,
+  FUNCTION_INIT_FETCHING_CONTACTS: 'Fetching sample contacts...',
+  FUNCTION_INIT_EXECUTING_PREVIEW: 'Previewing function...',
+  FUNCTION_INIT_PREVIEW_HEADER: 'Preview results:',
+  FUNCTION_INIT_NAME_PROMPT: 'Enter a name for this function:',
+  FUNCTION_INIT_NAME_REQUIRED: 'Name cannot be empty.',
+  FUNCTION_INIT_DEPLOY_WARNING: 'This will activate the function and run it with real-time data.',
+  FUNCTION_INIT_DEPLOY_PROMPT: 'Are you sure you want to deploy?',
+  FUNCTION_INIT_NAME_EXISTS:
+    'A function with this name already exists. Please choose a different name.',
+  FUNCTION_INIT_DEPLOY_CANCELLED: 'Deployment cancelled.',
+  FUNCTION_INIT_CREATING_FROM_TEMPLATE: 'Deploying function...',
+  FUNCTION_INIT_BOX_TITLE: 'Function deployed',
+  FUNCTION_INIT_BOX_ID: (id: string) => `ID:   ${id}`,
+
+  // Function deploy
+  FUNCTION_DEPLOY_SELECT: 'Select a draft to deploy:',
+  FUNCTION_DEPLOY_NO_DRAFTS:
+    'No draft functions found. Create one first with `brevo function init`.',
+  FUNCTION_DEPLOY_NON_INTERACTIVE: `Cannot show the draft picker in non-interactive mode. Pass the draft ID instead:\n\n      ${CLI.FUNCTION_DEPLOY}\n\n  \`${CLI.FUNCTION_LIST} --draft\` shows the IDs.`,
+  FUNCTION_DEPLOY_NOT_FOUND: (id: string) => `Draft "${id}" not found.`,
+  FUNCTION_DEPLOY_PREVIEW_HEADER: 'Preview results:',
+  FUNCTION_DEPLOY_PREVIEW_ERROR: 'Failed to preview draft results.',
+  FUNCTION_DEPLOY_NAME_PROMPT: 'Enter a name for this function:',
+  FUNCTION_DEPLOY_NAME_REQUIRED: 'Name cannot be empty.',
+  FUNCTION_DEPLOY_WARNING: 'This will activate the function and run it with real-time data.',
+  FUNCTION_DEPLOY_CONFIRM: 'Are you sure you want to deploy?',
+  FUNCTION_DEPLOY_CANCELLED: 'Deployment cancelled.',
+  FUNCTION_DEPLOY_SPINNER: 'Deploying function...',
+  FUNCTION_DEPLOY_NAME_EXISTS:
+    'A function with this name already exists. Please choose a different name.',
+  FUNCTION_DEPLOY_BOX_TITLE: 'Function deployed',
+  FUNCTION_DEPLOY_BOX_ID: (id: string) => `ID:   ${id}`,
+  FUNCTION_DEPLOY_FETCHING_CONTACTS: 'Fetching sample contacts...',
+  FUNCTION_DEPLOY_EXECUTING_PREVIEW: 'Previewing function...',
+
+  // Function deploy — app linking
+  FUNCTION_DEPLOY_LINKING: 'Linking function to app...',
+  FUNCTION_DEPLOY_LINK_ERROR: 'Function deployed but failed to link to app.',
+  FUNCTION_DEPLOY_SELECT_APP: 'Select an app to link this function to:',
+  FUNCTION_DEPLOY_NO_APPS: `No Brevo Function apps found. Create one first with \`${CLI.APP_CREATE}\`.`,
+
+  // Function preview — shared across init and deploy
+  FUNCTION_PREVIEW_EXECUTE_FAILED: 'Unable to deploy function.',
+
   // App credentials
   APP_CREDENTIALS_REVEAL_CONFIRM: 'Are you sure you want to reveal the client secret?',
   APP_CREDENTIALS_SELECT: 'Select an app:',
