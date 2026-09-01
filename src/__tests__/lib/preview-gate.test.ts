@@ -44,7 +44,11 @@ function buildTree(previewBuild: boolean): Tree {
       .description('Brevo Developer CLI — create, manage, and test OAuth integrations')
       .version('0.0.0-test')
       .configureHelp({ formatHelp: createHelpFormatter(program) });
-    registerAll(program, defs.topLevelCommands, [defs.appCommandGroup, defs.skillCommandGroup]);
+    registerAll(program, defs.topLevelCommands, [
+      defs.appCommandGroup,
+      defs.skillCommandGroup,
+      defs.functionCommandGroup,
+    ]);
 
     tree = {
       program,
@@ -159,6 +163,31 @@ describe('the pre-GA gate, end to end', () => {
       expect(tree.rootHelp).toContain('brevo app uninstall');
     });
 
+    // Brevo Functions are GA: the published build shows the function commands section
+    // and registers all seven subcommands.
+    it('keeps the "Function commands" section on the root help', () => {
+      expect(tree.rootHelp).toContain('Function commands (alias: brevo fn):');
+      expect(tree.rootHelp).toContain('brevo function list');
+      expect(tree.rootHelp).toContain('brevo function deploy');
+    });
+
+    it('registers all function subcommands', () => {
+      const fn = tree.program.commands.find((c) => c.name() === 'function')!;
+      expect(fn).toBeDefined();
+      const names = fn.commands.map((c) => c.name());
+      expect(names).toEqual(
+        expect.arrayContaining([
+          'list',
+          'get',
+          'activate',
+          'deactivate',
+          'delete',
+          'init',
+          'deploy',
+        ]),
+      );
+    });
+
     it('drops the --distribution public example from `app create --help`', () => {
       const createHelp = render(
         tree.program.commands
@@ -199,6 +228,26 @@ describe('the pre-GA gate, end to end', () => {
       'LEGACY_ALL_SCOPE_LIST_TAG',
       'LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED',
       'LEGACY_ALL_SCOPE_UPDATE_MIGRATING',
+    ])('still defines messages.%s', (key) => {
+      const value = loadMessages(false)[key];
+      expect(value).toBeDefined();
+      expect(typeof value === 'string' ? value : 'fn').not.toBe('');
+    });
+
+    // Brevo Function strings moved from preview-messages.ts to en.ts at GA. Same
+    // verification as the legacy-scope family above: a public build must define them.
+    it.each([
+      'FUNCTION_SELECT_NON_INTERACTIVE',
+      'FUNCTION_GET_SELECT',
+      'FUNCTION_ACTIVATE_SELECT',
+      'FUNCTION_DEACTIVATE_SELECT',
+      'FUNCTION_DELETE_SELECT',
+      'FUNCTION_ACTIVATE_NOT_FOUND',
+      'FUNCTION_DEACTIVATE_NOT_FOUND',
+      'FUNCTION_DELETE_NOT_FOUND',
+      'FUNCTION_INIT_NO_APPS',
+      'FUNCTION_DEPLOY_SELECT',
+      'FUNCTION_PREVIEW_EXECUTE_FAILED',
     ])('still defines messages.%s', (key) => {
       const value = loadMessages(false)[key];
       expect(value).toBeDefined();

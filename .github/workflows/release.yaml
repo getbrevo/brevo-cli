@@ -283,12 +283,13 @@ jobs:
           # MUST match smoke-post-merge.yml's `suite`. This dispatch is the path
           # that actually runs after a changesets publish — the `release` event
           # that fires that workflow is suppressed for the default GITHUB_TOKEN
-          # — so a widening applied only there would be cosmetic. `private,ui`
-          # is the live surface; no 'public', which the published bundle omits.
+          # — so a widening applied only there would be cosmetic.
+          # `private,ui,function` is the live surface; no 'public', which the
+          # published bundle omits.
           gh workflow run smoke.yml \
             --ref main \
             -f against=published \
-            -f suite=private,ui \
+            -f suite=private,ui,function \
             -f account=default \
             -f expected_version="${tag}"
 

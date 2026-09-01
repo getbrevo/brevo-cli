@@ -119,19 +119,22 @@ function formatRootHelp(description: string): string {
     `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
     `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,
     ``,
-    ...(__BREVO_PREVIEW__
-      ? gatedSection('brevo-function-type', [
-          `Function commands (alias: brevo fn):`,
-          `  brevo function list              [--draft] [--json]   List all Brevo Functions in your account`,
-          `  brevo function get               [--id <id>] [--json] Show details of a Brevo Function`,
-          `  brevo function activate          [--id <id>] [--json] Activate a Brevo Function`,
-          `  brevo function deactivate        [--id <id>] [--json] Deactivate a Brevo Function`,
-          `  brevo function delete            [--id <id>] [--force] [--json]`,
-          `                                                        Delete a Brevo Function`,
-          `  brevo function init                                   Create a new Brevo Function (interactive)`,
-          ``,
-        ])
-      : []),
+    // GA (Brevo Functions shipped): `brevo-function-type` is 'ga' in FEATURE_STAGE, so
+    // this renders in every build. Same pattern as the App-install section above: the
+    // `__BREVO_PREVIEW__` wrapper is gone, the gatedSection call stays so an emergency
+    // flip back to 'preview' hides it here exactly as registerCommand hides the commands.
+    ...gatedSection('brevo-function-type', [
+      `Function commands (alias: brevo fn):`,
+      `  brevo function list              [--draft] [--json]   List all Brevo Functions in your account`,
+      `  brevo function get               [--id <id>] [--json] Show details of a Brevo Function`,
+      `  brevo function activate          [--id <id>] [--json] Activate a Brevo Function`,
+      `  brevo function deactivate        [--id <id>] [--json] Deactivate a Brevo Function`,
+      `  brevo function delete            [--id <id>] [--force] [--json]`,
+      `                                                        Delete a Brevo Function`,
+      `  brevo function init                                   Create a new Brevo Function (interactive)`,
+      `  brevo function deploy            [--id <id>] [--json] Deploy a draft Brevo Function`,
+      ``,
+    ]),
     `Scope commands:`,
     `  brevo app available-scopes  [--web] [--json]          List OAuth scopes supported by the IdP`,
     `                                                        (--web opens the catalog in a browser)`,

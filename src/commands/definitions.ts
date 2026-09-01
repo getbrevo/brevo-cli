@@ -7,7 +7,7 @@ import { createDescription, distributionValues } from '../lib/help';
 // `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their handler modules —
 // from a published build. Importing any of those handlers directly here would make them
 // live references again and ship the whole surface. See ./preview-definitions.ts.
-import { previewAppCommands, previewFunctionGroup } from './preview-definitions';
+import { previewAppCommands } from './preview-definitions';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -25,6 +25,14 @@ import { appInstallCommand } from './app/install';
 import { appUninstallCommand } from './app/uninstall';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
+// Moved here from ./preview-definitions.ts when Brevo Functions went GA.
+import { listFunctionCommand } from './function/list';
+import { getFunctionCommand } from './function/get';
+import { activateFunctionCommand } from './function/activate';
+import { deactivateFunctionCommand } from './function/deactivate';
+import { deleteFunctionCommand } from './function/delete';
+import { initFunctionCommand } from './function/init';
+import { deployFunctionCommand } from './function/deploy';
 
 export const topLevelCommands: CommandDefinition[] = [
   {
@@ -357,12 +365,120 @@ export const skillCommandGroup: SubcommandGroupDefinition = {
   ],
 };
 
-// ELIMINATION SITE — same pattern as previewAppCommands above: the raw global lets
-// esbuild fold this to `undefined` in a published build and tree-shake the function
-// handler modules only `previewFunctionGroup` references. `isFeatureAvailable` is
-// still consulted at runtime (for the help screen, via `gatedSection`), so flipping
-// `FEATURE_STAGE['brevo-function-type']` to `'ga'` releases the group without
-// touching this line.
-export const functionCommandGroup: SubcommandGroupDefinition | undefined = __BREVO_PREVIEW__
-  ? previewFunctionGroup
-  : undefined;
+// Moved here from ./preview-definitions.ts when Brevo Functions went GA. `requires` stays
+// absent: unlike `account-install`, there is no capability gate on individual function
+// commands — `FEATURE_STAGE['brevo-function-type']` is 'ga' and `gatedSection` in help.ts
+// keeps the section aligned with the table for an emergency flip.
+export const functionCommandGroup: SubcommandGroupDefinition = {
+  name: 'function',
+  aliases: ['fn'],
+  description: 'Manage Brevo Functions',
+  commands: [
+    {
+      name: 'list',
+      description: 'List all Brevo Functions in your account',
+      examples: [
+        'brevo function list',
+        'brevo function list --draft',
+        'brevo function list --json',
+      ],
+      options: [
+        { flags: '--draft', description: 'List only draft functions' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        listFunctionCommand({ json: Boolean(opts.json), draft: Boolean(opts.draft) }),
+    },
+    {
+      name: 'get',
+      description: 'Show details of a Brevo Function',
+      examples: [
+        'brevo function get',
+        'brevo function get --id fn-001',
+        'brevo function get --id fn-001 --json',
+      ],
+      options: [
+        { flags: '--id <id>', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        getFunctionCommand({ id: opts.id as string | undefined, json: Boolean(opts.json) }),
+    },
+    {
+      name: 'activate',
+      description: 'Activate a Brevo Function',
+      examples: [
+        'brevo function activate',
+        'brevo function activate --id fn-001',
+        'brevo function activate --id fn-001 --json',
+      ],
+      options: [
+        { flags: '--id <id>', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        activateFunctionCommand({ id: opts.id as string | undefined, json: Boolean(opts.json) }),
+    },
+    {
+      name: 'deactivate',
+      description: 'Deactivate a Brevo Function',
+      examples: [
+        'brevo function deactivate',
+        'brevo function deactivate --id fn-001',
+        'brevo function deactivate --id fn-001 --json',
+      ],
+      options: [
+        { flags: '--id <id>', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        deactivateFunctionCommand({
+          id: opts.id as string | undefined,
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'delete',
+      description: 'Delete a deployed Brevo Function',
+      examples: [
+        'brevo function delete',
+        'brevo function delete --id fn-001',
+        'brevo function delete --id fn-001 --force',
+        'brevo function delete --id fn-001 --json',
+      ],
+      options: [
+        { flags: '--id <id>', description: 'Function ID (shows a picker if omitted)' },
+        { flags: '--force', description: 'Skip confirmation' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        deleteFunctionCommand({
+          id: opts.id as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'init',
+      description: 'Create a new Brevo Function',
+      examples: ['brevo function init', 'brevo fn init'],
+      options: [{ flags: '--json', description: 'Output as JSON' }],
+      handler: (opts) => initFunctionCommand({ json: Boolean(opts.json) }),
+    },
+    {
+      name: 'deploy',
+      description: 'Deploy a draft Brevo Function',
+      examples: [
+        'brevo function deploy',
+        'brevo function deploy --id draft-001',
+        'brevo function deploy --id draft-001 --json',
+      ],
+      options: [
+        { flags: '--id <id>', description: 'Draft ID (shows a picker if omitted)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        deployFunctionCommand({ id: opts.id as string | undefined, json: Boolean(opts.json) }),
+    },
+  ],
+};
