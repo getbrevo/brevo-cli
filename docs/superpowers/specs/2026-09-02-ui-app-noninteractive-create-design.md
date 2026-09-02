@@ -53,12 +53,13 @@ that today's interactive wizard performs.
 New options on `app create` (`src/commands/definitions.ts`), in addition to the
 existing `--name`, `--distribution`, `--redirect-uri`, `--logo-uri`, `--json`:
 
-- `--ui-config <file>` — path to a JSON file holding one `ui_app`-shaped object:
-  `{ extension_type, surface_point_name, label, more_info?, redirect_link }`.
-  Same field names and constraints as one entry of `app-config.json`'s
-  `surface_point_list`. `extension_type` must be `actionLink` — any other value
-  (`iframeExtension`, `legacyComponent`) is rejected with a `CliError` explaining
-  that only action links are supported by this path today.
+- `--ui-config <file>` — path to a JSON file holding one flattened placement
+  object: `{ extension_type, record_page, surface_point_name, label, more_info?,
+  redirect_link }`. `record_page` is required here too, for the same reason it's
+  a required flag below — it scopes the registry lookup and the resulting error
+  message the same way for both routes. `extension_type` must be `actionLink` —
+  any other value (`iframeExtension`, `legacyComponent`) is rejected with a
+  `CliError` explaining that only action links are supported by this path today.
 - `--ui-app` — flag selecting UI-app type without a config file, for the per-field
   route. Always builds an `actionLink` entry (there's no `--extension-type` flag —
   action link is the only type this route supports, so it's implicit). Requires
