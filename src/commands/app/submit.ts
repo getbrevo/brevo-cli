@@ -216,16 +216,31 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
   const config = readProjectConfig();
   const appId = await resolveAppId(options, config);
 
-  // Run the status check first — a failed read aborts before we attempt to
-  // submit. The response also carries the submittability signal used below.
+  // Fetch the app BEFORE the review-state read, so an app that was never uploaded is
+  // refused in the CLI's own words (TC-6.3). The order used to be the other way round —
+  // state read first, "a failed read aborts before we attempt to submit" — and it still
+  // does abort, just one round trip later. What the old order cost was the error message:
+  // the state read fails on an app with no `app_versions` row, and the server's copy for
+  // that failure names `name`, `logo_uri`, `scopes` and `redirect_uris` as the things to
+  // fix. All four can be present. Nothing in `apiCodeMessages` maps the code, so it
+  // reached the user verbatim and sent them auditing fields that were already correct.
+  //
+  // `version` is the certain signal: it is written only by a successful `app upload`, so
+  // its absence means the app has never been uploaded and cannot have a review state.
+  // Same gate `app install` already applies for the same reason — see
+  // `assertInstallable`'s `requireUploaded` in `account-install.ts`, and CLAUDE.md on why
+  // a local pre-flight is kept even where the server also checks.
+  const app = await fetchExistingApp(appId, options.json);
+  if (!app.version?.trim()) {
+    throw new CliError(messages.APP_SUBMIT_NOT_UPLOADED(appId));
+  }
+
+  // The response carries the submittability signal used just below.
   const state = await preflightAppState(appId, options.json);
 
-  // Block early when the app is still missing fields required for review (BEX-383),
-  // before fetching the full app the developer can't submit yet — the state read
-  // already told us it isn't ready, so the fetch would be wasted work.
+  // Block when the app is still missing fields required for review (BEX-383) before
+  // doing any submit work.
   assertSubmittable(state, !!options.json, appId);
-
-  const app = await fetchExistingApp(appId, options.json);
 
   // Only public apps can be submitted for review — expressed as a capability so the rule
   // lives in one table (`src/app-types/capabilities.ts`) instead of being restated by each

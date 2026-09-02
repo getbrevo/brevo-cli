@@ -2394,10 +2394,16 @@ describe('app/create', () => {
   });
 
   // ──────── The pre-GA gate inside `app create` (BEX-405) ────────
-  // Two of the four gated features are not commands, so `command-registry`'s
-  // interceptor cannot reach them: the *UI app* choice is a prompt option and
-  // `public` is a flag VALUE. They are gated inside the flow instead, and the
-  // shape of the refusal differs — a prompt choice is withheld, a flag is refused.
+  // Two of the four gated features were never commands, so `command-registry`'s
+  // interceptor could not reach them: the *UI app* choice is a prompt option and
+  // `public` is a flag VALUE. They were gated inside the flow instead, with different
+  // refusal shapes — a prompt choice withheld, a flag value refused.
+  //
+  // **Both have shipped**: `ui-app-type` at BEX-290, `public-distribution` at BEX-405.
+  // So these tests now assert the published artifact offers the full surface. They are
+  // kept pointed at a public build rather than deleted, because a published build is the
+  // artifact users get and "the gate is off" is worth asserting there specifically —
+  // `preview.test.ts` covers the refusal mechanism against a simulated gated row.
   describe('in a published (public) build', () => {
     beforeEach(() => {
       // jest.setup.js runs the suite as a preview build so the feature tests above
@@ -2418,25 +2424,19 @@ describe('app/create', () => {
       globalThis.__BREVO_PREVIEW__ = true;
     });
 
-    it('refuses --distribution public with the unreleased-feature message', async () => {
-      await expect(
-        createCommand({ name: 'Test App', distribution: 'public', json: true }),
-      ).rejects.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
+    // Was a refusal carrying `PREVIEW_FEATURE_UNAVAILABLE` until public-apps GA. The
+    // published build is the one that changed — a preview build always accepted it.
+    it('accepts --distribution public and sends it on the wire', async () => {
+      await createCommand({ name: 'Test App', distribution: 'public', json: true });
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.distribution_type).toBe('public');
     });
 
-    // The refusal must land BEFORE any filesystem work. `app create` decides its
-    // target directory and then applies it (mkdir + chdir), so a refusal arriving
-    // after the apply step would leave a stray directory and a moved cwd behind for
-    // a command that failed — the same failure mode a server-side refusal used to
-    // cause before the decide/apply split.
-    it('refuses before creating anything', async () => {
+    it('does not mention the unreleased-feature message for a public create', async () => {
       await expect(
         createCommand({ name: 'Test App', distribution: 'public', json: true }),
-      ).rejects.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
-
-      expect(appService.createApp).not.toHaveBeenCalled();
-      expect(resolveProjectDirectory).not.toHaveBeenCalled();
-      expect(chdirSpy).not.toHaveBeenCalled();
+      ).resolves.not.toThrow();
     });
 
     // A genuine typo must still read as a typo. Routing every bad value through the
@@ -2475,8 +2475,11 @@ describe('app/create', () => {
       expect(payload).not.toHaveProperty('ui_app');
     });
 
-    // Same rule for the distribution question, whose gated choice is `public`.
-    it('asks for the distribution, offering only private, and defaults to private', async () => {
+    // Same story for the distribution question, whose gated choice was `public`: the
+    // published build offered `Private` only until BEX-405 and offers both now. The
+    // ORDER matters and is asserted — `private` stays first so it remains what a bare
+    // Enter selects, which is the conservative default a developer should land on.
+    it('asks for the distribution, offering both values, and defaults to private', async () => {
       mockPrompt.mockResolvedValue({
         appType: 'oauth',
         distribution: 'private',
@@ -2490,8 +2493,10 @@ describe('app/create', () => {
         .flatMap((call) => call[0])
         .find((question) => question?.name === 'distribution');
       expect(distributionQuestion).toBeDefined();
-      expect(distributionQuestion.choices).toHaveLength(1);
-      expect(distributionQuestion.choices[0].value).toBe('private');
+      expect(distributionQuestion.choices).toHaveLength(2);
+      expect(distributionQuestion.choices.map((choice: { value: string }) => choice.value)).toEqual(
+        ['private', 'public'],
+      );
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(payload.distribution_type).toBe('private');
@@ -2511,9 +2516,9 @@ describe('app/create', () => {
       expect(payload).not.toHaveProperty('ui_app');
     });
 
-    // The same command in a preview build, which is what `PREVIEW=1 yarn link:dev`
-    // produces and how this path is tested locally.
-    it('allows --distribution public in a preview build', async () => {
+    // A preview build is a superset, never a replacement — `PREVIEW=1 yarn link:dev`
+    // must not be the only artifact that accepts a public create now that it is GA.
+    it('allows --distribution public in a preview build too', async () => {
       globalThis.__BREVO_PREVIEW__ = true;
 
       await createCommand({ name: 'Test App', distribution: 'public', json: true });

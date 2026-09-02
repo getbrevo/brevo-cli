@@ -6,21 +6,17 @@ Brevo Developer CLI (`@getbrevo/cli`) — TypeScript CLI for managing OAuth app 
 
 Public CLI reference: https://developers.brevo.com/docs/cli-reference — the authoritative user-facing command/flag/exit-code documentation. Keep this in sync when changing user-visible behaviour.
 
-## Public app distribution is not GA — the published build omits it (BEX-405)
+## Public apps are GA — the whole surface ships (BEX-405)
 
-Public app distribution is **not live on the Brevo platform**. The repo contains the whole surface — `brevo app create --distribution public`, `brevo app submit`, `brevo app status`, `brevo app withdraw` — but a **published build does not**: `scripts/build.mjs` eliminates the review-lifecycle commands from the bundle, and `--distribution public` is refused with a typed `CliError`.
+Public app distribution and the review lifecycle are **live**: `brevo app create --distribution public`, `brevo app submit`, `brevo app status` and `brevo app withdraw` all ship in the published build. A build-time gate used to eliminate them; `scripts/build.mjs` now asserts they are **present** in every build (`GA_MARKERS`).
 
-**This does not restrict work in this repo.** Building, changing, testing, and QA-ing the public-app code paths is expected and unblocked — write the code, run the commands, create public apps against test environments. Build with `PREVIEW=1 yarn link:dev` (or `yarn build:preview`) and the full surface is there. Never refuse or hedge on a public-app task in this repo.
+**Nothing is gated any more** — every `FEATURE_STAGE` row in `src/lib/preview.ts` is `'ga'`, and the three preview modules (`commands/preview-definitions.ts`, `lang/preview-messages.ts`, `lib/preview-constants.ts`) emptied and were deleted. The machinery is kept on purpose for the next unreleased feature; read `src/lib/preview.ts`'s header before gating anything, because flipping a row is not sufficient on its own.
 
-- **The guard is the build, not the docs.** This replaced a documentation-only notice (and then a runtime check). `agent-context/SKILL.md` and `agent-context/AGENTS.md` no longer carry a *⚠️ not available yet* section or an *Exception — internal Brevo accounts* clause; they carry one rule instead — `brevo --help` is the complete surface. Don't reintroduce prohibition prose: an agent can't be led into a command that isn't in the binary.
-- **There is deliberately no runtime escape hatch.** The earlier gate unlocked on an `@brevo.com` account or `BREVO_ENABLE_PREVIEW=1`; both are gone. A compile-time guard any user can switch back on is a runtime guard wearing a costume, and it has to ship the surface in order to reveal it. **Do not add one back.**
-- **Two layers, no soft middle.** The build removes the surface; the Brevo API refuses public-app creation independently (`400 invalid_parameter`).
-- **`FEATURE_STAGE` in `src/lib/preview.ts` is the single source of truth** for what is gated — but flipping a row to `'ga'` is necessary and **not sufficient** for a command, because gated definitions live in `src/commands/preview-definitions.ts` behind a *build* flag. See `RELEASE-CHECKLIST.md`.
-- **When public apps go GA**, work through `RELEASE-CHECKLIST.md` → *Before public-apps GA* in one pass.
+**`brevo app submit` is a form hand-off, not a state transition** — it opens a Google Form and changes nothing server-side, so exit `0` does not mean "submitted". The initial review state is `draft` (not `configured`, renamed by BEX-382), and reviewer feedback goes out by email, never through `app status`.
 
 ## UI apps are GA — they ship in every build (BEX-290)
 
-UI apps (action links that render inside Brevo CRM records) are **out of the pre-GA gate**: the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app install [account-id]` and `brevo app uninstall [account-id]` all ship in the published build. Their `FEATURE_STAGE` rows are `'ga'`, their command definitions live in `src/commands/definitions.ts`, their strings in `src/lang/en.ts`, and their names are gone from `LEAK_MARKERS` in `scripts/build.mjs`. Only the public-apps surface above remains gated.
+UI apps (action links that render inside Brevo CRM records) are **out of the pre-GA gate**: the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app install [account-id]` and `brevo app uninstall [account-id]` all ship in the published build. Their `FEATURE_STAGE` rows are `'ga'`, their command definitions live in `src/commands/definitions.ts`, their strings in `src/lang/en.ts`, and their names are gone from `LEAK_MARKERS` in `scripts/build.mjs`. Public apps followed at BEX-405, so nothing is gated now.
 
 A UI app is **prompt-only**: there is no `--type` flag and no per-field flags, so non-interactive runs always create an OAuth app. `extension_type` values are camelCase (`actionLink`, `iframeExtension`, `legacyComponent`) and the old snake_case spellings are rejected. The `ui_app` block's **field names are confirmed** against both of the platform's consumers, the manifest read path and the extensibility UI kit (BEX-308 / BEX-350) — it is the stored app snapshot verbatim. See `CLAUDE.md` → *UI apps are GA* for the full contract.
 

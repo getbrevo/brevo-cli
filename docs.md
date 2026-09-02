@@ -1,102 +1,114 @@
-# Public apps — deferred release notes & outstanding work
+# Public apps — outstanding work (post-GA)
 
-**Status: not released. Do not publish any of this as-is.** **Branch-local — never merge
-into `main`** (see `CLAUDE.md`). The public-apps halves of the working docs moved here
-from the retired `docs/public-cli-ui-apps-feature-changes` branch on 2026-08-24; the
-UI-apps halves live on `feat/bex-416-entry-size`.
+**Branch-local — never merge into `main`** (see `CLAUDE.md`). Not in `package.json`
+`files:`, so nothing here ships to npm — but the never-merge rule applies regardless,
+because branches are public too.
 
-Two halves. **Part 1** is the release copy, held until GA. **Part 2** is everything
-still open. The public-apps surface exists in this repo and is **eliminated from the
-published build** by `scripts/build.mjs` (see `CLAUDE.md` → *Public app distribution is
-not GA*). The copy was written as changeset text for `2.1.0`, then pulled out when
-BEX-405 moved the guard from a runtime check to build-time elimination — a public
-CHANGELOG that names `brevo app submit` would send readers to a command their install
-answers `unknown command` to.
+**Public apps went GA in this branch.** The release copy that used to sit in *Part 1* has
+been consumed into `.changeset/fix-app-submit-missing-fields.md`, and the GA runbook
+(`RELEASE-CHECKLIST.md`) and the consolidated status view (`PUBLIC-APPS-RELEASE-STATUS.md`)
+were worked through and deleted. What remains is this: the open-questions log.
 
-This file is the holding pen so the copy isn't rewritten from scratch at GA. It is not
-in `package.json` `files:`, so it never ships in the npm tarball.
-
-**At GA:** work through `RELEASE-CHECKLIST.md` → *Before public-apps GA*, then move the
-sections below into a fresh changeset in the release that turns the feature on.
-Re-verify every claim first — the platform has moved under this copy before.
+When an item here resolves, delete it. When it turns into a release step, it needs a
+runbook again — recreate one rather than growing this file into one.
 
 ---
 
-# Part 1 — release copy (hold until GA)
+## ⚠️ BLOCKER — the platform still refuses CLI-created public apps
 
-## New commands
+**Verified against production on 2026-09-02**, authenticated, no `BREVO_API_URL`
+override, on a plain (non-preview) build of this branch:
 
-- **`brevo app status`** — an app's review lifecycle state (`configured`, `submitted`,
-  `in_review`, `approved`, `rejected`, `changes_requested`, or `unknown`) with a human
-  message. Read-only, `--json` gives `{ state, message }`.
-- **`brevo app submit`** — opens the public-app review submission form. Runs a status
-  preflight, requires `distribution_type: public`, and verifies the local `app-config.json`
-  matches the server (showing a field-by-field diff with `(local only)` / `(server only)`
-  tags on drift) before opening the form. `--json` prints `{"app_id","form_url"}`.
-- **`brevo app withdraw`** — withdraws an app from submission. Mirrors `app delete`'s UX
-  (`--force`, `--json`); an app that was never submitted prints a hint and exits `0`.
+```
+$ brevo app create --name "…" --distribution public --json
+{"error":{"name":"CliError","message":"Public apps can't be created from the CLI yet …
+  Brevo said:  public apps cannot be created with source \"cli\"; use distribution_type \"private\""}}
+```
 
-All three resolve the target app from `--app-id`, the linked `app-config.json`, or an
-interactive picker.
+The CLI-side gate is open and correct — the flag parses, validates and is sent. The
+refusal is the **platform's**, and it is keyed on the caller being the CLI, not on an
+account flag: the CLI stopped sending `source: 'cli'` (see the BEX-355 item below), so
+the backend is deriving it from the `User-Agent` and applying the policy regardless of
+the body. That makes it global rather than per-account, and nothing client-side can
+change it.
 
-## Public app distribution
+Consequence: **the review lifecycle is unreachable end to end.** `app submit` /
+`app status` / `app withdraw` all ship and all work, but there is no way to obtain a
+public app to use them on. The CLI degrades gracefully — `APP_CREATE_PUBLIC_REJECTED`
+maps the 400 to actionable copy and quotes the server verbatim — and both agent docs now
+tell an agent to read that line and not retry.
 
-`brevo app create --distribution public` no longer errors locally, and Public is a selectable
-option in the interactive distribution prompt. The scaffolded OAuth flow branches on
-`distribution_type`: **public** apps get Authorization Code + PKCE (RFC 7636) — `/auth/login`
-generates a `code_verifier` and sends `code_challenge` + `code_challenge_method=S256`, and the
-token exchange and refresh send the `code_verifier` with **no `client_secret`**, so the
-generated `.env.local`/`.env.example` carry none. **Private** apps keep the confidential-client
-flow unchanged.
+- [ ] **Decide what ships.** Two options, and this is a product call, not a code one:
+      - **Land as-is.** The CLI is complete and lights up the moment the backend policy
+        lifts, with no further release. Cost: a documented flag returns a server `400`,
+        so users meet the refusal rather than the feature.
+      - **Hold the flip.** Set `FEATURE_STAGE['public-distribution']` and
+        `['review-lifecycle']` back to `'preview'` and keep everything else (strings and
+        constants moved to `en.ts` / `constants.ts`, docs, smoke, the TC-6.3 fix). Note
+        the three command definitions would have to move back into a gated module for the
+        gate to actually eliminate them — see `src/lib/preview.ts`'s header.
+- [ ] **Get the backend policy lifted (BEX-355).** This is the real unblock. The
+      `source "cli"` policy needs to allow public creates from the CLI, or expose a
+      per-account allowance the CLI can be granted. Until then, GA is CLI-side only.
 
-The platform refuses public creates per account, independently of anything the CLI does. That
-refusal reads *"Public apps can't be created from the CLI yet"*, points at
-`--distribution private`, notes that `distribution_type` is fixed at creation, and quotes the
-server's own response.
+## Gate machinery — teardown deferred, deliberately
 
-## `app create` prompt order
+Every `FEATURE_STAGE` row in `src/lib/preview.ts` is `'ga'`, so the pre-GA gate now holds
+nothing back. The three modules that carried gated surface — `commands/preview-definitions.ts`,
+`lang/preview-messages.ts`, `lib/preview-constants.ts` — emptied and were deleted at GA.
+The machinery around them was **kept on purpose**, to keep the GA change reviewable and
+because it is the shape the next unreleased feature should arrive in.
 
-The interactive prompt order is name → logo → distribution → app type → type-specific
-prompts (the logo moved to second on 2026-08-13 — it used to be asked inside each branch).
-Flag-driven and non-interactive runs are unaffected. A published build without public apps
-asks both gated questions with one choice each (`Private` only; until UI apps publish,
-`OAuth app` only) rather than skipping them.
+- [ ] **Decide whether to tear it down.** If yes, in one pass: `src/lib/preview.ts`,
+      `src/globals.d.ts`, `jest.setup.js` + its `setupFiles` entry in `jest.config.js`,
+      the esbuild `define` block and both `LEAK_MARKERS` / `LEAK_STRINGS` checks in
+      `scripts/build.mjs` (plus `orphanedPreviewMessageKeys`), the `build:preview` script,
+      the `previewFeatureOf` / `assertFeatureAvailable` wiring in
+      `src/lib/command-registry.ts`, the two `isFeatureAvailable` calls in
+      `src/commands/app/create.ts`, the `gatedSection` / `distributionValues` /
+      `createDescription` helpers in `src/lib/help.ts`, and
+      `messages.PREVIEW_FEATURE_UNAVAILABLE`. Also `src/__tests__/lib/preview.test.ts` and
+      `preview-gate.test.ts`, which currently assert the mechanism against a simulated
+      gated row.
+      **Keep esbuild.** The bundler was adopted for the gate but is now the build
+      (`scripts/build.mjs`); reverting to `tsc` would change the published layout again —
+      `dist/bin/files`, the single-file entry, `sideEffects: false`. Only `define` and the
+      marker checks are gate-specific.
+      Against teardown: the next gated feature has to rediscover both traps (a gated
+      command's definition must be referenced only from behind `__BREVO_PREVIEW__`, and
+      that flag outranks `FEATURE_STAGE` for help text and prompt branches), and both cost
+      a release each to learn the first time. They are written down in `preview.ts`'s
+      header; deleting the file deletes the note.
 
----
+## Release gates
 
-## Not release copy — how the guard itself works (BEX-405)
+- [ ] **`smoke-post-merge.yml` does not exercise the review lifecycle.** It stays pinned at
+      `suite: private,ui` against the published package, so no publish gate touches
+      `app submit` / `app status` / `app withdraw`. `smoke-pre-merge.yml` covers them via
+      `suite: all`, but it is `non_blocking` and runs `against=local`. Widening the
+      post-merge lane needs `scripts/smoke/public-app.ts` proven headless on
+      `ubuntu-latest` first (CLAUDE.md is explicit that a suite only ever run on a dev
+      machine has not been proven headless) — run it from `smoke.yml`'s manual button,
+      then decide.
 
-Kept here for the GA author's benefit, **not** to be published. There is no user-visible
-"pre-GA gate" to announce: from a user's point of view the surface simply is not in the
-binary, which is the whole point of moving the guard into the build.
+## TC-6.3 — half fixed
 
-The published build eliminates the gated surface — now the public-apps surface only — at
-compile time. `scripts/build.mjs` sets `__BREVO_PREVIEW__`, gated command definitions live
-in `src/commands/preview-definitions.ts` and are referenced from behind that flag, and
-`src/lib/preview.ts` → `FEATURE_STAGE` states which features are gated. Build with
-`PREVIEW=1 yarn link:dev` (or `yarn build:preview`) to get the full surface locally.
+The `submit` half is **closed**: an app with no `version` has never been uploaded and
+cannot have a review state, so `submitCommand` now fetches the app first and refuses
+locally with `APP_SUBMIT_NOT_UPLOADED`, before the review-state read that produced the
+misleading copy. Same gate `app install` already applies (`assertInstallable`'s
+`requireUploaded`). Covered in `__tests__/commands/app/submit.test.ts`.
 
-Flipping a `FEATURE_STAGE` row to `'ga'` is **necessary but not sufficient** — a GA feature
-left in `preview-definitions.ts` is still eliminated. `RELEASE-CHECKLIST.md` has the full
-sequence, and the UI-apps flip (BEX-290) is the worked example: definitions moved, strings
-moved, names moved from `LEAK_MARKERS` to `GA_MARKERS` so every build asserts they ship.
-
-There is deliberately **no runtime escape hatch**. An earlier iteration unlocked on an
-`@brevo.com` / `@sendinblue.com` account or `BREVO_ENABLE_PREVIEW=1`; both are gone, and
-`CLAUDE.md` says not to add one back — a compile-time guard a user can switch on is a runtime
-guard wearing a costume, and it has to ship the surface in order to reveal it.
-
----
-
-# Part 2 — outstanding work
-
-Nothing below blocks *this* release — the build-time gate is what makes that true. It
-blocks GA.
-
-**This half is the open-questions log; `RELEASE-CHECKLIST.md` is the GA runbook.** Keep
-them apart: this answers *what is still unknown*, that answers *what to do on the day*.
-When an item here resolves, delete it; when it becomes a release step, move it there.
-`PUBLIC-APPS-RELEASE-STATUS.md` is the consolidated status view over both.
+- [ ] **`brevo app status` still relays the raw server message** on a never-uploaded app.
+      It reads the review state directly and never fetches the app, so the local `version`
+      signal isn't available without an extra round trip on a read-only command's happy
+      path. Closing it properly means mapping the failure in `apiCodeMessages`
+      (`src/api/client.ts`), which needs **the server's error `code` and HTTP status
+      captured from a live repro** — neither is recorded anywhere today, and TC-6.3 never
+      captured the exit code either. Get those two values, then add one line to the map.
+      The server's copy names `name`, `logo_uri`, `scopes` and `redirect_uris` as the
+      fields to fix; all four can be present, and the real cause is the absent
+      `app_versions` row.
 
 ## Wire contracts / sign-offs still open
 
@@ -115,39 +127,40 @@ When an item here resolves, delete it; when it becomes a release step, move it t
       resource described two ways, which is how the original nesting regression hid as long
       as it did. Worth raising on BEX-355 rather than leaving each new consumer to
       rediscover it.
+- [ ] **BEX-350 coordinated release.** UI kit + reseeded registry + backend must land
+      together in every target environment. The schema spec is verified; the
+      per-environment data is not.
+- [ ] **BEX-437 (bo-be, Backlog)** — UI-app authoring is still coupled to the
+      `app-store-bo-be-public-apps` feature toggle (`gateUIApp` 403s un-flagged accounts,
+      surfaced as `ERR_UI_APP_NOT_ENABLED`). Decoupling it removes an accidental dependency
+      between the two releases.
 
 ## QA gaps
 
-`QA-TESTCASES.md` at this branch's root carries the public-app suites (moved here
-2026-08-24, refreshed the same day). The recorded 2026-08-13 results predate the
-install/uninstall rename and say so inline where it matters.
+`QA-TESTCASES.md` at this branch's root carries the public-app suites. The recorded
+2026-08-13 results predate both the install/uninstall rename and this GA change.
 
-- [x] **`yarn smoke --against=local` built the wrong artifact — FIXED, pending a
-      verifying run.** `stepReinstall` (`scripts/smoke/core.ts`) now runs the build with
-      `PREVIEW=1` when the suite under test needs the preview surface, so the gated
-      suites no longer silently skip every step against a public artifact.
-      `--against=published` still installs from npm, where the gated commands genuinely
-      are absent, so skipping stays the correct outcome there. Re-run the local suite
-      once to confirm before relying on it.
-- [ ] **The real QA gaps are the never-run cases**, consolidated in Suite 12's sign-off
-      table: `install`/`uninstall` have never been manually invoked (TC-12.7, 12.9,
-      12.10, 12.11(g)/(h)), `ui_app` has never been verified **on disk** (TC-12.3's file
-      half, TC-12.4's push half, TC-12.5(b)/(c)), the migration-hint and
-      extension-point-validation cases (TC-12.5b, TC-12.6) are unrun, and no `--json` /
-      non-TTY path has been exercised (TC-12.12).
-- [ ] **No suite covers the gate itself** — that a published build hides the commands and
-      refuses `--distribution public`. Automated coverage exists
-      (`src/__tests__/lib/preview.test.ts`, `preview-gate.test.ts`, plus the build's own
-      output assertions), so this is a nice-to-have.
+- [ ] **Suites 5 (TC-5.13–5.16) and 7 (withdraw) are BLOCKED, not just unrun** — they need
+      an app in `submitted`/`in_review`, which the CLI cannot produce, because `submit`
+      only opens a form. Needs the form completed or the state set server-side. Same
+      blocker for TC-6.2's review states. This is a property of the design, not an
+      oversight: while submission is a form hand-off, no CLI-only test can reach those
+      states.
+- [ ] **TC-2.4 refusal path untested** — needs an account **without**
+      `app-store-bo-be-public-apps` (mutually exclusive with TC-2.1's account).
+- [ ] **Unrun:** TC-2.2 (interactive Public choice), TC-2.3 (list), TC-6.2 (state→tone map),
+      TC-6.4 (`--json`), TC-6.6 (NO_COLOR/FORCE_COLOR), TC-13.4's mismatch branch.
+- [ ] **No `--json` / non-TTY path has been run for any public-app suite.**
+- [ ] **Re-baseline every public suite against the GA build.** The recorded results were all
+      taken on `PREVIEW=1` artifacts. The commands are identical, but "needs a preview
+      build" is no longer a precondition anywhere and the sweep should be re-run once on a
+      plain `yarn link:dev` to say so with evidence.
 
-## Known limit of the build gate
+**Closed:** the PKCE expectation. `src/templates/index.ts` really does branch on the
+`public` / `private` template flag, `.env.example.tmpl` omits `CLIENT_SECRET` and notes
+PKCE for a public app, and `__tests__/templates/handler.test.ts` covers the
+*public (PKCE, no secret)* variant. The expectation was not stale.
 
-- [ ] **Object-literal properties survive elimination.** esbuild cannot prune a property from
-      an object literal, so anything reached as `OBJECT.KEY` stays at zero references. In a
-      public build that leaves `CLI.APP_SUBMIT` / `APP_WITHDRAW`, the `/withdraw` entry in
-      `ENDPOINTS` (both `src/lib/constants.ts`), and `appService.withdrawApp`
-      (`src/services/app.ts`). All inert — no command reaches them, no help lists them.
-      (The install-side names left this list at UI-apps GA — they ship for real now.)
-      `src/lang/preview-messages.ts` is the pattern that fixes this class if the residue ever
-      matters.
-
+**Closed:** `yarn smoke --against=local` building the wrong artifact. `stepReinstall` no
+longer forks on the selected suites — nothing is gated, so every local build is the
+published surface and the public suite exercises what npm ships.

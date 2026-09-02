@@ -32,9 +32,12 @@ name: Smoke
 # post-publish dispatch — pins both explicitly, so retuning a dropdown can never
 # change what a release gate verifies. Widen a gate by editing that lane.
 #
-# The manual default is the LIVE surface: private + ui. Public apps are not live
-# (BEX-405), so the preview suite is opt-in and refused unless against=local —
-# see the "Reject a preview suite" step, which is the rule, not the comment.
+# The manual default is the LIVE surface, which since public-apps GA (BEX-405)
+# is every non-interactive suite: private + ui + public. Nothing is gated any
+# more, so there is no longer a preview-only suite to refuse — the step that used
+# to reject a public-containing suite against a published package is gone with it.
+# The release lanes remain pinned at their own narrower sets on purpose; widening
+# one is a deliberate edit there, and needs the suite proven headless first.
 on:
   workflow_call:
     inputs:
@@ -46,7 +49,7 @@ on:
         description: 'Comma-separated suites for --suite (blank = the live surface)'
         required: false
         type: string
-        default: 'private,ui'
+        default: 'private,ui,public'
       account:
         description: 'Which test-account secret to authenticate with'
         required: false
@@ -81,28 +84,27 @@ on:
         # The values ARE the `--suite` argument, so what the dropdown shows is
         # what the runner receives — no label-to-flag mapping to keep in sync.
         #
-        # `private,ui` is the LIVE surface and the default: private apps plus UI
-        # apps, both GA and both in the published build.
-        #
-        # Anything containing `public` is the PREVIEW surface and only means
-        # something against=local, where the runner builds PREVIEW=1. Against a
-        # published package those steps could only ever skip — the commands are
-        # eliminated from the bundle (BEX-405) — so the pairing is refused
-        # outright rather than reported as a pass with holes in it.
+        # `private,ui,public` is the LIVE surface and the default: all three app
+        # types are GA and all three are in the published build. `public` joined
+        # at public-apps GA (BEX-405) — before that it was the preview surface,
+        # meaningful only against=local where the runner built PREVIEW=1, and a
+        # public-containing suite against a published package was refused outright
+        # rather than reported as a pass with holes in it. Both the preview build
+        # and that refusal are gone; a public suite now runs anywhere.
         #
         # `init` drives the wizard through scripted stdin; `ui` drives create
         # through a pty. Both work headless, so both can run here.
-        description: 'Which app types to smoke (--suite). public/all = preview, local only'
+        description: 'Which app types to smoke (--suite)'
         type: choice
         required: true
-        default: private,ui
+        default: private,ui,public
         options:
+          - private,ui,public
           - private,ui
           - private
           - ui
-          - init
           - public
-          - private,ui,public
+          - init
           - all
       account:
         # Names a SECRET, never a key. workflow_dispatch inputs are recorded on
@@ -159,24 +161,13 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      # Fail before checkout: an impossible pairing should cost nothing and say
-      # why. The preview surface exists only in a PREVIEW=1 build, which only
-      # `against=local` produces — against a published package the public steps
-      # would skip and the run would still go green, which reads as coverage the
-      # run never had.
-      - name: Reject a preview suite against a published package
-        if: contains(inputs.suite, 'public') || inputs.suite == 'all'
-        env:
-          AGAINST: ${{ inputs.against }}
-          SUITE: ${{ inputs.suite }}
-        run: |
-          set -eu
-          if [ "$AGAINST" != 'local' ]; then
-            echo "::error::suite '${SUITE}' includes the public-app (preview) surface, which only exists in a PREVIEW=1 build. Re-run with against=local, or pick a suite without 'public'."
-            exit 1
-          fi
-          echo "preview suite '${SUITE}' against a local build — ok"
-
+      # No suite/against pairing is impossible any more, so nothing is rejected
+      # before checkout. There used to be a guard here: the review-lifecycle
+      # surface existed only in a PREVIEW=1 build, so a public-containing suite
+      # against a published package would skip every step and still go green —
+      # coverage the run never had. Public apps went GA (BEX-405) and the guard
+      # went with it. Re-add one if a suite is ever build-specific again; the
+      # failure it prevented is a green run, which is the worst kind.
       - name: Checkout
         uses: actions/checkout@v7
         with:

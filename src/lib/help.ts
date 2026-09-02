@@ -75,11 +75,12 @@ function formatRootHelp(description: string): string {
     `                                                        Delete an app`,
     ``,
     // GA (UI apps shipped): `account-install` is 'ga' in FEATURE_STAGE, so this renders
-    // in every build. What GA removed is the `__BREVO_PREVIEW__` wrapper (still on the
-    // review-lifecycle block below) — the gatedSection call stays, so the section keeps
-    // lining up 1:1 with the commands' `requires: 'account-install'`: an emergency flip
-    // of the row back to 'preview' hides it here exactly as registerCommand hides the
-    // commands, instead of root help advertising what the runtime refuses.
+    // in every build. What GA removed is the `__BREVO_PREVIEW__` wrapper — the
+    // gatedSection call stays, so the section keeps lining up 1:1 with the commands'
+    // `requires: 'account-install'`: an emergency flip of the row back to 'preview'
+    // hides it here exactly as registerCommand hides the commands, instead of root help
+    // advertising what the runtime refuses. The review-lifecycle block below shed its
+    // wrapper the same way at public-apps GA; no block carries one now.
     ...gatedSection('account-install', [
       `App-install commands (UI apps only):`,
       `  brevo app install           [account-id] [--app-id <id>] [--force] [--json]`,
@@ -88,33 +89,28 @@ function formatRootHelp(description: string): string {
       `                                                        Uninstall an app from an account`,
       ``,
     ]),
-    // ELIMINATION SITE — `__BREVO_PREVIEW__` wraps the call rather than living inside a
-    // helper, because an array passed as a function *argument* is still evaluated: a
-    // `previewOnlySection(feature, [...])` helper left every one of these lines in the
-    // published bundle as a readable string. Folding `false ? … : []` at the call site is
-    // what removes the array itself.
+    // GA (public apps shipped): `review-lifecycle` is 'ga' in FEATURE_STAGE, so this
+    // section renders in every build. What GA removed is the `__BREVO_PREVIEW__` wrapper
+    // that used to fold the whole array away — the build flag was the OUTER authority
+    // here, above FEATURE_STAGE, so flipping the row alone would have kept the section
+    // hidden in a published build. The `gatedSection` call stays, so this keeps lining up
+    // 1:1 with the commands' `requires: 'review-lifecycle'`: an emergency flip of the row
+    // back to 'preview' hides it here exactly as registerCommand hides the commands,
+    // instead of root help advertising what the runtime refuses.
     //
-    // **The build flag is therefore the outer authority for help text, above
-    // `FEATURE_STAGE`.** At GA that is a trap — flipping a row to `'ga'` is not enough,
-    // since a published build still has `__BREVO_PREVIEW__ === false` and would keep
-    // hiding the restored section. The wrapper must be removed by hand at the same time
-    // (exactly what happened to the App-install section above at UI-apps GA); the GA
-    // runbook (`RELEASE-CHECKLIST.md` on `feature_set-brevo-cli-v2`) lists it, alongside
-    // the identical trap in `commands/preview-definitions.ts`.
-    ...(__BREVO_PREVIEW__
-      ? gatedSection('review-lifecycle', [
-          `App-review commands (public apps only):`,
-          `  brevo app submit            [--app-id <id>] [--json]  Submit a public app for review`,
-          `  brevo app status            [--app-id <id>] [--json]  Show an app's review status`,
-          // `brevo app withdraw` is deliberately absent. It is registered and callable in
-          // a preview build, just marked `hidden` in `commands/preview-definitions.ts` so
-          // it is advertised on neither help screen. Commander's `hidden` governs its own
-          // generated output and cannot reach this hand-written string, so the omission
-          // has to be made here by hand — the same two-renderers/one-decision split the
-          // comment above describes for the gate. Restore both together.
-          ``,
-        ])
-      : []),
+    // `brevo app withdraw` was additionally marked `hidden` while the review lifecycle was
+    // being finished, and Commander's `hidden` governs only its own generated output — it
+    // cannot reach this hand-written string, so withdraw's two lines had to be removed
+    // here by hand and restored the same way. Two renderers, one decision: keep them in
+    // step, and never assume `hidden` covers this screen.
+    ...gatedSection('review-lifecycle', [
+      `App-review commands (public apps only):`,
+      `  brevo app submit            [--app-id <id>] [--json]  Submit a public app for review`,
+      `  brevo app status            [--app-id <id>] [--json]  Show an app's review status`,
+      `  brevo app withdraw          [--app-id <id>] [--force] [--json]`,
+      `                                                        Withdraw an app from submission`,
+      ``,
+    ]),
     `Skill commands:`,
     `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
     `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,

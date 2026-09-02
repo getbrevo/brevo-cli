@@ -119,10 +119,37 @@ describe('app/submit', () => {
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
     await expect(submitCommand({ appId: '42' })).rejects.toThrow('network unreachable');
-    // The preflight runs first, so a failed status read stops the flow before
-    // fetching the app or opening the form.
-    expect(appService.fetchApp).not.toHaveBeenCalled();
+    // A failed status read still stops the flow — the form is never opened. The app
+    // fetch DOES run first now (it feeds the never-uploaded gate, TC-6.3), so the
+    // abort is one round trip later than it used to be; what matters is that nothing
+    // submit-side happens, which is what `openBrowser` witnesses.
+    expect(appService.fetchApp).toHaveBeenCalledWith('42');
     expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  // ── The never-uploaded gate (TC-6.3) ──
+
+  it('refuses an app that has never been uploaded, before reading the review state', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({ ...PUBLIC_APP, version: undefined });
+
+    const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
+    expect((error as Error).message).toContain('never been uploaded');
+    expect((error as Error).message).toContain('brevo app upload');
+    // The whole point of the gate: the review-state read is what produced the
+    // misleading server copy (four fields named, all four present), so it must not
+    // happen at all for an app that cannot have a review state.
+    expect(appService.fetchAppState).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('treats a blank version as never uploaded', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({ ...PUBLIC_APP, version: '   ' });
+
+    const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
+    expect((error as Error).message).toContain('never been uploaded');
+    expect(appService.fetchAppState).not.toHaveBeenCalled();
   });
 
   // ── Happy paths ──
@@ -300,6 +327,10 @@ describe('app/submit', () => {
 
   it('blocks and lists the missing fields (raw server keys) when the app is not submittable', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    // Pinned rather than inherited: `clearAllMocks` resets call data but not
+    // implementations, so without this the test leans on whatever an earlier test left
+    // on `fetchApp` — and it needs a versioned app to get past the gate above.
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
     (appService.fetchAppState as jest.Mock).mockResolvedValue({
       state: 'draft',
       submittable: false,
@@ -313,13 +344,15 @@ describe('app/submit', () => {
     expect((error as Error).message).toContain('logoLink');
     expect((error as Error).message).toContain('oauth.scopes');
     expect((error as Error).message).toContain('brevo app upload');
-    // The gate runs before the app fetch, so a not-submittable app is never fetched.
-    expect(appService.fetchApp).not.toHaveBeenCalled();
+    // The gate stops the flow before the form opens. It no longer runs before the app
+    // fetch — that moved ahead of the state read for the never-uploaded gate above — so
+    // `openBrowser` is what witnesses the refusal.
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
   it('reports the raw missing-field keys in --json mode when not submittable', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
     (appService.fetchAppState as jest.Mock).mockResolvedValue({
       state: 'draft',
       submittable: false,
@@ -331,8 +364,6 @@ describe('app/submit', () => {
     // --json keeps the compact raw-key form (no label translation).
     expect((error as Error).message).toContain('logoLink');
     expect((error as Error).message).toContain('oauth.scopes');
-    // The gate runs before the app fetch, so a not-submittable app is never fetched.
-    expect(appService.fetchApp).not.toHaveBeenCalled();
     expect(openBrowser).not.toHaveBeenCalled();
   });
 

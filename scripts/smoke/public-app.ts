@@ -30,7 +30,8 @@ import {
   uploadApp,
 } from './core';
 
-// Every state APP_STATUS_MESSAGE (src/lang/preview-messages.ts) has canned copy
+// Every state APP_STATUS_MESSAGE (src/lang/en.ts — moved there from
+// preview-messages.ts at public-apps GA) has canned copy
 // for, plus the 'unknown' sentinel status.ts normalises an empty state to. An
 // unrecognised value means the server grew a state the CLI doesn't describe yet.
 //
