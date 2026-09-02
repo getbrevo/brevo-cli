@@ -134,14 +134,10 @@ async function resolveAppType(interactive: boolean, distribution?: string): Prom
   if (isFeatureAvailable('ui-app-type')) {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' });
   }
-  // ELIMINATION SITE — same pattern as the UI-app choice: the raw global lets esbuild
-  // fold this branch away in a published build. `isFeatureAvailable` is still consulted
-  // so flipping `FEATURE_STAGE['brevo-function-type']` to `'ga'` releases the choice.
-  if (
-    __BREVO_PREVIEW__ &&
-    isFeatureAvailable('brevo-function-type') &&
-    distribution === 'private'
-  ) {
+  // Brevo Functions are GA — the `__BREVO_PREVIEW__` wrapper this site carried pre-GA is
+  // gone with the gate. `isFeatureAvailable` stays so the choice keeps reading the same
+  // `FEATURE_STAGE` table as everything else — same pattern as the UI-app choice above.
+  if (isFeatureAvailable('brevo-function-type') && distribution === 'private') {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_FUNCTION, value: 'function' });
   }
   const answer = await inquirer.prompt([

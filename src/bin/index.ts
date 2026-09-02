@@ -110,8 +110,11 @@ client.setEnsureFresh(async () => {
 
 // ──────────────── Register all commands ────────────────
 
-const commandGroups: SubcommandGroupDefinition[] = [appCommandGroup, skillCommandGroup];
-if (functionCommandGroup) commandGroups.push(functionCommandGroup);
+const commandGroups: SubcommandGroupDefinition[] = [
+  appCommandGroup,
+  skillCommandGroup,
+  functionCommandGroup,
+];
 registerAll(program, topLevelCommands, commandGroups);
 
 // ──────────────── Re-auth handler ────────────────

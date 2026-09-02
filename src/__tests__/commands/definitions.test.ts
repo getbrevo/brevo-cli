@@ -14,15 +14,14 @@ describe('appCommandGroup', () => {
   });
 });
 
-// Tests run with __BREVO_PREVIEW__ = true (jest.setup.js), so functionCommandGroup
-// is defined. The conditional export is tested by the preview-gate suite.
+// Brevo Functions are GA — functionCommandGroup is always defined in every build.
 describe('functionCommandGroup', () => {
-  it('is defined in a preview build', () => {
+  it('is always defined', () => {
     expect(functionCommandGroup).toBeDefined();
   });
 
   it('registers list, get, activate, deactivate and delete subcommands', () => {
-    const names = functionCommandGroup!.commands.map((c) => c.name);
+    const names = functionCommandGroup.commands.map((c) => c.name);
     expect(names).toContain('list');
     expect(names).toContain('get');
     expect(names).toContain('activate');
@@ -37,7 +36,7 @@ describe('functionCommandGroup', () => {
     { command: 'deactivate', expectedFlags: ['--id <id>', '--json'] },
     { command: 'delete', expectedFlags: ['--id <id>', '--force', '--json'] },
   ])('$command command supports expected flags', ({ command, expectedFlags }) => {
-    const cmd = functionCommandGroup!.commands.find((c) => c.name === command);
+    const cmd = functionCommandGroup.commands.find((c) => c.name === command);
     expect(cmd).toBeDefined();
     const flags = (cmd!.options ?? []).map((o) => o.flags);
     for (const flag of expectedFlags) {
