@@ -1,10 +1,10 @@
 # QA Manual Test Cases — public apps
 
-Manual test suite for public app distribution (BEX-405, **pre-GA**): the review
-lifecycle (`app status` / `app submit` / `app withdraw`), `--distribution public`, and
-the build-time gate as it shows up in `--help`. It sits at this branch's root alongside
-`docs.md`, `RELEASE-CHECKLIST.md` and `PUBLIC-APPS-RELEASE-STATUS.md` — **branch-local,
-never merge into `main`** (see `CLAUDE.md`). The public-apps halves of the working docs
+Manual test suite for public app distribution (BEX-405, **GA**): the review
+lifecycle (`app status` / `app submit` / `app withdraw`) and `--distribution public`. It
+sits at this branch's root alongside `docs.md` — **branch-local, never merge into
+`main`** (see `CLAUDE.md`). `RELEASE-CHECKLIST.md` and `PUBLIC-APPS-RELEASE-STATUS.md`
+were here too until public apps shipped; both were worked through and deleted. The public-apps halves of the working docs
 moved here from the retired `docs/public-cli-ui-apps-feature-changes` branch on
 2026-08-24; the UI-apps halves (Suite 12 included) live on `feat/bex-416-entry-size`.
 
@@ -15,18 +15,23 @@ moved here from the retired `docs/public-cli-ui-apps-feature-changes` branch on
 > `features_set_public_cli`, recoverable from its history
 > (`git show abedd75^:QA-TESTCASES.md`).
 
-> **⚠️ None of this is in a published build (BEX-405).** The commands are eliminated at
-> build time, so `app submit` / `app status` / `app withdraw` answer `unknown command`
-> and `--distribution public` is refused. **Every case below requires a preview build:
-> `PREVIEW=1 yarn link:dev`.** Nothing else unlocks these suites — the interim
-> `@brevo.com` / `@sendinblue.com` account exception and `BREVO_ENABLE_PREVIEW=1` were
-> both removed when the guard moved into the build. Against a published build their
-> refusals are the correct result, not a bug.
+> **⚠️ Entry condition changed at GA — re-read before running any suite.** Every case
+> here used to require `PREVIEW=1 yarn link:dev`, because the commands were eliminated
+> from a published build and `--distribution public` was refused. **That is no longer
+> true: a plain `yarn link:dev` runs every suite below.** Nothing is gated, and the two
+> builds now produce identical surface, so any case whose expected result was "refused"
+> or "unknown command" on a published build is stale — those were assertions about the
+> gate, not about the feature.
 >
-> **The gated question is still asked.** A published build asks `Distribution type?`
-> like any other build and gates the **choice**: `Private` only. A one-item list showing
-> inquirer's `(Use arrow keys)` hint is expected, not a defect. Off a TTY and under
-> `--json` the question is not asked, in either build.
+> **The recorded sweep results below were all taken on `PREVIEW=1` artifacts.** The
+> commands are byte-identical, so the observations still stand, but re-baselining the
+> sweep once on a plain build is tracked in `docs.md`.
+>
+> **The distribution question offers both values now.** `Distribution type?` is asked in
+> every build and lists `Private` then `Public`, with `Private` first so a bare Enter
+> still selects the conservative default. A one-item list (the old gated behaviour) is
+> now a defect, not expected. Off a TTY and under `--json` the question is not asked and
+> the value defaults to `private`.
 >
 > If an end-to-end path isn't live in your environment yet, note it on the case rather
 > than skipping the whole section.
@@ -40,19 +45,21 @@ moved here from the retired `docs/public-cli-ui-apps-feature-changes` branch on
 | **BEX-252** | `brevo app status` — shows an app's review status as a coloured card. |
 | **BEX-253** | `brevo app withdraw` — withdraws an app from submission. |
 | **Public apps** | `brevo app create --distribution public`; interactive picker offers Public. |
-| **US-2** | `brevo app upload` is blocked while an app is `Submitted` / `In Review`. |
-| **BEX-405** | The public-apps surface is eliminated from the published bundle; the gate itself shows up in `--help`. |
+| **US-2** | `brevo app upload` is blocked while an app is `Submitted` / `In Review`. **Server-side only — there is no CLI-side check.** Verified absent in `src/commands/app/upload.ts`; if this case passes, the platform is enforcing it. Do not record a CLI refusal here. |
+| **BEX-405** | Public apps are **GA**: `--distribution public` is accepted and all three review commands ship in the published bundle. The build now asserts they are *present* (`GA_MARKERS`) rather than absent. |
+| **TC-6.3 fix** | `brevo app submit` refuses a never-uploaded app locally, naming the real cause, instead of relaying the server's misleading four-field message. `brevo app status` still relays it — see `docs.md`. |
 
 ---
 
 ## Test environment & global preconditions
 
 - **Node.js** ≥ 20.15.0, **Yarn** ≥ 1.19.1.
-- **Build a preview binary** — a published build cannot run any suite here:
+- **Build the binary** — a plain build runs every suite here since GA; `PREVIEW=1` is no
+  longer needed and no longer changes the surface:
   ```bash
-  yarn install && PREVIEW=1 yarn link:dev
+  yarn install && yarn link:dev
   brevo --version    # confirm the branch build is on PATH
-  brevo app --help   # status / submit must be listed
+  brevo app --help   # status / submit / withdraw must all be listed
   ```
 - A **Brevo test/staging account** you are authorised to use. Do **not** use production
   customer data.
@@ -78,21 +85,24 @@ Check the exit code after any command with `echo $?`.
 
 ## Suite 2 — `brevo app create`: public apps
 
-> **⚠️ BEX-405 changed the entry condition for this whole suite — read before running it.**
-> Public distribution is gated at **build time**. A published build (`npm i -g
-> @getbrevo/cli`, or plain `yarn build`) refuses `--distribution public` with *"That
-> command is not available yet…"*, exit `1`, and asks the distribution prompt with
-> **`Private` as its only choice** — it no longer skips the question and applies
-> `private` silently (changed 2026-08-13).
+> **⚠️ Entry condition changed at GA — read before running this suite.** Public
+> distribution *was* gated at build time: a published build refused
+> `--distribution public` with *"That command is not available yet…"*, exit `1`, and
+> asked the distribution prompt with `Private` as its only choice. **All of that is
+> gone.** A plain build accepts `--distribution public` and offers both choices, so:
 >
-> **Every case below requires a preview build: `PREVIEW=1 yarn link:dev`.** There is no
-> account, flag or environment variable that unlocks a published build — the
-> `@brevo.com` / `@sendinblue.com` exception and `BREVO_ENABLE_PREVIEW=1` both existed in
-> an interim version and were removed. Against a published build the correct result for
-> TC-2.1 is the refusal, not an app; that is not a bug to file.
+> - TC-2.1's correct result is **an app**, on any build. A refusal is now a defect.
+> - TC-2.4 (the refusal path) no longer has a CLI-side trigger. What remains is the
+>   *server's* refusal for an account without `app-store-bo-be-public-apps` — still worth
+>   testing, but the expected error is the platform's, relayed as `ERR_UI_APP_NOT_ENABLED`
+>   or a `400`, not the CLI's unreleased-feature message.
+> - `PREVIEW=1` is not required anywhere in this suite.
 >
-> The platform *also* refuses public creates from the CLI, so even a preview build may hit
-> the server's own rejection (TC-2.4).
+> The platform used to refuse public creates from the CLI independently of the build, so
+> even a preview build could hit the server's own rejection. That was lifted before GA —
+> public creates are accepted on production for every account — which is what makes
+> TC-2.1 a live end-to-end case rather than a preview-only one. TC-2.4 still needs an
+> account the flag was never rolled out to, if one can still be found.
 
 ### TC-2.1 — Create a public app with the flag
 **Priority:** High
@@ -175,7 +185,7 @@ a public create must keep its own text — the translation is narrowed to messag
 
 ### TC-5.16 — Allowed states still upload normally (US-2)
 **Priority:** High
-**Preconditions:** A public app in a non-blocking state (e.g. `configured`, `changes_requested`, `rejected`, `approved`) or a private app with no review state; a local change vs the server.
+**Preconditions:** A public app in a non-blocking state (e.g. `draft`, `changes_requested`, `rejected`, `approved`) or a private app with no review state; a local change vs the server.
 **Steps:** `brevo app upload --yes`
 **Expected:** The state check passes through; the normal upload flow runs (diff shown, then push); "App uploaded." + `Version: …`; exit `0`. Confirms the block is scoped to `Submitted`/`In Review` only.
 
@@ -203,7 +213,7 @@ hasn't been submitted for review yet."* indented under the label. Ran **after** 
 - `changes_requested` → "Changes Requested" / yellow ⚠
 - `in_review` → "In Review" / yellow ◐
 - `submitted` → "Submitted" / blue ◔
-- `configured` → "Configured" / cyan ◇
+- `draft` → "Draft" / cyan ◇  ← **renamed from `configured` on the wire by BEX-382** (clean rename, no alias; the server migration renamed every existing row). A card reading *Configured* means the CLI is talking to a backend that predates the rename.
 - unknown/other → gray ○
 Messages match the canned copy per state (e.g. `submitted` → "Your app has been submitted and is waiting to be reviewed.").
 
@@ -235,9 +245,18 @@ copy verbatim and the card never renders. Two separate problems:
    read. Running `brevo app upload` once made the same command answer `◇ Configured`.
 
 **So TC-6.3 as written is unreachable via "never submitted"** — the app must be
-*uploaded* but unsubmitted, which is the `configured` state (TC-6.1), not `unknown`.
-Either the precondition is wrong or the empty-state path is dead code; worth deciding
-which before merge. Exit code was not captured (`echo $?` not run) — it is whatever
+*uploaded* but unsubmitted, which is the `draft` state (TC-6.1, recorded above as
+`configured` before BEX-382 renamed it), not `unknown`.
+
+**Resolved for `app submit`, still open for `app status`.** The precondition was the
+wrong half of the diagnosis: the real cause is the absent `app_versions` row, and the
+server's copy for that failure names four fields that can all be present. `app submit`
+now refuses locally on the certain signal — an app with no `version` has never been
+uploaded — before the review-state read happens at all (`APP_SUBMIT_NOT_UPLOADED`).
+`app status` reads the state directly and never fetches the app, so it still relays the
+server text; closing that needs the server's error `code` and HTTP status from a live
+repro, then one line in `apiCodeMessages`. Tracked in `docs.md`. Exit code was not
+captured (`echo $?` not run) — it is whatever
 `ApiError` maps to, not the documented `0`. Tracked in the sweep entry in
 `RELEASE-CHECKLIST.md`.
 
@@ -318,23 +337,30 @@ which before merge. Exit code was not captured (`echo $?` not run) — it is wha
 ### TC-10.2 — Public-app command grouping
 **Priority:** Low
 **Steps:** `brevo --help`.
-**Expected:** `brevo app status` and `brevo app submit` appear under a heading like **"App-review commands (public apps only):"**. `status` is present (regression guard). `upload` is listed; `update` is not.
+**Expected:** `brevo app submit`, `brevo app status` **and `brevo app withdraw`** all appear under **"App-review commands (public apps only):"**, in that order. `app create` advertises `--distribution private|public`. `upload` is listed; `update` is not. Identical on a plain build and a `PREVIEW=1` build — the two artifacts are the same surface now.
 
-**Result (predates UI-apps GA and the `install`/`uninstall` rename):** ✅ Pass —
-2026-08-13, both builds, and the pair is the useful part. **Preview:** the *App-review
-commands (public apps only)* heading carried `status` + `submit` and no `withdraw`
-(TC-10.3), the then-gated UI-apps heading carried `deploy` + `rollback`, and `app create`
-advertised `--distribution private|public`. **Published:** both headings and all four
-commands were absent, and `app create` read `--distribution private` / *"Create a new
-OAuth app"* — i.e. the build-time elimination showed up in the help exactly where BEX-405
-says it should. **On a build of the GA branch, re-baseline:** `install` / `uninstall` are
-listed in *every* build now, so the build-to-build difference this case reads is the
-public-app surface only.
+**Result (predates both GA flips and the `install`/`uninstall` rename — re-baseline
+needed):** ✅ Pass — 2026-08-13, both builds. **Preview:** the *App-review commands
+(public apps only)* heading carried `status` + `submit` and no `withdraw` (TC-10.3), the
+then-gated UI-apps heading carried `deploy` + `rollback`, and `app create` advertised
+`--distribution private|public`. **Published:** both headings and all four commands were
+absent, and `app create` read `--distribution private` / *"Create a new OAuth app"*.
 
-### TC-10.3 — `withdraw` is hidden from help but still works
+**That build-to-build difference no longer exists** — it was the whole thing this case
+measured, and public-apps GA removed it. Re-baseline the case as written above: one
+expected screen, asserted on either build, with `withdraw` now listed.
+
+### TC-10.3 — `withdraw` is advertised on both help screens
 **Priority:** Medium
 **Steps:** `brevo --help`, then `brevo app --help`, then `brevo app withdraw --help`.
-**Expected:** Neither the root screen nor `brevo app --help` mentions `withdraw` anywhere — it is marked `hidden`, not gated. `brevo app withdraw --help` still prints its own usage (`Usage: brevo app withdraw [options]`) with `--app-id`, `--force` and `--json`, exit `0`, and Suite 7 passes unchanged.
+**Expected:** `withdraw` appears on **both** screens — the hand-aligned root screen (under *App-review commands*) and Commander's generated `brevo app --help`. `brevo app withdraw --help` prints its own usage (`Usage: brevo app withdraw [options]`) with `--app-id`, `--force` and `--json`, exit `0`.
+
+**Inverted at GA.** This case used to assert the opposite: `withdraw` carried
+`hidden: true` while the review lifecycle was being finished, so it was callable but
+advertised nowhere. Both suppressions are gone — the flag, and the matching hand-made
+omission in `formatRootHelp`. **Check both screens, not one:** Commander's `hidden`
+governs only its own output and cannot reach the root screen's string, so the two are
+independent and a half-done change is exactly what this case catches.
 
 ---
 
@@ -380,7 +406,7 @@ A Result line says which build it ran on when it matters. Nothing here is signed
 |-------|-------|--------------------|-------|
 | 2 — create: public | Piyush | ◐ Partial pass | TC-2.1 ✅ — created live on a preview build + flag-enabled account, then uploaded to `0.0.2`. TC-2.4's refusal path still untested (needs an account **without** `app-store-bo-be-public-apps`); TC-2.2 / TC-2.3 not run. |
 | 5 (subset) — upload under review | | **Blocked** | TC-5.13–5.16 not runnable on this account — see Suite 7. |
-| 6 — status | Piyush | ✗ **Fail** | TC-6.1 ✅ (`◇ Configured`, aligned card, resolved from the linked config — also TC-6.5 case 1). **TC-6.3 fails:** a never-uploaded app surfaces a raw, misleading server message instead of the friendly Unknown card. TC-6.2's other states, 6.4 (`--json`) and 6.6 (colour) not run. |
+| 6 — status | Piyush | ✗ **Fail** (partly fixed at GA) | TC-6.1 ✅ (`◇ Configured` — **note the state is `Draft` now**, BEX-382 renamed it on the wire; aligned card, resolved from the linked config — also TC-6.5 case 1). **TC-6.3:** the `app submit` half is **fixed** — a never-uploaded app is refused locally naming the real cause, before the review-state read. The `app status` half still fails: it reads the state directly, so the raw misleading server message still reaches the user. Closing it needs the server's error `code` + HTTP status from a live repro, then one line in `apiCodeMessages` — tracked in `docs.md`. TC-6.2's other states, 6.4 (`--json`) and 6.6 (colour) not run. |
 | 7 — withdraw | | **Blocked** | Not run, and **not runnable on this account**: `app submit` only opens a Google Form, so no app can be driven into `submitted`/`in_review` from the CLI. Reaching Suite 7 (and TC-5.13–5.16, and TC-6.2's review states) needs the form completed or the state set server-side. |
 | 10 (subset) — help layout | Piyush | ✅ Pass | TC-10.2 / 10.3 confirmed on **both** builds, which is what makes the BEX-405 elimination visible. |
 | 13 (subset) — submit | Piyush | ◐ Partial pass | TC-13.4 ◐ — ran twice, but the mismatch branch was not exercised and the form was never completed. |

@@ -215,8 +215,8 @@ export interface ExecOptions {
   inherit?: boolean;
   // Hard cap, used by the trap paths so cleanup can't hang on a signal.
   timeoutMs?: number;
-  // Merged over process.env. Only the build in stepReinstall needs this, to ask
-  // for the preview surface (PREVIEW=1); every `brevo` call inherits plain env.
+  // Merged over process.env. Used by the suites that need to steer a single command
+  // (e.g. a scripted pty run); every plain `brevo` call inherits unmodified env.
   env?: Record<string, string | undefined>;
 }
 
@@ -796,15 +796,20 @@ export const GATED_COMMANDS = [
 export type GatedCommand = (typeof GATED_COMMANDS)[number];
 
 /**
- * Gated *features* — surface that is missing from a build without a command going with
- * it, so command detection can't see it.
+ * Gated *features* — surface that can be missing from an installed CLI without a command
+ * going with it, so command detection can't see it.
  *
- * `public-distribution` is the one that matters: since BEX-405 the published build drops
- * `--distribution public` (`assertFeatureAvailable('public-distribution')` refuses it with
- * a typed CliError) while `app create` itself is obviously still there. The public suite
- * opens by creating a public app, so without this the whole lifecycle *failed* on a
- * published-surface build instead of skipping — and `yarn build` has produced that surface
- * by default since `link:dev` stopped implying preview.
+ * `public-distribution` is the one that matters. It named a real build-time gate until
+ * public-apps GA: `yarn build` dropped `--distribution public`
+ * (`assertFeatureAvailable('public-distribution')` refused it with a typed CliError) while
+ * `app create` itself was obviously still there, so without this entry the public suite —
+ * which opens by creating a public app — *failed* on a published-surface build instead of
+ * skipping.
+ *
+ * It still earns its place on `--against=published`, where the npm `latest` tag can be an
+ * older CLI that genuinely refuses the flag. That is now the only way this fires: a local
+ * build has the whole surface. Detection is unchanged either way — it probes the installed
+ * binary rather than assuming anything about which build produced it.
  */
 export const GATED_FEATURES = ['public-distribution'] as const;
 
@@ -817,12 +822,17 @@ export function listedInHelp(helpText: string, command: string): boolean {
 /**
  * Commands that are registered but appear on no help screen.
  *
- * `withdraw` carries `hidden: true` (see `src/commands/preview-definitions.ts`): fully
- * callable, simply not advertised. Root-help detection reads that as *absent* and would
- * skip the withdraw step on a build that has it — a silent loss of coverage, which is
- * the one failure mode a smoke run must not have. These are probed directly instead.
+ * **Empty since public-apps GA.** `withdraw` was the only entry: it carried
+ * `hidden: true` while the review lifecycle was being finished — fully callable, simply
+ * not advertised — and root-help detection reads that as *absent*, which would have
+ * skipped the withdraw step on a build that has the command. That is a silent loss of
+ * coverage, the one failure mode a smoke run must not have, so it was probed directly
+ * instead. The flag is gone and `brevo app withdraw` is on both help screens now.
+ *
+ * Kept as the mechanism rather than deleted: a `hidden` command is a normal thing to
+ * ship (a deprecation shim, a command mid-rollout) and this is where its name goes.
  */
-const UNLISTED_COMMANDS: ReadonlySet<string> = new Set(['withdraw']);
+const UNLISTED_COMMANDS: ReadonlySet<string> = new Set<string>();
 
 /**
  * Ask a subcommand for its own help and see whether it answers as itself.
@@ -899,9 +909,10 @@ export function requireCommand(state: State, name: GatedCommand): void {
 export function requireFeature(state: State, name: GatedFeature): void {
   if (state.caps?.[name] !== false) return;
   // A runtime downgrade outranks the build explanation. The build DID offer the
-  // command in that case — a PREVIEW=1 run has the whole public surface — so
-  // saying "not available in this build" would be plainly false, and points a
-  // reader at scripts/build.mjs when the refusal came from the API.
+  // command in that case, so saying "not available in this build" would be plainly
+  // false, and points a reader at scripts/build.mjs when the refusal came from the API.
+  // With nothing gated, the build branch below can now only fire on
+  // `--against=published` where npm's `latest` predates a command on this branch.
   const downgraded = state.capDowngrades[name];
   skip(
     downgraded
@@ -1015,15 +1026,15 @@ export function stepReinstall(state: State): string {
 
   let buildNote = '';
   if (state.opts.against === 'local') {
-    // `yarn build` produces the *published* surface — the pre-GA commands and
-    // `--distribution public` are eliminated from it (BEX-405). The public suite exists to
-    // exercise exactly that surface, so it needs the preview artefact; asking for it here
-    // is what keeps the coverage rather than skipping the suite on a local run. Everything
-    // the private suite touches is present in both, so a private-only run stays published —
-    // and is then the only local run that tests what npm actually ships.
-    const needsPreview = state.opts.suites.includes('public');
-    buildNote = needsPreview ? ', build=preview' : ', build=published';
-    execOrThrow(PKG_YARN, ['build'], state, needsPreview ? { env: { PREVIEW: '1' } } : {});
+    // Always the PUBLISHED surface. This used to fork: `yarn build` eliminated the
+    // review-lifecycle commands and `--distribution public` (BEX-405), so a run that
+    // selected the public suite asked for `PREVIEW=1` instead, since that surface existed
+    // nowhere else. Public apps went GA and the fork went with it — deliberately, not by
+    // neglect: keeping it would leave the one suite that exercises the review lifecycle
+    // permanently pointed at an artifact nobody installs. Nothing is gated now, so every
+    // suite's commands are in the published build and every local run tests what npm ships.
+    buildNote = ', build=published';
+    execOrThrow(PKG_YARN, ['build'], state);
     execOrThrow(PKG_YARN, ['link'], state);
   } else {
     execOrThrow(PKG_NPM, ['install', '-g', `${PACKAGE_NAME}@latest`], state);

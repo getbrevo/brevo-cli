@@ -152,11 +152,12 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
 //     made to answer questions, otherwise `--distribution typo` costs a logo prompt
 //     first. Pure — no I/O, no prompts — so it is safe this early.
 //
-//     Public distribution is pre-GA (BEX-405). The flag keeps validating against the
-//     full set so `--distribution public` still fails as an *unreleased feature* rather
-//     than as an unknown value — the second would be a lie, and would send the user
-//     looking for a typo. `validateEnum` runs first so a genuine typo still gets the
-//     "invalid value" error it deserves.
+//     Public distribution is GA (BEX-405), so `assertFeatureAvailable` is now a no-op
+//     and both values are accepted. The check is kept rather than deleted: it is the one
+//     place a flag *value* can be held back, which a `FEATURE_STAGE` row cannot express
+//     on its own — the flag parses before any gate sees it, so a gated value has to be
+//     refused rather than hidden. `validateEnum` still runs first so a genuine typo gets
+//     the "invalid value" error it deserves.
 function assertDistributionFlag(distributionFlag: string | undefined): void {
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
@@ -180,12 +181,16 @@ async function resolveDistribution(
     return 'private';
   }
   // Same shape as the app-type prompt: the question is always asked, only the choices
-  // are gated. See the ELIMINATION SITE note there for why the raw global appears
-  // alongside `isFeatureAvailable`.
+  // are gated. Public apps are GA, so `isFeatureAvailable` answers true in every build
+  // and both choices are offered. What GA removed is the `__BREVO_PREVIEW__ &&` conjunct
+  // that used to guard this push — the build flag was the outer authority, so flipping
+  // the FEATURE_STAGE row alone would have left a published build offering `Private`
+  // only. The `isFeatureAvailable` call stays so an emergency flip back to 'preview'
+  // narrows the prompt again without a rewrite.
   const choices: Array<{ name: string; value: string }> = [
     { name: 'Private  (Used exclusively by your organisation)', value: 'private' },
   ];
-  if (__BREVO_PREVIEW__ && isFeatureAvailable('public-distribution')) {
+  if (isFeatureAvailable('public-distribution')) {
     choices.push({
       name: 'Public   (Distributed to end users or marketplace listings)',
       value: 'public',

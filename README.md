@@ -78,7 +78,7 @@ Or step by step:
 
    ```bash
    brevo app list
-   brevo app create --name "My App" --distribution private
+   brevo app create --name "My App" --distribution private   # or --distribution public
    brevo app scaffold --app-id 3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93
    brevo app start oauth --port 3000
    ```
@@ -93,7 +93,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an app — an OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`), or a UI app via the interactive prompts (there is no `--type` flag; non-interactive runs always create an OAuth app) |
+| `brevo app create` | Create an app — an OAuth app (`--name`, `--distribution private\|public`, repeatable `--redirect-uri`, `--logo-uri`), or a UI app via the interactive prompts (there is no `--type` flag; non-interactive runs always create an OAuth app). `distribution_type` is immutable after create. |
 | `brevo app list` | List apps in your account (each row names its type) |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff — field by field, including every `ui_app` placement (`--yes`) |
@@ -102,11 +102,14 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |
 | `brevo app install` | Install a UI app into a Brevo account, after showing the configuration and version it will install (`[account-id]` optional — a regular account installs into itself; a corporate account is prompted to pick a sub-account, so pass the ID explicitly in scripts; `--app-id`, `--force`) |
 | `brevo app uninstall` | Uninstall a UI app from a Brevo account (same arguments as `install`) |
+| `brevo app submit` | Submit a public app for review — opens the submission form after checking the app is complete, public, and in sync with `app-config.json` (`--app-id`, `--json`) |
+| `brevo app status` | Show an app's review state: `draft`, `submitted`, `in_review`, `approved`, `rejected` or `changes_requested` (`--app-id`, `--json`) |
+| `brevo app withdraw` | Withdraw an app from submission (`--app-id`, `--force`) |
 | `brevo app available-scopes` | List the OAuth scopes the IdP supports (`--web` opens the catalog in a browser) |
 
 Most commands require a successful `brevo login` first, except authentication/help flows (`brevo login`, `brevo logout`, `brevo app init`, `--help`). Every command accepts `--json` for machine-readable output.
 
-The table above is the complete command surface of a published release. Features that aren't live on the Brevo platform yet aren't built into the package — `brevo --help` always lists everything the binary can do, so there is nothing hidden behind a flag or an environment variable.
+The table above is the complete command surface of a published release, and `brevo --help` always lists everything the binary can do — there is nothing hidden behind a flag, an environment variable, or an account setting. (Public app distribution and the review lifecycle were once built but withheld from published packages; they ship in every build now.) If a command listed here is missing from your install, it is older than this README — upgrade with `npm install -g @getbrevo/cli`.
 
 ### Uploading a UI app that is already installed
 

@@ -1,5 +1,4 @@
 import { CliError } from './errors';
-import { previewCli, previewEndpoints } from './preview-constants';
 
 // Track whether URL suffix parts were stripped for deferred warning (avoid side effects at import time)
 let strippedUrlSuffix: string | undefined;
@@ -147,14 +146,21 @@ const coreEndpoints = {
   // record-page prompt and then narrows the row read with `?location=<csv>`, rather than
   // pulling the whole registry to derive the same handful of strings client-side.
   APP_STORE_SURFACE_POINT_LOCATIONS: '/v3/app-store/surface-points/locations',
+  // The public-app review lifecycle (BEX-405). Moved here from `preview-constants.ts` at
+  // public-apps GA. `APP_STATE` is the canonical review-state read, shared by
+  // `app status` and `app submit`'s preflight; the withdraw route answers 404 for both
+  // "no such app" and "no such submission" — see `uninstallApp`/`withdrawApp` in
+  // `services/app.ts` for why neither can be told apart by status code.
+  APP_STATE: (appId: string): string => `/v3/app-store/apps/${encodeURIComponent(appId)}/state`,
+  APP_STORE_APP_WITHDRAW: (appId: string): string =>
+    `/v3/app-store/apps/${encodeURIComponent(appId)}/withdraw`,
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
 
-// ELIMINATION SITE — see the note on `CLI` below; same reasoning, same shape.
+// Kept as a wrapper around `coreEndpoints` — see the note on `CLI` below.
 export const ENDPOINTS = {
   ...coreEndpoints,
-  ...(__BREVO_PREVIEW__ ? previewEndpoints : ({} as typeof previewEndpoints)),
 };
 
 /**
@@ -208,18 +214,27 @@ const coreCli = {
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
+  // The public-app review lifecycle (BEX-405). Moved here from `preview-constants.ts` at
+  // public-apps GA. `APP_STATUS` takes no app ID because every message quoting it is
+  // already about a resolved app; the other two take an optional one so an error can name
+  // the exact app to re-run against, falling back to a `<id>` placeholder.
+  APP_STATUS: 'brevo app status',
+  APP_SUBMIT: (appId?: string): string =>
+    appId ? `brevo app submit --app-id ${appId}` : 'brevo app submit --app-id <id>',
+  APP_WITHDRAW: (appId?: string): string =>
+    appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;
 
-// ELIMINATION SITE — the raw global rather than `isFeatureAvailable`, so esbuild folds
-// the spread to `{}` and drops ./preview-constants entirely. `CLI` is one object literal,
-// so a property can only be removed by removing the whole object it arrived in. The
-// `as typeof previewCli` cast keeps every call site type-safe in both builds; see that
-// module for why the lie is safe.
+// Nothing is gated any more, so there is no second object to spread in. Kept as a wrapper
+// around `coreCli` rather than collapsed into one export: `CLI` is what every call site
+// imports, and this is where a future gated-constants module would spread back in.
+// `lib/preview.ts` explains why such a module is needed at all — esbuild cannot prune a
+// property from an object literal, so gated `CLI.*` names shipped as readable strings in
+// the published binary until they were split out.
 export const CLI = {
   ...coreCli,
-  ...(__BREVO_PREVIEW__ ? previewCli : ({} as typeof previewCli)),
 };
 
 export const DEFAULT_APP_FOLDER = 'my-app';

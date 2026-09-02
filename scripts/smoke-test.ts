@@ -213,23 +213,22 @@ uninstall) always run, whichever suites are selected. Examples:
   yarn smoke --ci --suite=private,public     # both (the default)
 
 Steps that need a command the installed CLI doesn't have (notably
---against=published, where 'app submit' / 'app status' / 'app withdraw' /
-'app upload' may not be released yet) are auto-detected and reported as
-skipped rather than failed. The same detection covers gated *features* that
-come with no command of their own — '--distribution public', which a published
-build refuses (BEX-405).
+--against=published, where the npm 'latest' tag may predate a command this
+branch adds) are auto-detected and reported as skipped rather than failed. The
+same detection covers gated *features* that come with no command of their own.
 
---against=local builds what the selected suites need, and one 'yarn link' can
-only hold one build:
-  * with 'public' selected (the default) it builds PREVIEW=1, because the
-    public lifecycle only exists on the preview surface;
-  * with only 'private' selected it builds the published surface, i.e. what npm
-    actually ships. Run 'yarn smoke --suite=private' when that is the thing you
-    want to verify.
-The ui suite needs neither: UI apps are GA (BEX-290) and ship in every build, so
-it runs on whichever artefact the other selected suites decided on. It DOES need
-a pty — 'brevo app create' only offers the UI app type on a real terminal — so
-the suite drives the prompts through script(1) and is opt-in like init.
+--against=local always builds the PUBLISHED surface — i.e. what npm actually
+ships — because nothing is gated any more: public apps and the review lifecycle
+went GA at BEX-405, UI apps at BEX-290, so every suite's commands are in every
+build. This used to fork on the selected suites, building PREVIEW=1 whenever
+'public' was picked, and that fork is gone rather than merely unused: leaving it
+would mean the one suite exercising the review lifecycle never ran against the
+artifact users install.
+
+The ui and init suites are opt-in for a different reason, unrelated to any gate:
+they drive interactive prompts. 'brevo app create' only offers the UI app type
+on a real terminal, so the ui suite drives it through script(1) and init through
+scripted stdin.
 `);
 }
 

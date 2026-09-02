@@ -3,11 +3,6 @@ import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/v
 import { EXAMPLE_APP_ID } from '../lib/constants';
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
-// The gated subcommands are referenced only through this binding, and only from behind
-// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their three handler
-// modules — from a published build. Importing any of those handlers directly here would
-// make them live references again and ship the whole surface. See ./preview-definitions.ts.
-import { previewAppCommands } from './preview-definitions';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -23,6 +18,9 @@ import { scopesCommand } from './app/scopes';
 import { startCommand } from './app/start';
 import { appInstallCommand } from './app/install';
 import { appUninstallCommand } from './app/uninstall';
+import { submitCommand } from './app/submit';
+import { statusCommand } from './app/status';
+import { withdrawCommand } from './app/withdraw';
 import { installCommand as skillInstallCommand } from './skill/install';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
 
@@ -322,16 +320,86 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           json: Boolean(opts.json),
         }),
     },
-    // ELIMINATION SITE — the raw global rather than `isFeatureAvailable()` on purpose:
-    // esbuild substitutes the global here, folds the ternary to `[]`, and can then drop
-    // `previewAppCommands` and the three handler modules only it imports. Importing the
-    // constant instead leaves a runtime ternary and ships the whole gated surface. See
-    // src/globals.d.ts.
+    // Moved here from ./preview-definitions.ts when public apps went GA, exactly as the
+    // two `account-install` commands above were at UI-apps GA. `requires` stays: it is
+    // the capability the command applies to (public apps only — see
+    // `src/app-types/capabilities.ts`), and with its `FEATURE_STAGE` row at 'ga' it no
+    // longer hides or refuses anything.
     //
-    // Appended, not interleaved, so the spread is one foldable expression. Ordering in
-    // `brevo app --help` is unaffected in a public build (there is nothing to order);
-    // a preview build simply lists these three last.
-    ...(__BREVO_PREVIEW__ ? previewAppCommands : []),
+    // Listed in lifecycle order — submit, status, withdraw — matching the App-review
+    // block in `formatRootHelp` so the two help renderers read the same way.
+    {
+      name: 'submit',
+      requires: 'review-lifecycle',
+      description: 'Submit a public app for review',
+      examples: [
+        'brevo app submit',
+        `brevo app submit --app-id ${EXAMPLE_APP_ID}`,
+        `brevo app submit --app-id ${EXAMPLE_APP_ID} --json`,
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        {
+          flags: '--json',
+          description: 'Print the submission form URL as JSON instead of opening a browser',
+        },
+      ],
+      handler: (opts) =>
+        submitCommand({
+          appId: opts.appId as string | undefined,
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'status',
+      requires: 'review-lifecycle',
+      description: "Show an app's review status",
+      examples: [
+        'brevo app status',
+        `brevo app status --app-id ${EXAMPLE_APP_ID}`,
+        `brevo app status --app-id ${EXAMPLE_APP_ID} --json`,
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        statusCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
+    },
+    {
+      name: 'withdraw',
+      requires: 'review-lifecycle',
+      description: 'Withdraw an app from submission',
+      examples: [
+        'brevo app withdraw',
+        `brevo app withdraw --app-id ${EXAMPLE_APP_ID}`,
+        `brevo app withdraw --app-id ${EXAMPLE_APP_ID} --force`,
+        `brevo app withdraw --app-id ${EXAMPLE_APP_ID} --json`,
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        withdrawCommand({
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
   ],
 };
 

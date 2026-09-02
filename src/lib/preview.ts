@@ -1,40 +1,56 @@
 /**
- * The pre-GA gate (BEX-405).
+ * The pre-GA gate (BEX-405) — **currently holding nothing back.**
  *
- * Public app distribution is built in this repo but **not live on the Brevo
- * platform**. The published package must not expose it: not in help, not to a direct
- * invocation, and — because the guard is applied at build time — not in the shipped
- * code at all. `scripts/build.mjs` eliminates every gated branch and tree-shakes the
- * command modules only those branches referenced. (UI apps — the *UI app* create
- * choice and `app install` / `app uninstall` — went GA and ship in every build; their
- * rows below are flipped to `'ga'` and their modules are referenced live.)
+ * Every row in `FEATURE_STAGE` is `'ga'`. Public app distribution and the review
+ * lifecycle (`app submit` / `app status` / `app withdraw`) were the last two gated
+ * features and shipped at public-apps GA; UI apps went GA before them (BEX-290). So
+ * today this module is a no-op that every build folds away, kept deliberately rather
+ * than deleted: it is the shape the next unreleased feature is meant to arrive in, and
+ * re-deriving it from scratch is how the traps below get rediscovered the hard way.
+ *
+ * Tearing the machinery down completely is tracked as follow-up work in `docs.md`
+ * → *Part 2*. Until then, leave it in place with all rows `'ga'`.
+ *
+ * ## What the gate does when a row is `'preview'`
+ *
+ * The published package must not expose an unreleased feature: not in help, not to a
+ * direct invocation, and — because the guard is applied at build time — not in the
+ * shipped code at all. `scripts/build.mjs` sets `__BREVO_PREVIEW__` false for a public
+ * build, eliminating every gated branch and tree-shaking the command modules only those
+ * branches referenced, then asserts on its own output that they really are gone.
  *
  * ## Why this has no runtime escape hatch
  *
  * The first version of this gate unlocked on an `@brevo.com` / `@sendinblue.com`
- * account or an opt-in env var, mirroring the clause the agent docs used to carry.
- * Both were removed when the flag moved to build time. A compile-time guard that any
- * user can switch back on is a runtime guard wearing a costume — and worse, it has to
- * ship the surface in order to be able to reveal it, which defeats the point of
- * building it out. Internal testing is `PREVIEW=1 yarn link:dev`, which produces a
- * genuinely different artifact.
- *
- * That also means this is no longer "a guardrail, not a security boundary": there is
- * nothing client-side left to bypass. The Brevo API remains the real authority and
- * refuses the gated feature per account independently (`400 invalid_parameter` on a
- * public create), so the two layers are the build and the server, with nothing in
- * between for a user to talk their way past.
+ * account or an opt-in env var, mirroring a clause the agent docs used to carry. Both
+ * were removed when the flag moved to build time. A compile-time guard that any user
+ * can switch back on is a runtime guard wearing a costume — and worse, it has to ship
+ * the surface in order to be able to reveal it, which defeats the point of building it
+ * out. Internal testing is `PREVIEW=1 yarn link:dev`, a genuinely different artifact.
+ * **Do not add one back.**
  *
  * ## One table for readiness — but GA is a sequence, not one edit
  *
  * `FEATURE_STAGE` is the only place a feature's readiness is *stated*. Help filtering,
- * the runtime refusal, the command registry and the two `app create` prompts all read
- * it through `isFeatureAvailable`. Flipping a row to `'ga'` is necessary but NOT
- * sufficient for a command: gated definitions live in `commands/preview-definitions.ts`
- * and gated help sections sit behind `__BREVO_PREVIEW__`, a *build* flag, so both must
- * be moved/unwrapped by hand in the same change — UI-apps GA (BEX-290) touched 17 files
- * doing exactly that. The full sequence is the GA runbook, `RELEASE-CHECKLIST.md` on
- * `feature_set-brevo-cli-v2` → *Before public-apps GA*.
+ * the runtime refusal, the command registry and the `app create` prompts all read it
+ * through `isFeatureAvailable`. Flipping a row to `'ga'` is necessary but NOT
+ * sufficient, and both halves of that trap are worth knowing before gating anything new:
+ *
+ * - **A gated command needs its definition out of reach of a live import.** Gated
+ *   entries lived in `commands/preview-definitions.ts`, referenced from
+ *   `definitions.ts` behind `__BREVO_PREVIEW__` — inline, the import would be a live
+ *   reference and the command would ship, unreachable but present.
+ * - **`__BREVO_PREVIEW__` is the OUTER authority, above this table.** A gated help
+ *   section or prompt branch wrapped in the build flag stays hidden in a published
+ *   build no matter what `FEATURE_STAGE` says, so the wrapper has to come off by hand
+ *   in the same change. Both UI-apps GA and public-apps GA hit exactly this.
+ *
+ * Object literals need the same treatment for a different reason: esbuild cannot prune
+ * a property from one, so gated strings, `CLI.*` references and `ENDPOINTS` paths were
+ * split into their own modules (`lang/preview-messages.ts`, `lib/preview-constants.ts`)
+ * and spread in behind the flag — otherwise `strings` on the published binary read back
+ * the whole unreleased feature set. All three modules emptied at public-apps GA and
+ * were deleted; recreate them the same way if a feature is ever gated again.
  *
  * Two of the four names are `Capability` values from `app-types/capabilities.ts`,
  * deliberately: commands already declare `requires` in `commands/definitions.ts`, so
@@ -45,30 +61,32 @@ import { CliError } from './errors';
 import { messages } from '../lang/en';
 
 export type PreviewFeature =
-  /** `app install` / `app uninstall`. Also a `Capability`. */
+  /** `app install` / `app uninstall`. Also a `Capability`. GA at BEX-290. */
   | 'account-install'
-  /** `app submit` / `app status` / `app withdraw`. Also a `Capability`. */
+  /** `app submit` / `app status` / `app withdraw`. Also a `Capability`. GA at BEX-405. */
   | 'review-lifecycle'
-  /** The *UI app* choice in `app create`'s app-type prompt. */
+  /** The *UI app* choice in `app create`'s app-type prompt. GA at BEX-290. */
   | 'ui-app-type'
-  /** `app create --distribution public`. */
+  /** `app create --distribution public`. GA at BEX-405. */
   | 'public-distribution';
 
 export type FeatureStage = 'ga' | 'preview';
 
 /**
- * Readiness per feature. Flipping a row to `'ga'` is the first step of releasing it —
- * a gated *command* also needs its definition moved out of `preview-definitions.ts`
- * and its help section unwrapped, see the header.
+ * Readiness per feature. **All rows are `'ga'` — nothing is gated today.**
+ *
+ * Flipping a row to `'preview'` is the first step of holding a feature back, not the
+ * whole of it: see the header for the two traps (`preview-definitions.ts` and the
+ * `__BREVO_PREVIEW__` wrapper) that a stage lookup alone does not reach.
  *
  * Everything not listed here is GA by construction — absence from this table is not a
  * gate, so a new command is public unless someone opts it in.
  */
 export const FEATURE_STAGE: Readonly<Record<PreviewFeature, FeatureStage>> = {
   'account-install': 'ga',
-  'review-lifecycle': 'preview',
+  'review-lifecycle': 'ga',
   'ui-app-type': 'ga',
-  'public-distribution': 'preview',
+  'public-distribution': 'ga',
 } as const;
 
 /**
@@ -80,6 +98,9 @@ export const FEATURE_STAGE: Readonly<Record<PreviewFeature, FeatureStage>> = {
  * happens per call, which is what lets a test flip build states without re-importing
  * every module that has already captured a constant — the bug that a `PREVIEW_BUILD`
  * export caused when this was first written.
+ *
+ * With every row `'ga'` this answers true unconditionally. The call sites are kept so
+ * that flipping a row back to `'preview'` is a one-line change rather than a rewrite.
  */
 export function isFeatureAvailable(feature: PreviewFeature): boolean {
   return FEATURE_STAGE[feature] === 'ga' || __BREVO_PREVIEW__;
@@ -90,14 +111,15 @@ export function isFeatureAvailable(feature: PreviewFeature): boolean {
  *
  * One message for all four, unlike `assertCapability` in `app-types/capabilities.ts`,
  * which takes the caller's wording so each command keeps the error string it shipped
- * with. Not an inconsistency: those are existing contracts a script may match on,
- * while this is new surface with no callers to break, and it answers a different
- * question ("this feature isn't released") than a capability error does ("this app
- * doesn't support that").
+ * with. Not an inconsistency: those were existing contracts a script may match on,
+ * while this answers a different question ("this feature isn't released") than a
+ * capability error does ("this app doesn't support that").
  *
- * Reachable in a published build only through `app create --distribution public` —
- * the flag parses before the gate sees it, so the value has to be refused rather than
- * hidden. Every gated *command* is gone from the binary and never reaches here.
+ * **Unreachable while every row is `'ga'`.** Its last live path was
+ * `app create --distribution public`, which had to be refused rather than hidden
+ * because the flag parses before the gate sees it; that value is now accepted. Kept for
+ * the next gated flag value or prompt choice — a gated *command* never reaches here,
+ * being absent from the binary entirely.
  */
 export function assertFeatureAvailable(feature: PreviewFeature): void {
   if (isFeatureAvailable(feature)) return;

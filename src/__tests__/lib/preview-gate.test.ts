@@ -1,12 +1,20 @@
 /**
- * The gate as a user meets it (BEX-405): what `--help` shows, and what happens when
- * a hidden command is invoked anyway.
+ * The gate as a user meets it (BEX-405): what `--help` shows, and what the parser
+ * registers, in each build.
  *
  * These build the real command tree the way `bin/index.ts` does, rather than testing
  * `isFeatureAvailable` again — the unit coverage in `preview.test.ts` already owns
  * the decision. What is worth asserting here is the wiring: that the decision reaches
  * two independent renderers (the hand-aligned root screen and Commander's generated
  * subcommand screen) and the parser, and that it reaches nothing else.
+ *
+ * **Nothing is gated today.** Public distribution and the review lifecycle were the last
+ * two features behind the gate and shipped at public-apps GA; UI apps went GA before
+ * them. So the load-bearing assertion in this file is now the *equality* of the two
+ * trees — a published build and a preview build must render and register exactly the
+ * same surface. That is a stronger claim than "the gated commands are listed", and it is
+ * the one that fails if someone re-gates a shipped feature by accident (a stray
+ * `__BREVO_PREVIEW__` wrapper, a definition moved back into a preview module).
  */
 import { Command } from 'commander';
 
@@ -59,10 +67,13 @@ function buildTree(previewBuild: boolean): Tree {
 /**
  * Load the `messages` object as a given build state would produce it.
  *
- * Same `isolateModules` trick as {@link buildTree}, for the same reason: `lang/en.ts`
- * decides at module load whether to spread `previewMessages` in, so the only way to see
- * a public build's `messages` from a suite that runs with `__BREVO_PREVIEW__= true`
- * (jest.setup.js, deliberately) is to re-import with the flag flipped.
+ * Same `isolateModules` trick as {@link buildTree}. It used to be the only way to see a
+ * public build's `messages`, because `lang/en.ts` decided at module load whether to
+ * spread `previewMessages` in. That module emptied and was deleted at public-apps GA, so
+ * both flags now yield the same object — kept because the regression below is about a
+ * *definition surviving elimination*, and re-arming it only takes a gated strings module
+ * coming back. `scripts/build.mjs`'s `orphanedPreviewMessageKeys` is the live enforcement
+ * either way, and it asserts on the emitted bundle rather than on a re-import.
  */
 function loadMessages(previewBuild: boolean): Record<string, unknown> {
   const original = globalThis.__BREVO_PREVIEW__;
@@ -85,26 +96,29 @@ function render(cmd: Command): string {
 }
 
 /**
- * Every command the pre-GA gate covers, and the section heading it sits under.
- * `install` / `uninstall` left this list at UI-apps GA — they ship in every build now
- * and are asserted alongside the other released commands below.
+ * The review-lifecycle commands, GA at BEX-405.
+ *
+ * They were the last entries in this file's `GATED` list and are now asserted the
+ * opposite way round: present in both builds, listed on both help screens. `withdraw` is
+ * in the same list as the other two, which is the point — it additionally carried
+ * `hidden: true` while the lifecycle was being finished, suppressing its Commander help
+ * entry without touching the parser, and the matching omission had to be maintained by
+ * hand in the hand-aligned root screen. Both were undone at GA; a `GATED_LISTED`
+ * exception list is what used to encode the difference and is deliberately gone.
  */
-const GATED = ['submit', 'status', 'withdraw'];
-const GATED_HEADINGS = ['App-review commands'];
+const REVIEW_LIFECYCLE = ['submit', 'status', 'withdraw'];
+
+/** Section headings that must render in every build. */
+const SECTION_HEADINGS = ['App-review commands', 'App-install commands'];
 
 /**
- * The gated commands a preview build actually advertises.
+ * Every `brevo app` subcommand, all of them GA.
  *
- * `withdraw` is the exception, and for a different reason than the gate: it carries
- * `hidden: true` in `commands/preview-definitions.ts`, which suppresses its help entry
- * without touching the parser. So a preview build registers it and runs it but lists it
- * nowhere — asserted on its own below, since "hidden" and "absent" are different claims
- * and only the gate makes the second one.
+ * Padded matches throughout: a bare `toContain('install')` is satisfied by `uninstall`'s
+ * help entry, so the one test proving `app install` survived would stay green if only
+ * `install` were dropped. Same trap for `status` against `start`.
  */
-const GATED_LISTED = GATED.filter((name) => name !== 'withdraw');
-
-/** A representative ungated command per section, to prove the filter is not too wide. */
-const UNGATED = [
+const APP_COMMANDS = [
   'init',
   'create',
   'list',
@@ -115,42 +129,86 @@ const UNGATED = [
   'start',
   'install',
   'uninstall',
+  'submit',
+  'status',
+  'withdraw',
 ];
 
 describe('the pre-GA gate, end to end', () => {
-  describe('a published (public) build', () => {
+  // The invariant that replaces every "is it hidden in a public build?" assertion this
+  // file used to carry. With `FEATURE_STAGE` all-GA, the two artifacts must be the same
+  // surface — so re-gating a shipped feature fails here regardless of *how* it was
+  // re-gated, which a per-command list could never promise.
+  describe('with nothing gated, both builds are the same surface', () => {
+    it('renders identical root and `app` help screens', () => {
+      const published = buildTree(false);
+      const preview = buildTree(true);
+      expect(published.rootHelp).toBe(preview.rootHelp);
+      expect(published.appHelp).toBe(preview.appHelp);
+    });
+
+    it('registers the same `brevo app` subcommands', () => {
+      const names = (tree: Tree) =>
+        tree.program.commands
+          .find((c) => c.name() === 'app')!
+          .commands.map((c) => c.name())
+          .sort();
+      expect(names(buildTree(false))).toEqual(names(buildTree(true)));
+    });
+  });
+
+  describe.each([
+    ['a published (public) build', false],
+    ['a preview build (PREVIEW=1 yarn link:dev)', true],
+  ])('%s', (_label, previewBuild) => {
     let tree: Tree;
     beforeAll(() => {
-      tree = buildTree(false);
+      tree = buildTree(previewBuild as boolean);
     });
 
-    it.each(GATED)('hides `app %s` from `brevo app --help`', (name) => {
-      expect(tree.appHelp).not.toContain(` ${name} `);
-    });
-
-    it.each(GATED_HEADINGS)('drops the "%s" section from the root help', (heading) => {
-      expect(tree.rootHelp).not.toContain(heading);
-    });
-
-    // Padded like the GATED checks above, and for the mirror-image reason: a bare
-    // `toContain('install')` is satisfied by `uninstall`'s help entry, so the one test
-    // proving `app install` survived a public build would stay green if only `install`
-    // were dropped.
-    it.each(UNGATED)('still lists `app %s`', (name) => {
+    it.each(APP_COMMANDS)('lists `app %s` on `brevo app --help`', (name) => {
       expect(tree.appHelp).toContain(` ${name} `);
     });
 
-    // The flag is GA; only the `public` value is gated. Dropping the flag would be
-    // wrong — `--distribution private` is the documented default path.
-    it('keeps --distribution but narrows its advertised values', () => {
-      expect(tree.rootHelp).toContain('--distribution private]');
-      expect(tree.rootHelp).not.toContain('private|public');
+    it.each(REVIEW_LIFECYCLE)('registers `app %s`', (name) => {
+      const app = tree.program.commands.find((c) => c.name() === 'app')!;
+      expect(app.commands.find((c) => c.name() === name)).toBeDefined();
     });
 
-    // UI apps are GA: the published build advertises the choice and the install
-    // section exactly as a preview build does.
+    it.each(SECTION_HEADINGS)('renders the "%s" section on the root help', (heading) => {
+      expect(tree.rootHelp).toContain(heading);
+    });
+
+    // Both renderers, because they are independent: Commander's `hidden` filters the
+    // generated `brevo app --help`, and the hand-aligned root screen is a string it
+    // cannot reach. `withdraw` was suppressed in both while the review lifecycle was
+    // being finished, each by its own mechanism, and un-hidden in both at GA — a change
+    // to one and not the other is exactly what this pair is here to catch.
+    it('lists `app withdraw` on both help screens', () => {
+      expect(tree.appHelp).toContain(' withdraw ');
+      expect(tree.rootHelp).toContain('brevo app withdraw');
+      expect(tree.rootHelp).toContain('Withdraw an app from submission');
+    });
+
+    it('answers `app withdraw --help` with its own usage', () => {
+      const app = tree.program.commands.find((c) => c.name() === 'app')!;
+      const withdraw = app.commands.find((c) => c.name() === 'withdraw')!;
+      const own = render(withdraw);
+      expect(own).toContain('Usage: brevo app withdraw');
+      expect(own).toContain('--app-id');
+      expect(own).toContain('--force');
+    });
+
+    // The flag was always GA; only the `public` value was gated, and it shipped at
+    // BEX-405. Dropping the flag would be wrong either way — `--distribution private`
+    // is the documented default path.
+    it('advertises both distribution values', () => {
+      expect(tree.rootHelp).toContain('private|public');
+    });
+
     it('advertises UI apps in the create description', () => {
       expect(tree.rootHelp).toContain('Create a new app (OAuth, or a UI app via the prompts)');
+      expect(tree.rootHelp).toMatch(/UI app/i);
     });
 
     it('keeps the "App-install commands" section on the root help', () => {
@@ -159,27 +217,18 @@ describe('the pre-GA gate, end to end', () => {
       expect(tree.rootHelp).toContain('brevo app uninstall');
     });
 
-    it('drops the --distribution public example from `app create --help`', () => {
+    it('offers both --distribution values in `app create --help`', () => {
       const createHelp = render(
         tree.program.commands
           .find((c) => c.name() === 'app')!
           .commands.find((c) => c.name() === 'create')!,
       );
       expect(createHelp).toContain('--distribution private');
-      expect(createHelp).not.toContain('--distribution public');
+      expect(createHelp).toContain('--distribution public');
     });
+  });
 
-    // Not registered at all, so Commander answers `unknown command` rather than the
-    // typed refusal. That is the honest answer here and a deliberate change from the
-    // earlier runtime gate: with the modules eliminated at build time the command
-    // genuinely does not exist in this artifact, so claiming it exists-but-is-withheld
-    // would be the lie. The typed refusal survives only where a value must still be
-    // parsed and rejected — see `--distribution public` in create.test.ts.
-    it.each(GATED)('does not register `app %s`', (name) => {
-      const app = tree.program.commands.find((c) => c.name() === 'app')!;
-      expect(app.commands.find((c) => c.name() === name)).toBeUndefined();
-    });
-
+  describe('GA strings survive in a published build', () => {
     // Regression: the legacy-'all'-scope deprecation (BEX-214) is GA, and its strings are
     // read by `app upload` and `app start`, which ship in every build. BEX-405 moved
     // `_DEPRECATED_BLOCK` into `lang/preview-messages.ts` with the genuinely gated strings,
@@ -189,10 +238,11 @@ describe('the pre-GA gate, end to end', () => {
     // users who need the migration text precisely nothing.
     //
     // Asserted on the whole family rather than the one key that broke: they are GA
-    // together, and a future tidy-up that sweeps "legacy scope" strings into the gated
-    // module would take the others the same way. The suite runs preview-side by design
-    // (jest.setup.js), which is why this has to flip the flag to see the bug at all.
-    // `scripts/build.mjs` enforces the general rule on the emitted bundle.
+    // together, and a future tidy-up that sweeps "legacy scope" strings into a gated
+    // module would take the others the same way. Now that no gated strings module exists
+    // these pass trivially, which is the correct state, not a reason to delete them — the
+    // failure they describe returns the moment one comes back, and `scripts/build.mjs`
+    // enforces the general rule on the emitted bundle.
     it.each([
       'LEGACY_ALL_SCOPE_DEPRECATED_BLOCK',
       'LEGACY_ALL_SCOPE_START_BLOCK',
@@ -200,6 +250,22 @@ describe('the pre-GA gate, end to end', () => {
       'LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED',
       'LEGACY_ALL_SCOPE_UPDATE_MIGRATING',
     ])('still defines messages.%s', (key) => {
+      const value = loadMessages(false)[key];
+      expect(value).toBeDefined();
+      expect(typeof value === 'string' ? value : 'fn').not.toBe('');
+    });
+
+    // The review-lifecycle strings made the same trip in the other direction at
+    // public-apps GA: out of `preview-messages.ts` and into `en.ts`. A public build that
+    // registers `app submit` while its copy was left behind is the same silent failure.
+    it.each([
+      'APP_SUBMIT_FORM_GATE',
+      'APP_SUBMIT_NEXT_STEPS',
+      'APP_SUBMIT_NOT_PUBLIC',
+      'APP_STATUS_MESSAGE',
+      'APP_WITHDRAW_SUCCESS',
+      'APP_WITHDRAW_NOT_SUBMITTED',
+    ])('defines the review-lifecycle string messages.%s', (key) => {
       const value = loadMessages(false)[key];
       expect(value).toBeDefined();
       expect(typeof value === 'string' ? value : 'fn').not.toBe('');
@@ -214,51 +280,6 @@ describe('the pre-GA gate, end to end', () => {
       const err = new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK as string);
       expect(err.message).not.toBe('');
       expect(err.message).toContain("'all'");
-    });
-  });
-
-  describe('a preview build (PREVIEW=1 yarn link:dev)', () => {
-    let tree: Tree;
-    beforeAll(() => {
-      tree = buildTree(true);
-    });
-
-    it.each(GATED_LISTED)('lists `app %s`', (name) => {
-      expect(tree.appHelp).toContain(name);
-    });
-
-    it.each(GATED_HEADINGS)('restores the "%s" section', (heading) => {
-      expect(tree.rootHelp).toContain(heading);
-    });
-
-    // Both renderers, because they are independent: Commander's `hidden` filters the
-    // generated `brevo app --help`, and the hand-aligned root screen is a string it
-    // cannot reach, so that omission is maintained by hand in `lib/help.ts`. A change
-    // to one and not the other is exactly what this pair is here to catch.
-    it('lists `app withdraw` on neither help screen', () => {
-      expect(tree.appHelp).not.toContain('withdraw');
-      expect(tree.rootHelp).not.toContain('withdraw');
-    });
-
-    // Hidden, not withheld. The section it would sit in is still rendered, and the
-    // command itself is registered, parses its flags and reaches its handler — so
-    // anyone who types it (QA suite 7, the public-app smoke script, the hint `app
-    // upload` prints when an app is under review) gets the command, not a refusal.
-    it('still registers `app withdraw` and answers its own --help', () => {
-      const app = tree.program.commands.find((c) => c.name() === 'app')!;
-      const withdraw = app.commands.find((c) => c.name() === 'withdraw');
-
-      expect(withdraw).toBeDefined();
-
-      const own = render(withdraw!);
-      expect(own).toContain('Usage: brevo app withdraw');
-      expect(own).toContain('--app-id');
-      expect(own).toContain('--force');
-    });
-
-    it('advertises both distribution values and the UI-app choice', () => {
-      expect(tree.rootHelp).toContain('private|public');
-      expect(tree.rootHelp).toMatch(/UI app/i);
     });
   });
 });
