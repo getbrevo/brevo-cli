@@ -2429,6 +2429,133 @@ describe('app/create', () => {
       expect(parsed.redirectUri).toEqual(['http://localhost:3009/auth/callback']);
       expect(parsed).not.toHaveProperty('uiApp');
     });
+
+    // ──────── Non-interactive UI app creation (--ui-config / --ui-app) ────────
+    // Both routes bypass resolveAppType's TTY check entirely and build an actionLink
+    // placement via resolveUiAppNonInteractive, reusing the same registry rows the
+    // interactive suite above stubs through `registryHas`.
+    describe('non-interactive (--ui-config / --ui-app)', () => {
+      const FLAG_OPTIONS = {
+        ...CLI_OPTIONS,
+        json: true,
+        uiApp: true,
+        recordPage: 'contactDetails',
+        placement: 'contact-details-header-menu',
+        label: 'Open in Acme',
+        url: 'https://example.com/open',
+      };
+
+      beforeEach(() => {
+        Object.defineProperty(process.stdin, 'isTTY', {
+          configurable: true,
+          writable: true,
+          value: false,
+        });
+      });
+
+      it('creates a UI app from --ui-app flags without a TTY', async () => {
+        await createCommand(FLAG_OPTIONS as never);
+
+        expect(questionNamed('appType')).toBeUndefined();
+        const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+        expect(payload.ui_app).toEqual({
+          extension_type: 'actionLink',
+          surface_point_list: [
+            {
+              surface_point_name: 'contact-details-header-menu',
+              context: DEFAULT_CONTEXT,
+              label: 'Open in Acme',
+              redirect_link: 'https://example.com/open',
+            },
+          ],
+        });
+        expect(payload).not.toHaveProperty('auth');
+      });
+
+      it('creates a UI app from --ui-config without a TTY', async () => {
+        (fs.readFileSync as jest.Mock).mockReturnValue(
+          JSON.stringify({
+            extension_type: 'actionLink',
+            record_page: 'contactDetails',
+            surface_point_name: 'contact-details-header-menu',
+            label: 'Open in Acme',
+            redirect_link: 'https://example.com/open',
+          }),
+        );
+
+        await createCommand({
+          ...CLI_OPTIONS,
+          json: true,
+          uiConfig: './ui-app.json',
+        } as never);
+
+        const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+        expect(payload.ui_app.surface_point_list[0].surface_point_name).toBe(
+          'contact-details-header-menu',
+        );
+      });
+
+      it('rejects a non-actionLink extension_type in --ui-config before any network call', async () => {
+        (fs.readFileSync as jest.Mock).mockReturnValue(
+          JSON.stringify({
+            extension_type: 'iframeExtension',
+            record_page: 'contactDetails',
+            surface_point_name: 'contact-details-header-menu',
+            label: 'Open in Acme',
+            redirect_link: 'https://example.com/open',
+          }),
+        );
+
+        await expect(
+          createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
+        ).rejects.toThrow(/only supports "actionLink"/);
+        expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
+        expect(appService.createApp).not.toHaveBeenCalled();
+      });
+
+      it('rejects --ui-config and --ui-app together', async () => {
+        await expect(
+          createCommand({ ...FLAG_OPTIONS, uiConfig: './ui-app.json' } as never),
+        ).rejects.toThrow(/cannot be used together/);
+        expect(appService.createApp).not.toHaveBeenCalled();
+      });
+
+      it('rejects --ui-app missing required companion flags', async () => {
+        await expect(
+          createCommand({
+            ...CLI_OPTIONS,
+            json: true,
+            uiApp: true,
+            label: 'Open in Acme',
+          } as never),
+        ).rejects.toThrow(/Missing required flag/);
+        expect(appService.createApp).not.toHaveBeenCalled();
+      });
+
+      it('rejects --ui-app combined with --redirect-uri', async () => {
+        await expect(
+          createCommand({
+            ...FLAG_OPTIONS,
+            redirectUri: ['http://localhost:3000/callback'],
+          } as never),
+        ).rejects.toThrow(/--redirect-uri/);
+        expect(appService.createApp).not.toHaveBeenCalled();
+      });
+
+      it('rejects an unknown --record-page and lists the valid ones', async () => {
+        await expect(
+          createCommand({ ...FLAG_OPTIONS, recordPage: 'bogusPage' } as never),
+        ).rejects.toThrow(/Unknown --record-page "bogusPage"/);
+        expect(appService.createApp).not.toHaveBeenCalled();
+      });
+
+      it('rejects an unknown --placement and lists the valid ones for that page', async () => {
+        await expect(
+          createCommand({ ...FLAG_OPTIONS, placement: 'bogus-placement' } as never),
+        ).rejects.toThrow(/Unknown --placement "bogus-placement"/);
+        expect(appService.createApp).not.toHaveBeenCalled();
+      });
+    });
   });
 
   // ──────── The pre-GA gate inside `app create` (BEX-405) ────────
