@@ -120,6 +120,75 @@ interface CreateOptionsForUiApp {
 }
 
 /**
+ * A JSON field is only trusted as authored text when it actually is a string —
+ * anything else (an object, a number, `null`) becomes `''` rather than being
+ * blindly stringified, which would otherwise let a mistyped `app-config.json`
+ * (e.g. a nested object where a string was expected) silently turn into the
+ * literal text `[object Object]` instead of tripping the "missing field"
+ * validation below or in `validateUiApp()`.
+ */
+function stringField(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/** The `--ui-config <file>` half of `resolveUiAppNonInteractiveInput`. */
+function parseUiConfigFile(configPath: string): UiAppNonInteractiveInput {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(configPath, 'utf-8');
+  } catch (err) {
+    throw new CliError(
+      messages.APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID(
+        configPath,
+        err instanceof Error ? err.message : String(err),
+      ),
+    );
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new CliError(
+      messages.APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID(
+        configPath,
+        err instanceof Error ? err.message : String(err),
+      ),
+    );
+  }
+  return {
+    extensionType: stringField(parsed.extension_type),
+    recordPage: stringField(parsed.record_page),
+    placement: stringField(parsed.surface_point_name),
+    label: stringField(parsed.label),
+    moreInfo: stringField(parsed.more_info),
+    url: stringField(parsed.redirect_link),
+  };
+}
+
+/** The `--ui-app`/`--record-page`/... flag-set half of `resolveUiAppNonInteractiveInput`. */
+function buildUiAppInputFromFlags(opts: CreateOptionsForUiApp): UiAppNonInteractiveInput {
+  const required: Array<[key: keyof CreateOptionsForUiApp, flag: string]> = [
+    ['recordPage', '--record-page'],
+    ['placement', '--placement'],
+    ['label', '--label'],
+    ['url', '--url'],
+  ];
+  const missing = required.filter(([key]) => !opts[key]).map(([, flag]) => flag);
+  if (missing.length > 0) {
+    throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_MISSING_FLAGS(missing));
+  }
+
+  return {
+    extensionType: EXTENSION_TYPE_ACTION_LINK,
+    recordPage: opts.recordPage!,
+    placement: opts.placement!,
+    label: opts.label!,
+    moreInfo: opts.moreInfo ?? '',
+    url: opts.url!,
+  };
+}
+
+/**
  * Merge `--ui-config`/`--ui-app` into one input shape, or `undefined` when neither
  * was passed — the signal `createCommand` uses below to decide the app type without
  * going through `resolveAppType`'s TTY check at all. Throws before any network call
@@ -141,58 +210,7 @@ function resolveUiAppNonInteractiveInput(
     throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_OAUTH_FLAG('--redirect-uri'));
   }
 
-  if (hasConfig) {
-    let raw: string;
-    try {
-      raw = fs.readFileSync(opts.uiConfig!, 'utf-8');
-    } catch (err) {
-      throw new CliError(
-        messages.APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID(
-          opts.uiConfig!,
-          err instanceof Error ? err.message : String(err),
-        ),
-      );
-    }
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      throw new CliError(
-        messages.APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID(
-          opts.uiConfig!,
-          err instanceof Error ? err.message : String(err),
-        ),
-      );
-    }
-    return {
-      extensionType: String(parsed.extension_type ?? ''),
-      recordPage: String(parsed.record_page ?? ''),
-      placement: String(parsed.surface_point_name ?? ''),
-      label: String(parsed.label ?? ''),
-      moreInfo: String(parsed.more_info ?? ''),
-      url: String(parsed.redirect_link ?? ''),
-    };
-  }
-
-  const required: Array<[key: keyof CreateOptionsForUiApp, flag: string]> = [
-    ['recordPage', '--record-page'],
-    ['placement', '--placement'],
-    ['label', '--label'],
-    ['url', '--url'],
-  ];
-  const missing = required.filter(([key]) => !opts[key]).map(([, flag]) => flag);
-  if (missing.length > 0) {
-    throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_MISSING_FLAGS(missing));
-  }
-
-  return {
-    extensionType: EXTENSION_TYPE_ACTION_LINK,
-    recordPage: opts.recordPage!,
-    placement: opts.placement!,
-    label: opts.label!,
-    moreInfo: opts.moreInfo ?? '',
-    url: opts.url!,
-  };
+  return hasConfig ? parseUiConfigFile(opts.uiConfig!) : buildUiAppInputFromFlags(opts);
 }
 
 // 4. App type — OAuth integration vs UI app (BEX-290).
@@ -632,6 +650,93 @@ async function createAppWithRetry(
   }
 }
 
+/** The `appType === 'ui'` vs OAuth branch of `createCommand` — collects the one thing the
+ * chosen type needs (a placement, or callback URLs) and nothing the other type would. */
+async function resolveUiAppOrRedirectUris(
+  appType: AppType,
+  nonInteractiveUiAppInput: UiAppNonInteractiveInput | undefined,
+  redirectUriFlag: string[] | undefined,
+  jsonMode: boolean,
+): Promise<{ redirectUris: string[]; uiApp: UiApp | undefined }> {
+  if (appType !== 'ui') {
+    return {
+      redirectUris: await resolveRedirectUrls(redirectUriFlag, jsonMode),
+      uiApp: undefined,
+    };
+  }
+  const uiApp = nonInteractiveUiAppInput
+    ? await resolveUiAppNonInteractive(nonInteractiveUiAppInput)
+    : await resolveUiApp();
+  return { redirectUris: [], uiApp };
+}
+
+/** Cache what a successful create just returned — guarded per field because a UI app
+ * has no OAuth credentials and an unnamed app (shouldn't happen, but typed as optional)
+ * has nothing to key a name cache entry with. */
+function cacheAppIdentity(result: CreateAppResponse, finalAppName: string): void {
+  if (result.client_id && result.client_secret) {
+    saveAppCredentials(result.app_id, {
+      clientId: result.client_id,
+      clientSecret: result.client_secret,
+    });
+  }
+  if (finalAppName) saveAppName(result.app_id, finalAppName);
+}
+
+/** Shared JSON shape for both exits of `createCommand`. `redirectUri` is omitted for UI
+ * apps rather than emitted as an empty array, so a consumer can distinguish "no callbacks
+ * by design" from "callbacks not returned". */
+function buildCreateJsonBase(
+  result: CreateAppResponse,
+  finalAppName: string,
+  appType: AppType,
+  uiApp: UiApp | undefined,
+  logoUri: string | undefined,
+): Record<string, unknown> {
+  return {
+    appId: result.app_id,
+    appName: finalAppName,
+    clientId: result.client_id,
+    clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
+    appType,
+    ...(uiApp ? { uiApp } : { redirectUri: result.redirect_uris }),
+    ...(logoUri ? { logoUri } : {}),
+    ...(result.version ? { version: result.version } : {}),
+  };
+}
+
+/** The `dir.skipped` exit of `createCommand` — an existing directory means scaffolding
+ * never ran, so this reports the app creation alone rather than a scaffold result. */
+function reportSkippedDirectory(
+  jsonMode: boolean,
+  jsonBase: Record<string, unknown>,
+  dir: CreateDirectoryResult,
+  renderBox: () => void,
+): void {
+  if (jsonMode) {
+    jsonOutput({
+      ...jsonBase,
+      directory: dir.targetDir,
+      scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(dir.targetDir),
+    });
+    return;
+  }
+  renderBox();
+  logInfo(messages.APP_CREATE_DIR_EXISTS_SKIPPED(dir.targetDir));
+}
+
+/** Widened to `OAuthApp` explicitly rather than passed raw: the create response declares
+ * its OAuth fields optional (a UI app has none), while `OAuthApp` wants `client_id` present
+ * and spells "no callbacks" as `null`. The empty string falls through to the scaffold's own
+ * placeholder, which is what a UI app should get. */
+function buildFallbackOAuthApp(result: CreateAppResponse): OAuthApp {
+  return {
+    ...result,
+    client_id: result.client_id ?? '',
+    redirect_uris: result.redirect_uris ?? null,
+  };
+}
+
 function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: string): void {
   const boxLines = [
     `App name:       ${appName}`,
@@ -690,15 +795,12 @@ export const createCommand = withCommandHandler(
 
     // The two app types diverge here: OAuth apps collect callback URLs, UI apps
     // collect placement + destination. Neither path runs the other's prompts.
-    let redirectUris: string[] = [];
-    let uiApp: UiApp | undefined;
-    if (appType === 'ui') {
-      uiApp = nonInteractiveUiAppInput
-        ? await resolveUiAppNonInteractive(nonInteractiveUiAppInput)
-        : await resolveUiApp();
-    } else {
-      redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
-    }
+    const { redirectUris, uiApp } = await resolveUiAppOrRedirectUris(
+      appType,
+      nonInteractiveUiAppInput,
+      options.redirectUri,
+      jsonMode,
+    );
 
     const dir = await resolveCreateDirectory(appName, interactive);
 
@@ -717,35 +819,13 @@ export const createCommand = withCommandHandler(
     // /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
     // too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
     // `app start` can read them without a round trip.
-    // Guarded because a UI app has no OAuth credentials to cache: writing the pair
-    // unconditionally stored `{clientId: undefined, clientSecret: undefined}` under
-    // its ID, which is a cache entry that can only mislead a later read.
-    if (result.client_id && result.client_secret) {
-      saveAppCredentials(result.app_id, {
-        clientId: result.client_id,
-        clientSecret: result.client_secret,
-      });
-    }
-    if (finalAppName) saveAppName(result.app_id, finalAppName);
+    cacheAppIdentity(result, finalAppName);
 
-    // Shared JSON shape for both exits below. `redirectUri` is omitted for UI
-    // apps rather than emitted as an empty array, so a consumer can distinguish
-    // "no callbacks by design" from "callbacks not returned".
-    //
     // `--json` implies non-interactive, which implies OAuth, so `appType` is
     // always `oauth` here today and the `uiApp` branch is unreachable. Both are
     // kept so the field stays meaningful to a consumer, and so this shape doesn't
     // have to be rediscovered if UI apps ever gain a non-interactive path.
-    const jsonBase = {
-      appId: result.app_id,
-      appName: finalAppName,
-      clientId: result.client_id,
-      clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
-      appType,
-      ...(uiApp ? { uiApp } : { redirectUri: result.redirect_uris }),
-      ...(logoUri ? { logoUri } : {}),
-      ...(result.version ? { version: result.version } : {}),
-    };
+    const jsonBase = buildCreateJsonBase(result, finalAppName, appType, uiApp, logoUri);
 
     const renderBox = (): void =>
       uiApp
@@ -753,16 +833,7 @@ export const createCommand = withCommandHandler(
         : renderCreatedApp(result, finalAppName, logoUri);
 
     if (dir.skipped) {
-      if (jsonMode) {
-        jsonOutput({
-          ...jsonBase,
-          directory: dir.targetDir,
-          scaffoldSkipped: messages.APP_CREATE_JSON_SCAFFOLD_DIR_EXISTS(dir.targetDir),
-        });
-        return;
-      }
-      renderBox();
-      logInfo(messages.APP_CREATE_DIR_EXISTS_SKIPPED(dir.targetDir));
+      reportSkippedDirectory(jsonMode, jsonBase, dir, renderBox);
       return;
     }
 
@@ -788,15 +859,7 @@ export const createCommand = withCommandHandler(
     // it, `GET /v3/app-store/apps/{id}` answering `id not found` for an ID the
     // create just issued aborted the command and left an orphan app behind.
     //
-    // Widened to `OAuthApp` explicitly rather than passed raw: the create response
-    // declares its OAuth fields optional (a UI app has none), while `OAuthApp` wants
-    // `client_id` present and spells "no callbacks" as `null`. The empty string falls
-    // through to the scaffold's own placeholder, which is what a UI app should get.
-    const fallbackApp: OAuthApp = {
-      ...result,
-      client_id: result.client_id ?? '',
-      redirect_uris: result.redirect_uris ?? null,
-    };
+    const fallbackApp = buildFallbackOAuthApp(result);
     const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp, fallbackApp);
 
     // Always write the basic project structure (app-config.json + meta files).
