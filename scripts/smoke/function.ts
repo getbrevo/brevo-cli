@@ -105,24 +105,30 @@ function stepFunctionGet(state: State): string {
   return `got function "${parsed.name}" (${id})`;
 }
 
-function stepFunctionGetNotFound(state: State): string {
-  // A nonexistent ID should exit 0 with a JSON error body — the command handles
-  // 404 gracefully rather than throwing.
-  const fakeId = 'brevo-cli-smoke-nonexistent-fn';
-  const r = exec(brevoCmd(state), ['function', 'get', '--id', fakeId, '--json'], state);
+// Shared helper for the four "not found" error probes — each differs only in
+// the subcommand name, so the body is factored out to satisfy Sonar's 3%
+// duplication threshold.
+const FAKE_ID = 'brevo-cli-smoke-nonexistent-fn';
+
+function assertNotFound(state: State, subcommand: string): string {
+  const r = exec(brevoCmd(state), ['function', subcommand, '--id', FAKE_ID, '--json'], state);
 
   must(
     r.exitCode === 0,
-    `function get (404) exited ${r.exitCode}, expected 0: ${(r.stderr || r.stdout).slice(0, 200)}`,
+    `function ${subcommand} (404) exited ${r.exitCode}, expected 0: ${(r.stderr || r.stdout).slice(0, 200)}`,
   );
 
   const parsed = parseJson<Record<string, unknown>>(r.stdout);
   must(
     parsed.error === 'not_found',
-    `function get (404): expected error "not_found", got ${JSON.stringify(parsed.error)}`,
+    `function ${subcommand} (404): expected error "not_found", got ${JSON.stringify(parsed.error)}`,
   );
 
-  return `404 handled gracefully for "${fakeId}"`;
+  return `404 handled gracefully for "${FAKE_ID}"`;
+}
+
+function stepFunctionGetNotFound(state: State): string {
+  return assertNotFound(state, 'get');
 }
 
 function stepFunctionActivateDeactivateCycle(state: State): string {
@@ -172,58 +178,16 @@ function stepFunctionActivateDeactivateCycle(state: State): string {
 }
 
 function stepFunctionActivateNotFound(state: State): string {
-  const fakeId = 'brevo-cli-smoke-nonexistent-fn';
-  const r = exec(brevoCmd(state), ['function', 'activate', '--id', fakeId, '--json'], state);
-
-  must(
-    r.exitCode === 0,
-    `function activate (404) exited ${r.exitCode}, expected 0: ${(r.stderr || r.stdout).slice(0, 200)}`,
-  );
-
-  const parsed = parseJson<Record<string, unknown>>(r.stdout);
-  must(
-    parsed.error === 'not_found',
-    `function activate (404): expected error "not_found", got ${JSON.stringify(parsed.error)}`,
-  );
-
-  return `404 handled gracefully for "${fakeId}"`;
+  return assertNotFound(state, 'activate');
 }
 
 function stepFunctionDeactivateNotFound(state: State): string {
-  const fakeId = 'brevo-cli-smoke-nonexistent-fn';
-  const r = exec(brevoCmd(state), ['function', 'deactivate', '--id', fakeId, '--json'], state);
-
-  must(
-    r.exitCode === 0,
-    `function deactivate (404) exited ${r.exitCode}, expected 0: ${(r.stderr || r.stdout).slice(0, 200)}`,
-  );
-
-  const parsed = parseJson<Record<string, unknown>>(r.stdout);
-  must(
-    parsed.error === 'not_found',
-    `function deactivate (404): expected error "not_found", got ${JSON.stringify(parsed.error)}`,
-  );
-
-  return `404 handled gracefully for "${fakeId}"`;
+  return assertNotFound(state, 'deactivate');
 }
 
 function stepFunctionDeleteNotFound(state: State): string {
-  const fakeId = 'brevo-cli-smoke-nonexistent-fn';
   // --json skips the confirmation prompt, so this works headless.
-  const r = exec(brevoCmd(state), ['function', 'delete', '--id', fakeId, '--json'], state);
-
-  must(
-    r.exitCode === 0,
-    `function delete (404) exited ${r.exitCode}, expected 0: ${(r.stderr || r.stdout).slice(0, 200)}`,
-  );
-
-  const parsed = parseJson<Record<string, unknown>>(r.stdout);
-  must(
-    parsed.error === 'not_found',
-    `function delete (404): expected error "not_found", got ${JSON.stringify(parsed.error)}`,
-  );
-
-  return `404 handled gracefully for "${fakeId}"`;
+  return assertNotFound(state, 'delete');
 }
 
 function stepFunctionDeploy(state: State): string {
