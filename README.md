@@ -114,10 +114,11 @@ The table above is the complete command surface of a published release. Features
 that renders directly inside a Brevo CRM record (interactive-only — there is no `--type` flag, so
 `--json` and piped runs always create an OAuth app).
 
-Today the prompt authors one integration type, an **action link** (`extension_type: "actionLink"`):
-a menu entry or a card's CTA button on a Brevo record page that opens your `redirect_link` when
-clicked — record fields arrive as query parameters, never in the path. Each authored placement
-lives in `app-config.json` under `ui_app.surface_point_list` and carries:
+Today the prompt authors one integration type, an **action link** (`extension_type: "actionLink"`).
+In short: it's a clickable menu entry or card CTA button that Brevo renders on a record page — no
+embed, no iframe — and clicking it just opens a URL you host, with the record's data passed along
+as query parameters, never in the path. Each authored placement lives in `app-config.json` under
+`ui_app.surface_point_list` and carries:
 
 - `surface_point_name` — which slot on which record page, chosen from Brevo's live registry at
   create time
