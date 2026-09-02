@@ -211,6 +211,29 @@ const coreMessages = {
   // waiting for a seed.
   APP_CREATE_UI_POINTS_NONE_FOR_TYPE: (extensionType: string) =>
     `None of the available placements can host a "${extensionType}" extension. This environment's extension-point registry may predate it — try again later.`,
+  // Non-interactive UI app creation (--ui-config / --ui-app). This iteration only
+  // supports actionLink — iframeExtension/legacyComponent are refused here, before
+  // the shared validateUiApp() runs, so the message is specific to this entry point
+  // rather than the generic "unsupported extension_type" one validateUiApp raises
+  // for a hand-edited app-config.json.
+  APP_CREATE_UI_NONINTERACTIVE_EXTENSION_TYPE: (extensionType: string) =>
+    `Non-interactive UI app creation only supports "actionLink" today (got "${extensionType}"). Create the app interactively instead, or edit app-config.json and use \`brevo app upload\` for other extension types.`,
+  APP_CREATE_UI_NONINTERACTIVE_BOTH_INPUTS:
+    '--ui-config and --ui-app cannot be used together. Choose one.',
+  APP_CREATE_UI_NONINTERACTIVE_MISSING_FLAGS: (flags: string[]) =>
+    `Missing required flag(s) for --ui-app: ${flags.join(', ')}.`,
+  APP_CREATE_UI_NONINTERACTIVE_OAUTH_FLAG: (flag: string) =>
+    `${flag} is for OAuth apps only and cannot be combined with --ui-config or --ui-app.`,
+  APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID: (file: string, reason: string) =>
+    `Could not read --ui-config "${file}": ${reason}`,
+  APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_RECORD_PAGE: (page: string, valid: string[]) =>
+    `Unknown --record-page "${page}". Valid record pages: ${valid.join(', ')}.`,
+  APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_PLACEMENT: (
+    placement: string,
+    page: string,
+    valid: string[],
+  ) =>
+    `Unknown --placement "${placement}" for record page "${page}". Valid placements: ${valid.join(', ')}.`,
   // Single-select (BEX-426): the interactive flow authors exactly one placement, because
   // the CTA fields (label, more_info, destination) live per placement now and asking them
   // per page would multiply the prompt count. More placements are added by hand as further

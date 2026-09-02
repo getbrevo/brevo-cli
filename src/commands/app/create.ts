@@ -1,7 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import inquirer from 'inquirer';
-import { CLI, DEFAULT_PORT, DEFAULT_REDIRECT_URI, DEFAULT_SCOPES } from '../../lib/constants';
+import {
+  CLI,
+  DEFAULT_PORT,
+  DEFAULT_REDIRECT_URI,
+  DEFAULT_SCOPES,
+  EXTENSION_TYPE_ACTION_LINK,
+} from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
 import { logInfo, logError, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
@@ -42,7 +48,12 @@ import { CreateAppResponse, OAuthApp, UiApp } from '../../types';
 // The UI-app half of this flow (registry reads, placement prompts, the summary box) lives
 // beside its app type — see `src/app-types/contract.ts` for why authoring hangs off the
 // module folder rather than off the type descriptor. Only these two entry points are public.
-import { resolveUiApp, renderCreatedUiApp } from '../../app-types/ui/authoring';
+import {
+  resolveUiApp,
+  resolveUiAppNonInteractive,
+  renderCreatedUiApp,
+  UiAppNonInteractiveInput,
+} from '../../app-types/ui/authoring';
 
 function validateHttpUrl(trimmed: string, invalidMessage: string): true | string {
   try {
@@ -97,6 +108,93 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
   return answer.name;
 }
 
+interface CreateOptionsForUiApp {
+  uiConfig?: string;
+  uiApp?: boolean;
+  recordPage?: string;
+  placement?: string;
+  label?: string;
+  moreInfo?: string;
+  url?: string;
+  redirectUri?: string[];
+}
+
+/**
+ * Merge `--ui-config`/`--ui-app` into one input shape, or `undefined` when neither
+ * was passed — the signal `createCommand` uses below to decide the app type without
+ * going through `resolveAppType`'s TTY check at all. Throws before any network call
+ * for every invalid combination (both inputs given, missing required flags, an
+ * OAuth-only flag alongside either) — none of the checks here touch the registry,
+ * so a bad invocation fails immediately rather than after a round trip.
+ */
+function resolveUiAppNonInteractiveInput(
+  opts: CreateOptionsForUiApp,
+): UiAppNonInteractiveInput | undefined {
+  const hasConfig = !!opts.uiConfig;
+  const hasFlags = !!opts.uiApp;
+  if (!hasConfig && !hasFlags) return undefined;
+  if (hasConfig && hasFlags) {
+    throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_BOTH_INPUTS);
+  }
+
+  if ((opts.redirectUri?.length ?? 0) > 0) {
+    throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_OAUTH_FLAG('--redirect-uri'));
+  }
+
+  if (hasConfig) {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(opts.uiConfig!, 'utf-8');
+    } catch (err) {
+      throw new CliError(
+        messages.APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID(
+          opts.uiConfig!,
+          err instanceof Error ? err.message : String(err),
+        ),
+      );
+    }
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      throw new CliError(
+        messages.APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID(
+          opts.uiConfig!,
+          err instanceof Error ? err.message : String(err),
+        ),
+      );
+    }
+    return {
+      extensionType: String(parsed.extension_type ?? ''),
+      recordPage: String(parsed.record_page ?? ''),
+      placement: String(parsed.surface_point_name ?? ''),
+      label: String(parsed.label ?? ''),
+      moreInfo: String(parsed.more_info ?? ''),
+      url: String(parsed.redirect_link ?? ''),
+    };
+  }
+
+  const required: Array<[key: keyof CreateOptionsForUiApp, flag: string]> = [
+    ['recordPage', '--record-page'],
+    ['placement', '--placement'],
+    ['label', '--label'],
+    ['url', '--url'],
+  ];
+  const missing = required.filter(([key]) => !opts[key]).map(([, flag]) => flag);
+  if (missing.length > 0) {
+    throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_MISSING_FLAGS(missing));
+  }
+
+  return {
+    extensionType: EXTENSION_TYPE_ACTION_LINK,
+    recordPage: opts.recordPage!,
+    placement: opts.placement!,
+    label: opts.label!,
+    moreInfo: opts.moreInfo ?? '',
+    url: opts.url!,
+  };
+}
+
 // 4. App type — OAuth integration vs UI app (BEX-290).
 //    Asked last of the four opening questions: name, logo and distribution all
 //    describe the app record itself and are asked of every app, so they come first.
@@ -104,18 +202,18 @@ async function resolveAppName(nameFlag: string | undefined): Promise<string> {
 //    paths runs (OAuth callback URLs vs UI-app placement) — so it is the last thing
 //    asked before the flow splits.
 //
-//    Prompt-only, deliberately: there is no `--type` flag, so a UI app can only
-//    be authored from an interactive terminal — a scriptable create surface
-//    would invite pipelines to pin to a shape that can still change. Any
-//    non-interactive run — piped stdin or `--json` — creates an OAuth app,
-//    exactly as it did before BEX-290, so existing scripted `app create` calls
-//    are unaffected.
+//    Prompt-only for everything OTHER than an actionLink UI app: there is no
+//    `--type` flag. A non-interactive run — piped stdin or `--json` — creates an
+//    OAuth app, exactly as it did before BEX-290, UNLESS `--ui-config` or
+//    `--ui-app` was passed, in which case `createCommand` never calls this
+//    function at all — see `resolveUiAppNonInteractiveInput` above and its call
+//    site below, which is the actual app-type decision when either flag is set.
 export type AppType = 'oauth' | 'ui';
 
 async function resolveAppType(interactive: boolean): Promise<AppType> {
   // A UI app is only reachable through this prompt (there is no `--type` flag), so a
-  // non-interactive run has nothing to resolve and creates an OAuth app, exactly as it
-  // did before BEX-290.
+  // non-interactive run with neither --ui-config nor --ui-app has nothing to resolve
+  // and creates an OAuth app, exactly as it did before BEX-290.
   if (!interactive) {
     return 'oauth';
   }
@@ -556,6 +654,13 @@ export const createCommand = withCommandHandler(
     distribution?: string;
     redirectUri?: string[];
     logoUri?: string;
+    uiConfig?: string;
+    uiApp?: boolean;
+    recordPage?: string;
+    placement?: string;
+    label?: string;
+    moreInfo?: string;
+    url?: string;
     json?: boolean;
   }): Promise<void> => {
     const jsonMode = !!options.json;
@@ -563,6 +668,12 @@ export const createCommand = withCommandHandler(
 
     guardAgainstLinkedApp();
     assertDistributionFlag(options.distribution);
+    // Resolved up front, before any prompt: its presence is what decides the app
+    // type below without going through resolveAppType's TTY check, and every
+    // invalid combination it can detect (both inputs, missing flags, an OAuth-only
+    // flag alongside either) must fail before the name/logo/distribution prompts
+    // cost the caller anything.
+    const nonInteractiveUiAppInput = resolveUiAppNonInteractiveInput(options);
 
     const interactive = !jsonMode && !!process.stdin.isTTY;
 
@@ -572,14 +683,19 @@ export const createCommand = withCommandHandler(
     const appName = await resolveAppName(options.name);
     const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
     const distribution = await resolveDistribution(options.distribution, interactive);
-    const appType = await resolveAppType(interactive);
+    // `--ui-config`/`--ui-app` decide the type outright — resolveAppType (and its
+    // TTY check) never runs for them, which is what makes them reachable without a
+    // terminal at all.
+    const appType: AppType = nonInteractiveUiAppInput ? 'ui' : await resolveAppType(interactive);
 
     // The two app types diverge here: OAuth apps collect callback URLs, UI apps
     // collect placement + destination. Neither path runs the other's prompts.
     let redirectUris: string[] = [];
     let uiApp: UiApp | undefined;
     if (appType === 'ui') {
-      uiApp = await resolveUiApp();
+      uiApp = nonInteractiveUiAppInput
+        ? await resolveUiAppNonInteractive(nonInteractiveUiAppInput)
+        : await resolveUiApp();
     } else {
       redirectUris = await resolveRedirectUrls(options.redirectUri, jsonMode);
     }
