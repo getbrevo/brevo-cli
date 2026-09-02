@@ -108,6 +108,33 @@ Most commands require a successful `brevo login` first, except authentication/he
 
 The table above is the complete command surface of a published release. Features that aren't live on the Brevo platform yet aren't built into the package — `brevo --help` always lists everything the binary can do, so there is nothing hidden behind a flag or an environment variable.
 
+### UI apps
+
+`brevo app create`'s interactive prompt can build two kinds of app: an OAuth app, or a **UI app**
+that renders directly inside a Brevo CRM record (interactive-only — there is no `--type` flag, so
+`--json` and piped runs always create an OAuth app).
+
+Today the prompt authors one integration type, an **action link** (`extension_type: "actionLink"`):
+a menu entry or a card's CTA button on a Brevo record page that opens your `redirect_link` when
+clicked — record fields arrive as query parameters, never in the path. Each authored placement
+lives in `app-config.json` under `ui_app.surface_point_list` and carries:
+
+- `surface_point_name` — which slot on which record page, chosen from Brevo's live registry at
+  create time
+- `label` — the menu entry's text, or the card's CTA button
+- `more_info` *(optional)* — a supporting line under the menu entry / card description
+- `redirect_link` — the destination URL
+- `context` *(optional)* — which record fields to pass along as query parameters, narrowed from
+  whatever that slot allows
+- `size` *(optional)* — card sizing, e.g. `{ "width": "280px", "height": "160px" }`; seeded from
+  the slot's own registry default when it declares one, and freely editable afterwards
+
+The interactive flow authors exactly one placement per run. More placements — or edits to any
+field above — are hand-added as further `surface_point_list` entries in `app-config.json` and
+pushed with `brevo app upload`, which validates every entry against the registry before it goes
+live. See [Uploading a UI app that is already installed](#uploading-a-ui-app-that-is-already-installed)
+below for what that push looks like.
+
 ### Uploading a UI app that is already installed
 
 A UI app's `ui_app` block is what every account it is installed in renders, and there is no
