@@ -1,8 +1,6 @@
 import { Command } from 'commander';
 import type { Capability } from '../app-types/capabilities';
 import { CliError } from './errors';
-import { FEATURE_STAGE, assertFeatureAvailable, isFeatureAvailable } from './preview';
-import type { PreviewFeature } from './preview';
 import { removedCommandsIn } from './removed-commands';
 import type { RemovedCommand } from './removed-commands';
 
@@ -29,11 +27,11 @@ export interface CommandDefinition {
    * `src/app-types/capabilities.ts`.
    *
    * **Declarative metadata, NOT a runtime guard.** The registry does not enforce it, and
-   * that is deliberate rather than unfinished: each gated command already throws its own
-   * tested message with its own exit code, and a generic interceptor here would replace
-   * them all with one string — which `CLAUDE.md` counts as a user-visible break for any
-   * script matching on it. Enforcement stays in the commands, via `assertCapability`, which
-   * reads the same table.
+   * that is deliberate rather than unfinished: each of these commands already throws its
+   * own tested message with its own exit code, and a generic interceptor here would
+   * replace them all with one string — which `CLAUDE.md` counts as a user-visible break
+   * for any script matching on it. Enforcement stays in the commands, via
+   * `assertCapability`, which reads the same table.
    *
    * What it is for: making the rule enumerable. `bin/index.ts` currently states it as prose
    * ("App-review commands (public apps only):") in a hand-aligned help block, and the agent
@@ -45,14 +43,16 @@ export interface CommandDefinition {
   /**
    * Keep the command out of `brevo app --help` while leaving it registered and callable.
    *
-   * Distinct from the pre-GA gate below, which hides *and* refuses: this one hides only.
-   * The command runs exactly as it always did for anyone who types it — it just stops
-   * being advertised. Used for a command we don't want to put in front of users yet but
-   * still need working for QA and the smoke tests (`app withdraw`).
+   * Hides only — it never refuses. The command runs exactly as it always did for anyone
+   * who types it, it just stops being advertised. Used for a command we don't want to put
+   * in front of users yet but still need working for QA and the smoke tests (`app
+   * withdraw` was the last one, un-hidden when the review lifecycle shipped; nothing sets
+   * it today).
    *
    * Hiding is only half the job: the hand-aligned root screen in `lib/help.ts` is a
    * separate renderer that Commander's `hidden` cannot reach, so a command set hidden
-   * here must also be absent from `formatRootHelp`. `preview-gate.test.ts` asserts both.
+   * here must also be absent from `formatRootHelp`. `help-surface.test.ts` asserts both
+   * renderers agree.
    */
   hidden?: boolean;
   handler: (opts: Record<string, unknown>, ...args: unknown[]) => void | Promise<void>;
@@ -65,41 +65,18 @@ export interface SubcommandGroupDefinition {
 }
 
 /**
- * The pre-GA feature a command's `requires` names, if any.
- *
- * `Capability` is the wider set — `oauth-flow`, `redirect-uris` and `scaffold-feature`
- * are capabilities that no gate applies to. Only the names that also appear in
- * `FEATURE_STAGE` are gateable, so the lookup is a membership test rather than a cast.
- */
-export function previewFeatureOf(def: CommandDefinition): PreviewFeature | undefined {
-  if (!def.requires) return undefined;
-  return def.requires in FEATURE_STAGE ? (def.requires as PreviewFeature) : undefined;
-}
-
-/**
  * Register a flat command on the program.
  *
- * A command gated behind an unreleased feature is registered `hidden` rather than
- * skipped. Skipping would drop it from the parser too, so invoking it would produce
- * Commander's `unknown command` — which tells the user the CLI has no such command,
- * when in fact it has one that isn't released. Registering it hidden keeps the typed
- * refusal (`assertFeatureAvailable`) and its exit code.
- *
- * Note this is a *feature* gate, not the capability gate `requires` is documented as
- * not being. The distinction is real: a capability gate depends on which app you are
- * acting on and each command answers it in its own words, while this one depends only
- * on whether the feature has shipped and is the same answer for every command. That
- * is why one interceptor is right here and wrong there.
- *
- * `def.hidden` is the other route to an unlisted command, and it is not the same thing:
- * it suppresses the help entry and nothing else. The command still parses, still runs,
- * and gains no refusal from being hidden.
+ * Every declared command is registered and callable. `def.hidden` is the only route to
+ * an unlisted command and it suppresses the help entry and nothing else — the command
+ * still parses and still runs. A command that should *refuse* says so itself, in its own
+ * words, via `assertCapability`; there is deliberately no interceptor here, for the
+ * reason `CommandDefinition.requires` gives.
  */
 function registerCommand(parent: Command, def: CommandDefinition): void {
-  const gatedBehind = previewFeatureOf(def);
-  const gateHides = Boolean(gatedBehind) && !isFeatureAvailable(gatedBehind!);
-  const hidden = def.hidden === true || gateHides;
-  const cmd = parent.command(def.name, { hidden }).description(def.description);
+  const cmd = parent
+    .command(def.name, { hidden: def.hidden === true })
+    .description(def.description);
 
   if (def.arguments) {
     for (const arg of def.arguments) {
@@ -125,11 +102,6 @@ function registerCommand(parent: Command, def: CommandDefinition): void {
   }
 
   cmd.action((...actionArgs) => {
-    // Re-checked here rather than reusing `hidden` above: that was computed at
-    // registration, and the refusal must reflect the state at invocation. Same answer
-    // in practice, but the gate reads the credentials file and the env, and neither
-    // belongs frozen in a module-init constant.
-    if (gatedBehind) assertFeatureAvailable(gatedBehind);
     // Commander passes positional args first, then options object, then Command
     const opts = actionArgs.at(-2) as Record<string, unknown>;
     const positionalArgs = actionArgs.slice(0, -2);
