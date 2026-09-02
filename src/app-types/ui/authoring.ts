@@ -415,6 +415,11 @@ export async function resolveUiApp(): Promise<UiApp> {
     // set, and an empty string would show up as a spurious diff on every upload.
     surface_point_list: buildSurfacePointList(selectedRows, {
       contextFor: (row) => row.default_context_field ?? [],
+      // The slot's default card size (BEX-461) seeds the entry's `size` the same way the
+      // row's `default_context_field` seeds `context`: written explicitly into the file,
+      // where the partner can see and edit it. Not prompted (D2) — the registry default
+      // is the platform's answer to the question the flow deliberately doesn't ask.
+      sizeFor: (row) => row.default_size ?? undefined,
       label: String(label ?? '').trim(),
       more_info: String(more_info ?? '').trim(),
       redirect_link: String(url ?? '').trim(),
@@ -456,11 +461,16 @@ export async function resolveUiApp(): Promise<UiApp> {
  * partner who wants them to differ edits the entries in `app-config.json`, which is the
  * documented path to more placements anyway. `more_info` is omitted when blank, same
  * contract as `context`.
+ *
+ * `sizeFor` seeds each entry's `size` from ITS row (the registry default, BEX-461), the
+ * same per-row contract as `contextFor`; a row with no default writes no `size` key, so
+ * the host's own fallback keeps applying, exactly as before the seed existed.
  */
 function buildSurfacePointList(
   rows: UsableSurfacePoint[],
   fields: {
     contextFor: (row: UsableSurfacePoint) => string[];
+    sizeFor: (row: UsableSurfacePoint) => { width?: string; height?: string } | undefined;
     label: string;
     more_info: string;
     redirect_link: string;
@@ -475,15 +485,34 @@ function buildSurfacePointList(
       .contextFor(row)
       .map((field) => String(field).trim())
       .filter(Boolean);
+    const size = sanitizeSeededSize(fields.sizeFor(row));
     entries.push({
       surface_point_name: row.surface_point_name,
       ...(context.length ? { context } : {}),
+      ...(size ? { size } : {}),
       label: fields.label,
       ...(fields.more_info ? { more_info: fields.more_info } : {}),
       redirect_link: fields.redirect_link,
     });
   }
   return entries;
+}
+
+/**
+ * Reduce a registry-served default size to the axes worth writing: non-blank strings only,
+ * and no `size` key at all when nothing survives. Belt and braces — the registry's own
+ * CHECK pins the grammar at seed time — but a server predating the field, or one echoing
+ * an unexpected shape, must degrade to "no seed" rather than write a key `validateUiApp`
+ * then refuses in the very flow that authored it.
+ */
+function sanitizeSeededSize(
+  raw: { width?: string; height?: string } | undefined,
+): { width?: string; height?: string } | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const width = typeof raw.width === 'string' ? raw.width.trim() : '';
+  const height = typeof raw.height === 'string' ? raw.height.trim() : '';
+  if (!width && !height) return undefined;
+  return { ...(width ? { width } : {}), ...(height ? { height } : {}) };
 }
 
 /**
