@@ -198,7 +198,7 @@ Flags:
                                ui       UI-app lifecycle (interactive create via a
                                         pty; opt-in)
                                init     'brevo app init' wizard (interactive, opt-in)
-                               function Brevo Function list/get commands (read-only)
+                               function Brevo Function list/get/activate/deactivate/deploy/delete/init
                                all      every suite
                                Default: private,public,function
   --with-init                  Append the init suite (same as adding 'init').

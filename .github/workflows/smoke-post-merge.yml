@@ -24,17 +24,27 @@ jobs:
       against: published
       # Pinned for the same reason as the pre-merge lane.
       #
-      # `private,ui,function` — the LIVE surface, which is the whole point of
-      # this lane: it installs from npm, so it is the only check on what a
-      # customer actually gets. `ui` is not implied by `private` (the two suites
-      # are disjoint), `function` is read-only and exercises the GA Brevo
-      # Function commands. All three have shipped in every build since their
-      # respective GA milestones.
+      # `private,ui` — the LIVE surface minus function, which runs on a
+      # dedicated account (see smoke-function below). `ui` is not implied by
+      # `private` (the two suites are disjoint). Both have shipped in every
+      # build since their respective GA milestones.
       #
       # No 'public': those commands are eliminated from the published bundle, so
       # the steps could only ever skip — and smoke.yml now refuses that pairing
       # outright rather than skipping through it to a green run.
-      suite: private,ui,function
+      suite: private,ui
       account: default
+      expected_version: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
+  smoke-function:
+    uses: ./.github/workflows/smoke.yml
+    with:
+      against: published
+      # Function commands need a dedicated account with dp-functions enabled.
+      # Split into its own job so it authenticates with the function account
+      # independently of the private/ui suites.
+      suite: function
+      account: function
       expected_version: ${{ github.event.release.tag_name }}
     secrets: inherit

@@ -123,6 +123,7 @@ on:
         options:
           - default
           - alt
+          - function
       environment:
         # 'staging' points BREVO_API_URL / BREVO_OAUTH_PROXY_URL / BREVO_OAUTH_BASE_URL
         # at repo secrets (BREVO_STAGING_*) rather than the CLI's production defaults —
@@ -278,15 +279,17 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           KEY_DEFAULT: ${{ secrets.BREVO_TEST_API_KEY }}
           KEY_ALT: ${{ secrets.BREVO_TEST_API_KEY_ALT }}
+          KEY_FUNCTION: ${{ secrets.BREVO_TEST_API_KEY_FUNCTION }}
           KEY_STAGING_DEFAULT: ${{ secrets.BREVO_TEST_API_KEY_STAGING }}
           KEY_STAGING_ALT: ${{ secrets.BREVO_TEST_API_KEY_STAGING_ALT }}
         run: |
           set -eu
           case "${ENVIRONMENT:-production}:${ACCOUNT:-default}" in
-            production:default) key="$KEY_DEFAULT";        name='BREVO_TEST_API_KEY' ;;
-            production:alt)     key="$KEY_ALT";             name='BREVO_TEST_API_KEY_ALT' ;;
-            staging:default)    key="$KEY_STAGING_DEFAULT"; name='BREVO_TEST_API_KEY_STAGING' ;;
-            staging:alt)        key="$KEY_STAGING_ALT";     name='BREVO_TEST_API_KEY_STAGING_ALT' ;;
+            production:default)  key="$KEY_DEFAULT";        name='BREVO_TEST_API_KEY' ;;
+            production:alt)      key="$KEY_ALT";             name='BREVO_TEST_API_KEY_ALT' ;;
+            production:function) key="$KEY_FUNCTION";        name='BREVO_TEST_API_KEY_FUNCTION' ;;
+            staging:default)     key="$KEY_STAGING_DEFAULT"; name='BREVO_TEST_API_KEY_STAGING' ;;
+            staging:alt)         key="$KEY_STAGING_ALT";     name='BREVO_TEST_API_KEY_STAGING_ALT' ;;
             *)
               echo "::error::unknown environment:account '${ENVIRONMENT:-production}:${ACCOUNT:-default}' — add a case for it in this step"
               exit 1
