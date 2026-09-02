@@ -46,7 +46,7 @@ on:
         description: 'Comma-separated suites for --suite (blank = the live surface)'
         required: false
         type: string
-        default: 'private,ui'
+        default: 'private,ui,function'
       account:
         description: 'Which test-account secret to authenticate with'
         required: false
@@ -81,8 +81,8 @@ on:
         # The values ARE the `--suite` argument, so what the dropdown shows is
         # what the runner receives — no label-to-flag mapping to keep in sync.
         #
-        # `private,ui` is the LIVE surface and the default: private apps plus UI
-        # apps, both GA and both in the published build.
+        # `private,ui,function` is the LIVE surface and the default: private apps,
+        # UI apps and Brevo Functions — all GA and in the published build.
         #
         # Anything containing `public` is the PREVIEW surface and only means
         # something against=local, where the runner builds PREVIEW=1. Against a
@@ -95,14 +95,16 @@ on:
         description: 'Which app types to smoke (--suite). public/all = preview, local only'
         type: choice
         required: true
-        default: private,ui
+        default: private,ui,function
         options:
+          - private,ui,function
           - private,ui
           - private
           - ui
+          - function
           - init
           - public
-          - private,ui,public
+          - private,ui,function,public
           - all
       account:
         # Names a SECRET, never a key. workflow_dispatch inputs are recorded on
@@ -298,7 +300,7 @@ jobs:
           echo "key=$key" >> "$GITHUB_OUTPUT"
           echo "authenticating as account '${ACCOUNT:-default}' on '${ENVIRONMENT:-production}' (secret ${name})"
 
-      - name: Run smoke test (${{ inputs.suite || 'private,ui' }})
+      - name: Run smoke test (${{ inputs.suite || 'private,ui,function' }})
         # Non-blocking only where the caller asks for it (the pre-merge release
         # PR). Absent on workflow_dispatch, where `inputs.non_blocking` is null.
         continue-on-error: ${{ inputs.non_blocking == true }}
@@ -316,4 +318,4 @@ jobs:
           BREVO_OAUTH_BASE_URL: ${{ steps.environment.outputs.oauth_base_url }}
         # `${SUITE:-…}` covers unset AND empty — an empty --suite= is a runner
         # error ("needs at least one suite name"), so it must not reach it.
-        run: yarn smoke --ci --against="$AGAINST" --suite="${SUITE:-private,ui}" --report=smoke-report.json
+        run: yarn smoke --ci --against="$AGAINST" --suite="${SUITE:-private,ui,function}" --report=smoke-report.json

@@ -24,17 +24,17 @@ jobs:
       against: published
       # Pinned for the same reason as the pre-merge lane.
       #
-      # `private,ui` — the LIVE surface, which is the whole point of this lane:
-      # it installs from npm, so it is the only check on what a customer
-      # actually gets. `ui` is not implied by `private` (the two suites are
-      # disjoint) and UI apps have shipped in every build since 2.2.0, so
-      # omitting it left `app install` / `app uninstall` and the whole `ui_app`
-      # path unverified against the published package.
+      # `private,ui,function` — the LIVE surface, which is the whole point of
+      # this lane: it installs from npm, so it is the only check on what a
+      # customer actually gets. `ui` is not implied by `private` (the two suites
+      # are disjoint), `function` is read-only and exercises the GA Brevo
+      # Function commands. All three have shipped in every build since their
+      # respective GA milestones.
       #
       # No 'public': those commands are eliminated from the published bundle, so
       # the steps could only ever skip — and smoke.yml now refuses that pairing
       # outright rather than skipping through it to a green run.
-      suite: private,ui
+      suite: private,ui,function
       account: default
       expected_version: ${{ github.event.release.tag_name }}
     secrets: inherit

@@ -55,9 +55,7 @@ import { initWizardSuite } from './smoke/init-wizard';
 import { functionSuite } from './smoke/function';
 
 // Suite registry. `--suite=<name[,name]>` picks from these; the init wizard is
-// opt-in because it drives interactive prompts through scripted stdin, and the
-// function suite is opt-in because it exercises read-only endpoints that may
-// return empty results on a fresh account.
+// opt-in because it drives interactive prompts through scripted stdin.
 const SUITES: Record<string, Suite> = {
   private: privateAppSuite,
   public: publicAppSuite,
@@ -66,7 +64,7 @@ const SUITES: Record<string, Suite> = {
   function: functionSuite,
 };
 
-const DEFAULT_SUITES = ['private', 'public'];
+const DEFAULT_SUITES = ['private', 'public', 'function'];
 
 // Minimum spacing between `brevo` invocations. Chosen to cost ~40s across a full
 // ~40-call run — cheap next to the 126s a single rate-limited delete burned before
@@ -200,9 +198,9 @@ Flags:
                                ui       UI-app lifecycle (interactive create via a
                                         pty; opt-in)
                                init     'brevo app init' wizard (interactive, opt-in)
-                               function Brevo Function list/get commands (read-only, opt-in)
+                               function Brevo Function list/get commands (read-only)
                                all      every suite
-                               Default: private,public
+                               Default: private,public,function
   --with-init                  Append the init suite (same as adding 'init').
   --with-ui                    Append the ui suite.
   --with-public                Append the public suite.
