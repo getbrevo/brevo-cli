@@ -1954,6 +1954,44 @@ describe('app/create', () => {
       expect(surfacePointNames()).toEqual(['contact-details-header-menu']);
     });
 
+    // ──────── The registry default card size (BEX-461) ────────
+    // A SEED like `default_context_field`: the picked row's `default_size` lands in the
+    // entry's `size` explicitly, where the partner can see and edit it. Never prompted (D2).
+
+    it('seeds the entry size from the picked row default_size', async () => {
+      registryHas([
+        REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', {
+          default_size: { height: '200px' },
+        }),
+      ]);
+      answerPrompts({ placement: 'contact-details-overview-main' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list[0].size).toEqual({ height: '200px' });
+    });
+
+    it('writes no size key when the row declares no default', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('size');
+    });
+
+    // A server predating the field, or echoing an unexpected shape, degrades to "no seed"
+    // rather than writing a key validateUiApp then refuses in the flow that authored it.
+    it('drops a blank or malformed default_size instead of seeding it', async () => {
+      registryHas([
+        REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', {
+          default_size: { height: '   ', width: '' },
+        }),
+      ]);
+      answerPrompts({ placement: 'contact-details-overview-main' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('size');
+    });
+
     // A lone choice is still shown rather than picked silently: it is one keypress either
     // way, and the partner sees where the app lands.
     it('still asks on a page that offers only one placement', async () => {
