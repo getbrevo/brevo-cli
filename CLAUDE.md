@@ -85,6 +85,45 @@ The `type === 'corporate'` discriminator on `/v3/account/info` that account reso
 
 **The presence of `ui_app` is the app-type discriminator** — there is no `appType` key in `app-config.json`. Every branch that needs to tell the two types apart goes through `isUiAppConfig()` in `src/lib/config.ts`; use it rather than testing for the key inline, so the discriminator can change in one place.
 
+## Non-interactive (non-TTY) UI app creation — required before merging `feat/ui-app-noninteractive-create` to `main`
+
+`brevo app create` for a UI app used to be reachable only from an interactive
+terminal — any non-interactive run (`--json`, piped stdin, or an agent's
+non-interactive shell tool) silently created an OAuth app instead, with no error.
+`feat/ui-app-noninteractive-create` adds two non-interactive entry points,
+`--ui-config <file>` and the `--ui-app`/`--record-page`/`--placement`/`--label`/
+`--more-info`/`--url` flag set, both scoped to `extension_type: "actionLink"` only
+(`iframeExtension`/`legacyComponent` are explicitly out of scope and rejected).
+Both reuse the interactive wizard's own registry validation
+(`fetchRecordPageLocations`/`fetchSurfacePointsForPages`) and `validateUiApp()` —
+no local slot-name list, no new validation logic — and still create exactly one
+placement per call, matching the wizard's existing one-placement rule.
+
+**Before this branch merges into `main`, all of the following must be true — this
+is a merge gate, not a nice-to-have:**
+
+- `--ui-config` and `--ui-app` both work end-to-end and are covered by tests in
+  `src/__tests__/app-types/ui/authoring.test.ts` and
+  `src/__tests__/commands/app/create.test.ts` (registry-validation reuse,
+  actionLink-only rejection, mutual exclusivity, missing-flag rejection,
+  OAuth-flag rejection, unregistered `--record-page`/`--placement` with the
+  valid-options-listed error).
+- `agent-context/SKILL.md` and `agent-context/AGENTS.md` no longer state that a UI
+  app "can only be authored from an interactive terminal" — both describe the new
+  flags instead, per the "Keep agent docs in sync with CLI behavior" rule above.
+- A changeset is present (`yarn changeset`) — this is new user-facing CLI surface.
+- `yarn lint`, `yarn test:ci`, and `yarn build` are all green.
+- The design spec this feature was planned from
+  (`docs/superpowers/specs/2026-09-02-ui-app-noninteractive-create-design.md`) is
+  deleted before merge, once implemented — it was working scratch, not a doc meant
+  to live in `main`.
+
+Don't merge partway — e.g. flags implemented but docs not updated, or `--ui-config`
+shipped without `--ui-app` or vice versa. A half-shipped non-interactive path is
+worse than the old all-or-nothing OAuth fallback: it would silently succeed for one
+input shape and silently fall back to OAuth for the other, which is exactly the
+footgun this feature exists to remove.
+
 ## Branch-local working docs — NEVER merge into `main`
 
 The internal working docs are committed on feature branches only and **must never land
