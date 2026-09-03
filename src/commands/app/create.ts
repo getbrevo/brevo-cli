@@ -15,7 +15,6 @@ import { ApiError, AuthExpiredError, CliError, ErrorCode } from '../../lib/error
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName, validateYesNo } from '../../lib/validators';
-import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
 import {
   saveAppCredentials,
@@ -235,21 +234,13 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
   if (!interactive) {
     return 'oauth';
   }
-  // The question is always asked; only the *choices* are gated. A build that offers one
-  // app type still names it, so the flow reads the same everywhere and the user is told
-  // what they are getting rather than having it applied silently.
-  //
-  // `ui-app-type` is GA, so `isFeatureAvailable` answers true in every build — the call
-  // stays so the choice keeps reading the same `FEATURE_STAGE` table as everything
-  // else. The `__BREVO_PREVIEW__ &&` guard this site carried pre-GA is gone with the
-  // gate; the UI-authoring layer (registry reads, placement prompts, the summary box)
-  // now ships in the published bundle.
+  // OAuth first, so a bare Enter selects the type that every non-interactive run also
+  // gets — the answer a script would have produced, for someone who did not read the
+  // question.
   const choices: Array<{ name: string; value: AppType }> = [
     { name: messages.APP_CREATE_APP_TYPE_OAUTH, value: 'oauth' },
+    { name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' },
   ];
-  if (isFeatureAvailable('ui-app-type')) {
-    choices.push({ name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' });
-  }
   const answer = await inquirer.prompt([
     {
       type: 'list',
@@ -268,18 +259,13 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
 //     made to answer questions, otherwise `--distribution typo` costs a logo prompt
 //     first. Pure — no I/O, no prompts — so it is safe this early.
 //
-//     Public distribution is GA (BEX-405), so `assertFeatureAvailable` is now a no-op
-//     and both values are accepted. The check is kept rather than deleted: it is the one
-//     place a flag *value* can be held back, which a `FEATURE_STAGE` row cannot express
-//     on its own — the flag parses before any gate sees it, so a gated value has to be
-//     refused rather than hidden. `validateEnum` still runs first so a genuine typo gets
-//     the "invalid value" error it deserves.
+//     Both values are accepted; `distribution_type` is immutable after create, so the
+//     only thing to check is that the flag names one of the two. Kept as its own
+//     function rather than inlined into `resolveDistribution` for the ordering reason
+//     above.
 function assertDistributionFlag(distributionFlag: string | undefined): void {
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
-  if (distributionFlag === 'public') {
-    assertFeatureAvailable('public-distribution');
-  }
 }
 
 // 3. Distribution type — the flag is already validated by `assertDistributionFlag`.
@@ -290,28 +276,23 @@ async function resolveDistribution(
   if (distributionFlag) {
     return distributionFlag;
   }
-  // Load-bearing, not a tidy-up: this used to be covered by the feature check below
-  // returning early, so removing that check without this one would put a prompt in
-  // front of every `--json` / piped run and hang CI on a question it cannot answer.
+  // Load-bearing, not a tidy-up: a `--json` or piped run must never reach the prompt
+  // below, or CI hangs on a question it cannot answer. `private` is the conservative
+  // default, and it is what every scripted `app create` produced before the prompt
+  // existed.
   if (!interactive) {
     return 'private';
   }
-  // Same shape as the app-type prompt: the question is always asked, only the choices
-  // are gated. Public apps are GA, so `isFeatureAvailable` answers true in every build
-  // and both choices are offered. What GA removed is the `__BREVO_PREVIEW__ &&` conjunct
-  // that used to guard this push — the build flag was the outer authority, so flipping
-  // the FEATURE_STAGE row alone would have left a published build offering `Private`
-  // only. The `isFeatureAvailable` call stays so an emergency flip back to 'preview'
-  // narrows the prompt again without a rewrite.
+  // `private` stays FIRST so it remains what a bare Enter selects — the same
+  // conservative default the non-interactive path takes, for the same reason.
+  // `distribution_type` is immutable after create, so a mis-hit here costs a new app.
   const choices: Array<{ name: string; value: string }> = [
     { name: 'Private  (Used exclusively by your organisation)', value: 'private' },
-  ];
-  if (isFeatureAvailable('public-distribution')) {
-    choices.push({
+    {
       name: 'Public   (Distributed to end users or marketplace listings)',
       value: 'public',
-    });
-  }
+    },
+  ];
   const answer = await inquirer.prompt([
     {
       type: 'list',

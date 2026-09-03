@@ -38,7 +38,7 @@ function numberedSteps(cdDir: string | undefined, steps: Array<[string, string]>
   ];
 }
 
-const coreMessages = {
+export const messages = {
   // Update notifier
   UPDATE_AVAILABLE: (current: string, latest: string): string =>
     `Update available: ${current} → ${latest}`,
@@ -97,17 +97,6 @@ const coreMessages = {
   WHOAMI_NOT_AUTHENTICATED: `Not authenticated. Run: ${CLI.LOGIN}`,
   WHOAMI_CREDENTIAL_MISMATCH: (fields: string[]) =>
     `Local credentials mismatch with API for: ${fields.join(', ')}. Run \`${CLI.LOGIN}\` to re-authenticate.`,
-
-  // Pre-GA gate (BEX-405). One message for every gated command, prompt choice and
-  // flag value — see `src/lib/preview.ts` for why this one is shared while the
-  // capability refusals each keep their own wording.
-  //
-  // Deliberately says nothing about the internal-account escape hatch or the env
-  // var: an end user cannot use either, so naming them would only invite an attempt.
-  // Both are documented where the people who need them will look — the agent docs
-  // and the README.
-  PREVIEW_FEATURE_UNAVAILABLE:
-    'That command is not available yet. It is part of a Brevo feature that has not been released.',
 
   // App create
   APP_CREATE_NAME_PROMPT: 'App name:',
@@ -194,7 +183,7 @@ const coreMessages = {
       [CLI.APP_INSTALL(), 'make it available in an account'],
     ]),
 
-  // App create — UI app (BEX-290). Moved here from `preview-messages.ts` at UI-apps GA.
+  // App create — UI app (BEX-290).
   // Placement choices are read from the platform's extension-point registry at prompt
   // time (BEX-361) — fetch-only, no local fallback, so a partner can never author a slot
   // the platform doesn't have. Two loads: the record pages, then the placements on the
@@ -282,7 +271,6 @@ const coreMessages = {
   APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
 
   // App install / uninstall — per-account availability for UI apps (BEX-290).
-  // Moved here from `preview-messages.ts` at UI-apps GA.
   APP_INSTALL_SELECT: 'Select an app to install:',
   /**
    * How an account is named in every install/uninstall line.
@@ -515,11 +503,12 @@ const coreMessages = {
   LEGACY_ALL_SCOPE_SCAFFOLD_SUBSTITUTED: (writtenScopes: string): string =>
     `This app still has the legacy 'all' OAuth scope (deprecated). Wrote ${writtenScopes} to app-config.json instead of 'all'. Migrate the app by editing \`auth.scopes\` and running \`${CLI.APP_UPLOAD}\`.`,
   LEGACY_ALL_SCOPE_UPDATE_MIGRATING: `Migrating from legacy 'all' scope — 'all' will be removed.`,
-  // Deliberately in core rather than `preview-messages`: the legacy-scope deprecation
-  // (BEX-214) is GA, and `app upload` — the only reader — ships in every build. It lived
-  // in `preview-messages` between BEX-405 and this fix, which meant a public build read
-  // the key as `undefined` and `new CliError(undefined)` rendered as a bare `✗` with no
-  // text. The build now refuses that class of leak; see `scripts/build.mjs`.
+  // The legacy-scope deprecation (BEX-214) is GA and `app upload` is its only reader.
+  // Worth knowing if a build gate is ever reintroduced (see `CLAUDE.md` → *If you ever
+  // need to gate a feature again*): this string spent BEX-405 parked in the gated
+  // strings module, which eliminated the definition while leaving the live read, so a
+  // published `app upload` read the key as `undefined` and `new CliError(undefined)`
+  // rendered as a bare `✗` with no text.
   LEGACY_ALL_SCOPE_DEPRECATED_BLOCK: `This app currently has the legacy 'all' OAuth scope, which is being deprecated.\n  Replace 'all' with the specific scopes your integration uses in app-config.json's \`auth.scopes\`.\n  Run \`${CLI.APP_SCOPES}\` to see the catalog, then run \`${CLI.APP_UPLOAD}\` to migrate.`,
 
   // App delete
@@ -724,8 +713,6 @@ const coreMessages = {
   // `app start oauth`: an action link has no OAuth flow and no local server to run,
   // so the OAuth line pointed at a command that would fail. It also contradicted the
   // Next steps box printed directly above it, which already said upload → install.
-  // Deliberately in core rather than `preview-messages`: `init` is not a gated command,
-  // and a hand-edited `ui_app` block can reach this line in a published build.
   INIT_DONE_UI_APP: `All set! Follow the next steps above, or run \`${CLI.HELP}\` to see all commands.`,
 
   // Skill
@@ -775,8 +762,7 @@ const coreMessages = {
     `Failed to fetch OAuth scopes from ${url} (HTTP ${status}).`,
 
   // App submit / status / withdraw — the public-app review lifecycle (BEX-221 / BEX-251
-  // / BEX-252 / BEX-383). Moved here from `preview-messages.ts` at public-apps GA
-  // (BEX-405), the same move the UI-app and install strings made at UI-apps GA.
+  // / BEX-252 / BEX-383), GA at BEX-405.
   // App submit (BEX-221)
   APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
   APP_SUBMIT_FETCHING: 'Fetching app...',
@@ -865,12 +851,3 @@ const coreMessages = {
   // General
   ABORTED: 'Aborted.',
 } as const;
-
-// Nothing is gated any more, so there is no second object to spread in. This stayed a
-// wrapper around `coreMessages` rather than collapsing into one export because that is
-// what every call site imports; the indirection is also where a future gated-strings
-// module would spread back in. See `lib/preview.ts` for why object literals need their
-// own module to be gatable at all — esbuild cannot prune a property from one.
-export const messages = {
-  ...coreMessages,
-};

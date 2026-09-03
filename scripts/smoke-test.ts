@@ -215,17 +215,16 @@ uninstall) always run, whichever suites are selected. Examples:
 Steps that need a command the installed CLI doesn't have (notably
 --against=published, where the npm 'latest' tag may predate a command this
 branch adds) are auto-detected and reported as skipped rather than failed. The
-same detection covers gated *features* that come with no command of their own.
+same detection covers a *feature* that comes with no command of its own.
 
---against=local always builds the PUBLISHED surface — i.e. what npm actually
-ships — because nothing is gated any more: public apps and the review lifecycle
-went GA at BEX-405, UI apps at BEX-290, so every suite's commands are in every
-build. This used to fork on the selected suites, building PREVIEW=1 whenever
-'public' was picked, and that fork is gone rather than merely unused: leaving it
-would mean the one suite exercising the review lifecycle never ran against the
-artifact users install.
+--against=local builds what npm ships, because that is now the only thing to
+build: public apps and the review lifecycle went GA at BEX-405, UI apps at
+BEX-290, and the build gate was torn down after them. This used to fork on the
+selected suites, building PREVIEW=1 whenever 'public' was picked; the fork is
+gone rather than merely unused, because leaving it would mean the one suite
+exercising the review lifecycle never ran against the artifact users install.
 
-The ui and init suites are opt-in for a different reason, unrelated to any gate:
+The ui and init suites are opt-in for a reason that was never about the gate:
 they drive interactive prompts. 'brevo app create' only offers the UI app type
 on a real terminal, so the ui suite drives it through script(1) and init through
 scripted stdin.

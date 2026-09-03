@@ -17,7 +17,7 @@ runbook again — recreate one rather than growing this file into one.
 ## ⚠️ BLOCKER — the platform still refuses CLI-created public apps
 
 **Verified against production on 2026-09-02**, authenticated, no `BREVO_API_URL`
-override, on a plain (non-preview) build of this branch:
+override, on a build of this branch:
 
 ```
 $ brevo app create --name "…" --distribution public --json
@@ -25,7 +25,7 @@ $ brevo app create --name "…" --distribution public --json
   Brevo said:  public apps cannot be created with source \"cli\"; use distribution_type \"private\""}}
 ```
 
-The CLI-side gate is open and correct — the flag parses, validates and is sent. The
+The CLI side is open and correct — the flag parses, validates and is sent. The
 refusal is the **platform's**, and it is keyed on the caller being the CLI, not on an
 account flag: the CLI stopped sending `source: 'cli'` (see the BEX-355 item below), so
 the backend is deriving it from the `User-Agent` and applying the policy regardless of
@@ -42,43 +42,21 @@ tell an agent to read that line and not retry.
       - **Land as-is.** The CLI is complete and lights up the moment the backend policy
         lifts, with no further release. Cost: a documented flag returns a server `400`,
         so users meet the refusal rather than the feature.
-      - **Hold the flip.** Set `FEATURE_STAGE['public-distribution']` and
-        `['review-lifecycle']` back to `'preview'` and keep everything else (strings and
-        constants moved to `en.ts` / `constants.ts`, docs, smoke, the TC-6.3 fix). Note
-        the three command definitions would have to move back into a gated module for the
-        gate to actually eliminate them — see `src/lib/preview.ts`'s header.
+      - **Hold the flip.** Re-gate `public-distribution` and `review-lifecycle`, keeping
+        everything else (strings and constants in `en.ts` / `constants.ts`, docs, smoke,
+        the TC-6.3 fix). **This got more expensive and the price should be in the
+        decision:** the gate machinery was torn down after GA (see *Closed* below), so
+        this now means rebuilding it from the recipe in `CLAUDE.md` → *If you ever need to
+        gate a feature again* — the build flag, the `define` block, the bundle assertions
+        — on top of the work it always needed, which is the larger half: moving the three
+        command definitions into a gated module, the review-lifecycle strings into a gated
+        messages module, and re-adding the help/prompt wrappers. Those three modules were
+        deleted at GA itself, before the teardown, so the teardown adds to the bill rather
+        than creating it. Still a day's work either way, and a revert of the GA commit is
+        probably the cheaper route to the same place.
 - [ ] **Get the backend policy lifted (BEX-355).** This is the real unblock. The
       `source "cli"` policy needs to allow public creates from the CLI, or expose a
       per-account allowance the CLI can be granted. Until then, GA is CLI-side only.
-
-## Gate machinery — teardown deferred, deliberately
-
-Every `FEATURE_STAGE` row in `src/lib/preview.ts` is `'ga'`, so the pre-GA gate now holds
-nothing back. The three modules that carried gated surface — `commands/preview-definitions.ts`,
-`lang/preview-messages.ts`, `lib/preview-constants.ts` — emptied and were deleted at GA.
-The machinery around them was **kept on purpose**, to keep the GA change reviewable and
-because it is the shape the next unreleased feature should arrive in.
-
-- [ ] **Decide whether to tear it down.** If yes, in one pass: `src/lib/preview.ts`,
-      `src/globals.d.ts`, `jest.setup.js` + its `setupFiles` entry in `jest.config.js`,
-      the esbuild `define` block and both `LEAK_MARKERS` / `LEAK_STRINGS` checks in
-      `scripts/build.mjs` (plus `orphanedPreviewMessageKeys`), the `build:preview` script,
-      the `previewFeatureOf` / `assertFeatureAvailable` wiring in
-      `src/lib/command-registry.ts`, the two `isFeatureAvailable` calls in
-      `src/commands/app/create.ts`, the `gatedSection` / `distributionValues` /
-      `createDescription` helpers in `src/lib/help.ts`, and
-      `messages.PREVIEW_FEATURE_UNAVAILABLE`. Also `src/__tests__/lib/preview.test.ts` and
-      `preview-gate.test.ts`, which currently assert the mechanism against a simulated
-      gated row.
-      **Keep esbuild.** The bundler was adopted for the gate but is now the build
-      (`scripts/build.mjs`); reverting to `tsc` would change the published layout again —
-      `dist/bin/files`, the single-file entry, `sideEffects: false`. Only `define` and the
-      marker checks are gate-specific.
-      Against teardown: the next gated feature has to rediscover both traps (a gated
-      command's definition must be referenced only from behind `__BREVO_PREVIEW__`, and
-      that flag outranks `FEATURE_STAGE` for help text and prompt branches), and both cost
-      a release each to learn the first time. They are written down in `preview.ts`'s
-      header; deleting the file deletes the note.
 
 ## Release gates
 
@@ -151,10 +129,11 @@ misleading copy. Same gate `app install` already applies (`assertInstallable`'s
 - [ ] **Unrun:** TC-2.2 (interactive Public choice), TC-2.3 (list), TC-6.2 (state→tone map),
       TC-6.4 (`--json`), TC-6.6 (NO_COLOR/FORCE_COLOR), TC-13.4's mismatch branch.
 - [ ] **No `--json` / non-TTY path has been run for any public-app suite.**
-- [ ] **Re-baseline every public suite against the GA build.** The recorded results were all
-      taken on `PREVIEW=1` artifacts. The commands are identical, but "needs a preview
-      build" is no longer a precondition anywhere and the sweep should be re-run once on a
-      plain `yarn link:dev` to say so with evidence.
+- [ ] **Re-baseline every public suite against the shipped build.** The recorded results
+      were all taken on `PREVIEW=1` artifacts, which no longer exist — that build differed
+      from the published one by a single unreachable byte, and the gate that produced it
+      has been torn down. "Needs a preview build" is not a precondition anywhere any more;
+      re-run the sweep once on `yarn link:dev` to say so with evidence.
 
 **Closed:** the PKCE expectation. `src/templates/index.ts` really does branch on the
 `public` / `private` template flag, `.env.example.tmpl` omits `CLIENT_SECRET` and notes
@@ -162,5 +141,37 @@ PKCE for a public app, and `__tests__/templates/handler.test.ts` covers the
 *public (PKCE, no secret)* variant. The expectation was not stale.
 
 **Closed:** `yarn smoke --against=local` building the wrong artifact. `stepReinstall` no
-longer forks on the selected suites — nothing is gated, so every local build is the
+longer forks on the selected suites — there is one build, so every local run is the
 published surface and the public suite exercises what npm ships.
+
+**Closed: the gate machinery is torn down.** It was kept all-`'ga'` for one release after
+GA to keep that diff reviewable; this closes it out. Deleted: `src/lib/preview.ts`,
+`src/globals.d.ts`, the esbuild `define` block and the `LEAK_MARKERS` / `LEAK_STRINGS` /
+`orphanedPreviewMessageKeys` checks in `scripts/build.mjs`, the `build:preview` script,
+`previewFeatureOf` and the registry's gate branch, `help.ts`'s `gatedSection` /
+`distributionValues` / `createDescription`, both `isFeatureAvailable` calls and the
+`assertFeatureAvailable` in `app create`, `messages.PREVIEW_FEATURE_UNAVAILABLE`, and the
+`preview.test.ts` / `preview-gate.test.ts` suites. The vestigial `messages` /
+`CLI` spread-in wrappers (`coreMessages`, `coreCli`) collapsed too.
+
+Three things were deliberately **kept**, and each has a note saying so where it lives:
+`CommandDefinition.requires` (a `Capability`, not gate config), `jest.setup.js` and its
+`setupFiles` entry (its `BREVO_*` env scrub is unrelated and load-bearing), and esbuild
+itself (it is the build now). The `.github/workflows/` comments that mention the historical
+`PREVIEW=1` build were left alone — nothing functional reads them, and editing a workflow
+file needs a PAT this repo's OAuth-App credentials cannot substitute for.
+
+**The argument against teardown was that `preview.ts`'s header was the only record of the
+two traps.** It is now `CLAUDE.md` → *If you ever need to gate a feature again*, expanded
+with the `define`-as-bare-global reasoning from `globals.d.ts` and the object-literal rule
+from `build.mjs`. That the note needed moving somewhere load-bearing was itself the
+evidence: `globals.d.ts` had been telling readers to "use `PREVIEW_BUILD` from
+`lib/build-flags`" for two releases after that module was deleted, and nobody noticed.
+Two other facts settled it — the gate was not, as its own header claimed, "a no-op that
+every build folds away" (`isFeatureAvailable`, `assertFeatureAvailable`,
+`previewFeatureOf`, `FEATURE_STAGE` and the unreachable *"That command is not available
+yet"* string were all still in the published bundle, the last one readable via `strings`),
+and `PREVIEW=1 yarn build` differed from `yarn build` by exactly one byte (`||!1` vs
+`||!0`, inside a disjunction whose left operand was already always true) — i.e. the
+`build:preview` script produced a behaviourally identical artifact, which the teardown
+brief itself called worse than no script.

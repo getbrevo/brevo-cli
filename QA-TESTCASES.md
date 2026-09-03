@@ -18,14 +18,14 @@ moved here from the retired `docs/public-cli-ui-apps-feature-changes` branch on
 > **⚠️ Entry condition changed at GA — re-read before running any suite.** Every case
 > here used to require `PREVIEW=1 yarn link:dev`, because the commands were eliminated
 > from a published build and `--distribution public` was refused. **That is no longer
-> true: a plain `yarn link:dev` runs every suite below.** Nothing is gated, and the two
-> builds now produce identical surface, so any case whose expected result was "refused"
-> or "unknown command" on a published build is stale — those were assertions about the
-> gate, not about the feature.
+> true: `yarn link:dev` runs every suite below, and it is the only build there is** — the
+> pre-GA gate was torn down after GA, so `PREVIEW=1` and `build:preview` no longer exist.
+> Any case whose expected result was "refused" or "unknown command" on a published build
+> is stale: those were assertions about the gate, not about the feature.
 >
-> **The recorded sweep results below were all taken on `PREVIEW=1` artifacts.** The
-> commands are byte-identical, so the observations still stand, but re-baselining the
-> sweep once on a plain build is tracked in `docs.md`.
+> **The recorded sweep results below were all taken on the old `PREVIEW=1` artifacts.**
+> Those builds differed from the published one by a single unreachable byte, so the
+> observations still stand, but re-baselining the sweep once is tracked in `docs.md`.
 >
 > **The distribution question offers both values now.** `Distribution type?` is asked in
 > every build and lists `Private` then `Public`, with `Private` first so a bare Enter
@@ -54,8 +54,8 @@ moved here from the retired `docs/public-cli-ui-apps-feature-changes` branch on
 ## Test environment & global preconditions
 
 - **Node.js** ≥ 20.15.0, **Yarn** ≥ 1.19.1.
-- **Build the binary** — a plain build runs every suite here since GA; `PREVIEW=1` is no
-  longer needed and no longer changes the surface:
+- **Build the binary** — one build runs every suite here; there is no `PREVIEW=1` variant
+  any more (the gate that needed one is gone):
   ```bash
   yarn install && yarn link:dev
   brevo --version    # confirm the branch build is on PATH
@@ -96,7 +96,7 @@ Check the exit code after any command with `echo $?`.
 >   *server's* refusal for an account without `app-store-bo-be-public-apps` — still worth
 >   testing, but the expected error is the platform's, relayed as `ERR_UI_APP_NOT_ENABLED`
 >   or a `400`, not the CLI's unreleased-feature message.
-> - `PREVIEW=1` is not required anywhere in this suite.
+> - There is one build, so nothing in this suite depends on which one you have.
 >
 > The platform used to refuse public creates from the CLI independently of the build, so
 > even a preview build could hit the server's own rejection. That was lifted before GA —
@@ -138,7 +138,7 @@ the refusal half is untested.
 **Priority:** High
 **Why it's here:** the preamble above has always pointed at TC-2.4; the case itself was
 missing. Added 2026-08-13.
-**Preconditions:** A **preview** build, and an account **without** the
+**Preconditions:** An account **without** the
 `app-store-bo-be-public-apps` flag — i.e. the opposite of TC-2.1's precondition. The two
 cases are mutually exclusive on any one account.
 **Steps:** `brevo app create --name "QA Public Refused" --distribution public`, then the
@@ -337,7 +337,7 @@ captured (`echo $?` not run) — it is whatever
 ### TC-10.2 — Public-app command grouping
 **Priority:** Low
 **Steps:** `brevo --help`.
-**Expected:** `brevo app submit`, `brevo app status` **and `brevo app withdraw`** all appear under **"App-review commands (public apps only):"**, in that order. `app create` advertises `--distribution private|public`. `upload` is listed; `update` is not. Identical on a plain build and a `PREVIEW=1` build — the two artifacts are the same surface now.
+**Expected:** `brevo app submit`, `brevo app status` **and `brevo app withdraw`** all appear under **"App-review commands (public apps only):"**, in that order. `app create` advertises `--distribution private|public`. `upload` is listed; `update` is not. There is one build, so there is nothing to compare against — the `PREVIEW=1` artifact this case used to be run twice for no longer exists.
 
 **Result (predates both GA flips and the `install`/`uninstall` rename — re-baseline
 needed):** ✅ Pass — 2026-08-13, both builds. **Preview:** the *App-review commands

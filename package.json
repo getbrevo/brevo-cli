@@ -21,7 +21,6 @@
   },
   "scripts": {
     "build": "tsc --noEmit && node scripts/build.mjs",
-    "build:preview": "PREVIEW=1 yarn build",
     "dev": "tsc --noEmit --watch",
     "unlink": "yarn unlink",
     "link:dev": "yarn build && yarn link",

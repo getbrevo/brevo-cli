@@ -8,8 +8,8 @@
  * Both feed the same `assertTarball()`: a pre-publish gate on a different
  * artifact than the post-publish one isn't a gate on the release.
  *
- * The gated public-app surface is NOT checked here — build.mjs owns that
- * (LEAK_MARKERS / GA_MARKERS) and `prepublishOnly` reruns it on the publish.
+ * Which surface the bundle carries is NOT checked here — build.mjs owns that
+ * (GA_MARKERS) and `prepublishOnly` reruns it on the publish.
  */
 
 import { execFileSync } from 'node:child_process';

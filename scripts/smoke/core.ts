@@ -796,20 +796,19 @@ export const GATED_COMMANDS = [
 export type GatedCommand = (typeof GATED_COMMANDS)[number];
 
 /**
- * Gated *features* — surface that can be missing from an installed CLI without a command
- * going with it, so command detection can't see it.
+ * *Features* — surface that can be missing from an installed CLI without a command going
+ * with it, so command detection can't see it.
  *
  * `public-distribution` is the one that matters. It named a real build-time gate until
- * public-apps GA: `yarn build` dropped `--distribution public`
- * (`assertFeatureAvailable('public-distribution')` refused it with a typed CliError) while
- * `app create` itself was obviously still there, so without this entry the public suite —
- * which opens by creating a public app — *failed* on a published-surface build instead of
- * skipping.
+ * public-apps GA: `yarn build` dropped `--distribution public` while `app create` itself
+ * was obviously still there, so without this entry the public suite — which opens by
+ * creating a public app — *failed* on a published-surface build instead of skipping.
  *
  * It still earns its place on `--against=published`, where the npm `latest` tag can be an
  * older CLI that genuinely refuses the flag. That is now the only way this fires: a local
- * build has the whole surface. Detection is unchanged either way — it probes the installed
- * binary rather than assuming anything about which build produced it.
+ * build has the whole surface, and the gate that could have removed it is gone. Detection
+ * is unchanged either way — it probes the installed binary rather than assuming anything
+ * about which build produced it.
  */
 export const GATED_FEATURES = ['public-distribution'] as const;
 
@@ -849,13 +848,14 @@ function respondsToOwnHelp(state: State, command: string): boolean {
 }
 
 /**
- * Does this build offer `--distribution public`?
+ * Does the INSTALLED CLI offer `--distribution public`?
  *
- * Read off `app create`'s own help, where the flag's description is built from
- * `distributionValues()` (`src/lib/help.ts`) — `Distribution type (private|public)` when the
- * feature is available, `Distribution type (private)` when it isn't. Help is the only safe
- * probe: actually running `create --distribution public` would either create a real app or
- * burn an API call to be told it can't.
+ * Read off `app create`'s own help: this repo prints `Distribution type (private|public)`
+ * and always has both values now, but an older published CLI printed `Distribution type
+ * (private)` while the value was held back — which is the case this still probes for
+ * (`--against=published`). Help is the only safe probe: actually running `create
+ * --distribution public` would either create a real app or burn an API call to be told it
+ * can't.
  */
 export function publicDistributionOffered(state: State): boolean {
   const r = exec(brevoCmd(state), ['app', 'create', '--help'], state);
@@ -931,10 +931,10 @@ export function featureMissing(state: State, name: GatedFeature): boolean {
  *
  * `detectCapabilities` can only read the CLIENT: it greps `--help`, so it answers "does
  * this build offer the flag", never "will the server accept it". Those come apart for
- * `--distribution public` — a preview build offers the flag and Brevo declines the
- * request (`public apps cannot be created with source "cli"`), which is the expected
- * state until public apps go GA. Without this, the whole public lifecycle reports nine
- * hard failures on every default run, and a permanently-red suite is one nobody reads.
+ * `--distribution public` — the CLI offers the flag and Brevo declines the request
+ * (`public apps cannot be created with source "cli"`), which is still the expected state
+ * on the platform side. Without this, the whole public lifecycle reports nine hard
+ * failures on every default run, and a permanently-red suite is one nobody reads.
  *
  * Called by the step that discovers the refusal, so every later `requireFeature` on the
  * same feature skips for the same reason instead of raising "no public app from the
@@ -1026,13 +1026,13 @@ export function stepReinstall(state: State): string {
 
   let buildNote = '';
   if (state.opts.against === 'local') {
-    // Always the PUBLISHED surface. This used to fork: `yarn build` eliminated the
-    // review-lifecycle commands and `--distribution public` (BEX-405), so a run that
-    // selected the public suite asked for `PREVIEW=1` instead, since that surface existed
-    // nowhere else. Public apps went GA and the fork went with it — deliberately, not by
-    // neglect: keeping it would leave the one suite that exercises the review lifecycle
-    // permanently pointed at an artifact nobody installs. Nothing is gated now, so every
-    // suite's commands are in the published build and every local run tests what npm ships.
+    // There is one build, and it is what npm ships. This used to fork: `yarn build`
+    // eliminated the review-lifecycle commands and `--distribution public` (BEX-405), so a
+    // run that selected the public suite asked for `PREVIEW=1` instead, since that surface
+    // existed nowhere else. Public apps went GA, the gate was torn down after them, and the
+    // fork went with it — deliberately, not by neglect: keeping it would have left the one
+    // suite that exercises the review lifecycle permanently pointed at an artifact nobody
+    // installs.
     buildNote = ', build=published';
     execOrThrow(PKG_YARN, ['build'], state);
     execOrThrow(PKG_YARN, ['link'], state);

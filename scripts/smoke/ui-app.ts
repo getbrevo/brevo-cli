@@ -2,9 +2,8 @@
  * UI-app lifecycle: interactive create (pty) -> upload no-op -> per-entry edit
  * upload -> install -> uninstall -> uninstall again -> delete.
  *
- * UI apps are GA (BEX-290) and ship in every build, so this suite runs on the
- * published surface — it does NOT need a PREVIEW=1 artefact. What it does need
- * is a real terminal: `app create` gates its app-type prompt on
+ * UI apps are GA (BEX-290), so this suite runs on the published surface. What it
+ * does need is a real terminal: `app create` gates its app-type prompt on
  * `process.stdin.isTTY`, so a UI app can only be authored through a pty (see
  * execExpectPty in ./core). That is why the suite is opt-in, same as `init`.
  *

@@ -62,11 +62,12 @@ export interface AppTypeModule {
    * `preview` = shipped in the CLI but not live on the Brevo platform; `ga` = live.
    * Both types are `'ga'` today (UI apps since BEX-290).
    *
-   * This is METADATA ONLY and must stay that way: the CLI deliberately has no runtime
-   * guard on app types — pre-GA surface is removed at *build* time instead
-   * (`scripts/build.mjs`), and `CLAUDE.md` forbids reintroducing a runtime gate or an
-   * internal-account escape hatch. The field exists so docs and a future type can state
-   * their stage in one place instead of five hand-maintained notices.
+   * Not the pre-GA build gate, which was a different mechanism and is gone (BEX-405):
+   * this describes the *platform*, not the artifact. It is METADATA ONLY and must stay
+   * that way — the CLI deliberately has no runtime guard on app types, and `CLAUDE.md`
+   * forbids reintroducing one or an internal-account escape hatch. The field exists so
+   * docs and a future type can state their stage in one place instead of five
+   * hand-maintained notices.
    */
   availability: 'ga' | 'preview';
 

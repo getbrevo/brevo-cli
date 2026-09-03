@@ -1,8 +1,6 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
 import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
 import { EXAMPLE_APP_ID } from '../lib/constants';
-import { isFeatureAvailable } from '../lib/preview';
-import { createDescription, distributionValues } from '../lib/help';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -68,17 +66,14 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     },
     {
       name: 'create',
-      description: createDescription(),
-      // The `--distribution public` example is filtered out while public distribution
-      // is pre-GA (BEX-405) — `brevo app create --help` must not advertise a value the
-      // command will refuse. Filtered from the same table the refusal reads, so GA
-      // restores it without an edit here.
+      // Duplicated by hand in `lib/help.ts`'s hand-aligned root screen, which nothing
+      // propagates into — see the warning there. `help-surface.test.ts` asserts the two
+      // agree.
+      description: 'Create a new app (OAuth, or a UI app via the prompts)',
       examples: [
         'brevo app create',
         'brevo app create --name "My App" --distribution private',
-        ...(isFeatureAvailable('public-distribution')
-          ? ['brevo app create --name "My App" --distribution public']
-          : []),
+        'brevo app create --name "My App" --distribution public',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
@@ -94,7 +89,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         { flags: '--name <name>', description: 'App name' },
         {
           flags: '--distribution <type>',
-          description: `Distribution type (${distributionValues()})`,
+          description: 'Distribution type (private|public)',
         },
         {
           flags: '--redirect-uri <url>',
@@ -279,10 +274,10 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           port: opts.port as number | undefined,
         }),
     },
-    // Moved here from ./preview-definitions.ts when UI apps went GA. `requires` stays:
-    // it is the capability the command applies to (UI apps only — see
-    // `src/app-types/capabilities.ts`), and with its `FEATURE_STAGE` row at 'ga' it no
-    // longer hides or refuses anything.
+    // `requires` is the capability these two commands apply to (UI apps only — see
+    // `src/app-types/capabilities.ts`). It is declarative metadata: the registry does
+    // not enforce it, each command refuses in its own words. Also the source of the
+    // "App-install commands (UI apps only)" heading in `lib/help.ts`.
     {
       name: 'install',
       requires: 'account-install',
@@ -349,11 +344,9 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           json: Boolean(opts.json),
         }),
     },
-    // Moved here from ./preview-definitions.ts when public apps went GA, exactly as the
-    // two `account-install` commands above were at UI-apps GA. `requires` stays: it is
-    // the capability the command applies to (public apps only — see
-    // `src/app-types/capabilities.ts`), and with its `FEATURE_STAGE` row at 'ga' it no
-    // longer hides or refuses anything.
+    // `requires` is the capability these three commands apply to (public apps only — see
+    // `src/app-types/capabilities.ts`), on the same declarative terms as the two
+    // `account-install` commands above.
     //
     // Listed in lifecycle order — submit, status, withdraw — matching the App-review
     // block in `formatRootHelp` so the two help renderers read the same way.
