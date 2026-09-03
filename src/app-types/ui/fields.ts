@@ -32,6 +32,7 @@ const VALUE_ROWS: ReadonlyArray<{
   { label: 'redirect link: ', read: (e) => e.redirect_link },
   // An iframeExtension's modal URL is the destination, so it earns a line too.
   { label: 'modal URL:     ', read: (e) => e.modal_iframe_url },
+  { label: 'layout:        ', read: (e) => e.layout },
   { label: 'card size:     ', read: (e) => formatSize(e.size) },
 ];
 

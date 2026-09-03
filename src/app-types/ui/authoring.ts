@@ -425,6 +425,13 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
     },
   ]);
 
+  // Inline vs modal — asked only for an Iframe on a WIDGET slot: an action slot's menu
+  // entry must open something, so it is a modal by definition and the question would have
+  // one honest answer. Modal is the default and is NOT written to the entry (the platform
+  // treats absent as modal), so a modal answer leaves the config byte-identical to one
+  // authored before layouts existed.
+  const layout = await promptIframeLayout(isIframe, selectedRows);
+
   const uiApp: UiApp = {
     extension_type: extensionType,
     // One entry for the selected placement, seeded from THAT row's
@@ -448,6 +455,7 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
       more_info: String(more_info ?? '').trim(),
       urlField: isIframe ? 'modal_iframe_url' : 'redirect_link',
       url: String(url ?? '').trim(),
+      layout,
     }),
     // No link_target: `brevo app upload` injects `_blank`. See the field's note in
     // types.ts — the server refuses `_self`, so a field in the file would only
@@ -529,6 +537,32 @@ export async function resolveUiAppNonInteractive(input: UiAppNonInteractiveInput
 }
 
 /**
+ * Ask how an Iframe presents on a widget slot: the card CTA opening a modal (default), or the
+ * page embedded directly in the card body. Returns undefined — write nothing — for a Link, for
+ * an action slot (its menu entry is a modal by definition), and for the modal answer itself,
+ * so only `inline` ever reaches the file.
+ */
+async function promptIframeLayout(
+  isIframe: boolean,
+  rows: UsableSurfacePoint[],
+): Promise<'inline' | undefined> {
+  const onWidget = rows.some((row) => row.component_type === 'widget');
+  if (!isIframe || !onWidget) return undefined;
+  const { layout } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'layout',
+      message: messages.APP_CREATE_UI_LAYOUT_PROMPT,
+      choices: indentChoices([
+        { name: messages.APP_CREATE_UI_LAYOUT_MODAL, value: 'modal' },
+        { name: messages.APP_CREATE_UI_LAYOUT_INLINE, value: 'inline' },
+      ]),
+    },
+  ]);
+  return layout === 'inline' ? 'inline' : undefined;
+}
+
+/**
  * Turn selected registry rows into `surface_point_list` entries, deduplicated by slot
  * and keeping registry order (which is deterministic server-side, so the upload diff
  * doesn't churn).
@@ -570,6 +604,8 @@ export function buildSurfacePointList(
     more_info: string;
     urlField: 'redirect_link' | 'modal_iframe_url';
     url: string;
+    /** Written only when `'inline'` — absent means modal, and absent is the default. */
+    layout?: 'inline';
   },
 ): SurfacePointEntry[] {
   const entries: SurfacePointEntry[] = [];
@@ -588,6 +624,7 @@ export function buildSurfacePointList(
       ...(size ? { size } : {}),
       label: fields.label,
       ...(fields.more_info ? { more_info: fields.more_info } : {}),
+      ...(fields.layout ? { layout: fields.layout } : {}),
       [fields.urlField]: fields.url,
     });
   }

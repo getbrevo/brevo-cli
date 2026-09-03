@@ -1810,6 +1810,44 @@ describe('app/create', () => {
       expect(entry).not.toHaveProperty('link_target');
     });
 
+    // Inline cards: the layout question is asked only for an Iframe on a WIDGET slot, and
+    // only 'inline' is ever written — modal is the default and stays out of the file.
+    it('asks the layout question for an iframe widget placement and writes inline', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        placement: 'contact-details-overview-main',
+        url: 'https://example.com/embed',
+        layout: 'inline',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('layout')).toBeDefined();
+      expect(collectedUiApp().surface_point_list[0].layout).toBe('inline');
+    });
+
+    it('skips the layout question on an action slot and writes none for modal', async () => {
+      answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('layout')).toBeUndefined();
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('layout');
+    });
+
+    it('writes no layout when the widget answer is modal (the default)', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        placement: 'contact-details-overview-main',
+        url: 'https://example.com/embed',
+        layout: 'modal',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('layout');
+    });
+
     // One URL question either way, but the wording must say what actually happens to the
     // page: a Link opens in a new tab, an Iframe is embedded in a modal inside Brevo.
     it('asks the iframe-specific URL question on the Iframe branch', async () => {

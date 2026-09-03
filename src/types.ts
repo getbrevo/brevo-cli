@@ -154,6 +154,14 @@ export interface SurfacePointEntry {
   surface_point_name: string;
   context?: string[];
   /**
+   * `iframeExtension` entries on widget slots only: how this entry presents its
+   * `modal_iframe_url` — `'inline'` embeds the page directly in the card body, `'modal'`
+   * (or absent, the default) opens it from the card's CTA. The platform refuses the field
+   * on an `actionLink` entry and `'inline'` on a slot that renders no card; absent is never
+   * written, so layout-less configs stay byte-identical.
+   */
+  layout?: 'inline' | 'modal';
+  /**
    * The entry's own text: the menu entry's label on an `.action` slot, the card's CTA
    * button text on a `.widget` slot. Per placement since BEX-426 — an app on three slots
    * can label each differently. Required in practice (`validateUiApp` refuses an empty

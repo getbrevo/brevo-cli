@@ -273,6 +273,12 @@ const coreMessages = {
   // The iframe counterpart of the question above: same slot in the flow, different field —
   // the answer lands in `modal_iframe_url`, and the page opens INSIDE Brevo rather than in
   // a new tab, which is what the wording has to make unmistakable.
+  // Asked only for an Iframe on a WIDGET slot (an action slot's menu entry must open
+  // something, so it is always a modal). Inline is written to the entry; modal is the
+  // default and deliberately not written, so the config stays minimal.
+  APP_CREATE_UI_LAYOUT_PROMPT: 'How should it appear on the page?',
+  APP_CREATE_UI_LAYOUT_MODAL: 'Opens in a modal (card button)',
+  APP_CREATE_UI_LAYOUT_INLINE: 'Embedded directly on the page',
   APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT:
     'Iframe URL — the page Brevo embeds in the modal (record context arrives as query params):',
   APP_CREATE_UI_BOX_TITLE: 'UI app created',
