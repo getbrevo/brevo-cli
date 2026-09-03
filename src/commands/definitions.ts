@@ -91,11 +91,14 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
+        'brevo app create --name "My App" --ui-app --record-page contactDetails --placement contactDetails.header.menu --label "Open in Acme" --url https://example.com/open --json',
+        'brevo app create --name "My App" --ui-config ./ui-app.json --json',
       ],
-      // A UI app is authored entirely through the interactive prompts (BEX-290) —
-      // there is deliberately no `--type` or per-field flag. Every flag below
-      // applies to an OAuth app, which is what a non-interactive run always
-      // creates.
+      // A UI app is authored either through the interactive prompts (BEX-290), or
+      // non-interactively via --ui-config or the --ui-app flag set — both build an
+      // actionLink placement the same way the wizard does (see
+      // resolveUiAppNonInteractive in app-types/ui/authoring.ts). Every other flag
+      // below applies to an OAuth app.
       options: [
         { flags: '--name <name>', description: 'App name' },
         {
@@ -115,6 +118,25 @@ export const appCommandGroup: SubcommandGroupDefinition = {
             return v;
           },
         },
+        {
+          flags: '--ui-config <file>',
+          description: 'Create an actionLink UI app from a JSON file (non-interactive; see --help)',
+        },
+        { flags: '--ui-app', description: 'Create an actionLink UI app from flags below' },
+        { flags: '--record-page <slug>', description: 'UI app record page (with --ui-app)' },
+        {
+          flags: '--placement <surface_point_name>',
+          description: 'UI app placement slot (with --ui-app)',
+        },
+        {
+          flags: '--label <text>',
+          description: 'UI app menu/card label, max 48 chars (with --ui-app)',
+        },
+        {
+          flags: '--more-info <text>',
+          description: 'UI app supporting text, max 255 chars, optional (with --ui-app)',
+        },
+        { flags: '--url <url>', description: 'UI app destination URL (with --ui-app)' },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
@@ -123,6 +145,13 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           distribution: opts.distribution as string | undefined,
           redirectUri: opts.redirectUri as string[] | undefined,
           logoUri: opts.logoUri as string | undefined,
+          uiConfig: opts.uiConfig as string | undefined,
+          uiApp: Boolean(opts.uiApp),
+          recordPage: opts.recordPage as string | undefined,
+          placement: opts.placement as string | undefined,
+          label: opts.label as string | undefined,
+          moreInfo: opts.moreInfo as string | undefined,
+          url: opts.url as string | undefined,
           json: Boolean(opts.json),
         }),
     },

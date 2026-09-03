@@ -1,8 +1,8 @@
 {
   "name": "@getbrevo/cli",
-  "version": "2.2.0",
+  "version": "2.2.2",
   "author": "Brevo",
-  "description": "Brevo Developer CLI \u2014 create, manage apps and OAuth integrations",
+  "description": "Brevo Developer CLI — create, manage apps and OAuth integrations",
   "type": "commonjs",
   "main": "dist/bin/index.js",
   "sideEffects": false,
