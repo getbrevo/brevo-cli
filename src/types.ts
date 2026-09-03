@@ -255,6 +255,16 @@ export interface SurfacePointRow {
    * the ceiling and make the CLI author a config its own upload rejects.
    */
   default_context_field?: string[];
+  /**
+   * The slot's default card size (BEX-461) — a SEED exactly like `default_context_field`:
+   * `brevo app create` writes it into a new entry's `size` when the developer authors
+   * none, and the entry's own value is then what upload validates and the platform
+   * serves. `null`/absent when the slot declares no default; only widget rows can carry
+   * one (the registry's CHECK refuses it on an action slot, which has no card geometry).
+   * Axes follow the per-entry `size` grammar the registry CHECK enforces at seed time,
+   * so seeding from it cannot author a config the CLI's own upload rejects.
+   */
+  default_size?: { width?: string; height?: string } | null;
   /** Which `extension_type` values this slot can serve. */
   extension_type_list?: string[];
   /** Registry lifecycle marker; anything other than `active` is not offerable. */

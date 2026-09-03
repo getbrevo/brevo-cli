@@ -7,10 +7,11 @@
  * came back, and the UI-app summary box. `create.ts` keeps the shared create flow (name,
  * distribution, directory, the POST and its retry) and calls into the two exports below.
  *
- * Only `resolveUiApp` and `renderCreatedUiApp` are public. Everything else is an
- * implementation detail of the prompt flow and is deliberately not exported — the
- * registry-shaped helpers in particular (`toUsableRows`, `rowSupportsExtensionType`) are
- * only correct in the order this flow calls them.
+ * `resolveUiApp`, `resolveUiAppNonInteractive`, `renderCreatedUiApp` and
+ * `buildSurfacePointList` are public. Everything else is an implementation detail of
+ * the prompt flow and is deliberately not exported — the registry-shaped helpers in
+ * particular (`toUsableRows`, `rowSupportsExtensionType`) are only correct in the
+ * order this flow calls them.
  */
 import inquirer from 'inquirer';
 import { EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
@@ -415,6 +416,11 @@ export async function resolveUiApp(): Promise<UiApp> {
     // set, and an empty string would show up as a spurious diff on every upload.
     surface_point_list: buildSurfacePointList(selectedRows, {
       contextFor: (row) => row.default_context_field ?? [],
+      // The slot's default card size (BEX-461) seeds the entry's `size` the same way the
+      // row's `default_context_field` seeds `context`: written explicitly into the file,
+      // where the partner can see and edit it. Not prompted (D2) — the registry default
+      // is the platform's answer to the question the flow deliberately doesn't ask.
+      sizeFor: (row) => row.default_size ?? undefined,
       label: String(label ?? '').trim(),
       more_info: String(more_info ?? '').trim(),
       redirect_link: String(url ?? '').trim(),
@@ -428,6 +434,69 @@ export async function resolveUiApp(): Promise<UiApp> {
   // but nothing else checks the assembled block. Shape only — the slot names came
   // straight off registry rows, so there is nothing local left to check them
   // against, and the upload endpoint is the authority either way.
+  validateUiApp(uiApp);
+  return uiApp;
+}
+
+/** Already-merged input for non-interactive UI app creation — see `create.ts` for how
+ * `--ui-config` and the `--ui-app` flag set both resolve to this same shape before
+ * this function ever runs. */
+export interface UiAppNonInteractiveInput {
+  extensionType: string;
+  recordPage: string;
+  placement: string;
+  label: string;
+  moreInfo: string;
+  url: string;
+}
+
+/**
+ * Non-interactive counterpart to `resolveUiApp()` — same registry reads, same entry
+ * builder, same `validateUiApp()` call, but driven by already-collected input instead
+ * of prompts. Reachable from `--ui-config`/`--ui-app` regardless of TTY/`--json`/piped
+ * stdin (see `create.ts`'s interception point ahead of `resolveAppType`).
+ *
+ * Scoped to `actionLink` only, same as the interactive flow (see the module comment
+ * above on why iframe authoring isn't offered) — checked first, before any network
+ * call, so an iframe/legacy request fails immediately rather than after two registry
+ * round trips.
+ */
+export async function resolveUiAppNonInteractive(input: UiAppNonInteractiveInput): Promise<UiApp> {
+  if (input.extensionType !== EXTENSION_TYPE_ACTION_LINK) {
+    throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_EXTENSION_TYPE(input.extensionType));
+  }
+
+  const locations = await fetchRecordPageLocations(input.extensionType);
+  if (!locations.includes(input.recordPage)) {
+    throw new CliError(
+      messages.APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_RECORD_PAGE(input.recordPage, locations),
+    );
+  }
+
+  const rows = await fetchSurfacePointsForPages([input.recordPage], input.extensionType);
+  const forPage = rows.filter((row) => row.location_name === input.recordPage);
+  const matched = forPage.filter((row) => row.surface_point_name === input.placement);
+  if (matched.length === 0) {
+    throw new CliError(
+      messages.APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_PLACEMENT(
+        input.placement,
+        input.recordPage,
+        forPage.map((row) => row.surface_point_name),
+      ),
+    );
+  }
+
+  const uiApp: UiApp = {
+    extension_type: input.extensionType as UiApp['extension_type'],
+    surface_point_list: buildSurfacePointList(matched, {
+      contextFor: (row) => row.default_context_field ?? [],
+      sizeFor: (row) => row.default_size ?? undefined,
+      label: input.label.trim(),
+      more_info: input.moreInfo.trim(),
+      redirect_link: input.url.trim(),
+    }),
+  };
+
   validateUiApp(uiApp);
   return uiApp;
 }
@@ -456,11 +525,16 @@ export async function resolveUiApp(): Promise<UiApp> {
  * partner who wants them to differ edits the entries in `app-config.json`, which is the
  * documented path to more placements anyway. `more_info` is omitted when blank, same
  * contract as `context`.
+ *
+ * `sizeFor` seeds each entry's `size` from ITS row (the registry default, BEX-461), the
+ * same per-row contract as `contextFor`; a row with no default writes no `size` key, so
+ * the host's own fallback keeps applying, exactly as before the seed existed.
  */
-function buildSurfacePointList(
+export function buildSurfacePointList(
   rows: UsableSurfacePoint[],
   fields: {
     contextFor: (row: UsableSurfacePoint) => string[];
+    sizeFor: (row: UsableSurfacePoint) => { width?: string; height?: string } | undefined;
     label: string;
     more_info: string;
     redirect_link: string;
@@ -475,15 +549,34 @@ function buildSurfacePointList(
       .contextFor(row)
       .map((field) => String(field).trim())
       .filter(Boolean);
+    const size = sanitizeSeededSize(fields.sizeFor(row));
     entries.push({
       surface_point_name: row.surface_point_name,
       ...(context.length ? { context } : {}),
+      ...(size ? { size } : {}),
       label: fields.label,
       ...(fields.more_info ? { more_info: fields.more_info } : {}),
       redirect_link: fields.redirect_link,
     });
   }
   return entries;
+}
+
+/**
+ * Reduce a registry-served default size to the axes worth writing: non-blank strings only,
+ * and no `size` key at all when nothing survives. Belt and braces — the registry's own
+ * CHECK pins the grammar at seed time — but a server predating the field, or one echoing
+ * an unexpected shape, must degrade to "no seed" rather than write a key `validateUiApp`
+ * then refuses in the very flow that authored it.
+ */
+function sanitizeSeededSize(
+  raw: { width?: string; height?: string } | undefined,
+): { width?: string; height?: string } | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const width = typeof raw.width === 'string' ? raw.width.trim() : '';
+  const height = typeof raw.height === 'string' ? raw.height.trim() : '';
+  if (!width && !height) return undefined;
+  return { ...(width ? { width } : {}), ...(height ? { height } : {}) };
 }
 
 /**
