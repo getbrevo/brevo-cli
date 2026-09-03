@@ -517,7 +517,10 @@ export async function resolveUiAppNonInteractive(input: UiAppNonInteractiveInput
       sizeFor: (row) => row.default_size ?? undefined,
       label: input.label.trim(),
       more_info: input.moreInfo.trim(),
-      redirect_link: input.url.trim(),
+      // The non-interactive routes are actionLink-only by design, so the destination is
+      // always redirect_link here — the iframe branch exists on the interactive flow only.
+      urlField: 'redirect_link',
+      url: input.url.trim(),
     }),
   };
 

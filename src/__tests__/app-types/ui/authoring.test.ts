@@ -29,7 +29,8 @@ describe('buildSurfacePointList', () => {
       sizeFor: () => undefined,
       label: 'Open in Acme',
       more_info: '',
-      redirect_link: 'https://example.com/open',
+      urlField: 'redirect_link' as const,
+      url: 'https://example.com/open',
     });
 
     expect(entries).toEqual([
@@ -47,7 +48,8 @@ describe('buildSurfacePointList', () => {
       sizeFor: () => undefined,
       label: 'Open in Acme',
       more_info: '',
-      redirect_link: 'https://example.com/open',
+      urlField: 'redirect_link' as const,
+      url: 'https://example.com/open',
     });
 
     expect(entries).toHaveLength(1);
@@ -59,7 +61,8 @@ describe('buildSurfacePointList', () => {
       sizeFor: () => ({ width: '280px' }),
       label: 'Open in Acme',
       more_info: 'See it here',
-      redirect_link: 'https://example.com/open',
+      urlField: 'redirect_link' as const,
+      url: 'https://example.com/open',
     });
 
     expect(entries[0]).toEqual({
