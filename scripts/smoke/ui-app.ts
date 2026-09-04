@@ -132,6 +132,11 @@ export const UI_CREATE_EXPECT = {
   moreInfo: /More info \(optional\)/,
   redirect: /Redirect link\b/,
   iframeUrl: /Iframe URL\b/,
+  // Both iframe-only, and both CONDITIONAL — see createExchanges. Layout is asked only
+  // when the picked registry row is a widget slot; modal size only when a modal actually
+  // opens (so: not after an inline layout answer).
+  layout: /How should it appear\b/,
+  modalSize: /How big should the modal\b/,
   outputDir: /Output directory:/,
 } as const;
 
@@ -161,6 +166,25 @@ function createExchanges(integration: UiIntegration): PtyExchange[] {
     integration === 'iframe'
       ? { expect: UI_CREATE_EXPECT.iframeUrl, send: UI_IFRAME_URL }
       : { expect: UI_CREATE_EXPECT.redirect, send: UI_REDIRECT_LINK },
+    // Two iframe-only questions that MAY not be asked, so both are optional (the runner
+    // skips an optional prompt once a later one has rendered) rather than expected:
+    //
+    //   - layout — widget slots only. Whether the first registry row on the picked page
+    //     is a widget or an action slot is the registry's business, not this suite's, so
+    //     the leg cannot know in advance whether the question comes.
+    //   - modal size — only when a modal actually opens. Enter above answers layout with
+    //     its first choice (modal), so on this leg it follows whenever it exists at all.
+    //
+    // Both are also absent from any build predating them, which is the same reason the
+    // app-type and integration probes tolerate their choices being missing.
+    ...(integration === 'iframe'
+      ? [
+          { expect: UI_CREATE_EXPECT.layout, send: '', optional: true },
+          // Enter takes the pre-selected default (Large), which writes no `modal_size` —
+          // requireUiEntry below asserts exactly that.
+          { expect: UI_CREATE_EXPECT.modalSize, send: '', optional: true },
+        ]
+      : []),
     { expect: UI_CREATE_EXPECT.outputDir, send: '' },
   ];
 }
@@ -303,6 +327,14 @@ async function createUiSmokeApp(state: State, integration: UiIntegration): Promi
     must(
       !('redirect_link' in entry),
       `iframe entry must carry no redirect_link: ${JSON.stringify(entry)}`,
+    );
+    // Both conditional questions were answered with their DEFAULT (Enter): modal for the
+    // layout, Large for the modal size. Neither default is written, so an entry authored
+    // this way stays byte-identical to one from before the questions existed — the whole
+    // point of the omit-the-default contract, and the only part of it a real run can prove.
+    must(
+      !('layout' in entry) && !('modal_size' in entry),
+      `default layout/modal size answers must write nothing: ${JSON.stringify(entry)}`,
     );
   } else {
     must(
