@@ -55,8 +55,8 @@ export const withdrawCommand = withCommandHandler(
       // app-config.json automatically (matches `brevo app update` / `app start`).
       const projectConfig = readProjectConfig();
       if (projectConfig) {
-        appId = projectConfig.appId;
-        appLabel = projectConfig.appName || projectConfig.appId;
+        appId = projectConfig.app_id;
+        appLabel = projectConfig.app_name || projectConfig.app_id;
       } else {
         assertAppSelectionAllowed(CLI.APP_WITHDRAW(), options.json);
         const selection = await promptAppSelection(messages.APP_WITHDRAW_SELECT);

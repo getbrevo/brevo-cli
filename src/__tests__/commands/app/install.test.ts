@@ -28,8 +28,8 @@ const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 // A project that has been through a successful `app upload` — `version` is only
 // ever written by one, which is what the install gate keys off.
 const UPLOADED_CONFIG = {
-  appId: '42',
-  appName: 'Invoice Manager',
+  app_id: '42',
+  app_name: 'Invoice Manager',
   distribution_type: 'private' as const,
   version: '1.0.0',
   auth: { scopes: ['contacts:read'] },
@@ -725,7 +725,7 @@ describe('app/install', () => {
     it('does not compare against the local config when --app-id named the app', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UPLOADED_CONFIG,
-        appId: 'some-other-app',
+        app_id: 'some-other-app',
         ui_app: { ...LOCAL_UI_APP, extension_type: 'iframeExtension' },
       });
 

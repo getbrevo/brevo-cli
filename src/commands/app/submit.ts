@@ -41,15 +41,15 @@ function computeConfigDrift(config: ProjectConfig, remote: OAuthApp): FieldDrift
   const drift: FieldDrift[] = [];
   const asList = (v: string | undefined) => (v ? [v] : []);
 
-  if (config.appName !== remote.name) {
+  if (config.app_name !== remote.name) {
     drift.push({
       field: 'name',
       label: 'Name:          ',
-      local: asList(config.appName),
+      local: asList(config.app_name),
       remote: asList(remote.name),
     });
   }
-  const localUrls = config.auth?.redirectUris ?? [];
+  const localUrls = config.auth?.redirect_uris ?? [];
   const remoteUrls = remote.redirect_uris ?? [];
   if (!arraysEqualAsSets(localUrls, remoteUrls)) {
     drift.push({
@@ -69,11 +69,11 @@ function computeConfigDrift(config: ProjectConfig, remote: OAuthApp): FieldDrift
       remote: remoteScopes,
     });
   }
-  if ((config.logoUri ?? '') !== (remote.logo_uri ?? '')) {
+  if ((config.logo_uri ?? '') !== (remote.logo_uri ?? '')) {
     drift.push({
       field: 'logo URL',
       label: 'Logo URL:      ',
-      local: asList(config.logoUri),
+      local: asList(config.logo_uri),
       remote: asList(remote.logo_uri),
     });
   }
@@ -157,7 +157,7 @@ async function confirmSubmission(app: OAuthApp): Promise<boolean> {
 // prompt in --json mode — machine output must stay deterministic.
 async function resolveAppId(options: SubmitOptions, config: ProjectConfig | null): Promise<string> {
   if (options.appId) return options.appId;
-  if (config?.appId) return config.appId;
+  if (config?.app_id) return config.app_id;
   if (!options.json && process.stdin.isTTY) {
     return appService.pickApp(messages.APP_SUBMIT_PICK_APP);
   }
@@ -270,7 +270,7 @@ function assertConfigInSync(
   appId: string,
   jsonMode: boolean,
 ): boolean {
-  if (!config?.appId || config.appId !== appId) return false;
+  if (!config?.app_id || config.app_id !== appId) return false;
 
   const drift = computeConfigDrift(config, app);
   if (drift.length > 0) {

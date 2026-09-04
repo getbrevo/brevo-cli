@@ -26,8 +26,8 @@ import { ApiError } from '../../../lib/errors';
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
 const LINKED_CONFIG = {
-  appId: '42',
-  appName: 'Invoice Manager',
+  app_id: '42',
+  app_name: 'Invoice Manager',
   distribution_type: 'private' as const,
   version: '1.0.0',
   auth: { scopes: ['contacts:read'] },

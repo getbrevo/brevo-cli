@@ -146,18 +146,18 @@ describe('app-config.json template branching', () => {
       ...extraVars,
     });
 
-  it('renders valid JSON with redirectUris and no ui_app for an OAuth app', () => {
+  it('renders valid JSON with redirect_uris and no ui_app for an OAuth app', () => {
     const out = renderConfig(
       { '{{UI_APP_JSON}}': '' },
       new Set<TemplateFlag>(['private', 'oauth']),
     );
     const parsed = JSON.parse(out);
 
-    expect(parsed.auth.redirectUris).toEqual(['http://localhost:3009/auth/callback']);
+    expect(parsed.auth.redirect_uris).toEqual(['http://localhost:3009/auth/callback']);
     expect(parsed).not.toHaveProperty('ui_app');
   });
 
-  it('renders valid JSON with ui_app and no redirectUris for a UI app', () => {
+  it('renders valid JSON with ui_app and no redirect_uris for a UI app', () => {
     // The platform's app-snapshot shape — nested one level deep, which is
     // what the template's indent handling has to survive.
     const uiApp = {

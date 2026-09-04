@@ -50,13 +50,13 @@ const PUBLIC_APP = {
 };
 
 const MATCHING_CONFIG = {
-  appId: '42',
-  appName: 'My Test App',
+  app_id: '42',
+  app_name: 'My Test App',
   distribution_type: 'public',
   version: '0.0.2',
   auth: {
     scopes: ['crm:read'],
-    redirectUris: ['http://localhost:3009/auth/callback', 'https://example.com/callback'],
+    redirect_uris: ['http://localhost:3009/auth/callback', 'https://example.com/callback'],
   },
 };
 
@@ -147,7 +147,7 @@ describe('app/submit', () => {
   });
 
   it('uses the --app-id flag over a config describing a different app', async () => {
-    (readProjectConfig as jest.Mock).mockReturnValue({ ...MATCHING_CONFIG, appId: '7' });
+    (readProjectConfig as jest.Mock).mockReturnValue({ ...MATCHING_CONFIG, app_id: '7' });
     (appService.fetchApp as jest.Mock).mockResolvedValue({ ...PUBLIC_APP, app_id: '42' });
 
     await submitCommand({ appId: '42' });
@@ -176,7 +176,7 @@ describe('app/submit', () => {
   it('shows the full app object and asks for confirmation before opening the form', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...MATCHING_CONFIG,
-      logoUri: 'https://example.com/logo.png',
+      logo_uri: 'https://example.com/logo.png',
     });
     (appService.fetchApp as jest.Mock).mockResolvedValue({
       ...PUBLIC_APP,
@@ -325,7 +325,7 @@ describe('app/submit', () => {
   it('tags values missing locally as server only in the drift diff', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...MATCHING_CONFIG,
-      auth: { ...MATCHING_CONFIG.auth, redirectUris: ['https://example.com/callback'] },
+      auth: { ...MATCHING_CONFIG.auth, redirect_uris: ['https://example.com/callback'] },
     });
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
@@ -336,7 +336,7 @@ describe('app/submit', () => {
   it('keeps the compact field-name drift message in --json mode', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...MATCHING_CONFIG,
-      appName: 'Renamed App',
+      app_name: 'Renamed App',
       auth: { ...MATCHING_CONFIG.auth, scopes: ['crm:read', 'contacts:read'] },
     });
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
@@ -349,10 +349,10 @@ describe('app/submit', () => {
   it('ignores ordering differences and empty-vs-undefined fields', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...MATCHING_CONFIG,
-      logoUri: '',
+      logo_uri: '',
       auth: {
         scopes: [],
-        redirectUris: ['https://example.com/callback', 'http://localhost:3009/auth/callback'],
+        redirect_uris: ['https://example.com/callback', 'http://localhost:3009/auth/callback'],
       },
     });
     (appService.fetchApp as jest.Mock).mockResolvedValue({

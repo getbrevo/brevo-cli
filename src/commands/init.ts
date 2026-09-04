@@ -118,8 +118,9 @@ export const initCommand = withCommandHandler(
 
     process.stdout.write('\n');
     const projectConfig = readProjectConfig();
-    const configAppId = typeof projectConfig?.appId === 'string' ? projectConfig.appId.trim() : '';
-    const linkedName = projectConfig?.appName || configAppId;
+    const configAppId =
+      typeof projectConfig?.app_id === 'string' ? projectConfig.app_id.trim() : '';
+    const linkedName = projectConfig?.app_name || configAppId;
 
     if (configAppId && (await appExistsOnServer(configAppId))) {
       const action = await promptLinkedAppAction(configAppId, linkedName);
