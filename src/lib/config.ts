@@ -429,6 +429,8 @@ export interface ProjectConfig {
     // OAuth apps still require at least one (enforced in `app upload`).
     redirectUris?: string[];
   };
+  /** Explicit app type: 'oauth', 'ui', or 'function'. */
+  app_type?: 'oauth' | 'ui' | 'function';
   /**
    * Present only for UI apps (BEX-290). Its presence is the discriminator
    * between the two app types — there is no separate `appType` key, matching

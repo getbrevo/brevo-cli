@@ -135,6 +135,7 @@ describe('app-config.json template branching', () => {
     '{{APP_VERSION}}': '1.0.0',
     '{{LOGO_URI}}': '',
     '{{DISTRIBUTION}}': 'private',
+    '{{APP_TYPE}}': 'oauth',
     '{{SCOPES_JSON}}': '["contacts:read","contacts:write"]',
     '{{REDIRECT_URLS_JSON}}': '["http://localhost:3009/auth/callback"]',
   };
@@ -170,7 +171,10 @@ describe('app-config.json template branching', () => {
       redirect_link: 'https://example.com/brevo',
     };
     const out = renderConfig(
-      { '{{UI_APP_JSON}}': JSON.stringify(uiApp, null, 2).split('\n').join('\n  ') },
+      {
+        '{{UI_APP_JSON}}': JSON.stringify(uiApp, null, 2).split('\n').join('\n  '),
+        '{{APP_TYPE}}': 'ui',
+      },
       new Set<TemplateFlag>(['private', 'ui_app']),
     );
     const parsed = JSON.parse(out);
