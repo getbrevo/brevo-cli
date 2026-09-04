@@ -5,7 +5,7 @@ import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { CliError } from '../../lib/errors';
+import { ApiError, CliError } from '../../lib/errors';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import {
@@ -314,6 +314,24 @@ function hasNoChanges(diff: UploadDiff): boolean {
   );
 }
 
+/**
+ * Whether a failed upload is the platform refusing an iframe `layout`.
+ *
+ * A translation, deliberately NOT a local guard — the same reasoning as
+ * `isPublicDistributionRefusal` in `app create`, and CLAUDE.md's standing rule. Whether a
+ * slot renders a card is a REGISTRY fact and the CLI holds no copy of the registry, so a
+ * local check could only ever lag it in both directions. The server is the authority; this
+ * only puts its answer into words that name the file and the field to edit.
+ *
+ * Narrowed to a 400 that mentions `layout`, so an unrelated 400 on a UI-app upload (a bad
+ * `logo_uri`, an unregistered slot) keeps the server's own text. If the server rewords its
+ * sentence this stops matching and the raw message surfaces again — the previous
+ * behaviour, not a new failure mode.
+ */
+function isUiLayoutRefusal(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.statusCode === 400 && /layout/i.test(err.message);
+}
+
 export interface ConfigUploadOutcome {
   confirmedVersion: string;
   finalName: string;
@@ -385,6 +403,11 @@ export async function uploadProjectConfig(
       // one field the CLI just told the partner not to write.
       ...(isUiApp && config.ui_app ? { ui_app: withInjectedLinkTargets(config.ui_app) } : {}),
     });
+  } catch (err) {
+    if (isUiLayoutRefusal(err)) {
+      throw new CliError(messages.APP_UPLOAD_UI_LAYOUT_REJECTED(err.message));
+    }
+    throw err;
   } finally {
     spinner.stop();
   }

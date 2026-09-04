@@ -29,7 +29,8 @@ describe('buildSurfacePointList', () => {
       sizeFor: () => undefined,
       label: 'Open in Acme',
       more_info: '',
-      redirect_link: 'https://example.com/open',
+      urlField: 'redirect_link' as const,
+      url: 'https://example.com/open',
     });
 
     expect(entries).toEqual([
@@ -47,7 +48,8 @@ describe('buildSurfacePointList', () => {
       sizeFor: () => undefined,
       label: 'Open in Acme',
       more_info: '',
-      redirect_link: 'https://example.com/open',
+      urlField: 'redirect_link' as const,
+      url: 'https://example.com/open',
     });
 
     expect(entries).toHaveLength(1);
@@ -59,7 +61,8 @@ describe('buildSurfacePointList', () => {
       sizeFor: () => ({ width: '280px' }),
       label: 'Open in Acme',
       more_info: 'See it here',
-      redirect_link: 'https://example.com/open',
+      urlField: 'redirect_link' as const,
+      url: 'https://example.com/open',
     });
 
     expect(entries[0]).toEqual({
@@ -70,6 +73,59 @@ describe('buildSurfacePointList', () => {
       more_info: 'See it here',
       redirect_link: 'https://example.com/open',
     });
+  });
+
+  // ──────── the layout guard ────────
+  // The builder is what actually stamps `layout`, and it stamps whatever row it is handed.
+  // The interactive prompt never asks for one on a non-widget slot, so this cannot fire
+  // from that flow today — but a caller that resolved its rows differently would otherwise
+  // author a block the upload endpoint rejects, and the partner would meet the rule one
+  // round trip later, phrased by the server.
+  const WIDGET_ROW = {
+    ...ROW,
+    surface_point_name: 'contactDetails.overview.main',
+    extension_point_name: 'contactDetails.overview.widget',
+    section_name: 'Overview',
+    component_type: 'widget',
+    extension_type_list: ['iframeExtension'],
+  };
+  const iframeFields = (extra: Record<string, unknown>) => ({
+    contextFor: () => [],
+    sizeFor: () => undefined,
+    label: 'Open in Acme',
+    more_info: '',
+    urlField: 'modal_iframe_url' as const,
+    url: 'https://example.com/embed',
+    ...extra,
+  });
+
+  it('refuses a layout on a row that renders no card, naming the entry', () => {
+    expect(() =>
+      buildSurfacePointList([ROW as never], iframeFields({ layout: 'inline' }) as never),
+    ).toThrow(CliError);
+    expect(() =>
+      buildSurfacePointList([ROW as never], iframeFields({ layout: 'inline' }) as never),
+    ).toThrow(/surface_point_list\["contactDetails\.header\.menu"\]\.layout/);
+  });
+
+  it('stamps a layout and a modal size onto a widget row', () => {
+    const entries = buildSurfacePointList(
+      [WIDGET_ROW as never],
+      iframeFields({ layout: 'inline', modal_size: 'small' }) as never,
+    );
+
+    expect(entries[0]).toMatchObject({ layout: 'inline', modal_size: 'small' });
+  });
+
+  // A modal size is not a card fact — an action slot's menu entry opens a modal too — so
+  // it is stamped wherever it is given, unlike the layout above.
+  it('stamps a modal size onto a non-widget row', () => {
+    const entries = buildSurfacePointList(
+      [ROW as never],
+      iframeFields({ modal_size: 'medium' }) as never,
+    );
+
+    expect(entries[0]).toMatchObject({ modal_size: 'medium' });
   });
 });
 

@@ -74,11 +74,11 @@ export interface SubAccountsResponse {
  * the extension-point grammar; the pre-BEX-350 snake_case spellings are not
  * accepted (see the note on the constants in `lib/constants.ts`).
  *
- * - `actionLink` — a redirect-only CTA driven by `redirect_link`. The only type
- *   the CLI authors today.
+ * - `actionLink` — a redirect-only CTA driven by `redirect_link`.
  * - `iframeExtension` — opens `modal_iframe_url` in a modal iframe. The UI kit
  *   keeps `modal_iframe_url` *only* for this type, so authoring one on any other
- *   type is silently dropped.
+ *   type is silently dropped. Authorable since the iframe-extension launch, on
+ *   private apps only (v1).
  * - `legacyComponent` — the pre-extensibility interpreter path used by earlier
  *   integrations. Never CLI-authored; listed so a hand-edited config round-trips.
  */
@@ -153,6 +153,25 @@ export interface SurfacePointEntry {
    */
   surface_point_name: string;
   context?: string[];
+  /**
+   * `iframeExtension` entries on widget slots only: how this entry presents its
+   * `modal_iframe_url` — `'inline'` embeds the page directly in the card body, `'modal'`
+   * (or absent, the default) opens it from the card's CTA. The platform refuses the field
+   * on an `actionLink` entry and `'inline'` on a slot that renders no card; absent is never
+   * written, so layout-less configs stay byte-identical.
+   */
+  layout?: 'inline' | 'modal';
+  /**
+   * `iframeExtension` entries that open a MODAL: how big that modal is. Which entries
+   * those are is not the same set `layout` applies to — an `.action` slot's menu entry
+   * always opens one (and takes no `layout` at all), while a widget slot opens one only
+   * when its `layout` is `'modal'` or absent. An entry with `layout: 'inline'` embeds the
+   * page in the card and opens nothing, so a size here would size nothing.
+   *
+   * `'large'` is the default and is never written by `brevo app create`, so size-less
+   * configs stay byte-identical. Refused on an `actionLink` entry, same as `layout`.
+   */
+  modal_size?: 'small' | 'medium' | 'large';
   /**
    * The entry's own text: the menu entry's label on an `.action` slot, the card's CTA
    * button text on a `.widget` slot. Per placement since BEX-426 — an app on three slots

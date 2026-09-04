@@ -604,6 +604,22 @@ describe('validateUiApp', () => {
       validateUiApp(withEntry({ modal_iframe_url: 'https://example.com/modal' })),
     ).toThrow(/only used by/i);
   });
+
+  // layout and modal_size describe how an iframe presents. An actionLink has exactly one
+  // presentation (the redirect) and opens no modal, so both are dropped without a word —
+  // refused here for the same reason modal_iframe_url is.
+  it.each([
+    ['layout', 'inline'],
+    ['modal_size', 'small'],
+  ])('rejects %s on an action link entry', (key, value) => {
+    expect(() => validateUiApp(withEntry({ [key]: value }))).toThrow(/only used by/i);
+  });
+
+  it.each([['layout'], ['modal_size']])('names the entry carrying a rejected %s', (key) => {
+    expect(() =>
+      validateUiApp(withEntry({ [key]: key === 'layout' ? 'inline' : 'small' })),
+    ).toThrow(new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.${key}`));
+  });
 });
 
 // iframeExtension became authorable once the UI kit shipped modal rendering on both
@@ -662,6 +678,37 @@ describe('validateUiApp — iframeExtension', () => {
   it('names the entry carrying it', () => {
     expect(() => validateUiApp(withIframeEntry({ link_target: '_blank' }))).toThrow(
       new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.link_target`),
+    );
+  });
+
+  // ──────── layout and modal_size: vocabulary only ────────
+  // Both are pinned to their value set and nothing more. Whether the SLOT can honour the
+  // value — an 'inline' layout needs a placement that renders a card — is a registry fact
+  // the CLI deliberately holds no copy of, so it stays the upload endpoint's call.
+  it.each([
+    ['an inline layout', withIframeEntry({ layout: 'inline' })],
+    ['an explicit modal layout', withIframeEntry({ layout: 'modal' })],
+    ['a small modal', withIframeEntry({ modal_size: 'small' })],
+    ['a medium modal', withIframeEntry({ modal_size: 'medium' })],
+    ['an explicit large modal', withIframeEntry({ modal_size: 'large' })],
+    ['both together', withIframeEntry({ layout: 'modal', modal_size: 'medium' })],
+  ])('accepts %s', (_label, block) => {
+    expect(() => validateUiApp(block)).not.toThrow();
+  });
+
+  it.each([
+    ['layout', 'popover'],
+    ['modal_size', 'huge'],
+  ])('rejects an unsupported %s value', (key, value) => {
+    expect(() => validateUiApp(withIframeEntry({ [key]: value }))).toThrow(/is not supported/i);
+  });
+
+  it.each([
+    ['layout', 'popover'],
+    ['modal_size', 'huge'],
+  ])('names the entry carrying an unsupported %s', (key, value) => {
+    expect(() => validateUiApp(withIframeEntry({ [key]: value }))).toThrow(
+      new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.${key}`),
     );
   });
 });

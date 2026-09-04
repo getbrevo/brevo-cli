@@ -4,6 +4,7 @@ import {
   EXTENSION_TYPE_ACTION_LINK,
   EXTENSION_TYPE_IFRAME,
   UPLOADABLE_LINK_TARGETS,
+  UI_APP_MODAL_SIZES,
 } from './constants';
 
 const APP_NAME_MAX_LENGTH = 48;
@@ -586,6 +587,24 @@ function validateEntryCtaFields(
     const urlCheck = validateUiAppUrl(asText(row.modal_iframe_url));
     if (urlCheck !== true) throw new CliError(`${at('modal_iframe_url')}: ${urlCheck}`);
 
+    // layout is optional (absent = modal, the launch behavior) and pinned to the vocabulary;
+    // whether the slot actually renders a card for an 'inline' value needs the registry and
+    // is the upload endpoint's call, same as every other registry fact.
+    const layout = asText(row.layout);
+    if (layout && layout !== 'modal' && layout !== 'inline') {
+      throw new CliError(`${at('layout')} "${layout}" is not supported — use "modal" or "inline".`);
+    }
+
+    // modal_size is optional (absent = large, the default) and pinned the same way. Which
+    // entries it applies to is a slot fact — an inline card opens no modal — so that part
+    // is the upload endpoint's call, exactly like the layout vocabulary above.
+    const modalSize = asText(row.modal_size);
+    if (modalSize && !UI_APP_MODAL_SIZES.includes(modalSize)) {
+      throw new CliError(
+        `${at('modal_size')} "${modalSize}" is not supported — use ${UI_APP_MODAL_SIZES.map((size) => `"${size}"`).join(', ')}.`,
+      );
+    }
+
     // A modal embeds its URL rather than navigating to it, so there is no link target to
     // set. Refused rather than ignored: the server refuses it per entry as well, and a
     // stored `_blank` on an iframe entry is a field the read path serves and nothing
@@ -628,6 +647,20 @@ function validateEntryCtaFields(
   if (isPresentField(row.modal_iframe_url)) {
     throw new CliError(
       `${at('modal_iframe_url')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
+    );
+  }
+  // layout picks between an iframe's two presentations; an actionLink has exactly one
+  // (the redirect), so the field is refused here for the same reason modal_iframe_url is.
+  if (isPresentField(row.layout)) {
+    throw new CliError(
+      `${at('layout')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it.`,
+    );
+  }
+  // modal_size sizes the modal an iframe opens; an actionLink opens no modal at all, so
+  // the field is refused here for the same reason layout is.
+  if (isPresentField(row.modal_size)) {
+    throw new CliError(
+      `${at('modal_size')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it.`,
     );
   }
 }

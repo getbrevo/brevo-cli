@@ -683,6 +683,42 @@ describe('app/install', () => {
       expect(printed).toContain('redirect link: https://example.com/crm');
     });
 
+    // An iframe extension's presentation is part of what the install makes visible, so the
+    // summary prints it — the same VALUE_ROWS table the upload diff and the created-app
+    // box render from, which is what keeps a per-entry field from appearing in one and
+    // not the others.
+    it('prints an iframe placement layout and modal size', async () => {
+      const iframeEntry = {
+        surface_point_name: 'contactDetails.overview.main',
+        context: ['recordId'],
+        label: 'View in CRM',
+        modal_iframe_url: 'https://example.com/embed',
+        layout: 'inline',
+        modal_size: 'medium',
+      };
+      const iframeBlock = {
+        extension_type: 'iframeExtension',
+        surface_point_list: [iframeEntry],
+      };
+      (appService.fetchApp as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'Invoice Manager',
+        version: '4',
+        ui_app: { ...iframeBlock, version: '4' },
+      });
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UPLOADED_CONFIG,
+        ui_app: iframeBlock,
+      });
+
+      await appInstallCommand({ accountId: '99999', force: true });
+
+      const printed = output();
+      expect(printed).toContain('Extension type: iframeExtension');
+      expect(printed).toContain('layout:        inline');
+      expect(printed).toContain('modal size:    medium');
+    });
+
     // The box is what the confirmation is answered against, so it has to be on screen
     // before the question — not after it.
     it('prints the summary before asking to confirm', async () => {
