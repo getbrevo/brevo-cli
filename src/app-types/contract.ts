@@ -47,7 +47,7 @@ export interface ValidatableConfig {
  * account for it — which is the main reason the registry is a static object literal
  * rather than something plugin-loaded.
  */
-export type AppTypeId = 'oauth' | 'ui';
+export type AppTypeId = 'oauth' | 'ui' | 'function';
 
 export interface AppTypeModule {
   id: AppTypeId;

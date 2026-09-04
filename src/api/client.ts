@@ -177,6 +177,12 @@ export class ApiClient {
     this.ensureFresh = handler;
   }
 
+  /** Run the ensureFresh handler if one is registered. Exposed for SSE streams
+   *  that bypass `request()` but still need the same token-refresh guarantee. */
+  async runEnsureFresh(): Promise<void> {
+    if (this.ensureFresh) await this.ensureFresh();
+  }
+
   get<T>(path: string): Promise<T> {
     return this.request<T>({ method: 'GET', path });
   }

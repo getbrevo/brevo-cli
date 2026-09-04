@@ -453,6 +453,7 @@ function buildTemplateVars(appId: string, ctx: AppContext, targetDir: string): T
     '{{DISTRIBUTION}}': ctx.appDetails?.distribution_type ?? 'private',
     '{{LOGO_URI}}': ctx.appDetails?.logo_uri ?? '',
     '{{APP_VERSION}}': ctx.appDetails?.version ?? '',
+    '{{APP_TYPE}}': ctx.uiApp ? 'ui' : ctx.isBrevoFunction ? 'function' : 'oauth',
     '{{OAUTH_BASE}}': OAUTH_BASE,
     '{{OAUTH_REALM}}': OAUTH_REALM,
     // Empty for OAuth apps — its emptiness is what selects the `oauth`

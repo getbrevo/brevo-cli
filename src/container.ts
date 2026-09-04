@@ -28,4 +28,11 @@ export const accountService: AccountService = createAccountService(client);
 export const appService: AppService = createAppService(client);
 export const functionService: FunctionService = createFunctionService(client);
 
-export const sseDeps: SSEStreamDeps = { baseUrl: API_BASE, getAuthHeader: buildAuthHeader };
+export const sseDeps: SSEStreamDeps = {
+  baseUrl: API_BASE,
+  getAuthHeader: buildAuthHeader,
+  // Delegates to the client's ensureFresh handler (wired in bin/index.ts).
+  // Without this, a long-running iterate loop in `fn init` could hit a 401
+  // on an expired OAuth token without the refresh-and-retry that ApiClient provides.
+  ensureFresh: () => client.runEnsureFresh(),
+};

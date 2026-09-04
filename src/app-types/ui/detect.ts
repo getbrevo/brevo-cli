@@ -19,7 +19,9 @@ import type { ProjectConfig } from '../../lib/config';
 import type { OAuthApp } from '../../types';
 
 /** The app-record fields detection needs. Partial: a server record may omit any of them. */
-export type AppRecordLike = Partial<Pick<OAuthApp, 'ui_app' | 'client_id' | 'redirect_uris'>>;
+export type AppRecordLike = Partial<
+  Pick<OAuthApp, 'ui_app' | 'client_id' | 'redirect_uris' | 'brevo_function'>
+>;
 
 /** The config fields detection needs. */
 export type AppConfigLike = Pick<ProjectConfig, 'ui_app'>;

@@ -21,12 +21,22 @@ import {
 export function createFunctionService(client: ApiClient) {
   return {
     async fetchFunctionList(): Promise<DpFunctionListResponse> {
-      const params = new URLSearchParams({ limit: '50', offset: '0' });
-      return client.get<DpFunctionListResponse>(`${ENDPOINTS.DP_FUNCTIONS}?${params}`);
+      const PAGE_SIZE = 50;
+      const all: DpFunction[] = [];
+      let offset = 0;
+      let last: DpFunctionListResponse;
+      do {
+        const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+        last = await client.get<DpFunctionListResponse>(`${ENDPOINTS.DP_FUNCTIONS}?${params}`);
+        all.push(...(last.functions ?? []));
+        offset += PAGE_SIZE;
+      } while (all.length < last.total);
+      return { ...last, functions: all };
     },
 
     async fetchDraftFunctionList(): Promise<DpDraftFunctionListResponse> {
-      const params = new URLSearchParams({ limit: '50', offset: '0', draft: 'true' });
+      const PAGE_SIZE = 50;
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: '0', draft: 'true' });
       return client.get<DpDraftFunctionListResponse>(`${ENDPOINTS.DP_FUNCTIONS}?${params}`);
     },
 

@@ -32,8 +32,9 @@ export type Distribution = 'public' | 'private';
  *   OAuth flow).
  * - `oauth` / `ui_app` — the app *type* (BEX-290). Exactly one is always set,
  *   so a template can carry OAuth-only and UI-app-only sections side by side.
- * - `brevo_function` — set when the app is a Brevo Function. Orthogonal to
- *   `oauth` (a Function app is also an OAuth app on the wire).
+ * - `brevo_function` — set when the app is a Brevo Function. Mutually
+ *   exclusive with `oauth` and `ui_app` (a Function app sends
+ *   `brevo_function: {}` with no `auth` block on the wire).
  */
 export type TemplateFlag = 'public' | 'private' | 'oauth' | 'ui_app' | 'brevo_function';
 

@@ -3,6 +3,8 @@
   "compilerOptions": {
     "rootDir": ".",
     "noEmit": true,
+    // Needed because this config includes src/__tests__/ (jest) and scripts/ (node)
+    // which the base tsconfig.json excludes — without these, eslint sees unresolved types.
     "types": ["jest", "node"]
   },
   "include": ["src/**/*", "scripts/**/*"],

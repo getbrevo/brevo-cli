@@ -5,6 +5,8 @@ import { messages } from '../lang/en';
 export interface SSEStreamDeps {
   baseUrl: string;
   getAuthHeader: () => Record<string, string> | undefined;
+  /** If provided, called before each fetch to refresh an expired OAuth token. */
+  ensureFresh?: () => Promise<void>;
 }
 
 export interface SSEEvent {
@@ -147,6 +149,7 @@ export async function* sseStream(
   path: string,
   body?: unknown,
 ): AsyncGenerator<SSEEvent> {
+  if (deps.ensureFresh) await deps.ensureFresh();
   const response = await performSSEFetch(deps, method, path, body);
 
   if (!response.ok) {

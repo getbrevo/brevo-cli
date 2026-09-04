@@ -394,10 +394,11 @@ const coreMessages = {
   // each row names its own type.
   APP_LIST_HEADER: 'Your apps:',
 
-  // App type, as named on a rendered row. The presence of the `ui_app` block is
-  // the discriminator (see isUiAppRecord) — there is no app-type field.
+  // App type, as named on a rendered row. `app_type` exists in the config but is
+  // informational; the discriminator is `ui_app` / `brevo_function` presence.
   APP_TYPE_OAUTH: 'OAuth app',
   APP_TYPE_UI: 'UI app',
+  APP_TYPE_FUNCTION: 'Brevo Function',
 
   // Raised instead of opening the app picker when there is no terminal to draw
   // it on. The picker writes its choice list to stdout, so under --json it

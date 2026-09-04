@@ -429,11 +429,13 @@ export interface ProjectConfig {
     // OAuth apps still require at least one (enforced in `app upload`).
     redirectUris?: string[];
   };
+  /** Explicit app type: 'oauth', 'ui', or 'function'. */
+  app_type?: 'oauth' | 'ui' | 'function';
   /**
-   * Present only for UI apps (BEX-290). Its presence is the discriminator
-   * between the two app types — there is no separate `appType` key, matching
-   * the UIApp Support Spec's config examples. Use {@link isUiAppConfig}
-   * rather than testing for the key directly.
+   * Present only for UI apps (BEX-290). `app_type` exists but is informational;
+   * `ui_app` / `brevo_function` presence remains the discriminator between the
+   * three app types. Use {@link isUiAppConfig} rather than testing for the key
+   * directly.
    */
   ui_app?: UiApp;
 }
@@ -589,10 +591,17 @@ export function readProjectConfigAt(dir: string): ProjectConfig | null {
     // disk (upload.ts, start.ts) then naturally migrate old projects to the
     // new shape on their next write, instead of round-tripping stray keys
     // forever.
+    // Migrate the legacy camelCase `appType` key (introduced in b37eb29, reverted
+    // back to `app_type` in this PR) so configs scaffolded between those two
+    // commits don't carry a dead key forever. The value moves; the old key is dropped.
+    if ('appType' in rawRecord && !('app_type' in rawRecord)) {
+      rawRecord.app_type = rawRecord.appType;
+    }
     const {
       distribution: _legacyDistribution,
       permittedUrls: _permittedUrls,
       support: _support,
+      appType: _legacyAppType,
       ...rawWithoutLegacyDistribution
     } = rawRecord;
     // `ui_app` (BEX-290) is passed through structurally intact — the spread
