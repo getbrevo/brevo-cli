@@ -162,6 +162,17 @@ export interface SurfacePointEntry {
    */
   layout?: 'inline' | 'modal';
   /**
+   * `iframeExtension` entries that open a MODAL: how big that modal is. Which entries
+   * those are is not the same set `layout` applies to — an `.action` slot's menu entry
+   * always opens one (and takes no `layout` at all), while a widget slot opens one only
+   * when its `layout` is `'modal'` or absent. An entry with `layout: 'inline'` embeds the
+   * page in the card and opens nothing, so a size here would size nothing.
+   *
+   * `'large'` is the default and is never written by `brevo app create`, so size-less
+   * configs stay byte-identical. Refused on an `actionLink` entry, same as `layout`.
+   */
+  modal_size?: 'small' | 'medium' | 'large';
+  /**
    * The entry's own text: the menu entry's label on an `.action` slot, the card's CTA
    * button text on a `.widget` slot. Per placement since BEX-426 — an app on three slots
    * can label each differently. Required in practice (`validateUiApp` refuses an empty

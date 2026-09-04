@@ -226,6 +226,14 @@ const coreMessages = {
     `${flag} is for OAuth apps only and cannot be combined with --ui-config or --ui-app.`,
   APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID: (file: string, reason: string) =>
     `Could not read --ui-config "${file}": ${reason}`,
+  // --ui-config reads a FIXED key set and drops everything else, so a key it does not
+  // read has to be refused by name rather than ignored: silently dropping `layout` or
+  // `modal_size` would create an app that renders differently from the file that asked
+  // for it, with no error anywhere. Both are `iframeExtension`-only fields and both
+  // non-interactive routes author `actionLink`, so there is no version of this file that
+  // could carry one and be honoured.
+  APP_CREATE_UI_NONINTERACTIVE_UNSUPPORTED_KEY: (key: string) =>
+    `"${key}" is not supported by --ui-config: it applies to "iframeExtension" entries only, and non-interactive UI app creation authors "actionLink". Create the app interactively instead, or add it to the \`ui_app\` block in app-config.json and run \`${CLI.APP_UPLOAD}\`.`,
   APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_RECORD_PAGE: (page: string, valid: string[]) =>
     `Unknown --record-page "${page}". Valid record pages: ${valid.join(', ')}.`,
   APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_PLACEMENT: (
@@ -279,8 +287,28 @@ const coreMessages = {
   APP_CREATE_UI_LAYOUT_PROMPT: 'How should it appear on the page?',
   APP_CREATE_UI_LAYOUT_MODAL: 'Opens in a modal (card button)',
   APP_CREATE_UI_LAYOUT_INLINE: 'Embedded directly on the page',
+  // Modal size — asked for every iframe entry that actually OPENS a modal: an action
+  // slot's menu entry always does, and a widget slot does too unless its layout answer
+  // was `inline` (an inline card embeds the page in place and opens nothing). So the
+  // gating is NOT the layout question's — that one is widget-only, this one is
+  // "everything except inline".
+  //
+  // Large is the default and is deliberately NOT written to the entry, the same contract
+  // as the layout question above: a default answer leaves app-config.json byte-identical
+  // to one authored before modal sizes existed.
+  APP_CREATE_UI_MODAL_SIZE_PROMPT: 'How big should the modal be?',
+  APP_CREATE_UI_MODAL_SIZE_SMALL: 'Small',
+  APP_CREATE_UI_MODAL_SIZE_MEDIUM: 'Medium',
+  APP_CREATE_UI_MODAL_SIZE_LARGE: 'Large (default)',
   APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT:
     'Iframe URL — the page Brevo embeds in the modal (record context arrives as query params):',
+  // The create-time counterpart of the platform's own refusal: `layout` is only
+  // meaningful on a placement that renders a card, so stamping it onto a row that
+  // renders none would author a block the upload endpoint 400s on. Named per entry, in
+  // the `ui_app.surface_point_list["<slug>"].<field>` shape `validateUiApp` uses, so the
+  // two refusals read the same whichever one a partner meets first.
+  APP_CREATE_UI_LAYOUT_NOT_WIDGET: (slug: string) =>
+    `ui_app.surface_point_list["${slug}"].layout cannot be authored on this placement — it renders no card, so there is nothing to embed inline. Only widget placements take a layout.`,
   APP_CREATE_UI_BOX_TITLE: 'UI app created',
   // `label` labels the menu entry (BEX-290). The one piece of rendered text that has
   // no field is a CARD's title, which is the app name — worth saying, since it is now
@@ -525,6 +553,16 @@ const coreMessages = {
     'This is a UI app (app-config.json has a `ui_app` block), so it uses no OAuth — set `auth` to `{}`.',
   APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS:
     "UI apps don't use OAuth — remove `scopes` and `redirectUris` from `auth` and keep it empty (`{}`).",
+  // Whether a slot renders a card is a REGISTRY fact, and the CLI deliberately holds no
+  // copy of the registry (see CLAUDE.md) — so `layout: "inline"` on a slot that renders
+  // none can only be caught server-side. This translates that refusal into a message that
+  // says what to edit, rather than leaving the partner with the wire's own sentence.
+  //
+  // Narrow on purpose, exactly like `isPublicDistributionRefusal` in `app create`: only a
+  // 400 that names `layout` is relabelled, so an unrelated 400 keeps the server's own
+  // text. The server's sentence is kept inline because it names the offending slot(s).
+  APP_UPLOAD_UI_LAYOUT_REJECTED: (serverMessage: string) =>
+    `Brevo rejected this app's iframe layout: ${serverMessage}\n  \`layout: "inline"\` only works on a placement that renders a card. Remove \`layout\` from that \`surface_point_list\` entry in app-config.json (or set it to "modal"), then run \`${CLI.APP_UPLOAD}\` again.`,
   // Both verbs identify the calling account by its organization ID, which is only
   // cached by a successful login. Numeric and UUID values are both forwarded as-is;
   // only an absent or blank one lands here, meaning the credentials predate the field

@@ -131,6 +131,12 @@ function stringField(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+/**
+ * Keys a `--ui-config` file may not carry. Both are per-entry `iframeExtension` fields,
+ * and this route only authors `actionLink` — see the refusal in `parseUiConfigFile`.
+ */
+const UI_CONFIG_UNSUPPORTED_KEYS: readonly string[] = ['layout', 'modal_size'] as const;
+
 /** The `--ui-config <file>` half of `resolveUiAppNonInteractiveInput`. */
 function parseUiConfigFile(configPath: string): UiAppNonInteractiveInput {
   let raw: string;
@@ -155,6 +161,19 @@ function parseUiConfigFile(configPath: string): UiAppNonInteractiveInput {
       ),
     );
   }
+  // Refused by name, not dropped. Everything below reads a FIXED key set, so any other
+  // key in the file is silently discarded — which for a field that changes how the app
+  // renders means the created app disagrees with the file that asked for it and nothing
+  // says so. Both of these are `iframeExtension`-only and this entry point authors
+  // `actionLink` alone (checked again in `resolveUiAppNonInteractive`), so there is no
+  // reading of such a file the CLI could honour. Thrown here, before any registry read,
+  // like every other non-interactive guard.
+  for (const key of UI_CONFIG_UNSUPPORTED_KEYS) {
+    if (parsed[key] !== undefined) {
+      throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_UNSUPPORTED_KEY(key));
+    }
+  }
+
   return {
     extensionType: stringField(parsed.extension_type),
     recordPage: stringField(parsed.record_page),

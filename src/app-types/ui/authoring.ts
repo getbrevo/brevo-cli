@@ -14,7 +14,11 @@
  * order this flow calls them.
  */
 import inquirer from 'inquirer';
-import { EXTENSION_TYPE_ACTION_LINK, EXTENSION_TYPE_IFRAME } from '../../lib/constants';
+import {
+  DEFAULT_MODAL_SIZE,
+  EXTENSION_TYPE_ACTION_LINK,
+  EXTENSION_TYPE_IFRAME,
+} from '../../lib/constants';
 import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import {
@@ -432,6 +436,12 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
   // authored before layouts existed.
   const layout = await promptIframeLayout(isIframe, selectedRows);
 
+  // How big that modal is — asked whenever one actually opens, which is a DIFFERENT set of
+  // entries from the layout question above. Layout is widget-only; a modal opens on an
+  // action slot (always) and on a widget slot unless the answer above was `inline`, which
+  // embeds the page in the card and opens nothing. Large is the default and writes nothing.
+  const modalSize = await promptModalSize(isIframe, layout);
+
   const uiApp: UiApp = {
     extension_type: extensionType,
     // One entry for the selected placement, seeded from THAT row's
@@ -456,6 +466,7 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
       urlField: isIframe ? 'modal_iframe_url' : 'redirect_link',
       url: String(url ?? '').trim(),
       layout,
+      modal_size: modalSize,
     }),
     // No link_target: `brevo app upload` injects `_blank`. See the field's note in
     // types.ts — the server refuses `_self`, so a field in the file would only
@@ -563,6 +574,42 @@ async function promptIframeLayout(
 }
 
 /**
+ * Ask how big the modal an Iframe opens should be. Returns undefined — write nothing — for
+ * a Link, for an entry whose layout answer was `inline` (it embeds the page in the card and
+ * opens no modal at all), and for the default answer itself, so only a non-default size
+ * ever reaches the file.
+ *
+ * The gating is deliberately NOT `promptIframeLayout`'s. That question is widget-only,
+ * because an action slot's menu entry has exactly one presentation; this one applies to
+ * every iframe entry that opens a modal, which includes that menu entry. `layout` is
+ * `undefined` for both "not a widget" and "answered modal" — and both of those DO open a
+ * modal — so `layout === 'inline'` is the whole exclusion.
+ */
+async function promptModalSize(
+  isIframe: boolean,
+  layout: 'inline' | undefined,
+): Promise<'small' | 'medium' | undefined> {
+  if (!isIframe || layout === 'inline') return undefined;
+  const { modalSize } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'modalSize',
+      message: messages.APP_CREATE_UI_MODAL_SIZE_PROMPT,
+      // The default is pre-selected rather than listed first, so the choices stay in size
+      // order and a bare Enter still lands on the value that writes nothing.
+      default: DEFAULT_MODAL_SIZE,
+      choices: indentChoices([
+        { name: messages.APP_CREATE_UI_MODAL_SIZE_SMALL, value: 'small' },
+        { name: messages.APP_CREATE_UI_MODAL_SIZE_MEDIUM, value: 'medium' },
+        { name: messages.APP_CREATE_UI_MODAL_SIZE_LARGE, value: DEFAULT_MODAL_SIZE },
+      ]),
+    },
+  ]);
+  if (modalSize === 'small' || modalSize === 'medium') return modalSize;
+  return undefined;
+}
+
+/**
  * Turn selected registry rows into `surface_point_list` entries, deduplicated by slot
  * and keeping registry order (which is deterministic server-side, so the upload diff
  * doesn't churn).
@@ -594,6 +641,11 @@ async function promptIframeLayout(
  * `urlField` names which destination the answered URL is: `redirect_link` for a Link,
  * `modal_iframe_url` for an Iframe. One field, never both — the platform refuses the
  * other type's URL on an entry, so writing both would author a block upload 400s on.
+ *
+ * `layout` and `modal_size` are written only when non-default, so a default answer leaves
+ * the entry byte-identical to one authored before either field existed. A `layout` handed
+ * in for a row that renders no card is REFUSED here rather than stamped: see the check in
+ * the loop.
  */
 export function buildSurfacePointList(
   rows: UsableSurfacePoint[],
@@ -606,6 +658,8 @@ export function buildSurfacePointList(
     url: string;
     /** Written only when `'inline'` — absent means modal, and absent is the default. */
     layout?: 'inline';
+    /** Written only when non-default — absent means `large`, and absent is the default. */
+    modal_size?: 'small' | 'medium';
   },
 ): SurfacePointEntry[] {
   const entries: SurfacePointEntry[] = [];
@@ -613,6 +667,16 @@ export function buildSurfacePointList(
   for (const row of rows) {
     if (seen.has(row.surface_point_name)) continue;
     seen.add(row.surface_point_name);
+    // A layout only means something on a slot that renders a card. The prompt above never
+    // asks for one on any other slot, so this cannot fire from the interactive flow — but
+    // the builder is what actually stamps the field, and it stamps whatever row it is
+    // handed. Left unchecked, a caller that resolved its rows differently (the
+    // non-interactive routes, a future flow) would author a block the upload endpoint
+    // rejects, and the partner would meet the rule one round trip later, phrased by the
+    // server. Named per entry, in the same shape `validateUiApp` uses.
+    if (fields.layout && row.component_type !== 'widget') {
+      throw new CliError(messages.APP_CREATE_UI_LAYOUT_NOT_WIDGET(row.surface_point_name));
+    }
     const context = fields
       .contextFor(row)
       .map((field) => String(field).trim())
@@ -625,6 +689,7 @@ export function buildSurfacePointList(
       label: fields.label,
       ...(fields.more_info ? { more_info: fields.more_info } : {}),
       ...(fields.layout ? { layout: fields.layout } : {}),
+      ...(fields.modal_size ? { modal_size: fields.modal_size } : {}),
       [fields.urlField]: fields.url,
     });
   }

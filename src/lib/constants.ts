@@ -336,6 +336,19 @@ export const DEFAULT_LINK_TARGET = '_blank';
  */
 export const UPLOADABLE_LINK_TARGETS: readonly string[] = [DEFAULT_LINK_TARGET] as const;
 
+/**
+ * The `modal_size` vocabulary for an `iframeExtension` entry, and the one the create
+ * prompt offers. A FIELD vocabulary, not a registry mirror: these are the three values
+ * the UI kit knows how to size a modal to, fixed by the kit rather than seeded per slot,
+ * so pinning them locally cannot lag the way a copy of the extension-point registry would.
+ *
+ * `DEFAULT_MODAL_SIZE` is what an absent value means. It is never written — `brevo app
+ * create` returns nothing for it, so a default answer leaves the entry byte-identical to
+ * one authored before modal sizes existed, the same contract `layout: "modal"` has.
+ */
+export const UI_APP_MODAL_SIZES: readonly string[] = ['small', 'medium', 'large'] as const;
+export const DEFAULT_MODAL_SIZE = 'large';
+
 export const BREVO_DASHBOARD_API_KEYS_URL = 'https://app.brevo.com/settings/keys/api';
 export const BREVO_API_KEY_DOCS_URL = 'https://developers.brevo.com/docs/api-key-authentication';
 export const BREVO_STATUS_URL = 'https://status.brevo.com';

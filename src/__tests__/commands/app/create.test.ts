@@ -1848,6 +1848,73 @@ describe('app/create', () => {
       expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('layout');
     });
 
+    // Modal size is gated DIFFERENTLY from layout, and the difference is the point: layout
+    // is widget-only (an action slot's menu entry has one presentation), while a modal
+    // size applies to every iframe entry that actually opens a modal — which includes that
+    // menu entry, and excludes a widget card answered `inline`.
+    it('asks the modal size on an action slot, which opens a modal by definition', async () => {
+      answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('layout')).toBeUndefined();
+      expect(questionNamed('modalSize')).toBeDefined();
+    });
+
+    it('asks the modal size on a widget slot answered modal', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        placement: 'contact-details-overview-main',
+        url: 'https://example.com/embed',
+        layout: 'modal',
+        modalSize: 'small',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('modalSize')).toBeDefined();
+      expect(collectedUiApp().surface_point_list[0].modal_size).toBe('small');
+    });
+
+    // An inline card embeds the page and opens nothing, so a size here would size nothing.
+    it('skips the modal size when the widget layout answer is inline', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        placement: 'contact-details-overview-main',
+        url: 'https://example.com/embed',
+        layout: 'inline',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('modalSize')).toBeUndefined();
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('modal_size');
+    });
+
+    it('never asks the modal size for a Link', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('modalSize')).toBeUndefined();
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('modal_size');
+    });
+
+    // Large is the default and writes nothing, the same contract the layout question has:
+    // a default answer leaves the entry byte-identical to one authored before the question
+    // existed. The prompt pre-SELECTS it rather than listing it first, so a bare Enter
+    // still lands there.
+    it('writes no modal size for the default answer, which is pre-selected', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        url: 'https://example.com/embed',
+        modalSize: 'large',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('modalSize')?.default).toBe('large');
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('modal_size');
+    });
+
     // One URL question either way, but the wording must say what actually happens to the
     // page: a Link opens in a new tab, an Iframe is embedded in a modal inside Brevo.
     it('asks the iframe-specific URL question on the Iframe branch', async () => {
@@ -2592,6 +2659,31 @@ describe('app/create', () => {
         await expect(
           createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
         ).rejects.toThrow(/only supports "actionLink"/);
+        expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
+        expect(appService.createApp).not.toHaveBeenCalled();
+      });
+
+      // The file's key set is fixed and everything else is DROPPED, so an iframe-only
+      // presentation field has to be refused by name: silently ignoring it would create an
+      // app that renders differently from the file that asked for it, with nothing said.
+      it.each([
+        ['layout', 'inline'],
+        ['modal_size', 'small'],
+      ])('rejects a %s key in --ui-config before any network call', async (key, value) => {
+        (fs.readFileSync as jest.Mock).mockReturnValue(
+          JSON.stringify({
+            extension_type: 'actionLink',
+            record_page: 'contactDetails',
+            surface_point_name: 'contact-details-header-menu',
+            label: 'Open in Acme',
+            redirect_link: 'https://example.com/open',
+            [key]: value,
+          }),
+        );
+
+        await expect(
+          createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
+        ).rejects.toThrow(new RegExp(`"${key}" is not supported by --ui-config`));
         expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
         expect(appService.createApp).not.toHaveBeenCalled();
       });

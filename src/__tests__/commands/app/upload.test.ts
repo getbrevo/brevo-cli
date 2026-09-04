@@ -26,6 +26,8 @@ import * as fs from 'node:fs';
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
 import { readProjectConfig, writeProjectConfig, saveAppName } from '../../../lib/config';
+import { ApiError } from '../../../lib/errors';
+import { messages } from '../../../lang/en';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
@@ -1294,6 +1296,39 @@ describe('app/upload', () => {
         expect(printed).toContain('(context: recordId, accountId → recordId)');
       });
 
+      // The iframe presentation fields render in the diff like every other per-entry
+      // value — they are table-driven off the same VALUE_ROWS as the plain renderer, so a
+      // field that shows in the created-app box and not here (or the reverse) is exactly
+      // what these pin.
+      it('renders the iframe layout and modal size, changed and unchanged', async () => {
+        const iframeEntry = {
+          surface_point_name: 'contact-details-overview-main',
+          context: ['recordId'],
+          label: 'View in CRM',
+          modal_iframe_url: 'https://example.com/embed',
+          layout: 'inline' as const,
+          modal_size: 'small' as const,
+        };
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: { extension_type: 'iframeExtension' as const, surface_point_list: [iframeEntry] },
+        });
+        (appService.fetchApp as jest.Mock).mockResolvedValue(
+          remoteWith({
+            extension_type: 'iframeExtension' as const,
+            // Same slot, a different presentation: the layout changed, the size did not.
+            surface_point_list: [{ ...iframeEntry, layout: 'modal' as const }],
+          }),
+        );
+
+        await uploadCommand({ yes: true });
+
+        const printed = output();
+        expect(printed).toContain('layout:        modal → inline');
+        expect(printed).toContain('modal size:    small');
+        expect(printed).not.toContain('modal size:    small →');
+      });
+
       // A build that accepts the block on write but echoes none on read leaves nothing to
       // compare with. Printing every placement as `(new)` there would assert something the
       // absent block is no evidence of.
@@ -1303,6 +1338,51 @@ describe('app/upload', () => {
         const printed = output();
         expect(printed).toContain('Placement:      contact-details-header-menu');
         expect(printed).not.toContain('(new)');
+      });
+    });
+
+    // ─── the server's own layout refusal, translated ───
+    // Whether a slot renders a card is a registry fact and the CLI holds no copy of the
+    // registry on purpose, so `layout: "inline"` on a slot that renders none can only be
+    // caught server-side. The CLI's job is to say what to edit — narrowly, so an
+    // unrelated 400 keeps the server's own sentence.
+    describe('a layout rejected by the platform', () => {
+      // The bo-be sentence, verbatim: it names the offending slot(s), which is why it is
+      // kept inline in the CLI's message rather than replaced.
+      const SERVER_MESSAGE =
+        'ui_app.surface_point_list authors layout "inline" on slot(s) that render no card: contact-details-header-menu (component_type "action")';
+
+      it('translates the 400 into a message naming the field to edit', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(SERVER_MESSAGE, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          messages.APP_UPLOAD_UI_LAYOUT_REJECTED(SERVER_MESSAGE),
+        );
+      });
+
+      it('keeps the server sentence inside the translated message', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(SERVER_MESSAGE, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(/render no card/);
+      });
+
+      it('leaves an unrelated 400 with the server text', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(
+          new ApiError('logo_uri must be an https URL', 400),
+        );
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow('logo_uri must be an https URL');
+      });
+
+      // Narrow on the STATUS as well as the word: a 500 that happens to mention layout is
+      // an outage, not a configuration mistake, and relabelling it would send the partner
+      // editing a file that is fine.
+      it('leaves a non-400 that mentions layout alone', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(
+          new ApiError('layout service unavailable', 503),
+        );
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow('layout service unavailable');
       });
     });
 
