@@ -52,7 +52,9 @@ export type PreviewFeature =
   /** The *UI app* choice in `app create`'s app-type prompt. */
   | 'ui-app-type'
   /** `app create --distribution public`. */
-  | 'public-distribution';
+  | 'public-distribution'
+  /** The *Brevo Function* choice in `app create` and the `brevo function` commands. */
+  | 'brevo-function-type';
 
 export type FeatureStage = 'ga' | 'preview';
 
@@ -69,6 +71,7 @@ export const FEATURE_STAGE: Readonly<Record<PreviewFeature, FeatureStage>> = {
   'review-lifecycle': 'preview',
   'ui-app-type': 'ga',
   'public-distribution': 'preview',
+  'brevo-function-type': 'ga',
 } as const;
 
 /**

@@ -98,7 +98,7 @@ describe('app/withdraw', () => {
     await withdrawCommand({ appId: '42', force: true, json: true });
 
     const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
-    expect(parsed).toEqual({ withdrawn: true, appId: '42' });
+    expect(parsed).toEqual({ withdrawn: true, appId: '42', app_id: '42' });
   });
 
   it('should cancel when user declines confirmation', async () => {
@@ -144,7 +144,7 @@ describe('app/withdraw', () => {
   });
 
   it('should auto-pick appId from app-config.json when inside a project dir', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '77', appName: 'Linked App' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '77', app_name: 'Linked App' });
     mockPrompt.mockResolvedValueOnce({ confirmed: true }); // confirmation only, no picker
     (appService.withdrawApp as jest.Mock).mockResolvedValue(undefined);
 
@@ -155,7 +155,7 @@ describe('app/withdraw', () => {
   });
 
   it('should auto-pick from app-config.json with --force (no prompts)', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '77', appName: 'Linked App' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '77', app_name: 'Linked App' });
     (appService.withdrawApp as jest.Mock).mockResolvedValue(undefined);
 
     await withdrawCommand({ force: true });
@@ -166,7 +166,7 @@ describe('app/withdraw', () => {
   });
 
   it('should let an explicit --app-id override app-config.json', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '77', appName: 'Linked App' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '77', app_name: 'Linked App' });
     (appService.withdrawApp as jest.Mock).mockResolvedValue(undefined);
 
     await withdrawCommand({ appId: '42', force: true });

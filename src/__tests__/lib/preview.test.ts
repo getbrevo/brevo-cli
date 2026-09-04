@@ -33,6 +33,7 @@ describe('lib/preview', () => {
         'review-lifecycle': 'preview',
         'ui-app-type': 'ga',
         'public-distribution': 'preview',
+        'brevo-function-type': 'ga',
       });
     });
   });

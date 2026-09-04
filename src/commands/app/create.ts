@@ -86,7 +86,7 @@ const validateLogoUrl = (input: string): true | string => {
 function guardAgainstLinkedApp(): void {
   if (!hasLocalApp()) return;
   const projectConfig = readProjectConfig();
-  const linkedName = projectConfig?.appName || String(projectConfig?.appId ?? '');
+  const linkedName = projectConfig?.app_name || String(projectConfig?.app_id ?? '');
   throw new CliError(messages.APP_CREATE_ALREADY_LINKED(linkedName));
 }
 
@@ -226,9 +226,9 @@ function resolveUiAppNonInteractiveInput(
 //    `--ui-app` was passed, in which case `createCommand` never calls this
 //    function at all — see `resolveUiAppNonInteractiveInput` above and its call
 //    site below, which is the actual app-type decision when either flag is set.
-export type AppType = 'oauth' | 'ui';
+export type AppType = 'oauth' | 'ui' | 'function';
 
-async function resolveAppType(interactive: boolean): Promise<AppType> {
+async function resolveAppType(interactive: boolean, distribution?: string): Promise<AppType> {
   // A UI app is only reachable through this prompt (there is no `--type` flag), so a
   // non-interactive run with neither --ui-config nor --ui-app has nothing to resolve
   // and creates an OAuth app, exactly as it did before BEX-290.
@@ -249,6 +249,12 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
   ];
   if (isFeatureAvailable('ui-app-type')) {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' });
+  }
+  // Brevo Functions are GA — the `__BREVO_PREVIEW__` wrapper this site carried pre-GA is
+  // gone with the gate. `isFeatureAvailable` stays so the choice keeps reading the same
+  // `FEATURE_STAGE` table as everything else — same pattern as the UI-app choice above.
+  if (isFeatureAvailable('brevo-function-type') && distribution === 'private') {
+    choices.push({ name: messages.APP_CREATE_APP_TYPE_FUNCTION, value: 'function' });
   }
   const answer = await inquirer.prompt([
     {
@@ -481,6 +487,8 @@ interface CreateAppInputs {
   logoUri?: string;
   /** Present for UI apps only; drives scope defaults and omits redirect URIs. */
   uiApp?: UiApp;
+  /** The selected app type — drives the `brevo_function` discriminator on the wire. */
+  appType: AppType;
 }
 
 interface CreatedApp {
@@ -490,26 +498,25 @@ interface CreatedApp {
 
 function buildCreatePayload(inputs: CreateAppInputs) {
   const isUiApp = !!inputs.uiApp;
+  const isFunction = inputs.appType === 'function';
+
+  // Each app type sends its own discriminator block on the wire:
+  // - OAuth: `auth` with scopes and redirect URIs
+  // - UI app: `ui_app` with placements and destination
+  // - Function: `brevo_function` as an empty object (no OAuth flow)
+  let typeBlock;
+  if (isUiApp) {
+    typeBlock = { ui_app: inputs.uiApp };
+  } else if (isFunction) {
+    typeBlock = { brevo_function: {} };
+  } else {
+    typeBlock = { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } };
+  }
+
   return {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
-    // OAuth fields travel inside the `auth` block, same as the upload payload
-    // (unified structure). A UI app has no OAuth block at all (`auth: {}` in
-    // its config) — the key is omitted entirely, not sent empty. Sending empty
-    // arrays (or worse, the default localhost URI) would register OAuth state
-    // the app type never uses.
-    //
-    // `ui_app` is what tells create the omission is deliberate. It is the
-    // app-type discriminator on the wire exactly as it is in app-config.json
-    // (`isUiAppConfig`), so create can apply the same branch the CLI does:
-    // without it the endpoint reads a UI app as an OAuth app missing its
-    // callbacks and answers `redirect_uris is required and must not be empty`.
-    // `app upload` still sends the block and remains the platform's validation
-    // authority for it — this is the same block under the same key, sent early
-    // enough that the record is created with the right app type.
-    ...(isUiApp
-      ? { ui_app: inputs.uiApp }
-      : { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } }),
+    ...typeBlock,
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
 }
@@ -658,6 +665,10 @@ async function resolveUiAppOrRedirectUris(
   redirectUriFlag: string[] | undefined,
   jsonMode: boolean,
 ): Promise<{ redirectUris: string[]; uiApp: UiApp | undefined }> {
+  if (appType === 'function') {
+    // Function apps have no OAuth flow and no placement — neither prompt path runs.
+    return { redirectUris: [], uiApp: undefined };
+  }
   if (appType !== 'ui') {
     return {
       redirectUris: await resolveRedirectUrls(redirectUriFlag, jsonMode),
@@ -670,9 +681,16 @@ async function resolveUiAppOrRedirectUris(
   return { redirectUris: [], uiApp };
 }
 
-/** Cache what a successful create just returned — guarded per field because a UI app
- * has no OAuth credentials and an unnamed app (shouldn't happen, but typed as optional)
- * has nothing to key a name cache entry with. */
+/**
+ * Cache the credentials locally. Not because this is the only copy — `GET
+ * /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
+ * too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
+ * `app start` can read them without a round trip.
+ * Guarded because a UI app has no OAuth credentials to cache, and a Function
+ * app has neither: writing the pair unconditionally stored
+ * `{clientId: undefined, clientSecret: undefined}` under its ID, which is a
+ * cache entry that can only mislead a later read.
+ */
 function cacheAppIdentity(result: CreateAppResponse, finalAppName: string): void {
   if (result.client_id && result.client_secret) {
     saveAppCredentials(result.app_id, {
@@ -791,10 +809,12 @@ export const createCommand = withCommandHandler(
     // `--ui-config`/`--ui-app` decide the type outright — resolveAppType (and its
     // TTY check) never runs for them, which is what makes them reachable without a
     // terminal at all.
-    const appType: AppType = nonInteractiveUiAppInput ? 'ui' : await resolveAppType(interactive);
+    const appType: AppType = nonInteractiveUiAppInput
+      ? 'ui'
+      : await resolveAppType(interactive, distribution);
 
-    // The two app types diverge here: OAuth apps collect callback URLs, UI apps
-    // collect placement + destination. Neither path runs the other's prompts.
+    // The app types diverge here: OAuth apps collect callback URLs, UI apps collect
+    // placement + destination, Function apps need neither. No path runs another's prompts.
     const { redirectUris, uiApp } = await resolveUiAppOrRedirectUris(
       appType,
       nonInteractiveUiAppInput,
@@ -804,7 +824,14 @@ export const createCommand = withCommandHandler(
 
     const dir = await resolveCreateDirectory(appName, interactive);
 
-    const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri, uiApp };
+    const inputs: CreateAppInputs = {
+      appName,
+      distribution,
+      redirectUris,
+      logoUri,
+      uiApp,
+      appType,
+    };
     const { result, appName: finalAppName } = await createAppWithRetry(
       inputs,
       jsonMode,
@@ -815,10 +842,6 @@ export const createCommand = withCommandHandler(
     // this line a failed create left a stray directory and a moved cwd behind.
     applyCreateDirectory(dir, jsonMode);
 
-    // Cache the credentials locally. Not because this is the only copy — `GET
-    // /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
-    // too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
-    // `app start` can read them without a round trip.
     cacheAppIdentity(result, finalAppName);
 
     // `--json` implies non-interactive, which implies OAuth, so `appType` is
@@ -861,6 +884,9 @@ export const createCommand = withCommandHandler(
     //
     const fallbackApp = buildFallbackOAuthApp(result);
     const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp, fallbackApp);
+    if (appType === 'function') {
+      ctx.isBrevoFunction = true;
+    }
 
     // Always write the basic project structure (app-config.json + meta files).
     const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);

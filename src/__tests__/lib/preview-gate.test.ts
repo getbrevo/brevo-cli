@@ -44,7 +44,8 @@ function buildTree(previewBuild: boolean): Tree {
       .description('Brevo Developer CLI — create, manage, and test OAuth integrations')
       .version('0.0.0-test')
       .configureHelp({ formatHelp: createHelpFormatter(program) });
-    registerAll(program, defs.topLevelCommands, [defs.appCommandGroup, defs.skillCommandGroup]);
+    const groups = [defs.appCommandGroup, defs.skillCommandGroup, defs.functionCommandGroup];
+    registerAll(program, defs.topLevelCommands, groups);
 
     tree = {
       program,
@@ -157,6 +158,13 @@ describe('the pre-GA gate, end to end', () => {
       expect(tree.rootHelp).toContain('App-install commands (UI apps only):');
       expect(tree.rootHelp).toContain('brevo app install');
       expect(tree.rootHelp).toContain('brevo app uninstall');
+    });
+
+    // Brevo Functions are GA: the published build shows the function commands section.
+    it('keeps the "Function commands" section on the root help', () => {
+      expect(tree.rootHelp).toContain('Function commands (alias: brevo fn):');
+      expect(tree.rootHelp).toContain('brevo function list');
+      expect(tree.rootHelp).toContain('brevo function init');
     });
 
     it('drops the --distribution public example from `app create --help`', () => {

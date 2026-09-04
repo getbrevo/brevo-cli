@@ -11,6 +11,8 @@ import { createSpinner } from '../../lib/ui';
 import {
   readProjectConfig,
   writeProjectConfig,
+  migrateProjectConfigKeys,
+  hasLegacyProjectConfigKeys,
   saveAppName,
   isUiAppConfig,
   ProjectConfig,
@@ -19,6 +21,7 @@ import { validateScopes, containsLegacyAllScope } from '../../lib/validators';
 import { DEFAULT_LINK_TARGET, EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
 import { OAuthApp, UiApp, UploadAppResponse } from '../../types';
 import { resolveFromConfig } from '../../app-types';
+import { isFunctionAppConfig } from '../../app-types/function';
 import { stripUiAppWireOnlyKeysFrom } from '../../app-types/wire';
 import { formatPlacementDiffLines } from '../../app-types/ui/fields';
 import { canonicalizeUiApp } from '../../app-types/ui/compare';
@@ -45,12 +48,11 @@ function loadUsableConfig(): NonNullable<ReturnType<typeof readProjectConfig>> {
   } catch {
     throw new CliError(messages.APP_UPLOAD_INVALID_JSON);
   }
-  if (
-    !raw ||
-    typeof raw !== 'object' ||
-    !('appId' in raw) ||
-    !(raw as Record<string, unknown>).appId
-  ) {
+  // Either spelling of the ID key counts as present: `app_id` is the current one, `appId`
+  // what every release before the snake_case rename wrote. `readProjectConfig` folds the
+  // legacy key, so this raw check only has to agree with it on what "missing" means.
+  const rawRecord = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  if (!rawRecord || !(rawRecord.app_id ?? rawRecord.appId)) {
     throw new CliError(messages.APP_UPLOAD_MISSING_APP_ID);
   }
   const config = readProjectConfig();
@@ -126,18 +128,19 @@ interface UploadDiff {
   // idempotent, whereas skipping it could strand a local edit.
   currentUiApp?: UiApp;
   nextUiApp?: UiApp;
+  isFunctionApp: boolean;
 }
 
 function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): UploadDiff {
   const nextScopes = config.auth?.scopes ?? [];
   return {
-    appId: config.appId,
+    appId: config.app_id,
     currentName: remote.name,
-    nextName: config.appName,
+    nextName: config.app_name,
     currentUrls: remote.redirect_uris ?? [],
-    nextUrls: config.auth?.redirectUris ?? [],
+    nextUrls: config.auth?.redirect_uris ?? [],
     currentLogoUri: remote.logo_uri,
-    nextLogoUri: config.logoUri ?? '',
+    nextLogoUri: config.logo_uri ?? '',
     currentScopes: remote.scopes ?? [],
     nextScopes,
     currentDistribution: remote.distribution_type,
@@ -147,6 +150,7 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
     migratingLegacyScopes: containsLegacyAllScope(remote.scopes ?? []),
     currentUiApp: remote.ui_app,
     nextUiApp: config.ui_app,
+    isFunctionApp: isFunctionAppConfig(config as { brevo_function?: unknown }),
   };
 }
 
@@ -212,16 +216,17 @@ function renderUploadDiff(diff: UploadDiff): void {
     logInfo(`  Distribution:  ${diff.nextDistribution}`);
   }
   // Only OAuth apps have callbacks — printing an empty "Redirect URLs:" row for a
-  // UI app would imply something is missing.
-  if (!diff.nextUiApp) {
+  // UI app or Function app would imply something is missing.
+  const isOAuthDiff = !diff.nextUiApp && !diff.isFunctionApp;
+  if (isOAuthDiff) {
     logAligned('  Redirect URLs: ', diffLines(diff.currentUrls, diff.nextUrls));
   }
   if (diff.migratingLegacyScopes) {
     logInfo(`  ${messages.LEGACY_ALL_SCOPE_UPDATE_MIGRATING}`);
   }
-  // Scopes are OAuth-only as well — a UI app's auth is empty (`{}`),
+  // Scopes are OAuth-only as well — a UI/Function app's auth is empty or absent,
   // so a scopes row would only ever render as noise.
-  if (!diff.nextUiApp) {
+  if (isOAuthDiff) {
     logAligned('  Scopes:        ', diffLines(diff.currentScopes, diff.nextScopes));
   }
   if (diff.currentLogoUri && diff.currentLogoUri !== diff.nextLogoUri) {
@@ -268,11 +273,11 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
 }
 
 function diffToJson(diff: UploadDiff) {
+  const isOAuth = !diff.nextUiApp && !diff.isFunctionApp;
   return {
     current: {
       name: diff.currentName,
-      redirect_uris: diff.currentUrls,
-      scopes: diff.currentScopes,
+      ...(isOAuth ? { redirect_uris: diff.currentUrls, scopes: diff.currentScopes } : {}),
       logo_uri: diff.currentLogoUri,
       distribution_type: diff.currentDistribution,
       version: diff.currentVersion,
@@ -280,25 +285,26 @@ function diffToJson(diff: UploadDiff) {
     },
     next: {
       name: diff.nextName,
-      // OAuth-only keys are omitted for UI apps — their desired state has no
-      // OAuth block (auth is `{}`), and emitting empty arrays
-      // would misread as "clearing the values".
-      ...(diff.nextUiApp ? {} : { redirect_uris: diff.nextUrls, scopes: diff.nextScopes }),
+      // OAuth-only keys are omitted for UI and Function apps — their desired
+      // state has no OAuth block, and emitting empty arrays would misread as
+      // "clearing the values".
+      ...(isOAuth ? { redirect_uris: diff.nextUrls, scopes: diff.nextScopes } : {}),
       logo_uri: diff.nextLogoUri,
       distribution_type: diff.nextDistribution,
       version: diff.nextVersion,
       ...(diff.nextUiApp ? { ui_app: diff.nextUiApp } : {}),
+      ...(diff.isFunctionApp ? { brevo_function: {} } : {}),
     },
   };
 }
 
 function hasNoChanges(diff: UploadDiff): boolean {
-  // Scopes and redirect URLs are OAuth-only: a UI app's config carries neither
-  // (auth is `{}`), so comparing them against whatever the
-  // server still reports would flag a phantom change on every upload.
-  const isUiApp = !!diff.nextUiApp;
+  // Scopes and redirect URLs are OAuth-only: a UI/Function app's config carries
+  // neither, so comparing them against whatever the server still reports would
+  // flag a phantom change on every upload.
+  const isNonOAuth = !!diff.nextUiApp || diff.isFunctionApp;
   const oauthUnchanged =
-    isUiApp ||
+    isNonOAuth ||
     (JSON.stringify([...diff.currentUrls].sort()) === JSON.stringify([...diff.nextUrls].sort()) &&
       JSON.stringify([...diff.currentScopes].sort()) ===
         JSON.stringify([...diff.nextScopes].sort()));
@@ -333,29 +339,28 @@ export async function uploadProjectConfig(
   opts: { silent?: boolean; appVersion?: string } = {},
 ): Promise<ConfigUploadOutcome> {
   const isUiApp = isUiAppConfig(config);
-  const redirectUris = config.auth?.redirectUris ?? [];
+  const isFnApp = isFunctionAppConfig(config as { brevo_function?: unknown });
+  const redirectUris = config.auth?.redirect_uris ?? [];
   const scopes = config.auth?.scopes ?? [];
 
   let appVersion = opts.appVersion ?? config.version ?? '';
   if (!appVersion) {
-    appVersion = (await fetchExistingApp(config.appId, opts.silent)).version ?? '';
+    appVersion = (await fetchExistingApp(config.app_id, opts.silent)).version ?? '';
   }
 
   const spinner = createSpinner('Uploading app...', { silent: opts.silent });
   let response: UploadAppResponse;
   try {
-    response = await appService.uploadApp(config.appId, {
-      app_id: config.appId,
-      name: config.appName,
-      logo_uri: config.logoUri ?? '',
+    response = await appService.uploadApp(config.app_id, {
+      app_id: config.app_id,
+      name: config.app_name,
+      logo_uri: config.logo_uri ?? '',
       version: appVersion,
       distribution_type: config.distribution_type,
-      // UI apps have no OAuth block — the whole `auth` key is omitted, not sent
-      // with empty arrays, mirroring `auth: {}` in the config.
-      // ASSUMED wire contract (server side not built yet; tracked in the
-      // branch-local docs.md — see CLAUDE.md → Working docs): the upload endpoint
-      // must tolerate an absent auth key for UI apps.
-      ...(isUiApp
+      // UI apps and Function apps have no OAuth block — the whole `auth` key is
+      // omitted, not sent with empty arrays. A UI app mirrors `auth: {}` in the
+      // config; a Function app has no `auth` block at all.
+      ...(isUiApp || isFnApp
         ? {}
         : {
             auth: {
@@ -384,13 +389,15 @@ export async function uploadProjectConfig(
       // and the server refuse the field per entry — so injecting it would send the
       // one field the CLI just told the partner not to write.
       ...(isUiApp && config.ui_app ? { ui_app: withInjectedLinkTargets(config.ui_app) } : {}),
+      // A Function app sends its static discriminator block on the wire.
+      ...(isFnApp ? { brevo_function: {} } : {}),
     });
   } finally {
     spinner.stop();
   }
 
-  const finalName = response.name ?? config.appName;
-  if (finalName) saveAppName(config.appId, finalName);
+  const finalName = response.name ?? config.app_name;
+  if (finalName) saveAppName(config.app_id, finalName);
 
   // Single source of truth for the version we persist AND print, so the two can
   // never diverge. The server returns the bumped value under `version` (see
@@ -400,19 +407,24 @@ export async function uploadProjectConfig(
 
   writeProjectConfig({
     ...config,
-    appName: finalName,
-    logoUri: response.logo_uri ?? config.logoUri,
+    app_name: finalName,
+    logo_uri: response.logo_uri ?? config.logo_uri,
     distribution_type: response.distribution_type ?? config.distribution_type,
     version: confirmedVersion,
     // A UI app's auth block is always written back as the canonical empty
     // `{}` — never reconciled from the server's echo, which reports null
     // scopes/redirect_uris for UI-only apps anyway.
-    auth: isUiApp
+    // A Function app has no auth block at all — omit it from the write-back.
+    ...(isFnApp
       ? {}
       : {
-          scopes: response.auth.scopes ?? scopes,
-          redirectUris: response.auth.redirect_uris ?? redirectUris,
-        },
+          auth: isUiApp
+            ? {}
+            : {
+                scopes: response.auth?.scopes ?? scopes,
+                redirect_uris: response.auth?.redirect_uris ?? redirectUris,
+              },
+        }),
     // Prefer the server's normalized block when it echoes one back, otherwise
     // keep what we just sent — with the wire-only keys stripped either way. The
     // server defaults `link_target` and manages the block's `version`, and
@@ -433,13 +445,48 @@ export async function uploadProjectConfig(
 // it describes, and the server never sees the contradiction — a UI app must carry
 // exactly `auth: {}` (no scopes, no redirect URIs — nothing OAuth is issued for it).
 function validateAuthShape(config: NonNullable<ProjectConfig>): void {
+  // Function apps have no auth block at all — skip validation.
+  if (isFunctionAppConfig(config as { brevo_function?: unknown })) return;
   if (!isUiAppConfig(config)) return;
   if (!config.auth) {
     throw new CliError(messages.APP_UPLOAD_UI_APP_AUTH_EMPTY_REQUIRED);
   }
-  if (config.auth.scopes !== undefined || config.auth.redirectUris !== undefined) {
+  if (config.auth.scopes !== undefined || config.auth.redirect_uris !== undefined) {
     throw new CliError(messages.APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS);
   }
+}
+
+/**
+ * `app_type` is informational (BEX-468) — the blocks decide the type — so this checks that
+ * the label the file carries still agrees with them, and refuses the upload when it doesn't.
+ * A disagreement is always a hand-edit that half-landed: a `ui_app` block pasted into a
+ * config still labelled `"oauth"`, or the label changed without the blocks following.
+ *
+ * Three things this deliberately is not:
+ *
+ *   - **Not a detector.** The detected side comes from `resolveFromConfig`, i.e. from
+ *     `isUiAppConfig` / `isFunctionAppConfig` via the registry, which stays the single place
+ *     the discriminator is read. Nothing branches on `app_type`; it is only ever compared.
+ *   - **Not keyed off `extension_type`.** A UI app is a UI app because it has a `ui_app`
+ *     block, whatever kind of extension that block describes. Reading `extension_type` here
+ *     would make the label check care about a distinction it has no opinion on.
+ *   - **Not applied to a file that omits the field.** Every config written before BEX-468
+ *     has no `app_type`, and those keep uploading unchanged — that is the backward-compat
+ *     path, and it is why the guard is `if (!declared) return` rather than a default.
+ *
+ * Ordering: this runs LAST in `runLocalPreflight`, after each type's own `validateConfig`.
+ * The label is the least authoritative statement in the file, so a structural problem should
+ * always be the error the partner sees first — a stale `app_type: "oauth"` on an iframe
+ * config must not pre-empt `APP_UI_IFRAME_PRIVATE_ONLY` (arriving separately) and send
+ * someone off to fix a label, only to hit the real refusal on the next upload. Keep this
+ * call at the end of the pre-flight if either gate moves.
+ */
+function assertAppTypeAgrees(config: NonNullable<ProjectConfig>): void {
+  const declared = config.app_type;
+  if (!declared) return;
+  const detected = resolveFromConfig(config).id;
+  if (declared === detected) return;
+  throw new CliError(messages.APP_UPLOAD_APP_TYPE_MISMATCH(declared, detected));
 }
 
 /**
@@ -448,10 +495,11 @@ function validateAuthShape(config: NonNullable<ProjectConfig>): void {
 function runLocalPreflight(config: ProjectConfig): void {
   validateAuthShape(config);
 
-  // A UI app has no OAuth callback (enforced above), so the redirect
+  // A UI app and a Function app have no OAuth callback, so the redirect
   // requirement — and validation — is OAuth-only.
-  const redirectUris = config.auth?.redirectUris ?? [];
-  if (!isUiAppConfig(config) && redirectUris.length === 0) {
+  const redirectUris = config.auth?.redirect_uris ?? [];
+  const isFunction = isFunctionAppConfig(config as { brevo_function?: unknown });
+  if (!isUiAppConfig(config) && !isFunction && redirectUris.length === 0) {
     throw new CliError(messages.APP_UPLOAD_NO_REDIRECT_URLS_OAUTH);
   }
   validateRedirectUrls(redirectUris);
@@ -473,6 +521,10 @@ function runLocalPreflight(config: ProjectConfig): void {
   if (containsLegacyAllScope(scopes)) {
     throw new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK);
   }
+
+  // Last on purpose — see assertAppTypeAgrees for why the label check must never
+  // pre-empt a structural one.
+  assertAppTypeAgrees(config);
 }
 
 /**
@@ -506,7 +558,7 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   runLocalPreflight(config);
 
   // Unconditional: --json and --yes both still fetch + diff, per BEX-250.
-  const remote = await fetchExistingApp(config.appId, options.json);
+  const remote = await fetchExistingApp(config.app_id, options.json);
   const diff = buildDiff(config, remote);
 
   // distribution_type is immutable via upload. The server (BEX-355) rejects
@@ -525,9 +577,14 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   }
 
   if (hasNoChanges(diff)) {
+    // Nothing to push, but the file itself may still be in a pre-rename shape (camelCase
+    // keys, or an older dropped key). The write-back below only runs after a push, so an
+    // in-sync legacy config would otherwise never be migrated by this command — rewrite
+    // it here, values unchanged. Silent under `--json`, which stays one parseable document.
+    const migrated = migrateProjectConfigKeys();
     if (options.json) {
       jsonOutput({
-        appId: config.appId,
+        appId: config.app_id,
         upToDate: true,
         version: diff.nextVersion,
         ...diffToJson(diff),
@@ -535,6 +592,7 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
       return;
     }
     logInfo(messages.APP_UPLOAD_UP_TO_DATE(diff.nextVersion || 'unknown'));
+    if (migrated) logInfo(messages.APP_CONFIG_KEYS_MIGRATED);
     return;
   }
 
@@ -555,6 +613,10 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     return;
   }
 
+  // The write-back below rewrites the file in the current shape whatever it held before.
+  // Remember whether that is a migration, so the user hears about it: a rename of the keys
+  // their own scripts may read is worth one line, even though nothing else changed.
+  const migratingKeys = hasLegacyProjectConfigKeys();
   const { confirmedVersion, finalName } = await uploadProjectConfig(config, {
     silent: options.json,
     appVersion: diff.nextVersion,
@@ -562,7 +624,7 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
 
   if (options.json) {
     jsonOutput({
-      appId: config.appId,
+      appId: config.app_id,
       name: finalName,
       version: confirmedVersion,
       ...diffToJson(diff),
@@ -572,5 +634,6 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
 
   logSuccess(messages.APP_UPLOAD_SUCCESS);
   logInfo(`  Version: ${confirmedVersion || '(unknown)'}`);
+  if (migratingKeys) logInfo(`  ${messages.APP_CONFIG_KEYS_MIGRATED}`);
   process.stdout.write('\n');
 });

@@ -60,6 +60,8 @@ export interface CommandDefinition {
 
 export interface SubcommandGroupDefinition {
   name: string;
+  /** Alternative names that resolve to the same group (e.g. `fn` for `function`). */
+  aliases?: string[];
   description: string;
   commands: CommandDefinition[];
 }
@@ -181,6 +183,11 @@ function registerRemovedCommand(parent: Command, removed: RemovedCommand): void 
  */
 function registerSubcommandGroup(parent: Command, group: SubcommandGroupDefinition): void {
   const groupCmd = parent.command(group.name).description(group.description);
+  if (group.aliases) {
+    for (const alias of group.aliases) {
+      groupCmd.alias(alias);
+    }
+  }
   for (const def of group.commands) {
     registerCommand(groupCmd, def);
   }

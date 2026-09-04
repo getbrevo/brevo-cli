@@ -121,8 +121,11 @@ const coreMessages = {
   APP_CREATE_TYPE_PROMPT: 'What distribution type should this app use?',
   APP_CREATE_APP_TYPE_PROMPT: 'What type of app are you building?',
   APP_CREATE_APP_TYPE_OAUTH:
-    'OAuth app  (Authorize against Brevo and call the API on a user’s behalf)',
-  APP_CREATE_APP_TYPE_UI: 'UI app     (Render inside Brevo — opens your app from a record)',
+    'OAuth app       (Authorize against Brevo and call the API on a user’s behalf)',
+  APP_CREATE_APP_TYPE_UI:
+    'UI app          (Render inside Brevo \u2014 opens your app from a record)',
+  APP_CREATE_APP_TYPE_FUNCTION:
+    'Brevo Function  (Serverless function running on Brevo’s infrastructure)',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   // Shown only after every prompt has been answered — hence the reassurance:
@@ -391,10 +394,11 @@ const coreMessages = {
   // each row names its own type.
   APP_LIST_HEADER: 'Your apps:',
 
-  // App type, as named on a rendered row. The presence of the `ui_app` block is
-  // the discriminator (see isUiAppRecord) — there is no app-type field.
+  // App type, as named on a rendered row. `app_type` exists in the config but is
+  // informational; the discriminator is `ui_app` / `brevo_function` presence.
   APP_TYPE_OAUTH: 'OAuth app',
   APP_TYPE_UI: 'UI app',
+  APP_TYPE_FUNCTION: 'Brevo Function',
 
   // Raised instead of opening the app picker when there is no terminal to draw
   // it on. The picker writes its choice list to stdout, so under --json it
@@ -402,6 +406,121 @@ const coreMessages = {
   // with a raw ERR_USE_AFTER_CLOSE readline stack instead of anything readable.
   APP_SELECT_NON_INTERACTIVE: (command: string) =>
     `Cannot show the app picker in non-interactive mode. Name the app instead:\n\n      ${command}\n\n  \`${CLI.APP_LIST}\` shows the IDs.`,
+
+  // Function list
+  FUNCTION_LIST_HEADER: 'Your Brevo Functions:',
+  FUNCTION_LIST_EMPTY: 'No Brevo Functions found. You have not created any Brevo Functions yet.',
+  FUNCTION_LIST_DRAFT_HEADER: 'Your draft Brevo Functions:',
+  FUNCTION_LIST_DRAFT_EMPTY: 'No draft Brevo Functions found.',
+
+  // Function get
+  FUNCTION_GET_HEADER: 'Brevo Function details:',
+  FUNCTION_GET_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+
+  // Function selection (shared picker) — moved here from `preview-messages.ts` at
+  // Brevo Functions GA.
+  FUNCTION_SELECT_NON_INTERACTIVE: (command: string) =>
+    `Cannot show the function picker in non-interactive mode. Name the function instead:\n\n      ${command}\n\n  \`${CLI.FUNCTION_LIST}\` shows the IDs.`,
+  FUNCTION_GET_SELECT: 'Select a function:',
+  FUNCTION_ACTIVATE_SELECT: 'Select a function to activate:',
+  FUNCTION_DEACTIVATE_SELECT: 'Select a function to deactivate:',
+  FUNCTION_DELETE_SELECT: 'Select a function to delete:',
+
+  // Function activate
+  FUNCTION_ACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+  FUNCTION_ACTIVATE_CARD_TITLE: 'Function Activated',
+  FUNCTION_ACTIVATE_CARD_LABEL: 'Status',
+  FUNCTION_ACTIVATE_CARD_MESSAGE: (id: string) => `"${id}" is now active and processing data.`,
+
+  // Function deactivate
+  FUNCTION_DEACTIVATE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+  FUNCTION_DEACTIVATE_CARD_TITLE: 'Function Deactivated',
+  FUNCTION_DEACTIVATE_CARD_LABEL: 'Status',
+  FUNCTION_DEACTIVATE_CARD_MESSAGE: (id: string) => `"${id}" is now inactive.`,
+
+  // Function delete
+  FUNCTION_DELETE_CONFIRM: (id: string) =>
+    `Are you sure you want to delete Brevo Function "${id}"? This cannot be undone.`,
+  FUNCTION_DELETE_CANCELLED: 'Deletion cancelled.',
+  FUNCTION_DELETE_NOT_FOUND: (id: string) => `Brevo Function "${id}" not found.`,
+  FUNCTION_DELETE_CARD_TITLE: 'Function Deleted',
+  FUNCTION_DELETE_CARD_LABEL: 'Removed',
+  FUNCTION_DELETE_CARD_MESSAGE: (id: string) => `"${id}" has been permanently deleted.`,
+
+  // Function init
+  FUNCTION_INIT_SELECT_APP: 'Select a Brevo Function app:',
+  FUNCTION_INIT_NO_APPS: `No Brevo Function apps found. Create one first with \`${CLI.APP_CREATE}\`.`,
+  FUNCTION_INIT_METHOD_PROMPT: 'How would you like to create your function?',
+  FUNCTION_INIT_METHOD_AI: 'Generate using AI',
+  FUNCTION_INIT_METHOD_TEMPLATE: 'Use a predefined template',
+  FUNCTION_INIT_DESCRIPTION_PROMPT: 'Describe what this function should do:',
+  FUNCTION_INIT_DESCRIPTION_REQUIRED: 'Description cannot be empty.',
+  FUNCTION_INIT_TEMPLATE_PROMPT: 'Select a template:',
+  FUNCTION_INIT_NO_TEMPLATES: 'No templates available.',
+  FUNCTION_INIT_STAGE_ENRICHING: 'Analyzing the request',
+  FUNCTION_INIT_STAGE_PLANNING: 'Contacting databases',
+  FUNCTION_INIT_STAGE_GENERATING: 'Creating the function',
+  FUNCTION_INIT_STAGE_VALIDATING: 'Testing the function',
+  FUNCTION_INIT_GENERATING: 'Generating function...',
+  FUNCTION_INIT_ITERATE_PROMPT: 'What would you like to do?',
+  FUNCTION_INIT_ITERATE_UPDATE: 'Update / iterate on the prompt',
+  FUNCTION_INIT_ITERATE_SAVE: 'Deploy',
+  FUNCTION_INIT_ITERATE_DESCRIPTION: 'Describe the changes you want:',
+  FUNCTION_INIT_ITERATING: 'Iterating on function...',
+  FUNCTION_INIT_SAVE_SPINNER: 'Creating function...',
+  FUNCTION_INIT_GENERATION_FAILED: 'Function generation failed.',
+  FUNCTION_INIT_GENERATION_ERROR: 'Failed to generate function. Please try again.',
+  FUNCTION_INIT_ITERATE_ERROR: 'Failed to update function. Please try again.',
+  FUNCTION_INIT_PREVIEW_ERROR: 'Failed to preview function results.',
+  FUNCTION_INIT_NON_INTERACTIVE: `\`${CLI.FUNCTION_INIT}\` requires an interactive terminal. It cannot run with --json or piped input.`,
+  FUNCTION_INIT_FETCHING_CONTACTS: 'Fetching sample contacts...',
+  FUNCTION_INIT_EXECUTING_PREVIEW: 'Previewing function...',
+  FUNCTION_INIT_PREVIEW_HEADER: 'Preview results:',
+  FUNCTION_INIT_NAME_PROMPT: 'Enter a name for this function:',
+  FUNCTION_INIT_NAME_REQUIRED: 'Name cannot be empty.',
+  FUNCTION_INIT_DEPLOY_WARNING: 'This will activate the function and run it with real-time data.',
+  FUNCTION_INIT_DEPLOY_PROMPT: 'Are you sure you want to deploy?',
+  FUNCTION_INIT_NAME_EXISTS:
+    'A function with this name already exists. Please choose a different name.',
+  FUNCTION_INIT_DEPLOY_CANCELLED: 'Deployment cancelled.',
+  FUNCTION_INIT_CREATING_FROM_TEMPLATE: 'Deploying function...',
+  FUNCTION_INIT_BOX_TITLE: 'Function deployed',
+  FUNCTION_INIT_BOX_ID: (id: string) => `ID:   ${id}`,
+
+  // Function deploy
+  FUNCTION_DEPLOY_SELECT: 'Select a draft to deploy:',
+  FUNCTION_DEPLOY_NO_DRAFTS:
+    'No draft functions found. Create one first with `brevo function init`.',
+  FUNCTION_DEPLOY_NON_INTERACTIVE: `Cannot show the draft picker in non-interactive mode. Pass the draft ID instead:\n\n      ${CLI.FUNCTION_DEPLOY}\n\n  \`${CLI.FUNCTION_LIST} --draft\` shows the IDs.`,
+  FUNCTION_DEPLOY_NOT_FOUND: (id: string) => `Draft "${id}" not found.`,
+  FUNCTION_DEPLOY_PREVIEW_HEADER: 'Preview results:',
+  FUNCTION_DEPLOY_PREVIEW_ERROR: 'Failed to preview draft results.',
+  FUNCTION_DEPLOY_NAME_PROMPT: 'Enter a name for this function:',
+  FUNCTION_DEPLOY_NAME_REQUIRED: 'Name cannot be empty.',
+  FUNCTION_DEPLOY_WARNING: 'This will activate the function and run it with real-time data.',
+  FUNCTION_DEPLOY_CONFIRM: 'Are you sure you want to deploy?',
+  FUNCTION_DEPLOY_CANCELLED: 'Deployment cancelled.',
+  FUNCTION_DEPLOY_SPINNER: 'Deploying function...',
+  FUNCTION_DEPLOY_NAME_EXISTS:
+    'A function with this name already exists. Please choose a different name.',
+  FUNCTION_DEPLOY_BOX_TITLE: 'Function deployed',
+  FUNCTION_DEPLOY_BOX_ID: (id: string) => `ID:   ${id}`,
+  FUNCTION_DEPLOY_FETCHING_CONTACTS: 'Fetching sample contacts...',
+  FUNCTION_DEPLOY_EXECUTING_PREVIEW: 'Previewing function...',
+
+  // Function deploy — app linking
+  FUNCTION_DEPLOY_LINKING: 'Linking function to app...',
+  FUNCTION_DEPLOY_LINK_ERROR: 'Function deployed but failed to link to app.',
+  FUNCTION_DEPLOY_SELECT_APP: 'Select an app to link this function to:',
+  FUNCTION_DEPLOY_NO_APPS: `No Brevo Function apps found. Create one first with \`${CLI.APP_CREATE}\`.`,
+
+  // Function display labels
+  FUNCTION_LABEL_DESCRIPTION: 'Description:',
+  FUNCTION_LABEL_NAME: 'Name:',
+  FUNCTION_DEFAULT_NAME: 'Untitled Function',
+
+  // Function preview — shared across init and deploy
+  FUNCTION_PREVIEW_EXECUTE_FAILED: 'Unable to deploy function.',
 
   // App credentials
   APP_CREDENTIALS_REVEAL_CONFIRM: 'Are you sure you want to reveal the client secret?',
@@ -456,7 +575,7 @@ const coreMessages = {
   // App upload
   APP_UPLOAD_NO_CONFIG: `No app-config.json found in this directory. Run \`${CLI.APP_UPLOAD}\` from the project directory that has your app's app-config.json, or run \`${CLI.APP_CREATE}\` / \`${CLI.APP_SCAFFOLD}\` to set one up.`,
   APP_UPLOAD_INVALID_JSON: `app-config.json contains invalid JSON. Fix the file, or run \`${CLI.APP_SCAFFOLD}\` to regenerate it.`,
-  APP_UPLOAD_MISSING_APP_ID: `app-config.json is missing "appId". Fix the file, or run \`${CLI.APP_SCAFFOLD}\` to regenerate it.`,
+  APP_UPLOAD_MISSING_APP_ID: `app-config.json is missing "app_id". Fix the file, or run \`${CLI.APP_SCAFFOLD}\` to regenerate it.`,
   APP_UPLOAD_NO_REDIRECT_URLS: 'app-config.json has no redirect URLs configured.',
   APP_UPLOAD_INVALID_REDIRECT_URL: (url: string) =>
     `Invalid redirect URL "${url}". Must be a valid http:// or https:// URL.`,
@@ -490,10 +609,12 @@ const coreMessages = {
   APP_UPLOAD_CANCELLED: 'Upload cancelled.',
   APP_UPLOAD_SUCCESS: 'App uploaded.',
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
+  APP_CONFIG_KEYS_MIGRATED:
+    'app-config.json was rewritten with snake_case keys (app_id, app_name, logo_uri, app_type, auth.redirect_uris) — values unchanged. If your own scripts read this file, update them to the new key names.',
   // UI apps have no OAuth callback, so the redirect-URL requirement is
   // OAuth-only — this message names the app type to make that explicit.
   APP_UPLOAD_NO_REDIRECT_URLS_OAUTH:
-    'app-config.json has no redirect URLs configured. OAuth apps need at least one — add it to `auth.redirectUris`.',
+    'app-config.json has no redirect URLs configured. OAuth apps need at least one — add it to `auth.redirect_uris`.',
   APP_UPLOAD_UI_APP_SUMMARY: 'UI app:',
   // app-config.json does not carry link_target — upload injects it — so the diff row
   // says where the value comes from rather than implying there is a field to edit.
@@ -503,7 +624,14 @@ const coreMessages = {
   APP_UPLOAD_UI_APP_AUTH_EMPTY_REQUIRED:
     'This is a UI app (app-config.json has a `ui_app` block), so it uses no OAuth — set `auth` to `{}`.',
   APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS:
-    "UI apps don't use OAuth — remove `scopes` and `redirectUris` from `auth` and keep it empty (`{}`).",
+    "UI apps don't use OAuth — remove `scopes` and `redirect_uris` from `auth` and keep it empty (`{}`).",
+  // `app_type` is informational — the blocks are the discriminator — so a disagreement
+  // between the two is a hand-edit that half-landed, and the fix is always to make the
+  // label match the blocks (or to finish the edit the label was reaching for). Phrased
+  // as a migration hint rather than a bare rejection, like APP_SCAFFOLD_APP_ID_MISMATCH:
+  // say what the file claims, what it actually is, and the two ways out.
+  APP_UPLOAD_APP_TYPE_MISMATCH: (declared: string, detected: string) =>
+    `app-config.json says \`"app_type": "${declared}"\`, but its blocks describe a ${detected} app.\n\n  \`app_type\` is a label — the \`ui_app\` / \`brevo_function\` / \`auth\` blocks are what decide the type.\n  Set \`"app_type": "${detected}"\` to match the blocks, or edit the blocks to match the label. Removing \`app_type\` also works: it is optional.`,
   // Both verbs identify the calling account by its organization ID, which is only
   // cached by a successful login. Numeric and UUID values are both forwarded as-is;
   // only an absent or blank one lands here, meaning the credentials predate the field
@@ -663,9 +791,9 @@ const coreMessages = {
   APP_START_UNKNOWN_FEATURE: (feature: string, available: string) =>
     `Unknown feature "${feature}". Available features: ${available}`,
   APP_START_PORT_IN_USE: (port: number) =>
-    `Port ${port} is already in use.\n\n  Either stop the process using port ${port}, use a different port with \`--port <port>\`,\n  or update your redirect URL by editing \`auth.redirectUris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+    `Port ${port} is already in use.\n\n  Either stop the process using port ${port}, use a different port with \`--port <port>\`,\n  or update your redirect URL by editing \`auth.redirect_uris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
   APP_START_CUSTOM_PORT_IN_USE: (port: number) =>
-    `Port ${port} is already in use.\n\n  Stop the process using port ${port}, or pick another port with \`--port <port>\`\n  and update your redirect URL by editing \`auth.redirectUris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+    `Port ${port} is already in use.\n\n  Stop the process using port ${port}, or pick another port with \`--port <port>\`\n  and update your redirect URL by editing \`auth.redirect_uris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
   APP_START_EXITED: (feature: string, code: number) => `${feature} exited with code ${code}`,
   APP_START_FAILED: (feature: string, error: string) => `Failed to start ${feature}: ${error}`,
   APP_START_REDIRECT_NOT_REGISTERED: (port: number) =>
@@ -677,9 +805,9 @@ const coreMessages = {
   APP_START_REDIRECT_UPLOAD_FAILED: (url: string) =>
     `${url} was saved to app-config.json but the upload failed. Fix the issue and run \`${CLI.APP_UPLOAD}\` to finish registering it.`,
   APP_START_REDIRECT_DECLINED: (url: string) =>
-    `Continuing without registering. The OAuth callback at ${url} will fail until you register it. Add it to \`auth.redirectUris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` to register later.`,
+    `Continuing without registering. The OAuth callback at ${url} will fail until you register it. Add it to \`auth.redirect_uris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` to register later.`,
   APP_START_REDIRECT_NON_INTERACTIVE: (port: number, url: string) =>
-    `Port ${port} is not registered as a redirect URL for this app, and we can't prompt in non-interactive mode. Add \`${url}\` to \`auth.redirectUris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` first, or re-run interactively.`,
+    `Port ${port} is not registered as a redirect URL for this app, and we can't prompt in non-interactive mode. Add \`${url}\` to \`auth.redirect_uris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` first, or re-run interactively.`,
 
   AUTH_LOGOUT_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force to skip.',
@@ -703,6 +831,12 @@ const coreMessages = {
     "UI apps aren't enabled for this Brevo account yet.\n\n" +
     '  Why:       UI apps (action links) are still rolling out, and are enabled per account.\n' +
     '  Do this:   build an OAuth app instead, or ask Brevo to enable UI apps for this account.',
+  // dp-functions' FeatureGateMiddleware answers 403 `feature_not_enabled` when
+  // the account is not entitled to dp-functions. Mapped centrally so every fn
+  // subcommand (list, get, init, activate, …) shows the same message.
+  ERR_FEATURE_NOT_ENABLED:
+    'Brevo Functions is not enabled for this account.\n\n' +
+    '  Contact Brevo to enable Brevo Functions for your account.',
   ERR_AUTH_GATEWAY:
     'API is behind an authentication gateway (e.g. Cloudflare Access). Sign in via your browser first, or check your API base URL.',
 

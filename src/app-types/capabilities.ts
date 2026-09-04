@@ -50,6 +50,12 @@ const MATRIX: Readonly<Record<AppTypeId, Readonly<Record<Distribution, readonly 
     private: ['account-install'],
     public: ['account-install', 'review-lifecycle'],
   },
+  function: {
+    // A Function app has no OAuth block, no redirect URIs, no scaffold feature, and
+    // no account install. It ships its own deploy flow (`brevo function deploy`).
+    private: [],
+    public: ['review-lifecycle'],
+  },
 } as const;
 
 export function capabilitiesFor(

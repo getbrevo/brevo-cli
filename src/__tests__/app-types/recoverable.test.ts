@@ -2,7 +2,7 @@ import { APP_TYPES, appTypeById, resolveFromRecord } from '../../app-types';
 import type { AppRecordLike, AppTypeId } from '../../app-types/contract';
 import type { OAuthApp } from '../../types';
 
-const TYPES: AppTypeId[] = ['oauth', 'ui'];
+const TYPES: AppTypeId[] = ['oauth', 'ui', 'function'];
 
 /**
  * `recoverableFromRecord` answers the question `brevo app scaffold`'s no-config branch has
@@ -65,6 +65,10 @@ describe('recoverableFromRecord', () => {
 
   it('reports a UI record with no ui_app block as unrecoverable', () => {
     expect(APP_TYPES.ui.recoverableFromRecord(uiRecordNoSnapshot)).toBe(false);
+  });
+
+  it('reports a Function record as always recoverable — brevo_function is static', () => {
+    expect(APP_TYPES.function.recoverableFromRecord({ brevo_function: {} })).toBe(true);
   });
 
   it('reports a null record as unrecoverable for every type', () => {

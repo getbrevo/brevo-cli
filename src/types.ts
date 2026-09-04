@@ -361,6 +361,10 @@ export interface OAuthApp {
   // it from the latest app_versions snapshot in the same wire shape upload binds.
   // Absent for OAuth apps and on server builds that predate the block.
   ui_app?: UiApp;
+  // Present only for Function apps. A static discriminator (`{}`), not authored
+  // content — its presence marks the record as a function app on both the config and
+  // the wire. Absent for OAuth and UI apps.
+  brevo_function?: Record<string, unknown>;
   // Optional because no deployed handler sends them: `cliOAuthAppResponse` (the
   // struct behind both the credential-reveal and the update response) declares
   // neither. Nothing in `src/` reads them. Declaring them required was the same
@@ -522,4 +526,153 @@ export interface CliInfo {
 export interface CliInfoQuery {
   cliVersion: string;
   reason: string;
+}
+
+// ──────────────── Brevo Functions ────────────────
+
+export interface DpFunction {
+  id: string;
+  name: string;
+  description: string;
+  explanation: string;
+  formula: string;
+  category?: string;
+  attribute_id?: string;
+  attribute_type?: string;
+  version: number;
+  is_active: boolean;
+  is_global: boolean;
+  created_at: string;
+  updated_at: string;
+  last_recalculated_at?: string;
+}
+
+export interface DpFunctionListResponse {
+  functions: DpFunction[];
+  total: number;
+  max: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export interface DpDraftFunction {
+  id: string;
+  description: string;
+  explanation: string;
+  formula: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface DpDraftFunctionListResponse {
+  drafts: DpDraftFunction[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+// ──────────────── Brevo Function init (AI generation) ────────────────
+
+export type FunctionGenerateStage =
+  | 'enriching'
+  | 'planning_agent'
+  | 'executing_agent'
+  | 'validating';
+
+export interface FunctionGenerateSSEEvent {
+  error?: string;
+  value?: { message?: string; stage?: string };
+  result?: {
+    code?: string;
+    name?: string;
+    draft_id?: string;
+    session_id?: string;
+    category?: string;
+    description?: string;
+    explanation?: string;
+  };
+}
+
+export interface FunctionGenerateRequest {
+  user_prompt: string;
+  source?: string;
+  context_json?: string;
+  session_id?: string;
+}
+
+export interface FunctionIterateRequest {
+  draft_function_id: string;
+  user_prompt: string;
+  previous_code: string;
+  chat_history: ChatHistoryEntry[];
+  source?: string;
+}
+
+export interface ChatHistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface FunctionCreateRequest {
+  source?: string;
+  name?: string;
+  code: string;
+  category?: string;
+  description?: string;
+  explanation?: string;
+  app_id?: string;
+  draft_id?: string;
+  attribute_id?: string;
+}
+
+export interface FunctionCreateResponse {
+  id: string;
+  name: string;
+  version: number;
+}
+
+export interface FunctionTemplate {
+  id: string;
+  name: string;
+  description: string;
+  code: string;
+  category?: string;
+  attribute_id?: string;
+  explanation?: string;
+}
+
+export interface FunctionContactsResponse {
+  contacts: Record<string, unknown>[];
+}
+
+export interface FunctionExecuteRequest {
+  template_id?: string;
+  contact_data: Record<string, unknown>[];
+  code?: string;
+  draft_id?: string;
+}
+
+export interface FunctionExecuteResponse {
+  result: Record<string, unknown>[];
+}
+
+export interface FunctionCreateFromTemplateRequest {
+  global_function_id: string;
+  name: string;
+  description: string;
+  category: string;
+  attribute_id: string;
+  source: string;
+}
+
+export interface LinkFunctionToAppRequest {
+  app_id: string;
+  function_id: string;
+}
+
+export interface LinkFunctionToAppResponse {
+  app_id: string;
+  function_id: string;
 }

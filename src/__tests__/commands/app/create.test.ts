@@ -319,7 +319,7 @@ describe('app/create', () => {
       questionNamed(name).choices.map((choice: { value: string }) => choice.value);
 
     expect(valuesOf('distribution')).toEqual(['private', 'public']);
-    expect(valuesOf('appType')).toEqual(['oauth', 'ui']);
+    expect(valuesOf('appType')).toEqual(['oauth', 'ui', 'function']);
   });
 
   describe('feature scaffolding', () => {
@@ -501,7 +501,7 @@ describe('app/create', () => {
   describe('linked-directory guard', () => {
     it('throws immediately when app-config.json is already linked in cwd, without calling the API', async () => {
       (hasLocalApp as jest.Mock).mockReturnValue(true);
-      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
+      (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '5', app_name: 'Existing App' });
 
       await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
         /already linked/i,
@@ -513,7 +513,7 @@ describe('app/create', () => {
 
     it('includes the linked app name in the error message', async () => {
       (hasLocalApp as jest.Mock).mockReturnValue(true);
-      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
+      (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '5', app_name: 'Existing App' });
 
       await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
         'Existing App',
@@ -2615,10 +2615,10 @@ describe('app/create', () => {
       ).rejects.not.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
     });
 
-    // The question is asked in every build. UI apps are GA, so the published build
-    // offers both app types — the choices no longer differ between builds; only the
-    // distribution question below still withholds its gated value.
-    it('asks for the app type, offering OAuth and UI app alike', async () => {
+    // The question is asked in every build. UI apps and Brevo Functions are GA, so the
+    // published build offers all three app types — the choices no longer differ between
+    // builds; only the distribution question below still withholds its gated value.
+    it('asks for the app type, offering OAuth, UI app, and Brevo Function', async () => {
       mockPrompt.mockResolvedValue({ appType: 'oauth', redirectUrl: '', logoUrl: '' });
 
       await createCommand({ name: 'Test App', distribution: 'private' });
@@ -2630,10 +2630,15 @@ describe('app/create', () => {
       // Labels are trimmed before comparing — `indentChoices` pads them into the CLI's
       // output gutter.
       const labels = appTypeQuestion.choices.map((choice: { name: string }) => choice.name.trim());
-      expect(labels).toEqual([messages.APP_CREATE_APP_TYPE_OAUTH, messages.APP_CREATE_APP_TYPE_UI]);
+      expect(labels).toEqual([
+        messages.APP_CREATE_APP_TYPE_OAUTH,
+        messages.APP_CREATE_APP_TYPE_UI,
+        messages.APP_CREATE_APP_TYPE_FUNCTION,
+      ]);
       expect(appTypeQuestion.choices.map((choice: { value: string }) => choice.value)).toEqual([
         'oauth',
         'ui',
+        'function',
       ]);
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];

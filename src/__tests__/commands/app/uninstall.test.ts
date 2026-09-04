@@ -26,8 +26,8 @@ import { ApiError } from '../../../lib/errors';
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
 const LINKED_CONFIG = {
-  appId: '42',
-  appName: 'Invoice Manager',
+  app_id: '42',
+  app_name: 'Invoice Manager',
   distribution_type: 'private' as const,
   version: '1.0.0',
   auth: { scopes: ['contacts:read'] },
@@ -164,7 +164,13 @@ describe('app/uninstall', () => {
     await appUninstallCommand({ accountId: '99999', json: true });
 
     const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
-    expect(parsed).toEqual({ uninstalled: true, appId: '42', accountId: '99999' });
+    expect(parsed).toEqual({
+      uninstalled: true,
+      appId: '42',
+      app_id: '42',
+      accountId: '99999',
+      account_id: '99999',
+    });
   });
   // Gated the same way install is: an OAuth app never had an install to remove. The
   // *upload* gate is still deliberately absent — see the test above.
@@ -282,8 +288,11 @@ describe('app/uninstall', () => {
       expect(parsed).toEqual({
         uninstalled: true,
         appId: '42',
+        app_id: '42',
         accountId: '12345',
+        account_id: '12345',
         accountName: 'Acme Retail',
+        account_name: 'Acme Retail',
       });
     });
   });

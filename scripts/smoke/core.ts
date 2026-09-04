@@ -673,6 +673,25 @@ export function readJsonFile<T = Record<string, unknown>>(path: string): T {
   return JSON.parse(readFileSync(path, 'utf8')) as T;
 }
 
+// app-config.json keys are snake_case (`app_id`, `app_name`, `logo_uri`,
+// `auth.redirect_uris`). Builds before the rename wrote camelCase, and the smoke
+// also runs against published versions, so every read accepts both spellings.
+export function configField(cfg: Record<string, unknown>, snake: string, camel: string): unknown {
+  return cfg[snake] ?? cfg[camel];
+}
+
+export function configRedirectUris(cfg: Record<string, unknown>): unknown {
+  const auth = cfg.auth as Record<string, unknown> | undefined;
+  return auth?.redirect_uris ?? auth?.redirectUris;
+}
+
+// Whether a config file uses the current snake_case keys. Edits made "the way a
+// user would" must keep the file's own spelling so the assertion exercises the
+// build under test, not the migration path.
+export function usesSnakeCaseKeys(cfg: Record<string, unknown>): boolean {
+  return 'app_id' in cfg;
+}
+
 // `brevo app list --json` returns `app_id` (snake_case, per src/types.ts).
 // `brevo app create --json` returns `appId` (camelCase). Some endpoints use
 // plain `id`. We accept all three so comparisons work across boundaries.
@@ -1217,11 +1236,13 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
   // and version are round-tripped from the server (see buildTemplateVars in
   // scaffold.ts), so this also proves the create response persisted correctly.
   const cfg = readJsonFile(join(app.projectDir, 'app-config.json'));
+  const cfgAppId = configField(cfg, 'app_id', 'appId');
   must(
-    String(cfg.appId) === appId,
-    `app-config.json appId ${JSON.stringify(cfg.appId)} != ${appId}`,
+    String(cfgAppId) === appId,
+    `app-config.json app_id ${JSON.stringify(cfgAppId)} != ${appId}`,
   );
-  must(cfg.appName === name, `app-config.json appName ${JSON.stringify(cfg.appName)} != ${name}`);
+  const cfgAppName = configField(cfg, 'app_name', 'appName');
+  must(cfgAppName === name, `app-config.json app_name ${JSON.stringify(cfgAppName)} != ${name}`);
   must(
     cfg.distribution_type === opts.distribution,
     `app-config.json distribution_type ${JSON.stringify(cfg.distribution_type)} != ${opts.distribution}`,
@@ -1234,12 +1255,10 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     'app-config.json still carries the removed permittedUrls/support blocks',
   );
   if (opts.logoUri) {
-    must(cfg.logoUri === opts.logoUri, `app-config.json logoUri ${JSON.stringify(cfg.logoUri)}`);
+    const cfgLogo = configField(cfg, 'logo_uri', 'logoUri');
+    must(cfgLogo === opts.logoUri, `app-config.json logo_uri ${JSON.stringify(cfgLogo)}`);
   }
-  const cfgUrls = asStringArray(
-    (cfg.auth as Record<string, unknown> | undefined)?.redirectUris,
-    'app-config.json auth.redirectUris',
-  );
+  const cfgUrls = asStringArray(configRedirectUris(cfg), 'app-config.json auth.redirect_uris');
   must(cfgUrls.includes(redirectUri), `app-config.json is missing redirect URL ${redirectUri}`);
 
   // List endpoint lags create — retry with backoff before declaring missing.
@@ -1282,17 +1301,16 @@ export function uploadApp(state: State, app: SmokeApp): Record<string, unknown> 
   const auth = (cfg.auth ?? {}) as Record<string, unknown>;
   const nextName = renamedName(app);
   const nextUrls = [
-    ...asStringArray(auth.redirectUris, 'app-config.json auth.redirectUris'),
+    ...asStringArray(configRedirectUris(cfg), 'app-config.json auth.redirect_uris'),
     EXTRA_REDIRECT_URI,
   ];
-  writeFileSync(
-    configPath,
-    JSON.stringify(
-      { ...cfg, appName: nextName, auth: { ...auth, redirectUris: nextUrls } },
-      null,
-      2,
-    ),
-  );
+  // Edit under the file's own key spelling: a pre-rename build wrote camelCase and
+  // would not read `app_name` back.
+  const snake = usesSnakeCaseKeys(cfg);
+  const edited = snake
+    ? { ...cfg, app_name: nextName, auth: { ...auth, redirect_uris: nextUrls } }
+    : { ...cfg, appName: nextName, auth: { ...auth, redirectUris: nextUrls } };
+  writeFileSync(configPath, JSON.stringify(edited, null, 2));
 
   const r = execOrThrow(brevoCmd(state), ['app', 'upload', '--yes', '--json'], state, {
     cwd: projectDir,
@@ -1324,14 +1342,17 @@ export function uploadApp(state: State, app: SmokeApp): Record<string, unknown> 
 
   // Success writes the server-confirmed values back into app-config.json.
   const written = readJsonFile(configPath);
-  must(written.appName === nextName, `app-config.json was not rewritten with ${nextName}`);
+  must(
+    configField(written, 'app_name', 'appName') === nextName,
+    `app-config.json was not rewritten with ${nextName}`,
+  );
   must(
     written.version === res.version,
     `app-config.json version ${JSON.stringify(written.version)} != response ${JSON.stringify(res.version)}`,
   );
   const writtenUrls = asStringArray(
-    (written.auth as Record<string, unknown> | undefined)?.redirectUris,
-    'app-config.json auth.redirectUris after upload',
+    configRedirectUris(written),
+    'app-config.json auth.redirect_uris after upload',
   );
   must(
     writtenUrls.includes(app.redirectUri) && writtenUrls.includes(EXTRA_REDIRECT_URI),

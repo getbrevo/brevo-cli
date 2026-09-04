@@ -28,8 +28,8 @@ const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 // A project that has been through a successful `app upload` — `version` is only
 // ever written by one, which is what the install gate keys off.
 const UPLOADED_CONFIG = {
-  appId: '42',
-  appName: 'Invoice Manager',
+  app_id: '42',
+  app_name: 'Invoice Manager',
   distribution_type: 'private' as const,
   version: '1.0.0',
   auth: { scopes: ['contacts:read'] },
@@ -296,7 +296,13 @@ describe('app/install', () => {
 
     expect(mockPrompt).not.toHaveBeenCalled();
     const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
-    expect(parsed).toEqual({ installed: true, appId: '42', accountId: '99999' });
+    expect(parsed).toEqual({
+      installed: true,
+      appId: '42',
+      app_id: '42',
+      accountId: '99999',
+      account_id: '99999',
+    });
   });
 
   it('falls back to the app picker outside a project directory', async () => {
@@ -616,8 +622,11 @@ describe('app/install', () => {
       expect(parsed).toEqual({
         installed: true,
         appId: '42',
+        app_id: '42',
         accountId: '12345',
+        account_id: '12345',
         accountName: 'Acme Retail',
+        account_name: 'Acme Retail',
       });
     });
   });
@@ -725,7 +734,7 @@ describe('app/install', () => {
     it('does not compare against the local config when --app-id named the app', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UPLOADED_CONFIG,
-        appId: 'some-other-app',
+        app_id: 'some-other-app',
         ui_app: { ...LOCAL_UI_APP, extension_type: 'iframeExtension' },
       });
 
