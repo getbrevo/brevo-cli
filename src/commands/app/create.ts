@@ -86,7 +86,7 @@ const validateLogoUrl = (input: string): true | string => {
 function guardAgainstLinkedApp(): void {
   if (!hasLocalApp()) return;
   const projectConfig = readProjectConfig();
-  const linkedName = projectConfig?.appName || String(projectConfig?.appId ?? '');
+  const linkedName = projectConfig?.app_name || String(projectConfig?.app_id ?? '');
   throw new CliError(messages.APP_CREATE_ALREADY_LINKED(linkedName));
 }
 

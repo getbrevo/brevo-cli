@@ -2,7 +2,8 @@
  * The OAuth integration app type — the CLI's original and default app type.
  *
  * Detection is by ELIMINATION rather than by a positive marker: `app-config.json` has no
- * `appType` key, and an OAuth app is simply one with no `ui_app` or `brevo_function` block.
+ * positive marker of its own (`app_type` is informational only), and an OAuth app is simply
+ * one with no `ui_app` or `brevo_function` block.
  * `resolveFromConfig` / `resolveFromRecord` try the positively-detected types first
  * (function, then ui) and fall through to this one, so these predicates are mostly used
  * by direct callers and tests rather than the resolution path.

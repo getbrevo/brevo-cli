@@ -5,7 +5,7 @@ Command-line tool to create, manage, and test [Brevo](https://www.brevo.com/) OA
 > 📖 Full command and option documentation: **[Brevo CLI reference](https://developers.brevo.com/docs/cli-reference)**
 
 > [!WARNING]
-> **Upgrade to the latest released version.** All versions from **1.1.1** up to (but not including) **2.0.0** should be migrated to at least **2.1.0**. The `2.0.0` release introduced **breaking changes**, so some CLI commands may not work as expected on older versions. **`2.1.0` and above** also carry further `app-config.json` migrations (e.g. legacy `auth.redirectUrls` → `auth.redirectUris`) that are applied automatically the next time the CLI writes your config (`brevo app upload`, `brevo app start`, …).
+> **Upgrade to the latest released version.** All versions from **1.1.1** up to (but not including) **2.0.0** should be migrated to at least **2.1.0**. The `2.0.0` release introduced **breaking changes**, so some CLI commands may not work as expected on older versions. **`2.1.0` and above** also carry further `app-config.json` migrations (e.g. legacy `auth.redirectUrls` → `auth.redirect_uris`, and the camelCase keys `appId` / `appName` / `logoUri` / `appType` / `auth.redirectUris` → their snake_case spellings) that are applied automatically the next time the CLI writes your config (`brevo app upload`, `brevo app start`, …).
 >
 > Upgrade with `npm install -g @getbrevo/cli@latest` (or `yarn global add @getbrevo/cli@latest`, or `brew upgrade brevo`), then confirm with `brevo --version`.
 

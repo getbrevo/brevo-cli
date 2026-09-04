@@ -20,6 +20,8 @@ import {
   readProjectConfig,
   readProjectConfigAt,
   findEnclosingProjectDir,
+  migrateProjectConfigKeys,
+  hasLegacyProjectConfigKeys,
   ProjectConfig,
   isUiAppConfig,
 } from '../../lib/config';
@@ -100,7 +102,7 @@ async function resolveBaseRefresh(
     return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIFF_CANCELLED, diffs };
   }
 
-  logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.appName || localConfig.appId));
+  logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.app_name || localConfig.app_id));
   for (const diff of diffs) {
     logInfo(messages.APP_SCAFFOLD_DIFF_LINE(diff.field, diff.local, diff.server));
   }
@@ -120,7 +122,7 @@ async function resolveScaffoldPlan(
   localConfig: ProjectConfig,
   jsonMode: boolean,
 ): Promise<ScaffoldPlan> {
-  const appId = localConfig.appId;
+  const appId = localConfig.app_id;
   // Carry the local `ui_app` block into the context so that if the user consents
   // to a config refresh, `runBaseScaffold` rewrites app-config.json *with* it
   // rather than dropping it (the refresh is a full overwrite, not a merge).
@@ -259,9 +261,9 @@ async function resolveBootstrapDirectory(
   // refresh by the caller.
   const refuseIfLinkedElsewhere = (targetDir: string): void => {
     const targetConfig = readProjectConfigAt(targetDir);
-    if (targetConfig && targetConfig.appId !== appId) {
+    if (targetConfig && targetConfig.app_id !== appId) {
       throw new CliError(
-        messages.APP_SCAFFOLD_TARGET_LINKED_ELSEWHERE(targetDir, targetConfig.appId, appId),
+        messages.APP_SCAFFOLD_TARGET_LINKED_ELSEWHERE(targetDir, targetConfig.app_id, appId),
       );
     }
   };
@@ -302,8 +304,8 @@ async function resolveBootstrapTarget(
     // Checked before any fetch or write: pointing `--app-id` at a directory that
     // belongs to another app is a mistake worth catching for free, and a bootstrap
     // here would overwrite that app's app-config.json with a different app's.
-    if (requestedAppId && localConfig.appId !== requestedAppId) {
-      throw new CliError(messages.APP_SCAFFOLD_APP_ID_MISMATCH(localConfig.appId, requestedAppId));
+    if (requestedAppId && localConfig.app_id !== requestedAppId) {
+      throw new CliError(messages.APP_SCAFFOLD_APP_ID_MISMATCH(localConfig.app_id, requestedAppId));
     }
     return undefined;
   }
@@ -581,6 +583,23 @@ export const scaffoldCommand = withCommandHandler(
       return;
     }
 
+    // A base refresh rewrites app-config.json from the template, in the current shape. When
+    // there is no drift there is no refresh — and a config that still carries pre-rename
+    // camelCase keys (or an older dropped key) would keep them for good. Migrate it here,
+    // spellings only, values untouched. cwd is the target directory at this point: a
+    // bootstrap that resolved another directory has already moved into it.
+    // On the refresh path the template rewrite is the migration; note beforehand whether
+    // the file was legacy so the same line can be printed once the write has happened.
+    let migratedKeys = false;
+    if (layout.refreshBase) {
+      migratedKeys = hasLegacyProjectConfigKeys();
+    } else {
+      migratedKeys = migrateProjectConfigKeys();
+    }
+    if (migratedKeys && !layout.refreshBase && !jsonMode) {
+      logInfo(messages.APP_CONFIG_KEYS_MIGRATED);
+    }
+
     // UI apps have no scaffoldable features — there is no local server to run for
     // an action link. `app scaffold` degrades to a base-config refresh so the
     // command still has a use inside a UI-app project, instead of offering an
@@ -592,6 +611,7 @@ export const scaffoldCommand = withCommandHandler(
     const isUiApp = localConfig ? isUiAppConfig(localConfig) : Boolean(ctx.uiApp);
     if (isUiApp) {
       finishUiAppScaffold(appId, ctx, layout, jsonMode);
+      reportKeyMigration(layout, migratedKeys, jsonMode);
       return;
     }
 
@@ -607,9 +627,24 @@ export const scaffoldCommand = withCommandHandler(
     const bootstrapInteractive = !localConfig && !jsonMode && !!process.stdin.isTTY;
     if (bootstrapInteractive) {
       await finishInteractiveBootstrap(appId, ctx, layout, jsonMode, overwrite);
-      return;
+    } else {
+      await finishFeatureScaffold(appId, ctx, layout, jsonMode, overwrite);
     }
-
-    await finishFeatureScaffold(appId, ctx, layout, jsonMode, overwrite);
+    reportKeyMigration(layout, migratedKeys, jsonMode);
   },
 );
+
+/**
+ * The one line that tells the user their app-config.json keys changed spelling, printed after
+ * a refresh has rewritten the file. The no-refresh path prints it at the migration itself;
+ * this covers the other half so a legacy file never gets rewritten silently in human mode.
+ */
+function reportKeyMigration(
+  layout: ScaffoldLayout,
+  migratedKeys: boolean,
+  jsonMode: boolean,
+): void {
+  if (layout.refreshBase && migratedKeys && !jsonMode) {
+    logInfo(messages.APP_CONFIG_KEYS_MIGRATED);
+  }
+}

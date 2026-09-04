@@ -501,7 +501,7 @@ describe('app/create', () => {
   describe('linked-directory guard', () => {
     it('throws immediately when app-config.json is already linked in cwd, without calling the API', async () => {
       (hasLocalApp as jest.Mock).mockReturnValue(true);
-      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
+      (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '5', app_name: 'Existing App' });
 
       await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
         /already linked/i,
@@ -513,7 +513,7 @@ describe('app/create', () => {
 
     it('includes the linked app name in the error message', async () => {
       (hasLocalApp as jest.Mock).mockReturnValue(true);
-      (readProjectConfig as jest.Mock).mockReturnValue({ appId: '5', appName: 'Existing App' });
+      (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '5', app_name: 'Existing App' });
 
       await expect(createCommand({ name: 'New App', distribution: 'private' })).rejects.toThrow(
         'Existing App',
