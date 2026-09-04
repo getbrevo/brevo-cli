@@ -403,7 +403,11 @@ describe('app/upload', () => {
         },
       });
 
-      await expect(uploadCommand({ yes: true })).rejects.not.toThrow(/app_type/);
+      // The block's own error, named for the offending entry — not the label mismatch,
+      // which is equally true of this config and reported only once this is fixed.
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/\.label:/);
+      const message = await uploadCommand({ yes: true }).catch((err: Error) => err.message);
+      expect(message).not.toMatch(/app_type/);
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
   });
