@@ -19,6 +19,7 @@ import { validateScopes, containsLegacyAllScope } from '../../lib/validators';
 import { DEFAULT_LINK_TARGET, EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
 import { OAuthApp, UiApp, UploadAppResponse } from '../../types';
 import { resolveFromConfig } from '../../app-types';
+import { isFunctionAppConfig } from '../../app-types/function';
 import { stripUiAppWireOnlyKeysFrom } from '../../app-types/wire';
 import { formatPlacementDiffLines } from '../../app-types/ui/fields';
 import { canonicalizeUiApp } from '../../app-types/ui/compare';
@@ -126,6 +127,7 @@ interface UploadDiff {
   // idempotent, whereas skipping it could strand a local edit.
   currentUiApp?: UiApp;
   nextUiApp?: UiApp;
+  isFunctionApp: boolean;
 }
 
 function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): UploadDiff {
@@ -147,6 +149,7 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
     migratingLegacyScopes: containsLegacyAllScope(remote.scopes ?? []),
     currentUiApp: remote.ui_app,
     nextUiApp: config.ui_app,
+    isFunctionApp: isFunctionAppConfig(config as { brevo_function?: unknown }),
   };
 }
 
@@ -212,16 +215,17 @@ function renderUploadDiff(diff: UploadDiff): void {
     logInfo(`  Distribution:  ${diff.nextDistribution}`);
   }
   // Only OAuth apps have callbacks — printing an empty "Redirect URLs:" row for a
-  // UI app would imply something is missing.
-  if (!diff.nextUiApp) {
+  // UI app or Function app would imply something is missing.
+  const isOAuthDiff = !diff.nextUiApp && !diff.isFunctionApp;
+  if (isOAuthDiff) {
     logAligned('  Redirect URLs: ', diffLines(diff.currentUrls, diff.nextUrls));
   }
   if (diff.migratingLegacyScopes) {
     logInfo(`  ${messages.LEGACY_ALL_SCOPE_UPDATE_MIGRATING}`);
   }
-  // Scopes are OAuth-only as well — a UI app's auth is empty (`{}`),
+  // Scopes are OAuth-only as well — a UI/Function app's auth is empty or absent,
   // so a scopes row would only ever render as noise.
-  if (!diff.nextUiApp) {
+  if (isOAuthDiff) {
     logAligned('  Scopes:        ', diffLines(diff.currentScopes, diff.nextScopes));
   }
   if (diff.currentLogoUri && diff.currentLogoUri !== diff.nextLogoUri) {
@@ -268,11 +272,11 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
 }
 
 function diffToJson(diff: UploadDiff) {
+  const isOAuth = !diff.nextUiApp && !diff.isFunctionApp;
   return {
     current: {
       name: diff.currentName,
-      redirect_uris: diff.currentUrls,
-      scopes: diff.currentScopes,
+      ...(isOAuth ? { redirect_uris: diff.currentUrls, scopes: diff.currentScopes } : {}),
       logo_uri: diff.currentLogoUri,
       distribution_type: diff.currentDistribution,
       version: diff.currentVersion,
@@ -280,25 +284,26 @@ function diffToJson(diff: UploadDiff) {
     },
     next: {
       name: diff.nextName,
-      // OAuth-only keys are omitted for UI apps — their desired state has no
-      // OAuth block (auth is `{}`), and emitting empty arrays
-      // would misread as "clearing the values".
-      ...(diff.nextUiApp ? {} : { redirect_uris: diff.nextUrls, scopes: diff.nextScopes }),
+      // OAuth-only keys are omitted for UI and Function apps — their desired
+      // state has no OAuth block, and emitting empty arrays would misread as
+      // "clearing the values".
+      ...(isOAuth ? { redirect_uris: diff.nextUrls, scopes: diff.nextScopes } : {}),
       logo_uri: diff.nextLogoUri,
       distribution_type: diff.nextDistribution,
       version: diff.nextVersion,
       ...(diff.nextUiApp ? { ui_app: diff.nextUiApp } : {}),
+      ...(diff.isFunctionApp ? { brevo_function: {} } : {}),
     },
   };
 }
 
 function hasNoChanges(diff: UploadDiff): boolean {
-  // Scopes and redirect URLs are OAuth-only: a UI app's config carries neither
-  // (auth is `{}`), so comparing them against whatever the
-  // server still reports would flag a phantom change on every upload.
-  const isUiApp = !!diff.nextUiApp;
+  // Scopes and redirect URLs are OAuth-only: a UI/Function app's config carries
+  // neither, so comparing them against whatever the server still reports would
+  // flag a phantom change on every upload.
+  const isNonOAuth = !!diff.nextUiApp || diff.isFunctionApp;
   const oauthUnchanged =
-    isUiApp ||
+    isNonOAuth ||
     (JSON.stringify([...diff.currentUrls].sort()) === JSON.stringify([...diff.nextUrls].sort()) &&
       JSON.stringify([...diff.currentScopes].sort()) ===
         JSON.stringify([...diff.nextScopes].sort()));
@@ -333,6 +338,7 @@ export async function uploadProjectConfig(
   opts: { silent?: boolean; appVersion?: string } = {},
 ): Promise<ConfigUploadOutcome> {
   const isUiApp = isUiAppConfig(config);
+  const isFnApp = isFunctionAppConfig(config as { brevo_function?: unknown });
   const redirectUris = config.auth?.redirectUris ?? [];
   const scopes = config.auth?.scopes ?? [];
 
@@ -350,12 +356,10 @@ export async function uploadProjectConfig(
       logo_uri: config.logoUri ?? '',
       version: appVersion,
       distribution_type: config.distribution_type,
-      // UI apps have no OAuth block — the whole `auth` key is omitted, not sent
-      // with empty arrays, mirroring `auth: {}` in the config.
-      // ASSUMED wire contract (server side not built yet; tracked in the
-      // branch-local docs.md — see CLAUDE.md → Working docs): the upload endpoint
-      // must tolerate an absent auth key for UI apps.
-      ...(isUiApp
+      // UI apps and Function apps have no OAuth block — the whole `auth` key is
+      // omitted, not sent with empty arrays. A UI app mirrors `auth: {}` in the
+      // config; a Function app has no `auth` block at all.
+      ...(isUiApp || isFnApp
         ? {}
         : {
             auth: {
@@ -384,6 +388,8 @@ export async function uploadProjectConfig(
       // and the server refuse the field per entry — so injecting it would send the
       // one field the CLI just told the partner not to write.
       ...(isUiApp && config.ui_app ? { ui_app: withInjectedLinkTargets(config.ui_app) } : {}),
+      // A Function app sends its static discriminator block on the wire.
+      ...(isFnApp ? { brevo_function: {} } : {}),
     });
   } finally {
     spinner.stop();
@@ -407,12 +413,17 @@ export async function uploadProjectConfig(
     // A UI app's auth block is always written back as the canonical empty
     // `{}` — never reconciled from the server's echo, which reports null
     // scopes/redirect_uris for UI-only apps anyway.
-    auth: isUiApp
+    // A Function app has no auth block at all — omit it from the write-back.
+    ...(isFnApp
       ? {}
       : {
-          scopes: response.auth.scopes ?? scopes,
-          redirectUris: response.auth.redirect_uris ?? redirectUris,
-        },
+          auth: isUiApp
+            ? {}
+            : {
+                scopes: response.auth?.scopes ?? scopes,
+                redirectUris: response.auth?.redirect_uris ?? redirectUris,
+              },
+        }),
     // Prefer the server's normalized block when it echoes one back, otherwise
     // keep what we just sent — with the wire-only keys stripped either way. The
     // server defaults `link_target` and manages the block's `version`, and
@@ -433,6 +444,8 @@ export async function uploadProjectConfig(
 // it describes, and the server never sees the contradiction — a UI app must carry
 // exactly `auth: {}` (no scopes, no redirect URIs — nothing OAuth is issued for it).
 function validateAuthShape(config: NonNullable<ProjectConfig>): void {
+  // Function apps have no auth block at all — skip validation.
+  if (isFunctionAppConfig(config as { brevo_function?: unknown })) return;
   if (!isUiAppConfig(config)) return;
   if (!config.auth) {
     throw new CliError(messages.APP_UPLOAD_UI_APP_AUTH_EMPTY_REQUIRED);
@@ -448,10 +461,11 @@ function validateAuthShape(config: NonNullable<ProjectConfig>): void {
 function runLocalPreflight(config: ProjectConfig): void {
   validateAuthShape(config);
 
-  // A UI app has no OAuth callback (enforced above), so the redirect
+  // A UI app and a Function app have no OAuth callback, so the redirect
   // requirement — and validation — is OAuth-only.
   const redirectUris = config.auth?.redirectUris ?? [];
-  if (!isUiAppConfig(config) && redirectUris.length === 0) {
+  const isFunction = isFunctionAppConfig(config as { brevo_function?: unknown });
+  if (!isUiAppConfig(config) && !isFunction && redirectUris.length === 0) {
     throw new CliError(messages.APP_UPLOAD_NO_REDIRECT_URLS_OAUTH);
   }
   validateRedirectUrls(redirectUris);

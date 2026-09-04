@@ -321,7 +321,10 @@ async function templateFlow(appId: string): Promise<void> {
   // Steps 2-4: Fetch contacts, execute template preview, print results
   await executePreview(
     { template_id: template.id },
-    { ...PREVIEW_MSGS, afterHeader: `\n  Description:   ${template.description}\n` },
+    {
+      ...PREVIEW_MSGS,
+      afterHeader: `\n  ${messages.FUNCTION_LABEL_DESCRIPTION}   ${template.description}\n`,
+    },
   );
 
   // Steps 5-7: Name -> confirm -> deploy, retrying on duplicate name.
