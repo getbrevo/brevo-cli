@@ -783,6 +783,26 @@ describe('app/scaffold', () => {
       expect(output).not.toContain('snake_case');
     });
 
+    it('reports the key migration after a consented refresh rewrote a legacy file', async () => {
+      const {
+        hasLegacyProjectConfigKeys,
+        migrateProjectConfigKeys,
+      } = require('../../../lib/config');
+      // Drifted name → refresh path; the template rewrite is the migration.
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...matchingLocalConfig,
+        app_name: 'Renamed Locally',
+      });
+      (hasLegacyProjectConfigKeys as jest.Mock).mockReturnValueOnce(true);
+      mockPrompt.mockResolvedValueOnce({ confirmed: true });
+
+      await scaffoldCommand({});
+
+      expect(migrateProjectConfigKeys).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('snake_case');
+    });
+
     it('keeps the --json output a single document when a migration happens', async () => {
       const { migrateProjectConfigKeys } = require('../../../lib/config');
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);

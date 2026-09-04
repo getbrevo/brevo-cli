@@ -12,6 +12,7 @@ import {
   readProjectConfig,
   writeProjectConfig,
   migrateProjectConfigKeys,
+  hasLegacyProjectConfigKeys,
   saveAppName,
   isUiAppConfig,
   ProjectConfig,
@@ -443,6 +444,39 @@ function validateAuthShape(config: NonNullable<ProjectConfig>): void {
 }
 
 /**
+ * `app_type` is informational (BEX-468) — the blocks decide the type — so this checks that
+ * the label the file carries still agrees with them, and refuses the upload when it doesn't.
+ * A disagreement is always a hand-edit that half-landed: a `ui_app` block pasted into a
+ * config still labelled `"oauth"`, or the label changed without the blocks following.
+ *
+ * Three things this deliberately is not:
+ *
+ *   - **Not a detector.** The detected side comes from `resolveFromConfig`, i.e. from
+ *     `isUiAppConfig` / `isFunctionAppConfig` via the registry, which stays the single place
+ *     the discriminator is read. Nothing branches on `app_type`; it is only ever compared.
+ *   - **Not keyed off `extension_type`.** A UI app is a UI app because it has a `ui_app`
+ *     block, whatever kind of extension that block describes. Reading `extension_type` here
+ *     would make the label check care about a distinction it has no opinion on.
+ *   - **Not applied to a file that omits the field.** Every config written before BEX-468
+ *     has no `app_type`, and those keep uploading unchanged — that is the backward-compat
+ *     path, and it is why the guard is `if (!declared) return` rather than a default.
+ *
+ * Ordering: this runs LAST in `runLocalPreflight`, after each type's own `validateConfig`.
+ * The label is the least authoritative statement in the file, so a structural problem should
+ * always be the error the partner sees first — a stale `app_type: "oauth"` on an iframe
+ * config must not pre-empt `APP_UI_IFRAME_PRIVATE_ONLY` (arriving separately) and send
+ * someone off to fix a label, only to hit the real refusal on the next upload. Keep this
+ * call at the end of the pre-flight if either gate moves.
+ */
+function assertAppTypeAgrees(config: NonNullable<ProjectConfig>): void {
+  const declared = config.app_type;
+  if (!declared) return;
+  const detected = resolveFromConfig(config).id;
+  if (declared === detected) return;
+  throw new CliError(messages.APP_UPLOAD_APP_TYPE_MISMATCH(declared, detected));
+}
+
+/**
  * Everything that can be judged from `app-config.json` alone, before any round trip.
  */
 function runLocalPreflight(config: ProjectConfig): void {
@@ -473,6 +507,10 @@ function runLocalPreflight(config: ProjectConfig): void {
   if (containsLegacyAllScope(scopes)) {
     throw new CliError(messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK);
   }
+
+  // Last on purpose — see assertAppTypeAgrees for why the label check must never
+  // pre-empt a structural one.
+  assertAppTypeAgrees(config);
 }
 
 /**
@@ -561,6 +599,10 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
     return;
   }
 
+  // The write-back below rewrites the file in the current shape whatever it held before.
+  // Remember whether that is a migration, so the user hears about it: a rename of the keys
+  // their own scripts may read is worth one line, even though nothing else changed.
+  const migratingKeys = hasLegacyProjectConfigKeys();
   const { confirmedVersion, finalName } = await uploadProjectConfig(config, {
     silent: options.json,
     appVersion: diff.nextVersion,
@@ -578,5 +620,6 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
 
   logSuccess(messages.APP_UPLOAD_SUCCESS);
   logInfo(`  Version: ${confirmedVersion || '(unknown)'}`);
+  if (migratingKeys) logInfo(`  ${messages.APP_CONFIG_KEYS_MIGRATED}`);
   process.stdout.write('\n');
 });

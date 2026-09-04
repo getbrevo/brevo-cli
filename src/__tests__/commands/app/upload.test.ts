@@ -32,6 +32,7 @@ import {
   writeProjectConfig,
   saveAppName,
   migrateProjectConfigKeys,
+  hasLegacyProjectConfigKeys,
 } from '../../../lib/config';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
@@ -183,6 +184,32 @@ describe('app/upload', () => {
       expect(parsed.upToDate).toBe(true);
     });
 
+    it('tells the user about the key migration after a push rewrote a legacy file', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...BASE_CONFIG, app_name: 'Renamed' });
+      (hasLegacyProjectConfigKeys as jest.Mock).mockReturnValueOnce(true);
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed',
+      });
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('snake_case');
+      expect(output).toContain('update them to the new key names');
+    });
+
+    it('says nothing about keys after a push when the file was already snake_case', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...BASE_CONFIG, app_name: 'Renamed' });
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed',
+      });
+      await uploadCommand({ yes: true });
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).not.toContain('snake_case');
+    });
+
     it('does not run the no-op migration when there is something to push', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({ ...BASE_CONFIG, app_name: 'Renamed' });
       (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -273,6 +300,112 @@ describe('app/upload', () => {
     const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
     expect(payload).not.toHaveProperty('app_type');
     expect(payload).not.toHaveProperty('appType');
+  });
+
+  // ──────────────── app_type agreement (BEX-468) ────────────────
+  // `app_type` is a label, not the discriminator — but a label that contradicts the blocks
+  // is a half-landed hand-edit, and uploading it would push a config the file itself
+  // describes wrongly. Every case below refuses before any round trip.
+  describe('app_type agreement', () => {
+    // A minimal but valid UI block, so the refusal under test is the label check and not
+    // `validateUiApp` firing first on a malformed one.
+    const VALID_UI_APP = {
+      extension_type: 'actionLink' as const,
+      surface_point_list: [
+        {
+          surface_point_name: 'contactDetails.header.menu',
+          label: 'View in CRM',
+          redirect_link: 'https://example.com/brevo',
+        },
+      ],
+    };
+
+    it('uploads normally when app_type agrees with the blocks', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        app_name: 'Renamed App',
+        app_type: 'oauth' as const,
+      });
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed App',
+      });
+
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
+    });
+
+    // The backward-compatibility path, and the reason the guard is an early return rather
+    // than a default: every config written before BEX-468 omits the field entirely.
+    it('skips the check entirely when app_type is absent', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        app_name: 'Renamed App',
+        brevo_function: {},
+      });
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed App',
+      });
+
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
+    });
+
+    it('refuses a ui_app config labelled "oauth" before any round trip', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        auth: {},
+        ui_app: VALID_UI_APP,
+        app_type: 'oauth' as const,
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/"app_type": "oauth"/);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/describe a ui app/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('refuses a config labelled "ui" that carries no ui_app block', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        app_type: 'ui' as const,
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/describe a oauth app/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('refuses a brevo_function config labelled "oauth"', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        brevo_function: {},
+        app_type: 'oauth' as const,
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/describe a function app/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    // Ordering, pinned deliberately: the label is the least authoritative statement in the
+    // file, so a structural problem must be the error the partner sees first. Sending
+    // someone off to fix `app_type` when their `ui_app` block is also broken would just
+    // cost them a second upload to learn the real reason.
+    it('reports a malformed ui_app block rather than the stale label', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        auth: {},
+        app_type: 'oauth' as const,
+        ui_app: {
+          ...VALID_UI_APP,
+          surface_point_list: [{ ...VALID_UI_APP.surface_point_list[0], label: '' }],
+        },
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.not.toThrow(/app_type/);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
   });
 
   it('blocks the upload when local distribution_type differs from the app on Brevo', async () => {

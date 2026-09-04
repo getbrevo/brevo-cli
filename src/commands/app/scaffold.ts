@@ -21,6 +21,7 @@ import {
   readProjectConfigAt,
   findEnclosingProjectDir,
   migrateProjectConfigKeys,
+  hasLegacyProjectConfigKeys,
   ProjectConfig,
   isUiAppConfig,
 } from '../../lib/config';
@@ -587,7 +588,15 @@ export const scaffoldCommand = withCommandHandler(
     // camelCase keys (or an older dropped key) would keep them for good. Migrate it here,
     // spellings only, values untouched. cwd is the target directory at this point: a
     // bootstrap that resolved another directory has already moved into it.
-    if (!layout.refreshBase && migrateProjectConfigKeys() && !jsonMode) {
+    // On the refresh path the template rewrite is the migration; note beforehand whether
+    // the file was legacy so the same line can be printed once the write has happened.
+    let migratedKeys = false;
+    if (layout.refreshBase) {
+      migratedKeys = hasLegacyProjectConfigKeys();
+    } else {
+      migratedKeys = migrateProjectConfigKeys();
+    }
+    if (migratedKeys && !layout.refreshBase && !jsonMode) {
       logInfo(messages.APP_CONFIG_KEYS_MIGRATED);
     }
 
@@ -602,6 +611,7 @@ export const scaffoldCommand = withCommandHandler(
     const isUiApp = localConfig ? isUiAppConfig(localConfig) : Boolean(ctx.uiApp);
     if (isUiApp) {
       finishUiAppScaffold(appId, ctx, layout, jsonMode);
+      reportKeyMigration(layout, migratedKeys, jsonMode);
       return;
     }
 
@@ -617,9 +627,24 @@ export const scaffoldCommand = withCommandHandler(
     const bootstrapInteractive = !localConfig && !jsonMode && !!process.stdin.isTTY;
     if (bootstrapInteractive) {
       await finishInteractiveBootstrap(appId, ctx, layout, jsonMode, overwrite);
-      return;
+    } else {
+      await finishFeatureScaffold(appId, ctx, layout, jsonMode, overwrite);
     }
-
-    await finishFeatureScaffold(appId, ctx, layout, jsonMode, overwrite);
+    reportKeyMigration(layout, migratedKeys, jsonMode);
   },
 );
+
+/**
+ * The one line that tells the user their app-config.json keys changed spelling, printed after
+ * a refresh has rewritten the file. The no-refresh path prints it at the migration itself;
+ * this covers the other half so a legacy file never gets rewritten silently in human mode.
+ */
+function reportKeyMigration(
+  layout: ScaffoldLayout,
+  migratedKeys: boolean,
+  jsonMode: boolean,
+): void {
+  if (layout.refreshBase && migratedKeys && !jsonMode) {
+    logInfo(messages.APP_CONFIG_KEYS_MIGRATED);
+  }
+}

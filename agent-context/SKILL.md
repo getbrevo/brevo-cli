@@ -67,6 +67,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 
 ## Hard rules
 
+- **`app-config.json` keys are snake_case (`app_id`, `app_name`, `logo_uri`, `app_type`, `version`, `distribution_type`, `auth.scopes`, `auth.redirect_uris`, `ui_app`, `brevo_function`).** Earlier CLI releases wrote `appId` / `appName` / `logoUri` / `appType` / `auth.redirectUris`. The CLI still reads those, but every write — including a `brevo app upload` or `brevo app scaffold` that has nothing else to change — rewrites the file with the snake_case keys and prints a one-line notice. **If the user's own scripts, CI steps or code read `app-config.json`, tell them to switch to the snake_case names**; do not write the camelCase names into a new or edited file. Commands' `--json` output is a separate contract and is unchanged (`brevo app create --json` still returns `appId`).
 1. **Always pass `--json`** when you intend to parse output. Every command supports it, **on success and on failure alike** — a failing `--json` run writes a single `{"error": {...}}` document to stdout (see *JSON errors* below), so you can read the reason instead of only seeing a non-zero exit.
 2. **Never print, log, or commit** API keys (`xkeysib-…`), client secrets, refresh tokens, or contents of `~/.brevo/credentials.json` / `.env.local`. Redact before sharing diagnostics.
 3. **Don't use `--api-key`** — the flag was removed. Use the `BREVO_API_KEY` env var.

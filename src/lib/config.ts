@@ -438,8 +438,21 @@ export interface ProjectConfig {
   };
   /**
    * Informational app type: 'oauth', 'ui', or 'function'. Written by `app create` and
-   * `app scaffold`, never sent to the server, and NOT the discriminator — the presence
-   * of `ui_app` / `brevo_function` is (see {@link isUiAppConfig}). Legacy configs lack it.
+   * `app scaffold` so the file says in one word what it is, instead of a reader having to
+   * infer it from which blocks are present (BEX-468).
+   *
+   * **Not the discriminator.** The presence of `ui_app` / `brevo_function` is
+   * (see {@link isUiAppConfig}), and nothing branches on this field. `app upload` does
+   * *read* it — but only to check it still agrees with the blocks and to refuse a
+   * contradiction (`assertAppTypeAgrees`); a config that omits it is uploaded unchanged,
+   * which is how every pre-BEX-468 file keeps working.
+   *
+   * **File-only, by construction.** It is never sent to the server: `UploadAppPayload` and
+   * the create body in `src/types.ts` are closed structs that `upload.ts` / `create.ts`
+   * build key by key, so there is no spread that could carry this one onto the wire, and
+   * `upload.test.ts` pins the payload's key set. That is the whole mechanism — no explicit
+   * strip step to keep in sync, and no bo-be change needed to accept the field, because it
+   * never arrives. Keep both payloads closed if either is refactored.
    */
   app_type?: 'oauth' | 'ui' | 'function';
   /**

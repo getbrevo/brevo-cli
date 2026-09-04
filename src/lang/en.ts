@@ -605,7 +605,7 @@ const coreMessages = {
   APP_UPLOAD_SUCCESS: 'App uploaded.',
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
   APP_CONFIG_KEYS_MIGRATED:
-    'app-config.json keys were updated to the current snake_case spelling (values unchanged).',
+    'app-config.json was rewritten with snake_case keys (app_id, app_name, logo_uri, app_type, auth.redirect_uris) — values unchanged. If your own scripts read this file, update them to the new key names.',
   // UI apps have no OAuth callback, so the redirect-URL requirement is
   // OAuth-only — this message names the app type to make that explicit.
   APP_UPLOAD_NO_REDIRECT_URLS_OAUTH:
@@ -620,6 +620,13 @@ const coreMessages = {
     'This is a UI app (app-config.json has a `ui_app` block), so it uses no OAuth — set `auth` to `{}`.',
   APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS:
     "UI apps don't use OAuth — remove `scopes` and `redirect_uris` from `auth` and keep it empty (`{}`).",
+  // `app_type` is informational — the blocks are the discriminator — so a disagreement
+  // between the two is a hand-edit that half-landed, and the fix is always to make the
+  // label match the blocks (or to finish the edit the label was reaching for). Phrased
+  // as a migration hint rather than a bare rejection, like APP_SCAFFOLD_APP_ID_MISMATCH:
+  // say what the file claims, what it actually is, and the two ways out.
+  APP_UPLOAD_APP_TYPE_MISMATCH: (declared: string, detected: string) =>
+    `app-config.json says \`"app_type": "${declared}"\`, but its blocks describe a ${detected} app.\n\n  \`app_type\` is a label — the \`ui_app\` / \`brevo_function\` / \`auth\` blocks are what decide the type.\n  Set \`"app_type": "${detected}"\` to match the blocks, or edit the blocks to match the label. Removing \`app_type\` also works: it is optional.`,
   // Both verbs identify the calling account by its organization ID, which is only
   // cached by a successful login. Numeric and UUID values are both forwarded as-is;
   // only an absent or blank one lands here, meaning the credentials predate the field
