@@ -394,7 +394,7 @@ const coreMessages = {
   // each row names its own type.
   APP_LIST_HEADER: 'Your apps:',
 
-  // App type, as named on a rendered row. `appType` exists in the config but is
+  // App type, as named on a rendered row. `app_type` exists in the config but is
   // informational; the discriminator is `ui_app` / `brevo_function` presence.
   APP_TYPE_OAUTH: 'OAuth app',
   APP_TYPE_UI: 'UI app',

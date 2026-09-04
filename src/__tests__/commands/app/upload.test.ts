@@ -198,8 +198,8 @@ describe('app/upload', () => {
     });
   });
 
-  it('never sends appType to the server — it is local metadata only', async () => {
-    const configWithType = { ...BASE_CONFIG, appName: 'With Type', appType: 'oauth' as const };
+  it('never sends app_type to the server — it is local metadata only', async () => {
+    const configWithType = { ...BASE_CONFIG, appName: 'With Type', app_type: 'oauth' as const };
     (readProjectConfig as jest.Mock).mockReturnValue(configWithType);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       ...BASE_UPLOAD_RESPONSE,
@@ -209,7 +209,7 @@ describe('app/upload', () => {
     await uploadCommand({ yes: true });
 
     const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
-    expect(payload).not.toHaveProperty('appType');
+    expect(payload).not.toHaveProperty('app_type');
   });
 
   it('blocks the upload when local distribution_type differs from the app on Brevo', async () => {

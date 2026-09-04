@@ -871,55 +871,55 @@ describe('config', () => {
       const cfg = readProjectConfig();
       expect(cfg).not.toBeNull();
       expect(cfg!.appId).toBe('42');
-      expect(cfg!.appType).toBeUndefined();
+      expect(cfg!.app_type).toBeUndefined();
     });
 
-    it('reads a config with appType: "oauth" and preserves it', () => {
+    it('reads a config with app_type: "oauth" and preserves it', () => {
       writeConfig({
         appId: '43',
-        appType: 'oauth',
+        app_type: 'oauth',
         auth: { scopes: [] },
       });
       const cfg = readProjectConfig();
-      expect(cfg!.appType).toBe('oauth');
+      expect(cfg!.app_type).toBe('oauth');
     });
 
-    it('reads a config with appType: "ui" and preserves it', () => {
+    it('reads a config with app_type: "ui" and preserves it', () => {
       writeConfig({
         appId: '44',
-        appType: 'ui',
+        app_type: 'ui',
         ui_app: { extension_type: 'actionLink', surface_point_list: [] },
         auth: {},
       });
       const cfg = readProjectConfig();
-      expect(cfg!.appType).toBe('ui');
+      expect(cfg!.app_type).toBe('ui');
     });
 
-    it('reads a config with appType: "function" and preserves it', () => {
+    it('reads a config with app_type: "function" and preserves it', () => {
       writeConfig({
         appId: '45',
-        appType: 'function',
+        app_type: 'function',
         brevo_function: {},
       });
       const cfg = readProjectConfig();
-      expect(cfg!.appType).toBe('function');
+      expect(cfg!.app_type).toBe('function');
     });
 
-    it('round-trips appType through writeProjectConfig', () => {
+    it('round-trips app_type through writeProjectConfig', () => {
       writeConfig({
         appId: '46',
         appName: 'Round Trip',
         distribution_type: 'private',
-        appType: 'function',
+        app_type: 'function',
         auth: {},
       });
       const cfg = readProjectConfig()!;
       writeProjectConfig(cfg);
       const reread = readProjectConfig();
-      expect(reread!.appType).toBe('function');
+      expect(reread!.app_type).toBe('function');
     });
 
-    it('round-trips a legacy config without appType — field stays absent', () => {
+    it('round-trips a legacy config without app_type — field stays absent', () => {
       writeConfig({
         appId: '47',
         appName: 'Legacy Round Trip',
@@ -929,43 +929,43 @@ describe('config', () => {
       const cfg = readProjectConfig()!;
       writeProjectConfig(cfg);
       const raw = JSON.parse(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'));
-      expect(raw).not.toHaveProperty('appType');
+      expect(raw).not.toHaveProperty('app_type');
     });
 
-    it('migrates legacy snake_case app_type to camelCase appType on read', () => {
+    it('migrates legacy camelCase appType to snake_case app_type on read', () => {
       writeConfig({
         appId: '48',
-        app_type: 'function',
+        appType: 'function',
         brevo_function: {},
       });
       const cfg = readProjectConfig();
-      expect(cfg!.appType).toBe('function');
+      expect(cfg!.app_type).toBe('function');
     });
 
-    it('drops the legacy app_type key on write-back after migration', () => {
+    it('drops the legacy appType key on write-back after migration', () => {
       writeConfig({
         appId: '49',
         appName: 'Migrate Me',
         distribution_type: 'private',
-        app_type: 'oauth',
+        appType: 'oauth',
         auth: { scopes: [] },
       });
       const cfg = readProjectConfig()!;
       writeProjectConfig(cfg);
       const raw = JSON.parse(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'));
-      expect(raw.appType).toBe('oauth');
-      expect(raw).not.toHaveProperty('app_type');
+      expect(raw.app_type).toBe('oauth');
+      expect(raw).not.toHaveProperty('appType');
     });
 
-    it('prefers existing appType over legacy app_type when both are present', () => {
+    it('prefers existing app_type over legacy appType when both are present', () => {
       writeConfig({
         appId: '50',
-        appType: 'ui',
-        app_type: 'oauth',
+        app_type: 'ui',
+        appType: 'oauth',
         auth: {},
       });
       const cfg = readProjectConfig();
-      expect(cfg!.appType).toBe('ui');
+      expect(cfg!.app_type).toBe('ui');
     });
   });
 
