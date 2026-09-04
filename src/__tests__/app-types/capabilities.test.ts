@@ -9,7 +9,7 @@ import { APP_TYPES, resolveFromConfig, resolveFromRecord } from '../../app-types
 import { CliError } from '../../lib/errors';
 import type { AppTypeId } from '../../app-types/contract';
 
-const TYPES: AppTypeId[] = ['oauth', 'ui'];
+const TYPES: AppTypeId[] = ['oauth', 'ui', 'function'];
 const DISTRIBUTIONS: Distribution[] = ['private', 'public'];
 
 describe('capability matrix', () => {
@@ -42,6 +42,23 @@ describe('capability matrix', () => {
     for (const distribution of DISTRIBUTIONS) {
       expect(supports('ui', distribution, 'account-install')).toBe(true);
       expect(supports('oauth', distribution, 'account-install')).toBe(false);
+      expect(supports('function', distribution, 'account-install')).toBe(false);
+    }
+  });
+
+  // A Function app has no OAuth block, no redirect URIs, no scaffold feature, and
+  // no account install. It ships its own deploy flow.
+  it('grants a Function app no OAuth or UI capabilities in either distribution', () => {
+    const nonFunctionCaps: Capability[] = [
+      'oauth-flow',
+      'redirect-uris',
+      'scaffold-feature',
+      'account-install',
+    ];
+    for (const distribution of DISTRIBUTIONS) {
+      for (const capability of nonFunctionCaps) {
+        expect(supports('function', distribution, capability)).toBe(false);
+      }
     }
   });
 
@@ -81,11 +98,15 @@ describe('assertCapability', () => {
 });
 
 describe('app-type registry', () => {
-  it('resolves a config with a ui_app block to the ui type, anything else to oauth', () => {
+  it('resolves a config by its discriminator block', () => {
     expect(resolveFromConfig({ ui_app: { extension_type: 'actionLink' } as never }).id).toBe('ui');
     expect(resolveFromConfig({}).id).toBe('oauth');
     expect(resolveFromConfig(null).id).toBe('oauth');
     expect(resolveFromConfig(undefined).id).toBe('oauth');
+  });
+
+  it('resolves a config with brevo_function to the function type', () => {
+    expect(resolveFromConfig({ brevo_function: {} } as never).id).toBe('function');
   });
 
   // The record path is weaker than the config path on purpose: the list endpoint echoes no
@@ -102,6 +123,17 @@ describe('app-type registry', () => {
     expect(resolveFromRecord(null).id).toBe('oauth');
   });
 
+  it('resolves a record with brevo_function to the function type', () => {
+    expect(resolveFromRecord({ brevo_function: {} }).id).toBe('function');
+  });
+
+  // A record with no OAuth material AND no brevo_function block falls through to
+  // the UI type (via isUiAppRecordShape's elimination fallback), not to function.
+  // This is the backward-compat invariant: existing UI app detection is unaffected.
+  it('does not misclassify a blockless record as function', () => {
+    expect(resolveFromRecord({ client_id: '', redirect_uris: null }).id).toBe('ui');
+  });
+
   it('keys every module by its own id', () => {
     for (const [id, module] of Object.entries(APP_TYPES)) {
       expect(module.id).toBe(id);
@@ -111,8 +143,9 @@ describe('app-type registry', () => {
   // Only the ui type declares server-stamped keys today, and `app upload` reads that list
   // through the registry. An OAuth app must declare none, or the upload diff would start
   // normalizing away fields a partner authored.
-  it('declares wire-only keys for the ui type and none for oauth', () => {
+  it('declares wire-only keys for the ui type and none for oauth or function', () => {
     expect(APP_TYPES.oauth.wireOnlyKeys).toEqual([]);
+    expect(APP_TYPES.function.wireOnlyKeys).toEqual([]);
     expect([...APP_TYPES.ui.wireOnlyKeys].sort()).toEqual([
       'extension_point_name',
       'link_target',
@@ -120,8 +153,9 @@ describe('app-type registry', () => {
     ]);
   });
 
-  it('marks both types as GA', () => {
+  it('marks all types as GA', () => {
     expect(APP_TYPES.oauth.availability).toBe('ga');
     expect(APP_TYPES.ui.availability).toBe('ga');
+    expect(APP_TYPES.function.availability).toBe('ga');
   });
 });

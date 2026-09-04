@@ -837,6 +837,102 @@ describe('config', () => {
   // deliberately does not walk up, so without this a scaffold run one directory
   // below a real project would silently offer to create a SECOND project nested
   // inside it — and the next `app upload` from there would push the wrong app.
+  // ──────────────── app_type backward compatibility ────────────────
+  // `app_type` is informational metadata written to new configs. It must never
+  // break legacy configs that lack it, and it must never leak into the wire
+  // payloads (`UploadAppPayload` / `createApp`). These tests encode that contract.
+  describe('app_type backward compatibility', () => {
+    const originalCwd = process.cwd();
+    let projectDir: string;
+
+    beforeEach(() => {
+      projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-apptype-'));
+      process.chdir(projectDir);
+    });
+
+    afterEach(() => {
+      process.chdir(originalCwd);
+      if (fs.existsSync(projectDir)) {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+    function writeConfig(config: object): void {
+      fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+    }
+
+    it('reads a legacy config without app_type — field is undefined, not an error', () => {
+      writeConfig({
+        appId: '42',
+        appName: 'Legacy App',
+        distribution_type: 'private',
+        auth: { scopes: ['contacts:read'], redirectUris: ['http://localhost:3009/auth/callback'] },
+      });
+      const cfg = readProjectConfig();
+      expect(cfg).not.toBeNull();
+      expect(cfg!.appId).toBe('42');
+      expect(cfg!.app_type).toBeUndefined();
+    });
+
+    it('reads a config with app_type: "oauth" and preserves it', () => {
+      writeConfig({
+        appId: '43',
+        app_type: 'oauth',
+        auth: { scopes: [] },
+      });
+      const cfg = readProjectConfig();
+      expect(cfg!.app_type).toBe('oauth');
+    });
+
+    it('reads a config with app_type: "ui" and preserves it', () => {
+      writeConfig({
+        appId: '44',
+        app_type: 'ui',
+        ui_app: { extension_type: 'actionLink', surface_point_list: [] },
+        auth: {},
+      });
+      const cfg = readProjectConfig();
+      expect(cfg!.app_type).toBe('ui');
+    });
+
+    it('reads a config with app_type: "function" and preserves it', () => {
+      writeConfig({
+        appId: '45',
+        app_type: 'function',
+        brevo_function: {},
+      });
+      const cfg = readProjectConfig();
+      expect(cfg!.app_type).toBe('function');
+    });
+
+    it('round-trips app_type through writeProjectConfig', () => {
+      writeConfig({
+        appId: '46',
+        appName: 'Round Trip',
+        distribution_type: 'private',
+        app_type: 'function',
+        auth: {},
+      });
+      const cfg = readProjectConfig()!;
+      writeProjectConfig(cfg);
+      const reread = readProjectConfig();
+      expect(reread!.app_type).toBe('function');
+    });
+
+    it('round-trips a legacy config without app_type — field stays absent', () => {
+      writeConfig({
+        appId: '47',
+        appName: 'Legacy Round Trip',
+        distribution_type: 'private',
+        auth: { scopes: [] },
+      });
+      const cfg = readProjectConfig()!;
+      writeProjectConfig(cfg);
+      const raw = JSON.parse(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'));
+      expect(raw).not.toHaveProperty('app_type');
+    });
+  });
+
   describe('findEnclosingProjectDir', () => {
     const originalCwd = process.cwd();
     let projectDir: string;

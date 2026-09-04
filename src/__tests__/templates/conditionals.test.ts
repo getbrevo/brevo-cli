@@ -184,6 +184,42 @@ describe('app-config.json template branching', () => {
     expect(parsed.auth).toEqual({});
   });
 
+  it('renders valid JSON with brevo_function and app_type: "function" for a Function app', () => {
+    const out = renderConfig(
+      {
+        '{{APP_TYPE}}': 'function',
+        '{{BREVO_FUNCTION_JSON}}': '{}',
+      },
+      new Set<TemplateFlag>(['private', 'brevo_function']),
+    );
+    const parsed = JSON.parse(out);
+
+    expect(parsed.app_type).toBe('function');
+    expect(parsed.brevo_function).toEqual({});
+    expect(parsed).not.toHaveProperty('ui_app');
+    // A function app has no auth block at all.
+    expect(parsed).not.toHaveProperty('auth');
+  });
+
+  it('sets app_type to the value of {{APP_TYPE}} for each app type', () => {
+    for (const [appType, flag] of [
+      ['oauth', 'oauth'],
+      ['ui', 'ui_app'],
+      ['function', 'brevo_function'],
+    ] as const) {
+      const out = renderConfig(
+        {
+          '{{APP_TYPE}}': appType,
+          '{{UI_APP_JSON}}': appType === 'ui' ? '{}' : '',
+          '{{BREVO_FUNCTION_JSON}}': appType === 'function' ? '{}' : '',
+        },
+        new Set<TemplateFlag>(['private', flag]),
+      );
+      const parsed = JSON.parse(out);
+      expect(parsed.app_type).toBe(appType);
+    }
+  });
+
   // Dropped from the scaffolded config (nothing ever read them) — their
   // reappearance would mean the template regressed.
   it('renders neither permittedUrls nor support for either app type', () => {
