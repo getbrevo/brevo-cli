@@ -1,11 +1,7 @@
 import { ApiError } from '../../../lib/errors';
 
 jest.mock('../../../container', () => ({
-  functionService: {
-    activateFunction: jest.fn(),
-    deactivateFunction: jest.fn(),
-    fetchFunctionList: jest.fn(),
-  },
+  functionService: { fetchFunctionList: jest.fn() },
 }));
 
 jest.mock('../../../commands/function/select-function', () => ({
@@ -13,7 +9,6 @@ jest.mock('../../../commands/function/select-function', () => ({
   promptFunctionSelection: jest.fn(),
 }));
 
-import { functionService } from '../../../container';
 import { executeFunctionAction } from '../../../commands/function/function-action';
 import type { FunctionActionConfig } from '../../../commands/function/function-action';
 

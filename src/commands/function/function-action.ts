@@ -6,6 +6,53 @@ import { ApiError } from '../../lib/errors';
 import { assertFunctionSelectionAllowed, promptFunctionSelection } from './select-function';
 import type { StatusTone } from '../../lib/ui';
 
+/**
+ * Resolve the function ID from `--id` or an interactive prompt.
+ * Shared by every function command that accepts an optional `--id`.
+ */
+export async function resolveFunctionId(
+  commandName: string,
+  selectPrompt: string,
+  options: { id?: string; json?: boolean },
+): Promise<string> {
+  if (options.id) return options.id;
+  assertFunctionSelectionAllowed(commandName, options.json);
+  const selection = await promptFunctionSelection(selectPrompt);
+  return selection.functionId;
+}
+
+/**
+ * Run `fn` inside a spinner. On a 404 `ApiError`, emit a not-found message
+ * (JSON or human) and return `undefined`; on any other error, rethrow.
+ */
+export async function withNotFoundHandling<T>(
+  fn: () => Promise<T>,
+  opts: {
+    spinnerText: string;
+    json?: boolean;
+    notFoundMessage: string;
+  },
+): Promise<T | undefined> {
+  const spinner = createSpinner(opts.spinnerText, { silent: opts.json });
+  try {
+    const result = await fn();
+    return result;
+  } catch (err) {
+    if (err instanceof ApiError && err.statusCode === 404) {
+      spinner.stop();
+      if (opts.json) {
+        jsonOutput({ error: 'not_found', message: opts.notFoundMessage });
+        return undefined;
+      }
+      logWarn(`\n  ${opts.notFoundMessage}\n`);
+      return undefined;
+    }
+    throw err;
+  } finally {
+    spinner.stop();
+  }
+}
+
 export interface FunctionActionMessages {
   selectPrompt: string;
   notFound: (id: string) => string;
@@ -25,23 +72,20 @@ export interface FunctionActionConfig {
 }
 
 /**
- * Resolve the function ID from options or interactive prompt, then execute the
- * service call with spinner, 404 handling, and JSON/card output.
- *
- * Exported separately from the command builder so callers that already own the
- * `withCommandHandler` wrapper (e.g. `delete`, which adds a confirmation step)
- * can call this without double-wrapping.
+ * Resolve the function ID, then execute the service call with spinner,
+ * 404 handling, and JSON/card output.
  */
 export async function executeFunctionAction(
   config: FunctionActionConfig,
   options: { id?: string; json?: boolean },
 ): Promise<void> {
-  let functionId = options.id;
-  if (!functionId) {
-    assertFunctionSelectionAllowed(config.commandName, options.json);
-    const selection = await promptFunctionSelection(config.messages.selectPrompt);
-    functionId = selection.functionId;
-  }
+  const functionId = options.id
+    ? options.id
+    : await (async () => {
+        assertFunctionSelectionAllowed(config.commandName, options.json);
+        const sel = await promptFunctionSelection(config.messages.selectPrompt);
+        return sel.functionId;
+      })();
 
   const spinner = createSpinner(config.messages.spinnerText, { silent: options.json });
   try {
@@ -50,10 +94,7 @@ export async function executeFunctionAction(
     if (err instanceof ApiError && err.statusCode === 404) {
       spinner.stop();
       if (options.json) {
-        jsonOutput({
-          error: 'not_found',
-          message: config.messages.notFound(functionId),
-        });
+        jsonOutput({ error: 'not_found', message: config.messages.notFound(functionId) });
         return;
       }
       logWarn(`\n  ${config.messages.notFound(functionId)}\n`);
