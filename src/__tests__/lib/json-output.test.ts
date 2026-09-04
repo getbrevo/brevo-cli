@@ -4,6 +4,7 @@ import {
   resetJsonOutputState,
   buildJsonError,
   emitJsonError,
+  withSnakeCaseAliases,
 } from '../../lib/json-output';
 import { CliError, ApiError, ErrorCode } from '../../lib/errors';
 import { EXIT_CODES } from '../../lib/exit-codes';
@@ -33,6 +34,110 @@ describe('json output', () => {
       expect(hasEmittedJson()).toBe(false);
       jsonOutput({ ok: true });
       expect(hasEmittedJson()).toBe(true);
+    });
+  });
+
+  // ──────────────── snake_case aliasing (transition) ────────────────
+  // Machine-readable output is moving to snake_case to match app-config.json and the
+  // wire. Renaming outright would break every `jq .appId` in a pipeline, so every
+  // document carries both spellings until the next major removes camelCase.
+  describe('withSnakeCaseAliases', () => {
+    it('adds a snake_case twin after each camelCase key, keeping order', () => {
+      const out = withSnakeCaseAliases({ deleted: true, appId: '42', clientId: 'c' });
+      expect(Object.keys(out)).toEqual(['deleted', 'appId', 'app_id', 'clientId', 'client_id']);
+      expect(out).toEqual({
+        deleted: true,
+        appId: '42',
+        app_id: '42',
+        clientId: 'c',
+        client_id: 'c',
+      });
+    });
+
+    it('leaves keys that are already snake_case or single words alone', () => {
+      expect(withSnakeCaseAliases({ app_id: '1', version: '2', ui_app: { a: 1 } })).toEqual({
+        app_id: '1',
+        version: '2',
+        ui_app: { a: 1 },
+      });
+    });
+
+    it('never overwrites a key the object already carries under the snake_case name', () => {
+      const out = withSnakeCaseAliases({ appId: 'camel', app_id: 'snake' });
+      expect(out).toEqual({ appId: 'camel', app_id: 'snake' });
+    });
+
+    it('maps the redirect URI keys to the wire name redirect_uris', () => {
+      expect(withSnakeCaseAliases({ redirectUri: ['a'] })).toEqual({
+        redirectUri: ['a'],
+        redirect_uris: ['a'],
+      });
+      expect(withSnakeCaseAliases({ redirectUris: ['a'] })).toEqual({
+        redirectUris: ['a'],
+        redirect_uris: ['a'],
+      });
+    });
+
+    it('handles multi-hump and digit-adjacent keys', () => {
+      expect(
+        withSnakeCaseAliases({ upToDate: true, scaffoldSkipped: 'x', mismatchedFields: [] }),
+      ).toEqual({
+        upToDate: true,
+        up_to_date: true,
+        scaffoldSkipped: 'x',
+        scaffold_skipped: 'x',
+        mismatchedFields: [],
+        mismatched_fields: [],
+      });
+    });
+
+    // Shallow on purpose: nested objects are wire records or the user's own data.
+    it('does not rewrite keys inside nested objects or arrays of values', () => {
+      const nested = { extension_type: 'actionLink', surface_point_list: [{ someCamel: 1 }] };
+      const out = withSnakeCaseAliases({ uiApp: nested, list: [{ innerCamel: 1 }] }) as Record<
+        string,
+        unknown
+      >;
+      expect(out.uiApp).toBe(nested);
+      expect(out.ui_app).toBe(nested);
+      expect(out.list).toEqual([{ innerCamel: 1 }]);
+    });
+
+    it('aliases each element of an array document', () => {
+      expect(withSnakeCaseAliases([{ app_id: '1', legacyAllScope: true }, 'plain', 3])).toEqual([
+        { app_id: '1', legacyAllScope: true, legacy_all_scope: true },
+        'plain',
+        3,
+      ]);
+    });
+
+    it('aliases the keys inside the error envelope', () => {
+      expect(
+        withSnakeCaseAliases({
+          error: { name: 'ApiError', message: 'm', exitCode: 5, statusCode: 404, code: 'X' },
+        }),
+      ).toEqual({
+        error: {
+          name: 'ApiError',
+          message: 'm',
+          exitCode: 5,
+          exit_code: 5,
+          statusCode: 404,
+          status_code: 404,
+          code: 'X',
+        },
+      });
+    });
+
+    it('passes primitives and null through', () => {
+      expect(withSnakeCaseAliases(null)).toBeNull();
+      expect(withSnakeCaseAliases('s')).toBe('s');
+      expect(withSnakeCaseAliases(7)).toBe(7);
+    });
+
+    it('is what jsonOutput writes', () => {
+      jsonOutput({ appId: '42' });
+      expect(written()).toBe('{"appId":"42","app_id":"42"}\n');
     });
   });
 
@@ -84,7 +189,12 @@ describe('json output', () => {
     it('emits the envelope when --json is present', () => {
       emitJsonError(new CliError('boom'), ['node', 'brevo', 'app', 'list', '--json']);
       expect(JSON.parse(written())).toEqual({
-        error: { name: 'CliError', message: 'boom', exitCode: EXIT_CODES.ERROR },
+        error: {
+          name: 'CliError',
+          message: 'boom',
+          exitCode: EXIT_CODES.ERROR,
+          exit_code: EXIT_CODES.ERROR,
+        },
       });
     });
 

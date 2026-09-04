@@ -296,7 +296,13 @@ describe('app/install', () => {
 
     expect(mockPrompt).not.toHaveBeenCalled();
     const parsed = JSON.parse(stdoutSpy.mock.calls.map((c: [string]) => c[0]).join(''));
-    expect(parsed).toEqual({ installed: true, appId: '42', accountId: '99999' });
+    expect(parsed).toEqual({
+      installed: true,
+      appId: '42',
+      app_id: '42',
+      accountId: '99999',
+      account_id: '99999',
+    });
   });
 
   it('falls back to the app picker outside a project directory', async () => {
@@ -616,8 +622,11 @@ describe('app/install', () => {
       expect(parsed).toEqual({
         installed: true,
         appId: '42',
+        app_id: '42',
         accountId: '12345',
+        account_id: '12345',
         accountName: 'Acme Retail',
+        account_name: 'Acme Retail',
       });
     });
   });

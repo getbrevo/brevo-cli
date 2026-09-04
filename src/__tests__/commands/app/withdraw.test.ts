@@ -98,7 +98,7 @@ describe('app/withdraw', () => {
     await withdrawCommand({ appId: '42', force: true, json: true });
 
     const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
-    expect(parsed).toEqual({ withdrawn: true, appId: '42' });
+    expect(parsed).toEqual({ withdrawn: true, appId: '42', app_id: '42' });
   });
 
   it('should cancel when user declines confirmation', async () => {
