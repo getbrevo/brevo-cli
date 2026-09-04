@@ -1,10 +1,10 @@
 {
-  "appId": "{{APP_ID}}",
-  "appName": "{{APP_NAME}}",
+  "app_id": "{{APP_ID}}",
+  "app_name": "{{APP_NAME}}",
   "version": "{{APP_VERSION}}",
-  "logoUri": "{{LOGO_URI}}",
+  "logo_uri": "{{LOGO_URI}}",
   "distribution_type": "{{DISTRIBUTION}}",
-  "appType": "{{APP_TYPE}}",
+  "app_type": "{{APP_TYPE}}",
 {{#if ui_app}}
   "ui_app": {{UI_APP_JSON}},
   "auth": {}
@@ -15,7 +15,7 @@
 {{#if oauth}}
   "auth": {
     "scopes": {{SCOPES_JSON}},
-    "redirectUris": {{REDIRECT_URLS_JSON}}
+    "redirect_uris": {{REDIRECT_URLS_JSON}}
   }
 {{/if}}
 }

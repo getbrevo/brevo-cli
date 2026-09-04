@@ -313,8 +313,8 @@ export function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): Co
   const diffs: ConfigDiff[] = [];
 
   const serverName = ctx.appDetails?.name;
-  if (serverName && localConfig.appName !== serverName) {
-    diffs.push({ field: 'appName', local: localConfig.appName || '(none)', server: serverName });
+  if (serverName && localConfig.app_name !== serverName) {
+    diffs.push({ field: 'app_name', local: localConfig.app_name || '(none)', server: serverName });
   }
 
   const serverDistribution = ctx.appDetails?.distribution_type ?? 'private';
@@ -330,13 +330,13 @@ export function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): Co
   // default localhost URI when the server returns none — comparing the two would
   // report a permanent phantom diff on every UI-app scaffold. Skip it entirely.
   if (!isUiAppConfig(localConfig)) {
-    const localRedirects = [...(localConfig.auth?.redirectUris ?? [])].sort((a, b) =>
+    const localRedirects = [...(localConfig.auth?.redirect_uris ?? [])].sort((a, b) =>
       a.localeCompare(b),
     );
     const serverRedirects = [...ctx.redirectUris].sort((a, b) => a.localeCompare(b));
     if (JSON.stringify(localRedirects) !== JSON.stringify(serverRedirects)) {
       diffs.push({
-        field: 'redirectUris',
+        field: 'redirect_uris',
         local: localRedirects.join(', ') || '(none)',
         server: serverRedirects.join(', ') || '(none)',
       });
@@ -360,10 +360,10 @@ export function diffLocalConfig(localConfig: ProjectConfig, ctx: AppContext): Co
     }
   }
 
-  const localLogo = localConfig.logoUri ?? '';
+  const localLogo = localConfig.logo_uri ?? '';
   const serverLogo = ctx.appDetails?.logo_uri ?? '';
   if (localLogo !== serverLogo) {
-    diffs.push({ field: 'logoUri', local: localLogo || '(none)', server: serverLogo || '(none)' });
+    diffs.push({ field: 'logo_uri', local: localLogo || '(none)', server: serverLogo || '(none)' });
   }
 
   const localVersion = localConfig.version ?? '';

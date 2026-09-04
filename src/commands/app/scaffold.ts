@@ -20,6 +20,7 @@ import {
   readProjectConfig,
   readProjectConfigAt,
   findEnclosingProjectDir,
+  migrateProjectConfigKeys,
   ProjectConfig,
   isUiAppConfig,
 } from '../../lib/config';
@@ -100,7 +101,7 @@ async function resolveBaseRefresh(
     return { cancelled: true, reason: messages.APP_SCAFFOLD_JSON_DIFF_CANCELLED, diffs };
   }
 
-  logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.appName || localConfig.appId));
+  logInfo(messages.APP_SCAFFOLD_DIFF_INTRO(localConfig.app_name || localConfig.app_id));
   for (const diff of diffs) {
     logInfo(messages.APP_SCAFFOLD_DIFF_LINE(diff.field, diff.local, diff.server));
   }
@@ -120,7 +121,7 @@ async function resolveScaffoldPlan(
   localConfig: ProjectConfig,
   jsonMode: boolean,
 ): Promise<ScaffoldPlan> {
-  const appId = localConfig.appId;
+  const appId = localConfig.app_id;
   // Carry the local `ui_app` block into the context so that if the user consents
   // to a config refresh, `runBaseScaffold` rewrites app-config.json *with* it
   // rather than dropping it (the refresh is a full overwrite, not a merge).
@@ -259,9 +260,9 @@ async function resolveBootstrapDirectory(
   // refresh by the caller.
   const refuseIfLinkedElsewhere = (targetDir: string): void => {
     const targetConfig = readProjectConfigAt(targetDir);
-    if (targetConfig && targetConfig.appId !== appId) {
+    if (targetConfig && targetConfig.app_id !== appId) {
       throw new CliError(
-        messages.APP_SCAFFOLD_TARGET_LINKED_ELSEWHERE(targetDir, targetConfig.appId, appId),
+        messages.APP_SCAFFOLD_TARGET_LINKED_ELSEWHERE(targetDir, targetConfig.app_id, appId),
       );
     }
   };
@@ -302,8 +303,8 @@ async function resolveBootstrapTarget(
     // Checked before any fetch or write: pointing `--app-id` at a directory that
     // belongs to another app is a mistake worth catching for free, and a bootstrap
     // here would overwrite that app's app-config.json with a different app's.
-    if (requestedAppId && localConfig.appId !== requestedAppId) {
-      throw new CliError(messages.APP_SCAFFOLD_APP_ID_MISMATCH(localConfig.appId, requestedAppId));
+    if (requestedAppId && localConfig.app_id !== requestedAppId) {
+      throw new CliError(messages.APP_SCAFFOLD_APP_ID_MISMATCH(localConfig.app_id, requestedAppId));
     }
     return undefined;
   }
@@ -579,6 +580,15 @@ export const scaffoldCommand = withCommandHandler(
     if (!layout) {
       logInfo(messages.APP_SCAFFOLD_CANCELLED);
       return;
+    }
+
+    // A base refresh rewrites app-config.json from the template, in the current shape. When
+    // there is no drift there is no refresh — and a config that still carries pre-rename
+    // camelCase keys (or an older dropped key) would keep them for good. Migrate it here,
+    // spellings only, values untouched. cwd is the target directory at this point: a
+    // bootstrap that resolved another directory has already moved into it.
+    if (!layout.refreshBase && migrateProjectConfigKeys() && !jsonMode) {
+      logInfo(messages.APP_CONFIG_KEYS_MIGRATED);
     }
 
     // UI apps have no scaffoldable features — there is no local server to run for

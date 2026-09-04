@@ -570,7 +570,7 @@ const coreMessages = {
   // App upload
   APP_UPLOAD_NO_CONFIG: `No app-config.json found in this directory. Run \`${CLI.APP_UPLOAD}\` from the project directory that has your app's app-config.json, or run \`${CLI.APP_CREATE}\` / \`${CLI.APP_SCAFFOLD}\` to set one up.`,
   APP_UPLOAD_INVALID_JSON: `app-config.json contains invalid JSON. Fix the file, or run \`${CLI.APP_SCAFFOLD}\` to regenerate it.`,
-  APP_UPLOAD_MISSING_APP_ID: `app-config.json is missing "appId". Fix the file, or run \`${CLI.APP_SCAFFOLD}\` to regenerate it.`,
+  APP_UPLOAD_MISSING_APP_ID: `app-config.json is missing "app_id". Fix the file, or run \`${CLI.APP_SCAFFOLD}\` to regenerate it.`,
   APP_UPLOAD_NO_REDIRECT_URLS: 'app-config.json has no redirect URLs configured.',
   APP_UPLOAD_INVALID_REDIRECT_URL: (url: string) =>
     `Invalid redirect URL "${url}". Must be a valid http:// or https:// URL.`,
@@ -604,10 +604,12 @@ const coreMessages = {
   APP_UPLOAD_CANCELLED: 'Upload cancelled.',
   APP_UPLOAD_SUCCESS: 'App uploaded.',
   APP_UPLOAD_UP_TO_DATE: (version: string) => `Already up to date at version ${version}.`,
+  APP_CONFIG_KEYS_MIGRATED:
+    'app-config.json keys were updated to the current snake_case spelling (values unchanged).',
   // UI apps have no OAuth callback, so the redirect-URL requirement is
   // OAuth-only — this message names the app type to make that explicit.
   APP_UPLOAD_NO_REDIRECT_URLS_OAUTH:
-    'app-config.json has no redirect URLs configured. OAuth apps need at least one — add it to `auth.redirectUris`.',
+    'app-config.json has no redirect URLs configured. OAuth apps need at least one — add it to `auth.redirect_uris`.',
   APP_UPLOAD_UI_APP_SUMMARY: 'UI app:',
   // app-config.json does not carry link_target — upload injects it — so the diff row
   // says where the value comes from rather than implying there is a field to edit.
@@ -617,7 +619,7 @@ const coreMessages = {
   APP_UPLOAD_UI_APP_AUTH_EMPTY_REQUIRED:
     'This is a UI app (app-config.json has a `ui_app` block), so it uses no OAuth — set `auth` to `{}`.',
   APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS:
-    "UI apps don't use OAuth — remove `scopes` and `redirectUris` from `auth` and keep it empty (`{}`).",
+    "UI apps don't use OAuth — remove `scopes` and `redirect_uris` from `auth` and keep it empty (`{}`).",
   // Both verbs identify the calling account by its organization ID, which is only
   // cached by a successful login. Numeric and UUID values are both forwarded as-is;
   // only an absent or blank one lands here, meaning the credentials predate the field
@@ -777,9 +779,9 @@ const coreMessages = {
   APP_START_UNKNOWN_FEATURE: (feature: string, available: string) =>
     `Unknown feature "${feature}". Available features: ${available}`,
   APP_START_PORT_IN_USE: (port: number) =>
-    `Port ${port} is already in use.\n\n  Either stop the process using port ${port}, use a different port with \`--port <port>\`,\n  or update your redirect URL by editing \`auth.redirectUris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+    `Port ${port} is already in use.\n\n  Either stop the process using port ${port}, use a different port with \`--port <port>\`,\n  or update your redirect URL by editing \`auth.redirect_uris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
   APP_START_CUSTOM_PORT_IN_USE: (port: number) =>
-    `Port ${port} is already in use.\n\n  Stop the process using port ${port}, or pick another port with \`--port <port>\`\n  and update your redirect URL by editing \`auth.redirectUris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+    `Port ${port} is already in use.\n\n  Stop the process using port ${port}, or pick another port with \`--port <port>\`\n  and update your redirect URL by editing \`auth.redirect_uris\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
   APP_START_EXITED: (feature: string, code: number) => `${feature} exited with code ${code}`,
   APP_START_FAILED: (feature: string, error: string) => `Failed to start ${feature}: ${error}`,
   APP_START_REDIRECT_NOT_REGISTERED: (port: number) =>
@@ -791,9 +793,9 @@ const coreMessages = {
   APP_START_REDIRECT_UPLOAD_FAILED: (url: string) =>
     `${url} was saved to app-config.json but the upload failed. Fix the issue and run \`${CLI.APP_UPLOAD}\` to finish registering it.`,
   APP_START_REDIRECT_DECLINED: (url: string) =>
-    `Continuing without registering. The OAuth callback at ${url} will fail until you register it. Add it to \`auth.redirectUris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` to register later.`,
+    `Continuing without registering. The OAuth callback at ${url} will fail until you register it. Add it to \`auth.redirect_uris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` to register later.`,
   APP_START_REDIRECT_NON_INTERACTIVE: (port: number, url: string) =>
-    `Port ${port} is not registered as a redirect URL for this app, and we can't prompt in non-interactive mode. Add \`${url}\` to \`auth.redirectUris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` first, or re-run interactively.`,
+    `Port ${port} is not registered as a redirect URL for this app, and we can't prompt in non-interactive mode. Add \`${url}\` to \`auth.redirect_uris\` in app-config.json and run \`${CLI.APP_UPLOAD}\` first, or re-run interactively.`,
 
   AUTH_LOGOUT_NON_INTERACTIVE:
     'Cannot prompt for confirmation in non-interactive mode. Use --force to skip.',

@@ -19,6 +19,8 @@ import {
   readProjectConfig,
   writeProjectConfig,
   backfillProjectConfigFromServer,
+  hasLegacyProjectConfigKeys,
+  migrateProjectConfigKeys,
   hasLocalApp,
   findEnclosingProjectDir,
 } from '../../lib/config';
@@ -392,7 +394,7 @@ describe('config', () => {
 
       it('splits a comma-embedded scope entry into individual tokens', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: ['crm:read', 'crm:write, campaigns:read'] },
         });
         const cfg = readProjectConfig();
@@ -406,7 +408,7 @@ describe('config', () => {
       // character ("Invalid scope: \":\"").
       it('splits a bare comma-separated scope string into individual tokens', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: 'crm:read, campaigns:read' },
         });
         const cfg = readProjectConfig();
@@ -415,7 +417,7 @@ describe('config', () => {
 
       it('leaves well-formed scope arrays untouched', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: ['crm:read', 'crm:write'] },
         });
         const cfg = readProjectConfig();
@@ -424,7 +426,7 @@ describe('config', () => {
 
       it('deduplicates scopes', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: ['crm:read', 'crm:read', 'crm:write'] },
         });
         const cfg = readProjectConfig();
@@ -433,7 +435,7 @@ describe('config', () => {
 
       it('does not throw on malformed scope chars (charset is enforced later, at update time)', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: ['crm;read'] },
         });
         expect(() => readProjectConfig()).not.toThrow();
@@ -462,7 +464,7 @@ describe('config', () => {
 
       it('round-trips the version field when present', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           version: '0.0.1',
           auth: { scopes: ['crm:read'] },
         });
@@ -472,7 +474,7 @@ describe('config', () => {
 
       it('leaves version undefined for a legacy config that predates the field', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: ['crm:read'] },
         });
         const cfg = readProjectConfig();
@@ -506,8 +508,8 @@ describe('config', () => {
 
       it('backfills distribution_type from the oldest legacy top-level distribution key', () => {
         writeConfig({
-          appId: '42',
-          auth: { scopes: ['crm:read'], redirectUris: [] },
+          app_id: '42',
+          auth: { scopes: ['crm:read'], redirect_uris: [] },
           distribution: 'public',
         });
         const cfg = readProjectConfig();
@@ -516,7 +518,7 @@ describe('config', () => {
 
       it('backfills distribution_type from the interim auth.type key', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { type: 'public', scopes: ['crm:read'] },
         });
         const cfg = readProjectConfig();
@@ -525,7 +527,7 @@ describe('config', () => {
 
       it('prefers top-level distribution_type over both legacy shapes when all are present', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           distribution_type: 'public',
           auth: { type: 'private', scopes: ['crm:read'] },
           distribution: 'private',
@@ -536,7 +538,7 @@ describe('config', () => {
 
       it('prefers the interim auth.type over the oldest legacy distribution key', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { type: 'public', scopes: ['crm:read'] },
           distribution: 'private',
         });
@@ -546,7 +548,7 @@ describe('config', () => {
 
       it('defaults distribution_type to private when no shape is present', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: ['crm:read'] },
         });
         const cfg = readProjectConfig();
@@ -555,7 +557,7 @@ describe('config', () => {
 
       it('reads a new-format config with a top-level distribution_type directly', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           distribution_type: 'private',
           auth: { scopes: ['crm:read'] },
         });
@@ -565,7 +567,7 @@ describe('config', () => {
 
       it('does not carry the legacy distribution key forward in the returned config', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: ['crm:read'] },
           distribution: 'public',
         });
@@ -578,7 +580,7 @@ describe('config', () => {
       // misread as a distribution value.
       it('drops auth.type none and does not treat it as a distribution', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { type: 'none' },
           ui_app: { extension_type: 'actionLink' },
         });
@@ -591,7 +593,7 @@ describe('config', () => {
       // the read path drops them so the next write migrates old files.
       it('drops the removed permittedUrls and support sections', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: ['crm:read'] },
           permittedUrls: { fetch: [], img: [], iframe: [], js: [], css: [] },
           support: { supportEmail: 'user@example.com' },
@@ -606,18 +608,18 @@ describe('config', () => {
       // dropped from the returned config, so any write-back migrates the file.
       it('reads redirect URLs from the legacy auth.redirectUrls key', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           distribution_type: 'private',
           auth: { scopes: ['crm:read'], redirectUrls: ['https://example.com/cb'] },
         });
         const cfg = readProjectConfig();
-        expect(cfg?.auth.redirectUris).toEqual(['https://example.com/cb']);
+        expect(cfg?.auth.redirect_uris).toEqual(['https://example.com/cb']);
         expect(cfg?.auth).not.toHaveProperty('redirectUrls');
       });
 
-      it('prefers auth.redirectUris over the legacy key when both are present', () => {
+      it('prefers the newer legacy auth.redirectUris over auth.redirectUrls when both are present', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           distribution_type: 'private',
           auth: {
             scopes: ['crm:read'],
@@ -626,13 +628,13 @@ describe('config', () => {
           },
         });
         const cfg = readProjectConfig();
-        expect(cfg?.auth.redirectUris).toEqual(['https://new.example.com/cb']);
+        expect(cfg?.auth.redirect_uris).toEqual(['https://new.example.com/cb']);
         expect(cfg?.auth).not.toHaveProperty('redirectUrls');
       });
 
       it('migrates the legacy redirect key on write-back (writeProjectConfig round-trip)', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           distribution_type: 'private',
           auth: { scopes: ['crm:read'], redirectUrls: ['https://example.com/cb'] },
         });
@@ -642,13 +644,13 @@ describe('config', () => {
         const onDisk = JSON.parse(
           fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'),
         );
-        expect(onDisk.auth.redirectUris).toEqual(['https://example.com/cb']);
+        expect(onDisk.auth.redirect_uris).toEqual(['https://example.com/cb']);
         expect(onDisk.auth).not.toHaveProperty('redirectUrls');
       });
 
       it('does not carry the interim auth.type key forward in the returned config', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { type: 'public', scopes: ['crm:read'] },
         });
         const cfg = readProjectConfig();
@@ -657,7 +659,7 @@ describe('config', () => {
 
       it('migrates the oldest legacy config to the new shape on the next write', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { scopes: ['crm:read'] },
           distribution: 'public',
         });
@@ -673,7 +675,7 @@ describe('config', () => {
 
       it('migrates an interim auth.type config to the new shape on the next write', () => {
         writeConfig({
-          appId: '42',
+          app_id: '42',
           auth: { type: 'public', scopes: ['crm:read'] },
         });
         const cfg = readProjectConfig();
@@ -712,21 +714,21 @@ describe('config', () => {
     }
 
     it('backfills a missing version from the server value', () => {
-      writeConfig({ appId: '42', distribution_type: 'private', auth: { scopes: [] } });
+      writeConfig({ app_id: '42', distribution_type: 'private', auth: { scopes: [] } });
       const changed = backfillProjectConfigFromServer('42', { version: '1.4.0' });
       expect(changed).toEqual(['version']);
       expect(readOnDisk().version).toBe('1.4.0');
     });
 
     it('backfills a missing distribution_type from the server value', () => {
-      writeConfig({ appId: '42', version: '1.0.0', auth: { scopes: [] } });
+      writeConfig({ app_id: '42', version: '1.0.0', auth: { scopes: [] } });
       const changed = backfillProjectConfigFromServer('42', { distribution_type: 'public' });
       expect(changed).toEqual(['distribution_type']);
       expect(readOnDisk().distribution_type).toBe('public');
     });
 
     it('backfills both missing fields at once', () => {
-      writeConfig({ appId: '42', auth: { scopes: [] } });
+      writeConfig({ app_id: '42', auth: { scopes: [] } });
       const changed = backfillProjectConfigFromServer('42', {
         version: '2.0.0',
         distribution_type: 'public',
@@ -738,7 +740,7 @@ describe('config', () => {
     });
 
     it('defaults distribution_type to private when both file and server lack it', () => {
-      writeConfig({ appId: '42', version: '1.0.0', auth: { scopes: [] } });
+      writeConfig({ app_id: '42', version: '1.0.0', auth: { scopes: [] } });
       const changed = backfillProjectConfigFromServer('42', {});
       expect(changed).toEqual(['distribution_type']);
       expect(readOnDisk().distribution_type).toBe('private');
@@ -746,7 +748,7 @@ describe('config', () => {
 
     it('does not overwrite an existing version (fill only when missing)', () => {
       writeConfig({
-        appId: '42',
+        app_id: '42',
         version: '1.2.0',
         distribution_type: 'private',
         auth: { scopes: [] },
@@ -758,7 +760,7 @@ describe('config', () => {
 
     it('does not overwrite an existing distribution_type (fill only when missing)', () => {
       writeConfig({
-        appId: '42',
+        app_id: '42',
         version: '1.0.0',
         distribution_type: 'private',
         auth: { scopes: [] },
@@ -769,7 +771,7 @@ describe('config', () => {
     });
 
     it('treats a legacy distribution key as present and preserves its value, migrating shape only when another field triggers a write', () => {
-      writeConfig({ appId: '42', distribution: 'public', auth: { scopes: [] } });
+      writeConfig({ app_id: '42', distribution: 'public', auth: { scopes: [] } });
       // version is missing → a write is triggered; server says the app is
       // private, but the legacy local value must win (never overwritten).
       const changed = backfillProjectConfigFromServer('42', {
@@ -784,14 +786,14 @@ describe('config', () => {
     });
 
     it('does not backfill version when the server has none', () => {
-      writeConfig({ appId: '42', distribution_type: 'private', auth: { scopes: [] } });
+      writeConfig({ app_id: '42', distribution_type: 'private', auth: { scopes: [] } });
       const changed = backfillProjectConfigFromServer('42', {});
       expect(changed).toEqual([]);
       expect(readOnDisk()).not.toHaveProperty('version');
     });
 
     it('returns [] and writes nothing when the appId does not match', () => {
-      writeConfig({ appId: '42', auth: { scopes: [] } });
+      writeConfig({ app_id: '42', auth: { scopes: [] } });
       const before = fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8');
       const changed = backfillProjectConfigFromServer('99', {
         version: '1.0.0',
@@ -812,7 +814,7 @@ describe('config', () => {
 
     it('returns [] and leaves the file untouched when nothing is missing', () => {
       writeConfig({
-        appId: '42',
+        app_id: '42',
         version: '1.0.0',
         distribution_type: 'public',
         auth: { scopes: [] },
@@ -833,15 +835,11 @@ describe('config', () => {
     });
   });
 
-  // The guard behind `brevo app scaffold`'s no-config branch. `readProjectConfig`
-  // deliberately does not walk up, so without this a scaffold run one directory
-  // below a real project would silently offer to create a SECOND project nested
-  // inside it — and the next `app upload` from there would push the wrong app.
-  // ──────────────── appType backward compatibility ────────────────
-  // `appType` is informational metadata written to new configs. It must never
+  // ──────────────── app_type (informational) ────────────────
+  // `app_type` is informational metadata written to new configs. It must never
   // break legacy configs that lack it, and it must never leak into the wire
   // payloads (`UploadAppPayload` / `createApp`). These tests encode that contract.
-  describe('appType backward compatibility', () => {
+  describe('app_type backward compatibility', () => {
     const originalCwd = process.cwd();
     let projectDir: string;
 
@@ -861,78 +859,304 @@ describe('config', () => {
       fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
     }
 
-    it('reads a legacy config without appType — field is undefined, not an error', () => {
+    it('reads a config without app_type — field is undefined, not an error', () => {
       writeConfig({
-        appId: '42',
-        appName: 'Legacy App',
+        app_id: '42',
+        app_name: 'Legacy App',
         distribution_type: 'private',
-        auth: { scopes: ['contacts:read'], redirectUris: ['http://localhost:3009/auth/callback'] },
+        auth: { scopes: ['contacts:read'], redirect_uris: ['http://localhost:3009/auth/callback'] },
       });
       const cfg = readProjectConfig();
       expect(cfg).not.toBeNull();
-      expect(cfg!.appId).toBe('42');
-      expect(cfg!.appType).toBeUndefined();
+      expect(cfg!.app_id).toBe('42');
+      expect(cfg!.app_type).toBeUndefined();
     });
 
-    it('reads a config with appType: "oauth" and preserves it', () => {
-      writeConfig({
-        appId: '43',
-        appType: 'oauth',
-        auth: { scopes: [] },
-      });
-      const cfg = readProjectConfig();
-      expect(cfg!.appType).toBe('oauth');
-    });
+    it.each(['oauth', 'ui', 'function'] as const)(
+      'reads a config with app_type: "%s" and preserves it',
+      (appType) => {
+        writeConfig({
+          app_id: '43',
+          app_type: appType,
+          ...(appType === 'ui'
+            ? { ui_app: { extension_type: 'actionLink', surface_point_list: [] }, auth: {} }
+            : {}),
+          ...(appType === 'function' ? { brevo_function: {} } : {}),
+          ...(appType === 'oauth' ? { auth: { scopes: [] } } : {}),
+        });
+        const cfg = readProjectConfig();
+        expect(cfg!.app_type).toBe(appType);
+      },
+    );
 
-    it('reads a config with appType: "ui" and preserves it', () => {
+    it('round-trips app_type through writeProjectConfig', () => {
       writeConfig({
-        appId: '44',
-        appType: 'ui',
-        ui_app: { extension_type: 'actionLink', surface_point_list: [] },
-        auth: {},
-      });
-      const cfg = readProjectConfig();
-      expect(cfg!.appType).toBe('ui');
-    });
-
-    it('reads a config with appType: "function" and preserves it', () => {
-      writeConfig({
-        appId: '45',
-        appType: 'function',
-        brevo_function: {},
-      });
-      const cfg = readProjectConfig();
-      expect(cfg!.appType).toBe('function');
-    });
-
-    it('round-trips appType through writeProjectConfig', () => {
-      writeConfig({
-        appId: '46',
-        appName: 'Round Trip',
+        app_id: '46',
+        app_name: 'Round Trip',
         distribution_type: 'private',
-        appType: 'function',
+        app_type: 'function',
         auth: {},
       });
       const cfg = readProjectConfig()!;
       writeProjectConfig(cfg);
       const reread = readProjectConfig();
-      expect(reread!.appType).toBe('function');
+      expect(reread!.app_type).toBe('function');
     });
 
-    it('round-trips a legacy config without appType — field stays absent', () => {
+    it('round-trips a config without app_type — field stays absent', () => {
       writeConfig({
-        appId: '47',
-        appName: 'Legacy Round Trip',
+        app_id: '47',
+        app_name: 'Legacy Round Trip',
         distribution_type: 'private',
         auth: { scopes: [] },
       });
       const cfg = readProjectConfig()!;
       writeProjectConfig(cfg);
       const raw = JSON.parse(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'));
+      expect(raw).not.toHaveProperty('app_type');
       expect(raw).not.toHaveProperty('appType');
     });
   });
 
+  // ──────────────── legacy camelCase keys ────────────────
+  // Every key in app-config.json is snake_case. Releases before the rename wrote
+  // `appId` / `appName` / `logoUri` / `appType` / `auth.redirectUris`; the read
+  // path folds those into the snake_case fields and drops them, so any write-back
+  // migrates the file. These tests are the compatibility contract: the camelCase
+  // fixtures here are deliberate and must stay camelCase.
+  describe('legacy camelCase keys', () => {
+    const originalCwd = process.cwd();
+    let projectDir: string;
+    let stderrSpy: jest.SpyInstance;
+
+    const LEGACY_CONFIG = {
+      appId: 'legacy-app',
+      appName: 'Legacy Name',
+      logoUri: 'https://example.com/logo.png',
+      appType: 'oauth',
+      version: '1.2.3',
+      distribution_type: 'private',
+      auth: { scopes: ['crm:read'], redirectUris: ['https://example.com/cb'] },
+    };
+
+    const CURRENT_CONFIG = {
+      app_id: 'current-app',
+      app_name: 'Current Name',
+      logo_uri: 'https://example.com/logo.png',
+      app_type: 'oauth',
+      version: '1.2.3',
+      distribution_type: 'private',
+      auth: { scopes: ['crm:read'], redirect_uris: ['https://example.com/cb'] },
+    };
+
+    beforeEach(() => {
+      projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brevo-legacy-keys-'));
+      process.chdir(projectDir);
+      stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+      stderrSpy.mockRestore();
+      process.chdir(originalCwd);
+      if (fs.existsSync(projectDir)) {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+    function writeConfig(config: object): void {
+      fs.writeFileSync(path.join(projectDir, 'app-config.json'), JSON.stringify(config));
+    }
+
+    function readOnDisk(): Record<string, unknown> {
+      return JSON.parse(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'));
+    }
+
+    it('reads a camelCase-only config into the snake_case fields', () => {
+      writeConfig(LEGACY_CONFIG);
+      const cfg = readProjectConfig();
+      expect(cfg).toEqual({
+        app_id: 'legacy-app',
+        app_name: 'Legacy Name',
+        logo_uri: 'https://example.com/logo.png',
+        app_type: 'oauth',
+        version: '1.2.3',
+        distribution_type: 'private',
+        auth: { scopes: ['crm:read'], redirect_uris: ['https://example.com/cb'] },
+      });
+      expect(cfg).not.toHaveProperty('appId');
+      expect(cfg).not.toHaveProperty('appName');
+      expect(cfg).not.toHaveProperty('logoUri');
+      expect(cfg).not.toHaveProperty('appType');
+      expect(cfg?.auth).not.toHaveProperty('redirectUris');
+    });
+
+    it('reads a snake_case-only config unchanged', () => {
+      writeConfig(CURRENT_CONFIG);
+      expect(readProjectConfig()).toEqual(CURRENT_CONFIG);
+      expect(stderrSpy).not.toHaveBeenCalled();
+    });
+
+    it('accepts a numeric legacy appId', () => {
+      writeConfig({ appId: 42, auth: { scopes: [] } });
+      expect(readProjectConfig()?.app_id).toBe('42');
+    });
+
+    it('prefers the snake_case key when both spellings are present and warns once', () => {
+      writeConfig({
+        ...CURRENT_CONFIG,
+        appId: 'legacy-app',
+        appName: 'Legacy Name',
+        auth: {
+          scopes: ['crm:read'],
+          redirect_uris: ['https://new.example.com/cb'],
+          redirectUris: ['https://old.example.com/cb'],
+        },
+      });
+      const cfg = readProjectConfig();
+      expect(cfg?.app_id).toBe('current-app');
+      expect(cfg?.app_name).toBe('Current Name');
+      expect(cfg?.auth.redirect_uris).toEqual(['https://new.example.com/cb']);
+      expect(cfg).not.toHaveProperty('appId');
+      expect(cfg?.auth).not.toHaveProperty('redirectUris');
+
+      // One stderr line naming the conflicting keys — never stdout, which `--json`
+      // owns — and only once per process however often the file is re-read.
+      expect(stderrSpy).toHaveBeenCalledTimes(1);
+      const line = String(stderrSpy.mock.calls[0]?.[0]);
+      expect(line).toContain('appId/app_id');
+      expect(line).toContain('appName/app_name');
+      expect(line).toContain('redirectUris/redirect_uris');
+      readProjectConfig();
+      expect(stderrSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not warn when both spellings carry the same value', () => {
+      writeConfig({ ...CURRENT_CONFIG, appId: 'current-app' });
+      expect(readProjectConfig()?.app_id).toBe('current-app');
+      expect(stderrSpy).not.toHaveBeenCalled();
+    });
+
+    it('migrates a camelCase config to snake_case on write-back', () => {
+      writeConfig(LEGACY_CONFIG);
+      writeProjectConfig(readProjectConfig()!);
+      const onDisk = readOnDisk();
+      expect(onDisk).toEqual({
+        app_id: 'legacy-app',
+        app_name: 'Legacy Name',
+        logo_uri: 'https://example.com/logo.png',
+        app_type: 'oauth',
+        version: '1.2.3',
+        distribution_type: 'private',
+        auth: { scopes: ['crm:read'], redirect_uris: ['https://example.com/cb'] },
+      });
+    });
+
+    it('migrates a camelCase UI-app config without touching its ui_app block', () => {
+      const uiApp = {
+        extension_type: 'actionLink',
+        surface_point_list: [
+          {
+            surface_point_name: 'contactDetails.header.menu',
+            label: 'Open',
+            redirect_link: 'https://example.com',
+          },
+        ],
+      };
+      writeConfig({
+        appId: 'ui-1',
+        appName: 'UI',
+        appType: 'ui',
+        distribution_type: 'private',
+        auth: {},
+        ui_app: uiApp,
+      });
+      writeProjectConfig(readProjectConfig()!);
+      const onDisk = readOnDisk();
+      expect(onDisk.app_id).toBe('ui-1');
+      expect(onDisk.app_type).toBe('ui');
+      expect(onDisk.ui_app).toEqual(uiApp);
+      expect(onDisk.auth).toEqual({});
+    });
+
+    it('migrates a camelCase Function-app config without touching brevo_function', () => {
+      writeConfig({
+        appId: 'fn-1',
+        appName: 'Fn',
+        appType: 'function',
+        distribution_type: 'private',
+        brevo_function: {},
+      });
+      writeProjectConfig(readProjectConfig()!);
+      const onDisk = readOnDisk();
+      expect(onDisk.app_id).toBe('fn-1');
+      expect(onDisk.app_type).toBe('function');
+      expect(onDisk.brevo_function).toEqual({});
+    });
+
+    describe('hasLegacyProjectConfigKeys / migrateProjectConfigKeys', () => {
+      it('reports false and writes nothing for a snake_case config', () => {
+        writeConfig(CURRENT_CONFIG);
+        const before = fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8');
+        expect(hasLegacyProjectConfigKeys()).toBe(false);
+        expect(migrateProjectConfigKeys()).toBe(false);
+        expect(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8')).toBe(before);
+      });
+
+      it.each([
+        ['appId', { appId: 'x', auth: {} }],
+        ['appName', { app_id: 'x', appName: 'n', auth: {} }],
+        ['logoUri', { app_id: 'x', logoUri: '', auth: {} }],
+        ['appType', { app_id: 'x', appType: 'oauth', auth: {} }],
+        ['auth.redirectUris', { app_id: 'x', auth: { redirectUris: [] } }],
+        ['auth.redirectUrls', { app_id: 'x', auth: { redirectUrls: [] } }],
+        ['auth.type', { app_id: 'x', auth: { type: 'private' } }],
+        ['distribution', { app_id: 'x', distribution: 'private', auth: {} }],
+        ['permittedUrls', { app_id: 'x', permittedUrls: {}, auth: {} }],
+        ['support', { app_id: 'x', support: {}, auth: {} }],
+      ])('reports true for a file still carrying %s', (_key, config) => {
+        writeConfig(config);
+        expect(hasLegacyProjectConfigKeys()).toBe(true);
+      });
+
+      it('rewrites a camelCase config in place, values unchanged', () => {
+        writeConfig(LEGACY_CONFIG);
+        expect(migrateProjectConfigKeys()).toBe(true);
+        const onDisk = readOnDisk();
+        expect(onDisk.app_id).toBe('legacy-app');
+        expect(onDisk.app_name).toBe('Legacy Name');
+        expect(onDisk.logo_uri).toBe('https://example.com/logo.png');
+        expect(onDisk.app_type).toBe('oauth');
+        expect((onDisk.auth as Record<string, unknown>).redirect_uris).toEqual([
+          'https://example.com/cb',
+        ]);
+        expect(onDisk).not.toHaveProperty('appId');
+        expect(onDisk.auth).not.toHaveProperty('redirectUris');
+        // Second run: nothing left to do.
+        expect(hasLegacyProjectConfigKeys()).toBe(false);
+        expect(migrateProjectConfigKeys()).toBe(false);
+      });
+
+      it('reports false for a missing or unparseable file', () => {
+        expect(hasLegacyProjectConfigKeys()).toBe(false);
+        expect(migrateProjectConfigKeys()).toBe(false);
+        fs.writeFileSync(path.join(projectDir, 'app-config.json'), '{ not json');
+        expect(hasLegacyProjectConfigKeys()).toBe(false);
+        expect(migrateProjectConfigKeys()).toBe(false);
+      });
+
+      it('does not write a legacy file that has no usable app id', () => {
+        writeConfig({ appName: 'no id', auth: {} });
+        const before = fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8');
+        expect(migrateProjectConfigKeys()).toBe(false);
+        expect(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8')).toBe(before);
+      });
+    });
+  });
+
+  // The guard behind `brevo app scaffold`'s no-config branch. `readProjectConfig`
+  // deliberately does not walk up, so without this a scaffold run one directory
+  // below a real project would silently offer to create a SECOND project nested
+  // inside it — and the next `app upload` from there would push the wrong app.
   describe('findEnclosingProjectDir', () => {
     const originalCwd = process.cwd();
     let projectDir: string;
@@ -961,7 +1185,7 @@ describe('config', () => {
     });
 
     it('returns the ancestor directory that holds the project config', () => {
-      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      writeConfigAt(projectDir, { app_id: '42', auth: { scopes: [] } });
       const nested = path.join(projectDir, 'src', 'oauth');
       fs.mkdirSync(nested, { recursive: true });
       process.chdir(nested);
@@ -970,8 +1194,8 @@ describe('config', () => {
 
     it('finds the nearest ancestor when several are nested', () => {
       const inner = path.join(projectDir, 'inner');
-      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
-      writeConfigAt(inner, { appId: '99', auth: { scopes: [] } });
+      writeConfigAt(projectDir, { app_id: '42', auth: { scopes: [] } });
+      writeConfigAt(inner, { app_id: '99', auth: { scopes: [] } });
       const nested = path.join(inner, 'src');
       fs.mkdirSync(nested, { recursive: true });
       process.chdir(nested);
@@ -982,7 +1206,7 @@ describe('config', () => {
     // knows cwd has no usable config. Counting cwd would make every ordinary
     // in-project run look like a nested one.
     it('ignores a config in the current directory', () => {
-      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      writeConfigAt(projectDir, { app_id: '42', auth: { scopes: [] } });
       process.chdir(projectDir);
       expect(findEnclosingProjectDir()).toBeNull();
     });
@@ -992,7 +1216,7 @@ describe('config', () => {
     // than refuse on a file nothing else in the CLI would honour.
     it('walks past an ancestor config that carries no appId', () => {
       const inner = path.join(projectDir, 'inner');
-      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      writeConfigAt(projectDir, { app_id: '42', auth: { scopes: [] } });
       writeConfigAt(inner, { auth: { scopes: [] } });
       const nested = path.join(inner, 'src');
       fs.mkdirSync(nested, { recursive: true });
@@ -1002,7 +1226,7 @@ describe('config', () => {
 
     it('walks past an ancestor config that is not valid JSON', () => {
       const inner = path.join(projectDir, 'inner');
-      writeConfigAt(projectDir, { appId: '42', auth: { scopes: [] } });
+      writeConfigAt(projectDir, { app_id: '42', auth: { scopes: [] } });
       fs.mkdirSync(inner, { recursive: true });
       fs.writeFileSync(path.join(inner, 'app-config.json'), '{ not json');
       process.chdir(inner);

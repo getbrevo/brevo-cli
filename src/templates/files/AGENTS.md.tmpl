@@ -82,8 +82,8 @@ Declares where the app appears inside Brevo's CRM (which record page, which slot
 ```
 
 ## The `ui_app` contract
-- The presence of `ui_app` is the app-type discriminator. There is no `appType` key.
-- `auth` must be exactly `{}` — a UI app uses no OAuth, and `brevo app upload` refuses one carrying `scopes` or `redirectUris`.
+- The presence of `ui_app` is the app-type discriminator. The `app_type` key is informational only — the CLI never reads it.
+- `auth` must be exactly `{}` — a UI app uses no OAuth, and `brevo app upload` refuses one carrying `scopes` or `redirect_uris`.
 - `extension_type` is the only field at the `ui_app` root: `actionLink` (opens `redirect_link` in a new tab) or `iframeExtension` (embeds `modal_iframe_url` in a modal). camelCase only — `action_link` is rejected, not aliased.
 - Everything else lives **per entry** in `surface_point_list`, so each placement carries its own text and destination:
   - `surface_point_name` (required) — the registry slug in dot notation, e.g. `contactDetails.header.menu`. Not the dotted extension-point name a spec quotes (`contactDetails.headerMenu.action`).

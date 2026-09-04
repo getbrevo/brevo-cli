@@ -40,6 +40,10 @@ jest.mock('../../../lib/config', () => ({
   // none. Defaults to null: an empty target directory, the fresh-bootstrap case.
   readProjectConfigAt: jest.fn().mockReturnValue(null),
   findEnclosingProjectDir: jest.fn().mockReturnValue(null),
+  // `scaffoldCommand` offers a camelCase→snake_case key migration on its no-refresh
+  // path. A mocked config never comes from a legacy file, so there is nothing to migrate.
+  migrateProjectConfigKeys: jest.fn().mockReturnValue(false),
+  hasLegacyProjectConfigKeys: jest.fn().mockReturnValue(false),
   isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
 }));
 
@@ -102,12 +106,12 @@ const serverApp = {
   version: '1.0.0',
 };
 const matchingLocalConfig = {
-  appId: '1',
-  appName: 'Test App',
+  app_id: '1',
+  app_name: 'Test App',
   distribution_type: 'private' as const,
-  logoUri: '',
+  logo_uri: '',
   version: '1.0.0',
-  auth: { scopes: ['contacts:read'], redirectUris: ['http://localhost:3009/auth/callback'] },
+  auth: { scopes: ['contacts:read'], redirect_uris: ['http://localhost:3009/auth/callback'] },
 };
 
 describe('app/scaffold', () => {
@@ -281,7 +285,7 @@ describe('app/scaffold', () => {
           const staleConfig = {
             ...matchingLocalConfig,
             version: '',
-            auth: { scopes: ['all'], redirectUris: ['http://localhost:3009/auth/callback'] },
+            auth: { scopes: ['all'], redirect_uris: ['http://localhost:3009/auth/callback'] },
           };
 
           beforeEach(() => {
@@ -362,7 +366,7 @@ describe('app/scaffold', () => {
           it('refuses when the target directory belongs to a different app', async () => {
             (readProjectConfigAt as jest.Mock).mockReturnValue({
               ...matchingLocalConfig,
-              appId: '99',
+              app_id: '99',
             });
             mockPrompt
               .mockResolvedValueOnce({ useExisting: true })
@@ -754,6 +758,42 @@ describe('app/scaffold', () => {
       expect(loadFeatureTemplates).toHaveBeenCalledWith('oauth', expect.anything());
     });
 
+    // No drift means no base rewrite, which is the one path where a legacy camelCase
+    // app-config.json would otherwise be left as it is. The command migrates it there.
+    it('migrates legacy config keys when there is no drift and reports it', async () => {
+      const { migrateProjectConfigKeys } = require('../../../lib/config');
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      (migrateProjectConfigKeys as jest.Mock).mockReturnValueOnce(true);
+
+      await scaffoldCommand({});
+
+      expect(migrateProjectConfigKeys).toHaveBeenCalledTimes(1);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('snake_case');
+    });
+
+    it('does not mention a migration when the config already uses snake_case keys', async () => {
+      const { migrateProjectConfigKeys } = require('../../../lib/config');
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+
+      await scaffoldCommand({});
+
+      expect(migrateProjectConfigKeys).toHaveBeenCalledTimes(1);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).not.toContain('snake_case');
+    });
+
+    it('keeps the --json output a single document when a migration happens', async () => {
+      const { migrateProjectConfigKeys } = require('../../../lib/config');
+      (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
+      (migrateProjectConfigKeys as jest.Mock).mockReturnValueOnce(true);
+
+      await scaffoldCommand({ json: true });
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(() => JSON.parse(output)).not.toThrow();
+    });
+
     it('prompts on existing feature files and skips them when the user chooses merge', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue(matchingLocalConfig);
       // Every feature file already exists → conflict prompt, then merge skips them all.
@@ -819,14 +859,14 @@ describe('app/scaffold', () => {
     it('shows the diff and refreshes the base config (full overwrite) on consent', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
-        auth: { scopes: ['contacts:read'], redirectUris: ['http://old-host/cb'] },
+        auth: { scopes: ['contacts:read'], redirect_uris: ['http://old-host/cb'] },
       });
       mockPrompt.mockResolvedValueOnce({ confirmed: true });
 
       await scaffoldCommand({});
 
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-      expect(output).toContain('redirectUris');
+      expect(output).toContain('redirect_uris');
       expect(output).toContain('differs from the server');
 
       const { loadBaseTemplates, loadFeatureTemplates } = require('../../../templates');
@@ -836,19 +876,19 @@ describe('app/scaffold', () => {
     });
 
     it.each<[string, Record<string, unknown>, string]>([
-      ['appName', { appName: 'Old Name' }, 'appName'],
+      ['app_name', { app_name: 'Old Name' }, 'app_name'],
       ['distribution_type', { distribution_type: 'public' as const }, 'distribution_type'],
       [
         'scopes',
         {
           auth: {
             scopes: ['contacts:write'],
-            redirectUris: ['http://localhost:3009/auth/callback'],
+            redirect_uris: ['http://localhost:3009/auth/callback'],
           },
         },
         'scopes',
       ],
-      ['logoUri', { logoUri: 'https://old.example.com/logo.png' }, 'logoUri'],
+      ['logo_uri', { logo_uri: 'https://old.example.com/logo.png' }, 'logo_uri'],
       ['version', { version: '0.9.0' }, 'version'],
     ])(
       'shows a diff and asks consent when %s differs from the server',
@@ -868,7 +908,7 @@ describe('app/scaffold', () => {
     it('cancels without writing when the config differs and the user declines', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
-        auth: { scopes: ['contacts:read'], redirectUris: ['http://old-host/cb'] },
+        auth: { scopes: ['contacts:read'], redirect_uris: ['http://old-host/cb'] },
       });
       mockPrompt.mockResolvedValueOnce({ confirmed: false });
 
@@ -922,7 +962,7 @@ describe('app/scaffold', () => {
     it('cancels and surfaces the diffs (no prompt) when the config differs', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
-        auth: { scopes: ['contacts:read'], redirectUris: ['http://old-host/cb'] },
+        auth: { scopes: ['contacts:read'], redirect_uris: ['http://old-host/cb'] },
       });
 
       await scaffoldCommand({ json: true });
@@ -933,7 +973,7 @@ describe('app/scaffold', () => {
       const parsed = JSON.parse(output);
       expect(parsed.cancelled).toBe(true);
       expect(parsed.diffs).toEqual(
-        expect.arrayContaining([expect.objectContaining({ field: 'redirectUris' })]),
+        expect.arrayContaining([expect.objectContaining({ field: 'redirect_uris' })]),
       );
     });
 
@@ -1324,13 +1364,13 @@ describe('app/scaffold', () => {
       redirect_link: 'https://example.com/brevo',
     };
 
-    // Drifts from serverApp on appName so the refresh path (a full overwrite of
+    // Drifts from serverApp on app_name so the refresh path (a full overwrite of
     // app-config.json) is exercised.
     const driftedUiConfig = {
-      appId: '1',
-      appName: 'Renamed Locally',
+      app_id: '1',
+      app_name: 'Renamed Locally',
       distribution_type: 'private' as const,
-      logoUri: '',
+      logo_uri: '',
       version: '1.0.0',
       auth: { scopes: ['contacts:read'] },
       ui_app: uiApp,
@@ -1356,7 +1396,7 @@ describe('app/scaffold', () => {
     it('does not report phantom redirect-URL drift for a UI app', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...driftedUiConfig,
-        appName: 'Test App', // matches the server, so ONLY redirectUrls could differ
+        app_name: 'Test App', // matches the server, so ONLY redirect_uris could differ
       });
 
       await scaffoldCommand({ json: true });
@@ -1369,7 +1409,7 @@ describe('app/scaffold', () => {
     it('offers no features and never scaffolds the OAuth server', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...driftedUiConfig,
-        appName: 'Test App',
+        app_name: 'Test App',
       });
 
       await scaffoldCommand({});
@@ -1391,7 +1431,7 @@ describe('app/scaffold', () => {
       });
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...matchingLocalConfig,
-        appName: 'Renamed Locally', // force the base refresh
+        app_name: 'Renamed Locally', // force the base refresh
       });
       mockPrompt.mockResolvedValueOnce({ confirmed: true });
 
@@ -1407,7 +1447,7 @@ describe('app/scaffold', () => {
     it('reports an empty feature list under --json', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...driftedUiConfig,
-        appName: 'Test App',
+        app_name: 'Test App',
       });
 
       await scaffoldCommand({ json: true });

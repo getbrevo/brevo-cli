@@ -146,18 +146,18 @@ describe('app-config.json template branching', () => {
       ...extraVars,
     });
 
-  it('renders valid JSON with redirectUris and no ui_app for an OAuth app', () => {
+  it('renders valid JSON with redirect_uris and no ui_app for an OAuth app', () => {
     const out = renderConfig(
       { '{{UI_APP_JSON}}': '' },
       new Set<TemplateFlag>(['private', 'oauth']),
     );
     const parsed = JSON.parse(out);
 
-    expect(parsed.auth.redirectUris).toEqual(['http://localhost:3009/auth/callback']);
+    expect(parsed.auth.redirect_uris).toEqual(['http://localhost:3009/auth/callback']);
     expect(parsed).not.toHaveProperty('ui_app');
   });
 
-  it('renders valid JSON with ui_app and no redirectUris for a UI app', () => {
+  it('renders valid JSON with ui_app and no redirect_uris for a UI app', () => {
     // The platform's app-snapshot shape — nested one level deep, which is
     // what the template's indent handling has to survive.
     const uiApp = {
@@ -184,7 +184,7 @@ describe('app-config.json template branching', () => {
     expect(parsed.auth).toEqual({});
   });
 
-  it('renders valid JSON with brevo_function and appType: "function" for a Function app', () => {
+  it('renders valid JSON with brevo_function and app_type: "function" for a Function app', () => {
     const out = renderConfig(
       {
         '{{APP_TYPE}}': 'function',
@@ -194,14 +194,14 @@ describe('app-config.json template branching', () => {
     );
     const parsed = JSON.parse(out);
 
-    expect(parsed.appType).toBe('function');
+    expect(parsed.app_type).toBe('function');
     expect(parsed.brevo_function).toEqual({});
     expect(parsed).not.toHaveProperty('ui_app');
     // A function app has no auth block at all.
     expect(parsed).not.toHaveProperty('auth');
   });
 
-  it('sets appType to the value of {{APP_TYPE}} for each app type', () => {
+  it('sets app_type to the value of {{APP_TYPE}} for each app type', () => {
     for (const [appType, flag] of [
       ['oauth', 'oauth'],
       ['ui', 'ui_app'],
@@ -216,7 +216,7 @@ describe('app-config.json template branching', () => {
         new Set<TemplateFlag>(['private', flag]),
       );
       const parsed = JSON.parse(out);
-      expect(parsed.appType).toBe(appType);
+      expect(parsed.app_type).toBe(appType);
     }
   });
 
