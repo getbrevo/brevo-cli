@@ -1,13 +1,26 @@
 import inquirer from 'inquirer';
-import { logInfo, logWarn } from '../../lib/logger';
+import { logInfo } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { CLI } from '../../lib/constants';
 import { functionService } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
-import { jsonOutput } from '../../lib/json-output';
-import { createSpinner, printStatusCard } from '../../lib/ui';
-import { ApiError } from '../../lib/errors';
 import { assertFunctionSelectionAllowed, promptFunctionSelection } from './select-function';
+import { executeFunctionAction } from './function-action';
+
+const DELETE_ACTION_CONFIG = {
+  commandName: CLI.FUNCTION_DELETE,
+  jsonSuccessKey: 'deleted',
+  cardTone: 'error' as const,
+  execute: (id: string) => functionService.deleteFunction(id),
+  messages: {
+    selectPrompt: messages.FUNCTION_DELETE_SELECT,
+    notFound: messages.FUNCTION_DELETE_NOT_FOUND,
+    spinnerText: 'Deleting Brevo Function...',
+    cardTitle: messages.FUNCTION_DELETE_CARD_TITLE,
+    cardLabel: messages.FUNCTION_DELETE_CARD_LABEL,
+    cardMessage: messages.FUNCTION_DELETE_CARD_MESSAGE,
+  },
+};
 
 export const deleteFunctionCommand = withCommandHandler(
   async (options: { id?: string; force?: boolean; json?: boolean }): Promise<void> => {
@@ -33,36 +46,6 @@ export const deleteFunctionCommand = withCommandHandler(
       }
     }
 
-    const spinner = createSpinner('Deleting Brevo Function...', { silent: options.json });
-    try {
-      await functionService.deleteFunction(functionId);
-    } catch (err) {
-      if (err instanceof ApiError && err.statusCode === 404) {
-        spinner.stop();
-        if (options.json) {
-          jsonOutput({
-            error: 'not_found',
-            message: messages.FUNCTION_DELETE_NOT_FOUND(functionId),
-          });
-          return;
-        }
-        logWarn(`\n  ${messages.FUNCTION_DELETE_NOT_FOUND(functionId)}\n`);
-        return;
-      }
-      throw err;
-    } finally {
-      spinner.stop();
-    }
-
-    if (options.json) {
-      jsonOutput({ deleted: true, id: functionId });
-      return;
-    }
-    printStatusCard(
-      messages.FUNCTION_DELETE_CARD_TITLE,
-      messages.FUNCTION_DELETE_CARD_LABEL,
-      messages.FUNCTION_DELETE_CARD_MESSAGE(functionId),
-      'error',
-    );
+    await executeFunctionAction(DELETE_ACTION_CONFIG, { id: functionId, json: options.json });
   },
 );
