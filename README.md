@@ -5,7 +5,9 @@ Command-line tool to create, manage, and test [Brevo](https://www.brevo.com/) OA
 > 📖 Full command and option documentation: **[Brevo CLI reference](https://developers.brevo.com/docs/cli-reference)**
 
 > [!WARNING]
-> **Upgrade to the latest released version.** All versions from **1.1.1** up to (but not including) **2.0.0** should be migrated to at least **2.1.0**. The `2.0.0` release introduced **breaking changes**, so some CLI commands may not work as expected on older versions. **`2.1.0` and above** also carry further `app-config.json` migrations (e.g. legacy `auth.redirectUrls` → `auth.redirect_uris`, and the camelCase keys `appId` / `appName` / `logoUri` / `appType` / `auth.redirectUris` → their snake_case spellings) that are applied automatically the next time the CLI writes your config (`brevo app upload`, `brevo app start`, …).
+> **Upgrade to the latest released version.** All versions from **1.1.1** up to (but not including) **2.0.0** should be migrated to at least **2.1.0**. The `2.0.0` release introduced **breaking changes**, so some CLI commands may not work as expected on older versions. **`2.1.0` and above** also carry further `app-config.json` migrations — legacy `auth.redirectUrls` → `auth.redirect_uris`, and, from **`2.3.0`**, the camelCase keys `appId` / `appName` / `logoUri` / `appType` / `auth.redirectUris` → their snake_case spellings — that are applied automatically the next time the CLI writes your config (`brevo app upload`, `brevo app start`, …). Older configs keep working: both spellings are still read, and the migration never changes a value.
+>
+> **`2.3.0` also begins a `--json` key deprecation.** Every JSON document now carries each camelCase key alongside its snake_case twin (`appId` **and** `app_id`, `clientId` **and** `client_id`, `exitCode` **and** `exit_code`, …). Nothing is removed yet — the camelCase spellings go away in the next major release, so point new scripts at the snake_case ones.
 >
 > Upgrade with `npm install -g @getbrevo/cli@latest` (or `yarn global add @getbrevo/cli@latest`, or `brew upgrade brevo`), then confirm with `brevo --version`.
 
