@@ -9,3 +9,11 @@ The private-only rule is enforced in three places that say the same thing: the p
 `yarn smoke --suite=ui` grows an iframe leg (create → upload no-op → install → uninstall → delete) that skips, rather than fails, on a build without the Iframe choice or an environment whose extension-point registry has no slot enabled for `iframeExtension` yet.
 
 Iframe entries on widget slots can author `layout`: `"inline"` embeds the page directly in the widget card, `"modal"` (the default, never written) opens it from the card's CTA. `brevo app create` asks the question for iframe widget placements; the upload diff gains a `layout:` row; `validateUiApp` refuses the field on `actionLink` entries and pins the vocabulary.
+
+Iframe entries that open a modal can also author `modal_size`: `"small"`, `"medium"` or `"large"` (the default, never written). `brevo app create` asks it whenever a modal actually opens — which is a different set of placements from the `layout` question's: an action slot's menu entry always opens one, a widget card only when its layout is `modal`. The upload diff, the created-app box and `brevo app install`'s summary all gain a `modal size:` row, and `validateUiApp` pins the vocabulary and refuses the field on `actionLink` entries.
+
+`brevo app create` now refuses a `layout` it cannot honour instead of authoring it: a placement that renders no card is rejected by name (`ui_app.surface_point_list["<slug>"].layout …`) before the app is created, and a `--ui-config` file carrying `layout` or `modal_size` is rejected rather than silently dropped — both fields are `iframeExtension`-only and that route authors `actionLink`.
+
+`brevo app upload` translates the platform's own layout refusal into a message that names the file and field to edit, keeping the server's sentence (which names the offending slots) inline. Only a `400` mentioning `layout` is relabelled; every other error keeps the server's own text.
+
+`sandbox` joins `link_target`, `version` and `extension_point_name` as a server-stamped key stripped from `ui_app` echoes, so it never lands in `app-config.json` and never shows up as drift.
