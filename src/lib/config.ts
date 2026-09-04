@@ -701,7 +701,8 @@ export function readProjectConfigAt(dir: string): ProjectConfig | null {
     // they're dropped the same way. Callers that write this object back to
     // disk (upload.ts, start.ts) then naturally migrate old projects to the
     // new shape on their next write, instead of round-tripping stray keys
-    // forever.
+    // forever. (The camelCase `appType` a few interim builds wrote is handled with the
+    // other camelCase keys by `foldLegacyKeys` above, not here.)
     const {
       distribution: _legacyDistribution,
       permittedUrls: _permittedUrls,

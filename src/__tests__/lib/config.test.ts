@@ -914,7 +914,42 @@ describe('config', () => {
       writeProjectConfig(cfg);
       const raw = JSON.parse(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'));
       expect(raw).not.toHaveProperty('app_type');
+    });
+
+    it('migrates legacy camelCase appType to snake_case app_type on read', () => {
+      writeConfig({
+        appId: '48',
+        appType: 'function',
+        brevo_function: {},
+      });
+      const cfg = readProjectConfig();
+      expect(cfg!.app_type).toBe('function');
+    });
+
+    it('drops the legacy appType key on write-back after migration', () => {
+      writeConfig({
+        appId: '49',
+        appName: 'Migrate Me',
+        distribution_type: 'private',
+        appType: 'oauth',
+        auth: { scopes: [] },
+      });
+      const cfg = readProjectConfig()!;
+      writeProjectConfig(cfg);
+      const raw = JSON.parse(fs.readFileSync(path.join(projectDir, 'app-config.json'), 'utf-8'));
+      expect(raw.app_type).toBe('oauth');
       expect(raw).not.toHaveProperty('appType');
+    });
+
+    it('prefers existing app_type over legacy appType when both are present', () => {
+      writeConfig({
+        appId: '50',
+        app_type: 'ui',
+        appType: 'oauth',
+        auth: {},
+      });
+      const cfg = readProjectConfig();
+      expect(cfg!.app_type).toBe('ui');
     });
   });
 
