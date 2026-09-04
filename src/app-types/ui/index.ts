@@ -29,8 +29,12 @@ import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
  *   - `extension_point_name` — the dotted slot name the platform resolves from each entry's
  *                      `surface_point_name` slug and stamps onto its own copy. Also INSIDE
  *                      an entry, which — with `link_target` — is why the strip recurses.
+ *   - `sandbox`      — the iframe sandbox attributes the platform decides and stamps onto
+ *                      the stored snapshot's root. Server policy, not partner policy: it
+ *                      is not authorable, and a copy in the file would be a value the
+ *                      partner can edit and the platform ignores.
  *
- * All three exist on the server's side of a comparison only. Left in, the first successful
+ * All four exist on the server's side of a comparison only. Left in, the first successful
  * upload writes them into the file this command just decided to keep them out of, and every
  * subsequent upload reports drift on fields the partner cannot edit — so "already up to date"
  * would never print for a UI app again.
@@ -39,6 +43,7 @@ const UI_APP_WIRE_ONLY_KEYS: readonly string[] = [
   'link_target',
   'version',
   'extension_point_name',
+  'sandbox',
 ] as const;
 
 export const uiAppType: AppTypeModule = {

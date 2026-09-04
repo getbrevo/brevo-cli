@@ -116,6 +116,7 @@ describe('app-type registry', () => {
     expect([...APP_TYPES.ui.wireOnlyKeys].sort()).toEqual([
       'extension_point_name',
       'link_target',
+      'sandbox',
       'version',
     ]);
   });

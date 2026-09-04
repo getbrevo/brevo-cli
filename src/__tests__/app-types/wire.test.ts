@@ -14,7 +14,7 @@ import type { UiApp } from '../../types';
 describe('stripUiAppWireOnlyKeys', () => {
   it('reads its key list from the ui app type rather than a local copy', () => {
     expect(appTypeById('ui').wireOnlyKeys).toEqual(
-      expect.arrayContaining(['link_target', 'version', 'extension_point_name']),
+      expect.arrayContaining(['link_target', 'version', 'extension_point_name', 'sandbox']),
     );
   });
 
@@ -36,6 +36,19 @@ describe('stripUiAppWireOnlyKeys', () => {
       redirect_link: 'https://example.com/open',
     });
     expect(stripped.extension_type).toBe('actionLink');
+  });
+
+  // Server policy, stamped onto the stored snapshot's root: what an iframe is allowed to
+  // do is the platform's call, not the partner's, so a copy in app-config.json would be a
+  // value they can edit and the platform ignores — and every upload after the first would
+  // report drift on it.
+  it('strips the server-stamped sandbox from the top level', () => {
+    const stripped = stripUiAppWireOnlyKeys({
+      extension_type: 'iframeExtension',
+      sandbox: 'allow-scripts allow-same-origin',
+    } as unknown as UiApp);
+    expect(stripped).not.toHaveProperty('sandbox');
+    expect(stripped.extension_type).toBe('iframeExtension');
   });
 
   it('strips the server-managed version from the top level', () => {
