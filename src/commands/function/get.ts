@@ -1,40 +1,26 @@
-import { color, logInfo, logWarn } from '../../lib/logger';
+import { color, logInfo } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { CLI } from '../../lib/constants';
 import { functionService } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { createSpinner } from '../../lib/ui';
-import { ApiError } from '../../lib/errors';
-import { assertFunctionSelectionAllowed, promptFunctionSelection } from './select-function';
+import { resolveFunctionId, withNotFoundHandling } from './function-action';
 
 export const getFunctionCommand = withCommandHandler(
   async (options: { id?: string; json?: boolean }): Promise<void> => {
-    let functionId = options.id;
-    if (!functionId) {
-      assertFunctionSelectionAllowed(CLI.FUNCTION_GET, options.json);
-      const selection = await promptFunctionSelection(messages.FUNCTION_GET_SELECT);
-      functionId = selection.functionId;
-    }
+    const functionId = await resolveFunctionId(
+      CLI.FUNCTION_GET,
+      messages.FUNCTION_GET_SELECT,
+      options,
+    );
 
-    const spinner = createSpinner('Fetching Brevo Function...', { silent: options.json });
-    let fn;
-    try {
-      fn = await functionService.fetchFunction(functionId);
-    } catch (err) {
-      if (err instanceof ApiError && err.statusCode === 404) {
-        spinner.stop();
-        if (options.json) {
-          jsonOutput({ error: 'not_found', message: messages.FUNCTION_GET_NOT_FOUND(functionId) });
-          return;
-        }
-        logWarn(`\n  ${messages.FUNCTION_GET_NOT_FOUND(functionId)}\n`);
-        return;
-      }
-      throw err;
-    } finally {
-      spinner.stop();
-    }
+    const fn = await withNotFoundHandling(() => functionService.fetchFunction(functionId), {
+      spinnerText: 'Fetching Brevo Function...',
+      json: options.json,
+      notFoundMessage: messages.FUNCTION_GET_NOT_FOUND(functionId),
+    });
+
+    if (!fn) return;
 
     if (options.json) {
       jsonOutput(fn);

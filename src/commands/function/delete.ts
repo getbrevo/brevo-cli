@@ -4,8 +4,7 @@ import { messages } from '../../lang/en';
 import { CLI } from '../../lib/constants';
 import { functionService } from '../../container';
 import { withCommandHandler } from '../../lib/command-handler';
-import { assertFunctionSelectionAllowed, promptFunctionSelection } from './select-function';
-import { executeFunctionAction } from './function-action';
+import { resolveFunctionId, executeFunctionAction } from './function-action';
 
 const DELETE_ACTION_CONFIG = {
   commandName: CLI.FUNCTION_DELETE,
@@ -24,12 +23,11 @@ const DELETE_ACTION_CONFIG = {
 
 export const deleteFunctionCommand = withCommandHandler(
   async (options: { id?: string; force?: boolean; json?: boolean }): Promise<void> => {
-    let functionId = options.id;
-    if (!functionId) {
-      assertFunctionSelectionAllowed(CLI.FUNCTION_DELETE, options.json);
-      const selection = await promptFunctionSelection(messages.FUNCTION_DELETE_SELECT);
-      functionId = selection.functionId;
-    }
+    const functionId = await resolveFunctionId(
+      CLI.FUNCTION_DELETE,
+      messages.FUNCTION_DELETE_SELECT,
+      options,
+    );
 
     if (!options.force && !options.json) {
       const { confirmed } = await inquirer.prompt([

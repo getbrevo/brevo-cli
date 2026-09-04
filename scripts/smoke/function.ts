@@ -150,29 +150,17 @@ function stepFunctionActivateDeactivateCycle(state: State): string {
   const firstKey = wasActive ? 'deactivated' : 'activated';
   const secondKey = wasActive ? 'activated' : 'deactivated';
 
-  // First toggle.
-  const r1 = execOrThrow(
-    brevoCmd(state),
-    ['function', firstCmd, '--id', id, '--json'],
-    state,
-  );
-  const p1 = parseJson<Record<string, unknown>>(r1.stdout);
-  must(
-    p1[firstKey] === true,
-    `function ${firstCmd}: expected ${firstKey}=true, got ${JSON.stringify(p1).slice(0, 200)}`,
-  );
+  function toggle(cmd: string, expectedKey: string): void {
+    const r = execOrThrow(brevoCmd(state), ['function', cmd, '--id', id, '--json'], state);
+    const p = parseJson<Record<string, unknown>>(r.stdout);
+    must(
+      p[expectedKey] === true,
+      `function ${cmd}: expected ${expectedKey}=true, got ${JSON.stringify(p).slice(0, 200)}`,
+    );
+  }
 
-  // Second toggle — restore original state.
-  const r2 = execOrThrow(
-    brevoCmd(state),
-    ['function', secondCmd, '--id', id, '--json'],
-    state,
-  );
-  const p2 = parseJson<Record<string, unknown>>(r2.stdout);
-  must(
-    p2[secondKey] === true,
-    `function ${secondCmd}: expected ${secondKey}=true, got ${JSON.stringify(p2).slice(0, 200)}`,
-  );
+  toggle(firstCmd, firstKey);
+  toggle(secondCmd, secondKey);
 
   return `${firstCmd} -> ${secondCmd} cycle complete (was ${wasActive ? 'active' : 'inactive'})`;
 }
@@ -216,28 +204,23 @@ function stepFunctionDeploy(state: State): string {
   return `deployed draft "${draftId}" as function "${parsed.name}" (${parsed.id})`;
 }
 
-function stepFunctionCleanup(state: State): string {
-  const deployedId = state._deployedFunctionId;
-  if (!deployedId) {
-    return 'nothing to clean up';
-  }
-
-  // --json skips the confirmation prompt.
-  const r = execOrThrow(
-    brevoCmd(state),
-    ['function', 'delete', '--id', deployedId, '--json'],
-    state,
-  );
+/** Delete a function by ID and assert the JSON response. */
+function deleteAndAssert(state: State, id: string, label: string): string {
+  const r = execOrThrow(brevoCmd(state), ['function', 'delete', '--id', id, '--json'], state);
   const parsed = parseJson<Record<string, unknown>>(r.stdout);
-
   must(
     parsed.deleted === true,
-    `function cleanup: expected deleted=true, got ${JSON.stringify(parsed).slice(0, 200)}`,
+    `function ${label}: expected deleted=true, got ${JSON.stringify(parsed).slice(0, 200)}`,
   );
+  return `deleted ${label} function "${id}"`;
+}
 
+function stepFunctionCleanup(state: State): string {
+  const deployedId = state._deployedFunctionId;
+  if (!deployedId) return 'nothing to clean up';
+  const result = deleteAndAssert(state, deployedId, 'deploy cleanup');
   state._deployedFunctionId = null;
-
-  return `deleted deployed function "${deployedId}"`;
+  return result;
 }
 
 // ─────────────────── function init (template path, pty) ───────────────────
@@ -340,26 +323,10 @@ async function stepFunctionInit(state: State): Promise<string> {
 
 function stepFunctionInitCleanup(state: State): string {
   const id = state._initFunctionId;
-  if (!id) {
-    return 'nothing to clean up (init did not create a function)';
-  }
-
-  // --json skips the confirmation prompt.
-  const r = execOrThrow(
-    brevoCmd(state),
-    ['function', 'delete', '--id', id, '--json'],
-    state,
-  );
-  const parsed = parseJson<Record<string, unknown>>(r.stdout);
-
-  must(
-    parsed.deleted === true,
-    `function init cleanup: expected deleted=true, got ${JSON.stringify(parsed).slice(0, 200)}`,
-  );
-
+  if (!id) return 'nothing to clean up (init did not create a function)';
+  const result = deleteAndAssert(state, id, 'init cleanup');
   state._initFunctionId = null;
-
-  return `deleted init function "${id}"`;
+  return result;
 }
 
 // Extend State with fields used across steps within this suite.
