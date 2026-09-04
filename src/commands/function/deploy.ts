@@ -72,7 +72,7 @@ const PREVIEW_MSGS = {
 /** Derive a function name from a draft's description for --json mode. */
 function deriveNameFromDescription(description: string): string {
   const trimmed = description.trim();
-  if (!trimmed) return 'Untitled Function';
+  if (!trimmed) return messages.FUNCTION_DEFAULT_NAME;
   if (trimmed.length <= 50) return trimmed;
   // Cut at last space within 50 chars to land on a word boundary
   const lastSpace = trimmed.lastIndexOf(' ', 50);
