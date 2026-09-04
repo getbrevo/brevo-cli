@@ -88,7 +88,8 @@ describe('app/delete', () => {
 
     const output = stdoutSpy.mock.calls[0][0];
     const parsed = JSON.parse(output);
-    expect(parsed).toEqual({ deleted: true, appId: '42' });
+    // Both spellings during the snake_case transition (camelCase deprecated).
+    expect(parsed).toEqual({ deleted: true, appId: '42', app_id: '42' });
   });
 
   it('warns about losing installs before the confirmation prompt', async () => {
