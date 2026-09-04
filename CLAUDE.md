@@ -355,6 +355,14 @@ yarn publish:packages     # publish to npm
 
 **One changeset file per branch/PR — append, don't multiply.** Before creating a new changeset, check `.changeset/` for an existing pending one (any `.md` other than `README.md`). If one exists, append your change description as new lines in its summary body instead of creating a second file, and raise the bump level in its frontmatter if your change warrants it (`patch` → `minor` → `major`). Only create a new file when none exists.
 
+**Every release updates `README.md` if the release changed anything a reader of it would act on — and that update lands in the release PR.** The changeset writes `CHANGELOG.md`; nothing writes the README, so it silently goes stale while the published CLI moves on. A reader who never opens the changelog is left with a page that documents an older CLI.
+
+Do this on the **`chore(release): @getbrevo/cli@x.y.z` PR** that changesets opens (or directly on `main` if a release lands without one) — not on the feature branch, where the version number isn't known yet and the release may still be days away. Read the version PR's own body: it is the assembled changelog for the release, and it is the list to check the README against.
+
+Update the README when the release adds or removes a command, subcommand, or flag (the command table is meant to be the complete surface); changes an `app-config.json` key, a `--json` key, an exit code or a `BREVO_*` env var, or asks a user to migrate anything (the upgrade `[!WARNING]` block names the minimum version — bump it); ships a feature with user-facing shape worth a section of its own; or changes a rollout status a user would hit (invite-only, GA, withdrawn). A patch release of internal fixes usually needs nothing — say so rather than inventing filler.
+
+Two rules the README shares with the rest of this file: it is **public** (the pre-commit review above applies), and it must not contradict `agent-context/SKILL.md` / `agent-context/AGENTS.md` — if the release changed CLI behavior, those were updated in the feature PR, so the README is being brought level with them, not ahead of them.
+
 **CI/CD:**
 - `.github/workflows/push.yaml` — runs lint, test, build on every push/PR to `main`
 - `.github/workflows/release.yaml` — when changesets merge to `main`, opens a "Version Packages" PR; merging that PR publishes to npm
