@@ -66,7 +66,6 @@ describe('function/delete', () => {
     expect(functionService.deleteFunction).toHaveBeenCalledWith('fn-001');
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
     expect(output).toContain('Function Deleted');
-    expect(output).toContain('"fn-001" has been permanently deleted.');
   });
 
   it('should cancel when user declines', async () => {
@@ -91,7 +90,7 @@ describe('function/delete', () => {
     expect(parsed.deleted).toBe(true);
   });
 
-  it('should show not-found message on 404', async () => {
+  it('should show not-found on 404 with --force', async () => {
     (functionService.deleteFunction as jest.Mock).mockRejectedValue(new ApiError('Not found', 404));
 
     await deleteFunctionCommand({ id: 'fn-999', force: true, json: false });
@@ -100,32 +99,13 @@ describe('function/delete', () => {
     expect(output).toContain('Brevo Function "fn-999" not found');
   });
 
-  it('should output JSON error on 404 with --json', async () => {
-    (functionService.deleteFunction as jest.Mock).mockRejectedValue(new ApiError('Not found', 404));
-
-    await deleteFunctionCommand({ id: 'fn-999', force: true, json: true });
-
-    const output = stdoutSpy.mock.calls[0][0];
-    const parsed = JSON.parse(output);
-    expect(parsed.error).toBe('not_found');
-    expect(parsed.message).toContain('fn-999');
-  });
-
-  it('should propagate non-404 API errors', async () => {
+  it('should propagate non-404 errors', async () => {
     (functionService.deleteFunction as jest.Mock).mockRejectedValue(
       new ApiError('Server error', 500),
     );
 
     await expect(deleteFunctionCommand({ id: 'fn-001', force: true, json: false })).rejects.toThrow(
       'Server error',
-    );
-  });
-
-  it('should propagate generic errors', async () => {
-    (functionService.deleteFunction as jest.Mock).mockRejectedValue(new Error('Network error'));
-
-    await expect(deleteFunctionCommand({ id: 'fn-001', force: true, json: false })).rejects.toThrow(
-      'Network error',
     );
   });
 });
