@@ -1,15 +1,30 @@
 # Brevo Developer CLI
 
-Command-line tool to create, manage, and test [Brevo](https://www.brevo.com/) OAuth integrations from your terminal.
+Command-line tool to build [Brevo](https://www.brevo.com/) integrations from your terminal — OAuth apps, UI apps that render inside Brevo, and Brevo Functions.
 
 > 📖 Full command and option documentation: **[Brevo CLI reference](https://developers.brevo.com/docs/cli-reference)**
 
 > [!WARNING]
-> **Upgrade to the latest released version.** All versions from **1.1.1** up to (but not including) **2.0.0** should be migrated to at least **2.1.0**. The `2.0.0` release introduced **breaking changes**, so some CLI commands may not work as expected on older versions. **`2.1.0` and above** also carry further `app-config.json` migrations — legacy `auth.redirectUrls` → `auth.redirect_uris`, and, from **`2.3.0`**, the camelCase keys `appId` / `appName` / `logoUri` / `appType` / `auth.redirectUris` → their snake_case spellings — that are applied automatically the next time the CLI writes your config (`brevo app upload`, `brevo app start`, …). Older configs keep working: both spellings are still read, and the migration never changes a value.
+> **Upgrade to the latest released version.** All versions from **1.1.1** up to (but not including) **2.0.0** should be migrated to at least **2.3.0**. The `2.0.0` release introduced **breaking changes**, so some CLI commands may not work as expected on older versions. **`2.3.0`** also carries further `app-config.json` migrations — legacy `auth.redirectUrls` → `auth.redirect_uris`, and the camelCase keys `appId` / `appName` / `logoUri` / `appType` / `auth.redirectUris` → their snake_case spellings — that are applied automatically the next time the CLI writes your config (`brevo app upload`, `brevo app start`, …). Older configs keep working: both spellings are still read, and the migration never changes a value.
 >
 > **`2.3.0` also begins a `--json` key deprecation.** Every JSON document now carries each camelCase key alongside its snake_case twin (`appId` **and** `app_id`, `clientId` **and** `client_id`, `exitCode` **and** `exit_code`, …). Nothing is removed yet — the camelCase spellings go away in the next major release, so point new scripts at the snake_case ones.
 >
 > Upgrade with `npm install -g @getbrevo/cli@latest` (or `yarn global add @getbrevo/cli@latest`, or `brew upgrade brevo`), then confirm with `brevo --version`.
+
+## What's new in 2.3.0
+
+- **UI apps and action links.** `brevo app create` can build a **UI app** — an app that Brevo
+  renders directly on a CRM record page. The integration type it authors is an **action link**: a
+  menu entry or card CTA button that opens a URL you host, with the record's data passed along as
+  query parameters. `brevo app install` / `brevo app uninstall` put it into an account, and
+  `brevo app upload` pushes placement changes live to every account it is installed in. See
+  [UI apps](#ui-apps) for the full shape of a placement.
+- **Brevo Functions.** A new `brevo function` command group for serverless functions that run on
+  Brevo's own infrastructure. **Available on an invite basis** — see [Brevo Functions](#brevo-functions).
+- **`app-config.json` is snake_case throughout**, and `--json` output now carries both spellings of
+  every key. Both are covered by the upgrade note above.
+
+Full detail for every release is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 
@@ -95,7 +110,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an app — an OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`), or a UI app via the interactive prompts (there is no `--type` flag; non-interactive runs always create an OAuth app) |
+| `brevo app create` | Create an app — an OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`), or a UI app or Brevo Function via the interactive prompts (there is no `--type` flag; non-interactive runs always create an OAuth app) |
 | `brevo app list` | List apps in your account (each row names its type) |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff — field by field, including every `ui_app` placement (`--yes`) |
@@ -105,6 +120,13 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo app install` | Install a UI app into a Brevo account, after showing the configuration and version it will install (`[account-id]` optional — a regular account installs into itself; a corporate account is prompted to pick a sub-account, so pass the ID explicitly in scripts; `--app-id`, `--force`) |
 | `brevo app uninstall` | Uninstall a UI app from a Brevo account (same arguments as `install`) |
 | `brevo app available-scopes` | List the OAuth scopes the IdP supports (`--web` opens the catalog in a browser) |
+| `brevo function init` | Create a Brevo Function — from a template or generated from a description, previewed on sample contacts before it deploys (interactive only) |
+| `brevo function list` | List the functions in your account (`--draft` for drafts only) |
+| `brevo function get` | Show one function's details (`--id`, or pick from a list) |
+| `brevo function deploy` | Deploy a draft, optionally linking it to an app (`--id`, `--app-id`) |
+| `brevo function activate` | Activate a function so it processes live data (`--id`) |
+| `brevo function deactivate` | Stop a function from processing (`--id`) |
+| `brevo function delete` | Permanently delete a deployed function (`--id`, `--force`) |
 
 Most commands require a successful `brevo login` first, except authentication/help flows (`brevo login`, `brevo logout`, `brevo app init`, `--help`). Every command accepts `--json` for machine-readable output.
 
@@ -112,9 +134,10 @@ The table above is the complete command surface of a published release. Features
 
 ### UI apps
 
-`brevo app create`'s interactive prompt can build two kinds of app: an OAuth app, or a **UI app**
-that renders directly inside a Brevo CRM record (interactive-only — there is no `--type` flag, so
-`--json` and piped runs always create an OAuth app).
+`brevo app create`'s interactive prompt can build three kinds of app: an OAuth app, a **UI app**
+that renders directly inside a Brevo CRM record, or a [Brevo Function](#brevo-functions)
+(interactive-only — there is no `--type` flag, so `--json` and piped runs always create an OAuth
+app).
 
 Today the prompt authors one integration type, an **action link** (`extension_type: "actionLink"`).
 In short: it's a clickable menu entry or card CTA button that Brevo renders on a record page — no
@@ -158,6 +181,34 @@ commands show you what you are about to change:
 
 To change what an installed app renders: edit `app-config.json`, run `brevo app upload`, and the
 accounts it is installed in pick the change up — no re-install needed.
+
+### Brevo Functions
+
+> [!NOTE]
+> Brevo Functions are rolling out **on an invite basis**. The commands ship in every release and
+> `brevo --help` always lists them, but they only work on accounts that have been given access — so
+> if they fail on your account, that is why. Ask your Brevo contact to have it enabled.
+
+A **Brevo Function** is a serverless function that runs on Brevo's own infrastructure and processes
+your account's data in real time — no server of yours to host or deploy to. It is a third app type
+alongside OAuth and UI apps: `brevo app create` offers it in the app-type prompt, and a Function app
+is recorded in `app-config.json` by a `brevo_function` block (`app_type: "function"`).
+
+The `function` group (aliased to `fn`) is the whole lifecycle:
+
+```bash
+brevo function init                       # create one — template, or generated from a description
+brevo function list --draft               # drafts waiting to be deployed
+brevo function deploy --id draft-001      # deploy a draft, optionally --app-id to link it to an app
+brevo function list                       # everything deployed, with its status
+brevo function deactivate --id fn-001     # stop it processing, without deleting it
+```
+
+`brevo function init` is interactive only — it previews the function against sample contacts from
+your account and lets you iterate on it before anything is deployed, which is not something `--json`
+or a piped run can do. Deploying activates the function against **real, live data**, so both `init`
+and `deploy` confirm that before they go ahead. Every other command supports `--json`, and the ones
+that act on a single function take `--id`, so a script never has to reach the interactive picker.
 
 ### Browser login
 
