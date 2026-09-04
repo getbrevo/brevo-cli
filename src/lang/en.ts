@@ -398,6 +398,7 @@ const coreMessages = {
   // the discriminator (see isUiAppRecord) — there is no app-type field.
   APP_TYPE_OAUTH: 'OAuth app',
   APP_TYPE_UI: 'UI app',
+  APP_TYPE_FUNCTION: 'Brevo Function',
 
   // Raised instead of opening the app picker when there is no terminal to draw
   // it on. The picker writes its choice list to stdout, so under --json it

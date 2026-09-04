@@ -79,13 +79,11 @@ export async function executeFunctionAction(
   config: FunctionActionConfig,
   options: { id?: string; json?: boolean },
 ): Promise<void> {
-  const functionId = options.id
-    ? options.id
-    : await (async () => {
-        assertFunctionSelectionAllowed(config.commandName, options.json);
-        const sel = await promptFunctionSelection(config.messages.selectPrompt);
-        return sel.functionId;
-      })();
+  const functionId = await resolveFunctionId(
+    config.commandName,
+    config.messages.selectPrompt,
+    options,
+  );
 
   const spinner = createSpinner(config.messages.spinnerText, { silent: options.json });
   try {

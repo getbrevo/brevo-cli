@@ -158,6 +158,11 @@ async function saveGeneratedFunction(args: SaveFunctionArgs): Promise<void> {
         category: args.category,
         description: args.description,
         explanation: args.explanation,
+        // `app_id` is sent on create so the server records the association at
+        // creation time. `nameConfirmDeployLoop` also calls `tryLinkFunctionToApp`
+        // post-create, which is the same mechanism `deploy.ts` uses. Both are
+        // kept: the create-time field is what the server persists, while the
+        // link call is a no-op if the association already exists.
         app_id: args.appId,
         draft_id: args.draftId,
         attribute_id: deriveAttributeId(name),

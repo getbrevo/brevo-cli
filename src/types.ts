@@ -361,6 +361,10 @@ export interface OAuthApp {
   // it from the latest app_versions snapshot in the same wire shape upload binds.
   // Absent for OAuth apps and on server builds that predate the block.
   ui_app?: UiApp;
+  // Present only for Function apps. A static discriminator (`{}`), not authored
+  // content — its presence marks the record as a function app on both the config and
+  // the wire. Absent for OAuth and UI apps.
+  brevo_function?: Record<string, unknown>;
   // Optional because no deployed handler sends them: `cliOAuthAppResponse` (the
   // struct behind both the credential-reveal and the update response) declares
   // neither. Nothing in `src/` reads them. Declaring them required was the same
