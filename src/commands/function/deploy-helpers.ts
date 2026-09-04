@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
 import { logInfo, color } from '../../lib/logger';
+import { messages } from '../../lang/en';
 import { functionService } from '../../container';
 import { ApiError, CliError } from '../../lib/errors';
 import { createSpinner, printBox } from '../../lib/ui';
@@ -142,7 +143,10 @@ export async function nameConfirmDeployLoop(args: NameConfirmDeployArgs): Promis
 
       await tryLinkFunctionToApp(args.appId, created.id);
 
-      printBox(msgs.boxTitle, [`Name: ${created.name}`, msgs.boxId(created.id)]);
+      printBox(msgs.boxTitle, [
+        `${messages.FUNCTION_LABEL_NAME} ${created.name}`,
+        msgs.boxId(created.id),
+      ]);
       return;
     } catch (err) {
       spinner.stop();

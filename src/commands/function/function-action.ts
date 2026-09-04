@@ -74,6 +74,10 @@ export interface FunctionActionConfig {
 /**
  * Resolve the function ID, then execute the service call with spinner,
  * 404 handling, and JSON/card output.
+ *
+ * Uses `withNotFoundHandling` with a sentinel return so we can distinguish
+ * a successful void execute from a 404 (both would be `undefined` for a
+ * `() => Promise<void>`).
  */
 export async function executeFunctionAction(
   config: FunctionActionConfig,
@@ -85,23 +89,21 @@ export async function executeFunctionAction(
     options,
   );
 
-  const spinner = createSpinner(config.messages.spinnerText, { silent: options.json });
-  try {
-    await config.execute(functionId);
-  } catch (err) {
-    if (err instanceof ApiError && err.statusCode === 404) {
-      spinner.stop();
-      if (options.json) {
-        jsonOutput({ error: 'not_found', message: config.messages.notFound(functionId) });
-        return;
-      }
-      logWarn(`\n  ${config.messages.notFound(functionId)}\n`);
-      return;
-    }
-    throw err;
-  } finally {
-    spinner.stop();
-  }
+  const SUCCESS = Symbol('success');
+  const result = await withNotFoundHandling(
+    async () => {
+      await config.execute(functionId);
+      return SUCCESS;
+    },
+    {
+      spinnerText: config.messages.spinnerText,
+      json: options.json,
+      notFoundMessage: config.messages.notFound(functionId),
+    },
+  );
+
+  // `undefined` means 404 was already handled (logged or JSON-emitted).
+  if (result === undefined) return;
 
   if (options.json) {
     jsonOutput({ [config.jsonSuccessKey]: true, id: functionId });

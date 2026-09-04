@@ -514,6 +514,11 @@ const coreMessages = {
   FUNCTION_DEPLOY_SELECT_APP: 'Select an app to link this function to:',
   FUNCTION_DEPLOY_NO_APPS: `No Brevo Function apps found. Create one first with \`${CLI.APP_CREATE}\`.`,
 
+  // Function display labels
+  FUNCTION_LABEL_DESCRIPTION: 'Description:',
+  FUNCTION_LABEL_NAME: 'Name:',
+  FUNCTION_DEFAULT_NAME: 'Untitled Function',
+
   // Function preview — shared across init and deploy
   FUNCTION_PREVIEW_EXECUTE_FAILED: 'Unable to deploy function.',
 

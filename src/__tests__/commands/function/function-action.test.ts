@@ -1,8 +1,6 @@
 import { ApiError } from '../../../lib/errors';
 
-jest.mock('../../../container', () => ({
-  functionService: { fetchFunctionList: jest.fn() },
-}));
+jest.mock('../../../container', () => ({}));
 
 jest.mock('../../../commands/function/select-function', () => ({
   assertFunctionSelectionAllowed: jest.fn(),
