@@ -137,3 +137,18 @@ Changeset file shape, for reference:
 First change description.
 Second change description appended later on the same branch.
 ```
+
+## Releases update `README.md`, in the release PR
+
+The changeset writes `CHANGELOG.md`. **Nothing writes `README.md`** — so it goes stale silently while the published CLI moves on.
+
+Do the README update on the **`chore(release): @getbrevo/cli@x.y.z` PR** changesets opens (or on `main` if a release lands without one), not on the feature branch — the version number isn't known there yet. That PR's body is the assembled changelog for the release: check the README against it.
+
+Update the README when the release:
+
+- adds or removes a command, subcommand or flag — the command table is meant to be the **complete** surface
+- changes an `app-config.json` key, a `--json` key, an exit code or a `BREVO_*` env var, or asks a user to migrate anything — the upgrade `[!WARNING]` block names the minimum version, bump it
+- ships a feature whose user-facing shape deserves its own section
+- changes a rollout status a user would hit (invite-only, GA, withdrawn)
+
+A patch release of internal fixes usually needs nothing — say so rather than inventing filler. The README is **public** (see *Public repository* above) and must not contradict `agent-context/SKILL.md` / `agent-context/AGENTS.md`, which the feature PR already updated.
