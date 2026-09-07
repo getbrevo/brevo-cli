@@ -39,9 +39,11 @@ describe('stripUiAppWireOnlyKeys', () => {
   });
 
   // Server policy, stamped onto the stored snapshot's root: what an iframe is allowed to
-  // do is the platform's call, not the partner's, so a copy in app-config.json would be a
-  // value they can edit and the platform ignores — and every upload after the first would
-  // report drift on it.
+  // do is the platform's call, not the partner's, and bo-be 400s an authored one — so a
+  // copy in app-config.json is a field they may not write, and every upload after the
+  // first would report drift on it. Not because the value is inert: the UI kit is planned
+  // to read the stored sandbox from the manifest in a later phase, and the strip is
+  // unaffected either way.
   it('strips the server-stamped sandbox from the top level', () => {
     const stripped = stripUiAppWireOnlyKeys({
       extension_type: 'iframeExtension',

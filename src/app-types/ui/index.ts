@@ -30,9 +30,13 @@ import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
  *                      `surface_point_name` slug and stamps onto its own copy. Also INSIDE
  *                      an entry, which — with `link_target` — is why the strip recurses.
  *   - `sandbox`      — the iframe sandbox attributes the platform decides and stamps onto
- *                      the stored snapshot's root. Server policy, not partner policy: it
- *                      is not authorable, and a copy in the file would be a value the
- *                      partner can edit and the platform ignores.
+ *                      the stored snapshot's root. Server policy, not partner policy: what an
+ *                      iframe is allowed to do is the platform's call, and bo-be 400s an
+ *                      authored one — it is simply not the partner's field to write. Don't
+ *                      re-justify this by who *reads* the value: the UI kit renders under a
+ *                      fixed constant today and is planned to read the stored `sandbox` from
+ *                      the manifest in a later phase, which makes the not-authorable rule
+ *                      matter more, not less.
  *
  * All four exist on the server's side of a comparison only. Left in, the first successful
  * upload writes them into the file this command just decided to keep them out of, and every
