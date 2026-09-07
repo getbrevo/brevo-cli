@@ -206,8 +206,8 @@ export async function resolveInstallTarget(
   const projectConfig = readProjectConfig();
   if (projectConfig) {
     return {
-      appId: projectConfig.appId,
-      appLabel: projectConfig.appName || projectConfig.appId,
+      appId: projectConfig.app_id,
+      appLabel: projectConfig.app_name || projectConfig.app_id,
       appFromLinkedConfig: true,
       ...accountFields,
     };

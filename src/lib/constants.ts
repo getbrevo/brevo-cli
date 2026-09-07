@@ -147,6 +147,15 @@ const coreEndpoints = {
   // record-page prompt and then narrows the row read with `?location=<csv>`, rather than
   // pulling the whole registry to derive the same handful of strings client-side.
   APP_STORE_SURFACE_POINT_LOCATIONS: '/v3/app-store/surface-points/locations',
+  DP_FUNCTIONS: '/v3/dp-functions/functions',
+  DP_FUNCTION: (id: string) => `/v3/dp-functions/functions/${encodeURIComponent(id)}`,
+  DP_FUNCTION_GENERATE_STREAM: '/v3/dp-functions/generate/stream',
+  DP_FUNCTION_CREATE: '/v3/dp-functions/functions',
+  DP_FUNCTION_TEMPLATES: '/v3/dp-functions/functions/templates',
+  DP_FUNCTION_CONTACTS: '/v3/dp-functions/live-data/contacts',
+  DP_FUNCTION_EXECUTE: '/v3/dp-functions/execute',
+  DP_FUNCTION_CREATE_FROM_TEMPLATE: '/v3/dp-functions/functions/from-template',
+  APP_STORE_APP_FUNCTIONS: '/v3/app-store/app-functions',
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -208,6 +217,13 @@ const coreCli = {
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
+  FUNCTION_LIST: 'brevo function list',
+  FUNCTION_GET: 'brevo function get --id <id>',
+  FUNCTION_ACTIVATE: 'brevo function activate --id <id>',
+  FUNCTION_DEACTIVATE: 'brevo function deactivate --id <id>',
+  FUNCTION_DELETE: 'brevo function delete --id <id>',
+  FUNCTION_INIT: 'brevo function init',
+  FUNCTION_DEPLOY: 'brevo function deploy --id <draft-id>',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;

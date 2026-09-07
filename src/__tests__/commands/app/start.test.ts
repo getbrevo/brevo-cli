@@ -164,9 +164,9 @@ describe('app/start', () => {
   it('should derive port from app-config.json redirect URI', async () => {
     (fs.existsSync as jest.Mock).mockReturnValue(true);
     (readProjectConfig as jest.Mock).mockReturnValueOnce({
-      appId: '42',
-      appName: 'Test',
-      auth: { type: 'oauth', scopes: [], redirectUris: ['http://localhost:3010/auth/callback'] },
+      app_id: '42',
+      app_name: 'Test',
+      auth: { type: 'oauth', scopes: [], redirect_uris: ['http://localhost:3010/auth/callback'] },
     });
 
     const mockChild = makeMockChild();
@@ -231,12 +231,12 @@ describe('app/start', () => {
 
     it("blocks when auth.scopes in app-config.json contains 'all'", async () => {
       (readProjectConfig as jest.Mock).mockReturnValueOnce({
-        appId: '42',
-        appName: 'Test',
+        app_id: '42',
+        app_name: 'Test',
         auth: {
           type: 'oauth',
           scopes: ['all'],
-          redirectUris: ['http://localhost:3009/auth/callback'],
+          redirect_uris: ['http://localhost:3009/auth/callback'],
         },
       });
 
@@ -247,12 +247,12 @@ describe('app/start', () => {
 
     it('starts normally when scopes are granular', async () => {
       (readProjectConfig as jest.Mock).mockReturnValueOnce({
-        appId: '42',
-        appName: 'Test',
+        app_id: '42',
+        app_name: 'Test',
         auth: {
           type: 'oauth',
           scopes: ['contacts:read', 'crm:read'],
-          redirectUris: ['http://localhost:3009/auth/callback'],
+          redirect_uris: ['http://localhost:3009/auth/callback'],
         },
       });
 
@@ -270,11 +270,11 @@ describe('app/start', () => {
   describe('redirect-URL self-registration', () => {
     const ttyConfig = (
       redirectUris: string[] = [],
-      overrides: Partial<{ appId: string }> = {},
+      overrides: Partial<{ app_id: string }> = {},
     ): Record<string, unknown> => ({
-      appId: '42',
-      appName: 'Test',
-      auth: { type: 'oauth', scopes: [], redirectUris },
+      app_id: '42',
+      app_name: 'Test',
+      auth: { type: 'oauth', scopes: [], redirect_uris: redirectUris },
       ...overrides,
     });
 
@@ -358,7 +358,7 @@ describe('app/start', () => {
       // server's echo after the upload confirms the version.
       expect(writeProjectConfig).toHaveBeenCalledTimes(2);
       const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
-      expect(written.auth.redirectUris).toEqual([
+      expect(written.auth.redirect_uris).toEqual([
         'https://prod.example.com/cb',
         'http://localhost:4000/auth/callback',
       ]);
@@ -425,8 +425,8 @@ describe('app/start', () => {
       expect(mockUploadApp).not.toHaveBeenCalled();
     });
 
-    it('should skip the registration check when app-config has no appId', async () => {
-      // readProjectConfig returns null when appId is missing/invalid, so the
+    it('should skip the registration check when app-config has no app_id', async () => {
+      // readProjectConfig returns null when app_id is missing/invalid, so the
       // simplest setup is a null config — check is skipped, server starts.
       (readProjectConfig as jest.Mock).mockReturnValueOnce(null);
 

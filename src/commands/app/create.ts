@@ -94,7 +94,7 @@ const validateLogoUrl = (input: string): true | string => {
 function guardAgainstLinkedApp(): void {
   if (!hasLocalApp()) return;
   const projectConfig = readProjectConfig();
-  const linkedName = projectConfig?.appName || String(projectConfig?.appId ?? '');
+  const linkedName = projectConfig?.app_name || String(projectConfig?.app_id ?? '');
   throw new CliError(messages.APP_CREATE_ALREADY_LINKED(linkedName));
 }
 
@@ -234,9 +234,9 @@ function resolveUiAppNonInteractiveInput(
 //    `--ui-app` was passed, in which case `createCommand` never calls this
 //    function at all — see `resolveUiAppNonInteractiveInput` above and its call
 //    site below, which is the actual app-type decision when either flag is set.
-export type AppType = 'oauth' | 'ui';
+export type AppType = 'oauth' | 'ui' | 'function';
 
-async function resolveAppType(interactive: boolean): Promise<AppType> {
+async function resolveAppType(interactive: boolean, distribution?: string): Promise<AppType> {
   // A UI app is only reachable through this prompt (there is no `--type` flag), so a
   // non-interactive run with neither --ui-config nor --ui-app has nothing to resolve
   // and creates an OAuth app, exactly as it did before BEX-290.
@@ -257,6 +257,12 @@ async function resolveAppType(interactive: boolean): Promise<AppType> {
   ];
   if (isFeatureAvailable('ui-app-type')) {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' });
+  }
+  // Brevo Functions are GA — the `__BREVO_PREVIEW__` wrapper this site carried pre-GA is
+  // gone with the gate. `isFeatureAvailable` stays so the choice keeps reading the same
+  // `FEATURE_STAGE` table as everything else — same pattern as the UI-app choice above.
+  if (isFeatureAvailable('brevo-function-type') && distribution === 'private') {
+    choices.push({ name: messages.APP_CREATE_APP_TYPE_FUNCTION, value: 'function' });
   }
   const answer = await inquirer.prompt([
     {
@@ -647,6 +653,8 @@ interface CreateAppInputs {
    * consent-based body instead. `resolveM2mScopes` refuses an empty list on both paths.
    */
   m2mScopes?: string[];
+  /** The selected app type — drives the `brevo_function` discriminator on the wire. */
+  appType: AppType;
 }
 
 interface CreatedApp {
@@ -658,10 +666,14 @@ interface CreatedApp {
  * The one mutually-exclusive block that says which kind of app this is.
  *
  * A function rather than a ternary chain inside `buildCreatePayload` because there are
- * three cases now and the reason for each is a paragraph, not a clause.
+ * four cases now and the reason for each is a paragraph, not a clause.
  */
 function buildAuthOrUiBlock(inputs: CreateAppInputs): Record<string, unknown> {
   if (inputs.uiApp) return { ui_app: inputs.uiApp };
+  // A Brevo Function has no OAuth flow either. The empty object is the discriminator —
+  // the key's presence is what tells create the absent `auth` block is deliberate, the
+  // same job `ui_app` does for a UI app.
+  if (inputs.appType === 'function') return { brevo_function: {} };
   // An M2M app sends NO `redirect_uris` — not an empty array. It has no callback, and an
   // empty array would register OAuth state the `client_credentials` grant never reads.
   // Same reasoning that omits the whole block for a UI app.
@@ -679,19 +691,20 @@ function buildCreatePayload(inputs: CreateAppInputs) {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
     // OAuth fields travel inside the `auth` block, same as the upload payload
-    // (unified structure). A UI app has no OAuth block at all (`auth: {}` in
-    // its config) — the key is omitted entirely, not sent empty. Sending empty
-    // arrays (or worse, the default localhost URI) would register OAuth state
-    // the app type never uses.
+    // (unified structure). A UI app and a Function app have no OAuth block at
+    // all (`auth: {}` in a UI app's config) — the key is omitted entirely, not
+    // sent empty. Sending empty arrays (or worse, the default localhost URI)
+    // would register OAuth state the app type never uses.
     //
-    // `ui_app` is what tells create the omission is deliberate. It is the
-    // app-type discriminator on the wire exactly as it is in app-config.json
-    // (`isUiAppConfig`), so create can apply the same branch the CLI does:
-    // without it the endpoint reads a UI app as an OAuth app missing its
-    // callbacks and answers `redirect_uris is required and must not be empty`.
-    // `app upload` still sends the block and remains the platform's validation
-    // authority for it — this is the same block under the same key, sent early
-    // enough that the record is created with the right app type.
+    // `ui_app` / `brevo_function` are what tell create the omission is
+    // deliberate. `ui_app` is the app-type discriminator on the wire exactly as
+    // it is in app-config.json (`isUiAppConfig`), so create can apply the same
+    // branch the CLI does: without it the endpoint reads a UI app as an OAuth
+    // app missing its callbacks and answers `redirect_uris is required and must
+    // not be empty`. `app upload` still sends the block and remains the
+    // platform's validation authority for it — this is the same block under the
+    // same key, sent early enough that the record is created with the right app
+    // type.
     ...buildAuthOrUiBlock(inputs),
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
@@ -841,6 +854,10 @@ async function resolveUiAppOrRedirectUris(
   redirectUriFlag: string[] | undefined,
   jsonMode: boolean,
 ): Promise<{ redirectUris: string[]; uiApp: UiApp | undefined }> {
+  if (appType === 'function') {
+    // Function apps have no OAuth flow and no placement — neither prompt path runs.
+    return { redirectUris: [], uiApp: undefined };
+  }
   if (appType !== 'ui') {
     return {
       redirectUris: await resolveRedirectUrls(redirectUriFlag, jsonMode),
@@ -853,9 +870,16 @@ async function resolveUiAppOrRedirectUris(
   return { redirectUris: [], uiApp };
 }
 
-/** Cache what a successful create just returned — guarded per field because a UI app
- * has no OAuth credentials and an unnamed app (shouldn't happen, but typed as optional)
- * has nothing to key a name cache entry with. */
+/**
+ * Cache the credentials locally. Not because this is the only copy — `GET
+ * /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
+ * too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
+ * `app start` can read them without a round trip.
+ * Guarded because a UI app has no OAuth credentials to cache, and a Function
+ * app has neither: writing the pair unconditionally stored
+ * `{clientId: undefined, clientSecret: undefined}` under its ID, which is a
+ * cache entry that can only mislead a later read.
+ */
 function cacheAppIdentity(result: CreateAppResponse, finalAppName: string): void {
   if (result.client_id && result.client_secret) {
     saveAppCredentials(result.app_id, {
@@ -1057,9 +1081,6 @@ export const createCommand = withCommandHandler(
     const appName = await resolveAppName(options.name);
     const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
     const distribution = await resolveDistribution(options.distribution, interactive);
-    // `--ui-config`/`--ui-app` decide the type outright — resolveAppType (and its
-    // TTY check) never runs for them, which is what makes them reachable without a
-    // terminal at all.
     // `--ui-config`/`--ui-app` decide the type outright — `resolveAppType` (and its TTY
     // check) never runs for them, which is what makes them reachable without a terminal.
     // `--m2m` decides it just as outright: an M2M app is an OAuth app by definition, and
@@ -1073,7 +1094,7 @@ export const createCommand = withCommandHandler(
     } else if (options.m2m) {
       appType = 'oauth';
     } else {
-      appType = await resolveAppType(interactive);
+      appType = await resolveAppType(interactive, distribution);
     }
     // Asked after the app type and before any callback URL, because it decides whether a
     // callback URL is asked for at all. Answers 'consent' for every non-OAuth app, every
@@ -1089,15 +1110,15 @@ export const createCommand = withCommandHandler(
     if (oauthFlow === 'm2m') {
       const m2mScopes = await resolveM2mScopes(options.scopes, jsonMode);
       await createM2mApp(
-        { appName, distribution, redirectUris: [], logoUri, m2mScopes },
+        { appName, distribution, redirectUris: [], logoUri, m2mScopes, appType: 'oauth' },
         jsonMode,
         interactive,
       );
       return;
     }
 
-    // The two app types diverge here: OAuth apps collect callback URLs, UI apps
-    // collect placement + destination. Neither path runs the other's prompts.
+    // The app types diverge here: OAuth apps collect callback URLs, UI apps collect
+    // placement + destination, Function apps need neither. No path runs another's prompts.
     const { redirectUris, uiApp } = await resolveUiAppOrRedirectUris(
       appType,
       nonInteractiveUiAppInput,
@@ -1107,7 +1128,14 @@ export const createCommand = withCommandHandler(
 
     const dir = await resolveCreateDirectory(appName, interactive);
 
-    const inputs: CreateAppInputs = { appName, distribution, redirectUris, logoUri, uiApp };
+    const inputs: CreateAppInputs = {
+      appName,
+      distribution,
+      redirectUris,
+      logoUri,
+      uiApp,
+      appType,
+    };
     const { result, appName: finalAppName } = await createAppWithRetry(
       inputs,
       jsonMode,
@@ -1118,10 +1146,6 @@ export const createCommand = withCommandHandler(
     // this line a failed create left a stray directory and a moved cwd behind.
     applyCreateDirectory(dir, jsonMode);
 
-    // Cache the credentials locally. Not because this is the only copy — `GET
-    // /cli/apps/{id}` is a credential-reveal endpoint and hands back `client_secret`
-    // too (verified against app-store-bo-be, 2026-08-13) — but so the scaffold and
-    // `app start` can read them without a round trip.
     cacheAppIdentity(result, finalAppName);
 
     // `--json` implies non-interactive, which implies OAuth, so `appType` is
@@ -1164,6 +1188,9 @@ export const createCommand = withCommandHandler(
     //
     const fallbackApp = buildFallbackOAuthApp(result);
     const ctx = await fetchAppContext(result.app_id, jsonMode, uiApp, fallbackApp);
+    if (appType === 'function') {
+      ctx.isBrevoFunction = true;
+    }
 
     // Always write the basic project structure (app-config.json + meta files).
     const base = runBaseScaffold(result.app_id, ctx, dir.targetDir, dir.mergeOnly);

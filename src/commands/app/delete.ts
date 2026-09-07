@@ -59,7 +59,7 @@ function removeProjectFolder(cwd: string): void {
 // Offer to delete the local scaffolded project folder if it matches the deleted app
 async function offerLocalFolderCleanup(appId: string): Promise<void> {
   const projectConfig = readProjectConfig();
-  if (projectConfig?.appId !== appId) return;
+  if (projectConfig?.app_id !== appId) return;
 
   const cwd = process.cwd();
   const { deleteFolder } = await inquirer.prompt([
