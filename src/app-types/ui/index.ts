@@ -31,8 +31,9 @@ import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
  *                      an entry, which — with `link_target` — is why the strip recurses.
  *   - `sandbox`      — the iframe sandbox attributes the platform decides and stamps onto
  *                      the stored snapshot's root. Server policy, not partner policy: what an
- *                      iframe is allowed to do is the platform's call, and bo-be 400s an
- *                      authored one — it is simply not the partner's field to write. Don't
+ *                      iframe is allowed to do is the platform's call, and both `validateUiApp`
+ *                      (`rejectAuthoredSandbox`) and bo-be refuse an authored one — it is
+ *                      simply not the partner's field to write. Don't
  *                      re-justify this by who *reads* the value: app-store-backend now serves
  *                      the stored `sandbox` on the manifest and the UI kit renders from it
  *                      rather than the fixed constant it used to, which makes the

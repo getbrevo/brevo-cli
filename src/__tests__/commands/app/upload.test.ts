@@ -1258,6 +1258,23 @@ describe('app/upload', () => {
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/only used by "iframeExtension"/i);
     });
 
+    // `sandbox` is the platform's own iframe policy, stamped onto the stored snapshot at
+    // write time — and this command sends the file's block verbatim, so before the local
+    // refusal an authored value was the one thing in the file that travelled to the wire
+    // unexamined. Refused at both depths the wire-only strip recurses through, ahead of
+    // every round trip.
+    it.each([
+      ['at the root', { ...UI_APP, sandbox: 'allow-scripts allow-same-origin' }],
+      ['on an entry', withUiEntry({ sandbox: 'allow-scripts allow-same-origin' })],
+    ])('rejects an authored sandbox %s before any round trip', async (_label, uiApp) => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: uiApp });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(
+        /\.sandbox is not authored in app-config\.json/,
+      );
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
     it('writes the ui_app block back into app-config.json, preferring the server copy', async () => {
       // The server normalizes the block, so its copy is the authority for everything
       // except each entry's link_target — see the next test.

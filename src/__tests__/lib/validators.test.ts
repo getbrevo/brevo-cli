@@ -620,6 +620,32 @@ describe('validateUiApp', () => {
       validateUiApp(withEntry({ [key]: key === 'layout' ? 'inline' : 'small' })),
     ).toThrow(new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.${key}`));
   });
+
+  // ──────── sandbox is not the partner's field, at either depth ────────
+  // The platform stamps the iframe's sandbox attributes onto the stored snapshot and the
+  // UI kit applies whatever it is served verbatim, so an authored value would be a partner
+  // writing the attributes their own frame runs under. Refused rather than stripped: the
+  // upload sends the file's block as-is, and dropping the key silently would leave the
+  // partner believing their value is in force.
+  it('rejects a root-level sandbox', () => {
+    expect(() => validateUiApp({ ...VALID, sandbox: 'allow-scripts' })).toThrow(
+      /ui_app\.sandbox is not authored in app-config\.json/,
+    );
+  });
+
+  it('rejects a per-entry sandbox, naming the entry', () => {
+    expect(() => validateUiApp(withEntry({ sandbox: 'allow-scripts' }))).toThrow(
+      new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.sandbox is not authored`),
+    );
+  });
+
+  // Ahead of the per-entry checks on purpose: a second problem in the block must not
+  // decide whether the security-relevant one is the message the partner sees.
+  it('reports a sandbox before an unrelated entry problem', () => {
+    expect(() => validateUiApp({ ...withEntry({ label: ' ', sandbox: 'allow-scripts' }) })).toThrow(
+      /\.sandbox is not authored/,
+    );
+  });
 });
 
 // iframeExtension became authorable once the UI kit shipped modal rendering on both
@@ -710,5 +736,15 @@ describe('validateUiApp — iframeExtension', () => {
     expect(() => validateUiApp(withIframeEntry({ [key]: value }))).toThrow(
       new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.${key}`),
     );
+  });
+
+  // The type the field would actually apply to, and still refused: an iframeExtension is
+  // the only extension that renders an iframe at all, so this is the config a partner
+  // would try it in. The platform stamps the attributes; the partner never writes them.
+  it.each([
+    ['at the root', { ...VALID_IFRAME, sandbox: 'allow-scripts allow-same-origin' }],
+    ['on the entry', withIframeEntry({ sandbox: 'allow-scripts allow-same-origin' })],
+  ])('rejects an authored sandbox %s', (_label, block) => {
+    expect(() => validateUiApp(block)).toThrow(/\.sandbox is not authored in app-config\.json/);
   });
 });

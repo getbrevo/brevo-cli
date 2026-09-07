@@ -154,10 +154,11 @@ const UI_CONFIG_IFRAME_ONLY_KEYS: readonly string[] = [
  * `stripUiAppWireOnlyKeys` is the only stripper — a second copy of that list is a copy
  * that lags it. When the platform stamps a fifth key, `--ui-config` refuses it for free.
  *
- * This is the only place the CLI refuses an authored `sandbox` at all: `validateUiApp`
- * checks named fields and has no unknown-key sweep, so a `sandbox` in `app-config.json`
- * travels to the wire and comes back a bo-be 400. Naming it locally, before any network
- * call, beats a server error for a value the partner should never have written.
+ * `sandbox` is refused on both authoring paths, and this is the earlier of the two:
+ * `validateUiApp` refuses one in a hand-authored `app-config.json` (`rejectAuthoredSandbox`),
+ * this refuses one in a `--ui-config` file before the block is even assembled. Both name it
+ * locally, ahead of any network call, rather than leaving a value the partner should never
+ * have written to come back as a bo-be 400.
  */
 const UI_CONFIG_SERVER_OWNED_KEYS: readonly string[] = uiAppType.wireOnlyKeys;
 

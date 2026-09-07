@@ -365,8 +365,49 @@ export function validateUiApp(uiApp: unknown): void {
 
   rejectPreBex290Fields(block);
   rejectRootCtaFields(block);
+  rejectAuthoredSandbox(block);
 
   validateSurfacePointList(block.surface_point_list, extensionType);
+}
+
+/**
+ * Refuse an authored `sandbox`, at the block root or on any entry.
+ *
+ * What an embedded iframe is allowed to do is the PLATFORM's decision, not the partner's:
+ * bo-be stamps the attributes onto the stored snapshot at write time, app-store-backend
+ * serves that stored value on the manifest, and the UI kit applies whatever it is served
+ * verbatim — it keeps no default of its own any more, and renders the fail-closed
+ * `sandbox=""` when nothing arrives. So an authored value is not a preference weighed
+ * against the platform's own; it is a partner writing the attributes their own frame runs
+ * under, which is the one key on this block that must never be authorable.
+ *
+ * Refused rather than stripped: dropping a security-relevant key without a word would
+ * leave a partner believing the file's value is in force. Refused HERE rather than left to
+ * bo-be's `unknown key` 400, because `app upload` sends the file's block verbatim — the
+ * wire-only strip in `src/app-types/wire.ts` runs on what comes BACK, so nothing local
+ * stood between an authored value and the wire. `--ui-config` already refuses it one layer
+ * earlier (`UI_CONFIG_SERVER_OWNED_KEYS` in `app create`); this closes the hand-authored
+ * path, which is the one a partner actually reaches.
+ *
+ * Checked at both depths the strip recurses through, so the key cannot slip in one level
+ * down inside an entry. Ahead of `validateSurfacePointList` on purpose: a blank label on
+ * entry one must not decide whether this is reported at all.
+ */
+function rejectAuthoredSandbox(block: Record<string, unknown>): void {
+  const refusal = (at: string) =>
+    `${at}.sandbox is not authored in app-config.json — what an embedded iframe is allowed to do is the Brevo platform's decision, and it stamps the attributes onto the stored app itself. Remove it from the file.`;
+
+  if (block.sandbox !== undefined) throw new CliError(refusal('ui_app'));
+
+  if (!Array.isArray(block.surface_point_list)) return;
+  for (const entry of block.surface_point_list) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const row = entry as Record<string, unknown>;
+    if (row.sandbox === undefined) continue;
+    throw new CliError(
+      refusal(`ui_app.surface_point_list["${asText(row.surface_point_name).trim()}"]`),
+    );
+  }
 }
 
 /**

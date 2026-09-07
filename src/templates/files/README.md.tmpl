@@ -128,7 +128,7 @@ Brevo **UI app** — an action link that renders inside Brevo CRM records, scaff
 | Value | What it does | Destination field |
 |-------|--------------|-------------------|
 | `actionLink` | Opens your URL in a new tab | `redirect_link` |
-| `iframeExtension` | Embeds your URL in a modal | `iframe_href` |
+| `iframeExtension` | Embeds your URL — in a modal, or in the card body with `layout: "inline"` | `iframe_href` |
 
 Each entry in `surface_point_list` is one placement, with its own text and destination:
 
@@ -141,8 +141,10 @@ Each entry in `surface_point_list` is one placement, with its own text and desti
 | `iframe_href` | for `iframeExtension` | `https://` (or `http://localhost`) |
 | `context` | no | Narrows the record context Brevo sends |
 | `size` | no | `{ "width": "280px", "height": "160px" }` — `px`, or `%` up to 100 |
+| `layout` | no | `iframeExtension` on a widget placement — `"inline"` embeds the page in the card, `"modal"` (or absent) opens it from the card's button |
+| `modal_size` | no | `iframeExtension` entries that open a modal — `"small"`, `"medium"` or `"large"` (absent means `"large"`) |
 
-A card's title is the app name — there is no field for it. Don't add `link_target`: the CLI sets it on upload, and a copy in this file shows up as drift you can't clear.
+A card's title is the app name — there is no field for it. Don't add `link_target`: the CLI sets it on upload, and a copy in this file shows up as drift you can't clear. Don't add `sandbox` either — Brevo decides what an embedded iframe may do and stamps it onto the stored app, so `brevo app upload` refuses an authored one.
 
 ## Record context
 
