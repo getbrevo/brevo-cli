@@ -33,10 +33,10 @@ import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
  *                      the stored snapshot's root. Server policy, not partner policy: what an
  *                      iframe is allowed to do is the platform's call, and bo-be 400s an
  *                      authored one — it is simply not the partner's field to write. Don't
- *                      re-justify this by who *reads* the value: the UI kit renders under a
- *                      fixed constant today and is planned to read the stored `sandbox` from
- *                      the manifest in a later phase, which makes the not-authorable rule
- *                      matter more, not less.
+ *                      re-justify this by who *reads* the value: app-store-backend now serves
+ *                      the stored `sandbox` on the manifest and the UI kit renders from it
+ *                      rather than the fixed constant it used to, which makes the
+ *                      not-authorable rule matter more, not less.
  *
  * All four exist on the server's side of a comparison only. Left in, the first successful
  * upload writes them into the file this command just decided to keep them out of, and every
