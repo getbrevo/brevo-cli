@@ -701,7 +701,7 @@ describe('app/install', () => {
         surface_point_name: 'contactDetails.overview.main',
         context: ['recordId'],
         label: 'View in CRM',
-        modal_iframe_url: 'https://example.com/embed',
+        iframe_href: 'https://example.com/embed',
         layout: 'inline',
         modal_size: 'medium',
       };

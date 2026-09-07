@@ -282,7 +282,7 @@ const coreMessages = {
   APP_CREATE_UI_REDIRECT_LINK_PROMPT:
     'Redirect link — the destination URL (record context arrives as query params):',
   // The iframe counterpart of the question above: same slot in the flow, different field —
-  // the answer lands in `modal_iframe_url`, and the page opens INSIDE Brevo rather than in
+  // the answer lands in `iframe_href`, and the page opens INSIDE Brevo rather than in
   // a new tab, which is what the wording has to make unmistakable.
   // Asked only for an Iframe on a WIDGET slot (an action slot's menu entry must open
   // something, so it is always a modal). Inline is written to the entry; modal is the
@@ -303,7 +303,7 @@ const coreMessages = {
   APP_CREATE_UI_MODAL_SIZE_SMALL: 'Small',
   APP_CREATE_UI_MODAL_SIZE_MEDIUM: 'Medium',
   APP_CREATE_UI_MODAL_SIZE_LARGE: 'Large (default)',
-  APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT:
+  APP_CREATE_UI_IFRAME_HREF_PROMPT:
     'Iframe URL — the page Brevo embeds in the modal (record context arrives as query params):',
   // The create-time counterpart of the platform's own refusal: `layout` is only
   // meaningful on a placement that renders a card, so stamping it onto a row that

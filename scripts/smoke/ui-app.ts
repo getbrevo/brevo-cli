@@ -96,7 +96,7 @@ async function findUiAppByName(state: State, expectedName: string): Promise<stri
 //   6. label (input)               → UI_LABEL
 //   7. more_info (input, optional) → Enter (blank must be OMITTED from config)
 //   8. destination URL (input)     → UI_REDIRECT_LINK, or UI_IFRAME_URL on the
-//                                    iframe leg (a different question: modal_iframe_url)
+//                                    iframe leg (a different question: iframe_href)
 //   9. output directory (input)    → Enter (default ./<slug>)
 //
 // Nothing is asked after the POST: `finishProject` prints the UI-app
@@ -325,8 +325,8 @@ async function createUiSmokeApp(state: State, integration: UiIntegration): Promi
   // entry, so its presence here means the create authored a block its own upload 400s.
   if (integration === 'iframe') {
     must(
-      entry.modal_iframe_url === UI_IFRAME_URL,
-      `entry modal_iframe_url ${JSON.stringify(entry.modal_iframe_url)} != ${UI_IFRAME_URL}`,
+      entry.iframe_href === UI_IFRAME_URL,
+      `entry iframe_href ${JSON.stringify(entry.iframe_href)} != ${UI_IFRAME_URL}`,
     );
     must(
       !('redirect_link' in entry),
@@ -346,8 +346,8 @@ async function createUiSmokeApp(state: State, integration: UiIntegration): Promi
       `entry redirect_link ${JSON.stringify(entry.redirect_link)} != ${UI_REDIRECT_LINK}`,
     );
     must(
-      !('modal_iframe_url' in entry),
-      `link entry must carry no modal_iframe_url: ${JSON.stringify(entry)}`,
+      !('iframe_href' in entry),
+      `link entry must carry no iframe_href: ${JSON.stringify(entry)}`,
     );
   }
   must(

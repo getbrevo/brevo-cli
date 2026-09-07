@@ -75,8 +75,8 @@ export interface SubAccountsResponse {
  * accepted (see the note on the constants in `lib/constants.ts`).
  *
  * - `actionLink` — a redirect-only CTA driven by `redirect_link`.
- * - `iframeExtension` — opens `modal_iframe_url` in a modal iframe. The UI kit
- *   keeps `modal_iframe_url` *only* for this type, so authoring one on any other
+ * - `iframeExtension` — opens `iframe_href` in a modal iframe. The UI kit
+ *   keeps `iframe_href` *only* for this type, so authoring one on any other
  *   type is silently dropped. Authorable since the iframe-extension launch, on
  *   private apps only (v1).
  * - `legacyComponent` — the pre-extensibility interpreter path used by earlier
@@ -155,7 +155,7 @@ export interface SurfacePointEntry {
   context?: string[];
   /**
    * `iframeExtension` entries on widget slots only: how this entry presents its
-   * `modal_iframe_url` — `'inline'` embeds the page directly in the card body, `'modal'`
+   * `iframe_href` — `'inline'` embeds the page directly in the card body, `'modal'`
    * (or absent, the default) opens it from the card's CTA. The platform refuses the field
    * on an `actionLink` entry and `'inline'` on a slot that renders no card; absent is never
    * written, so layout-less configs stay byte-identical.
@@ -196,7 +196,7 @@ export interface SurfacePointEntry {
    * `iframeExtension` only — the URL the modal embeds. Per placement since BEX-426.
    * Refused on an `actionLink`, where the kit would silently drop it.
    */
-  modal_iframe_url?: string;
+  iframe_href?: string;
   /**
    * Where THIS entry's `redirect_link` opens. It followed the CTA fields off the block
    * root because it qualifies a per-entry destination — a root value could only ever say
@@ -347,7 +347,7 @@ export interface UiApp {
    */
   surface_point_list: SurfacePointEntry[];
   /**
-   * NOTE (BEX-426): `label`, `more_info`, `redirect_link`, `modal_iframe_url` and
+   * NOTE (BEX-426): `label`, `more_info`, `redirect_link`, `iframe_href` and
    * `link_target` are deliberately NOT fields of this block any more — they live on each
    * `surface_point_list` entry, so two placements can carry different copy, different
    * destinations and their own link target. `validateUiApp` refuses the root spellings by

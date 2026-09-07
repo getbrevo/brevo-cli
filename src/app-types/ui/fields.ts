@@ -30,8 +30,10 @@ const VALUE_ROWS: ReadonlyArray<{
   { label: 'label:         ', read: (e) => e.label },
   { label: 'more info:     ', read: (e) => e.more_info },
   { label: 'redirect link: ', read: (e) => e.redirect_link },
-  // An iframeExtension's modal URL is the destination, so it earns a line too.
-  { label: 'modal URL:     ', read: (e) => e.modal_iframe_url },
+  // An iframeExtension's embedded URL is the destination, so it earns a line too. Named
+  // for the field rather than the presentation: the page is only in a modal when the
+  // entry's `layout` says so, and an `inline` one renders straight into the card.
+  { label: 'iframe URL:    ', read: (e) => e.iframe_href },
   { label: 'layout:        ', read: (e) => e.layout },
   { label: 'modal size:    ', read: (e) => e.modal_size },
   { label: 'card size:     ', read: (e) => formatSize(e.size) },

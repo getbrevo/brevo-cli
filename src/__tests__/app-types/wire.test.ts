@@ -95,7 +95,7 @@ describe('stripUiAppWireOnlyKeys', () => {
   it('leaves a block with nothing to strip structurally identical', () => {
     const clean = {
       extension_type: 'iframeExtension',
-      modal_iframe_url: 'https://example.com/panel',
+      iframe_href: 'https://example.com/panel',
       surface_point_list: [{ surface_point_name: 'contact-details-widget' }],
     } as unknown as UiApp;
     expect(stripUiAppWireOnlyKeys(clean)).toEqual(clean);

@@ -2,7 +2,7 @@
 '@getbrevo/cli': minor
 ---
 
-`brevo app create` can author an **iframe extension**. The UI-app integration-type prompt offers *Iframe (Embeds your page in a modal)* next to *Link* — on a **private** app only, because iframe extensions are private-only in v1 — and the iframe branch asks for the embed URL (*Iframe URL — the page Brevo embeds in the modal*) and writes it to each entry's `modal_iframe_url` instead of `redirect_link`. Everything downstream already speaks the type: the upload diff has its `modal URL:` row, `link_target` is (correctly) never injected for it, and the created-app box prints the same placement summary.
+`brevo app create` can author an **iframe extension**. The UI-app integration-type prompt offers *Iframe (Embeds your page in a modal)* next to *Link* — on a **private** app only, because iframe extensions are private-only in v1 — and the iframe branch asks for the embed URL (*Iframe URL — the page Brevo embeds in the modal*) and writes it to each entry's `iframe_href` instead of `redirect_link`. Everything downstream already speaks the type: the upload diff has its `modal URL:` row, `link_target` is (correctly) never injected for it, and the created-app box prints the same placement summary.
 
 The private-only rule is enforced in three places that say the same thing: the prompt hides the Iframe choice on a public app, `brevo app upload` refuses a hand-authored `iframeExtension` block on a public app locally before any round trip (`ui_app.extension_type "iframeExtension" requires distribution_type "private"`), and the platform 400s it at upload/create.
 
@@ -17,3 +17,5 @@ Iframe entries that open a modal can also author `modal_size`: `"small"`, `"medi
 `brevo app upload` translates the platform's own layout refusal into a message that names the file and field to edit, keeping the server's sentence (which names the offending slots) inline. Only a `400` mentioning `layout` is relabelled; every other error keeps the server's own text.
 
 `sandbox` joins `link_target`, `version` and `extension_point_name` as a server-stamped key stripped from `ui_app` echoes, so it never lands in `app-config.json` and never shows up as drift.
+
+The iframe entry's URL field is named `iframe_href` (it was `modal_iframe_url` while this feature was in development). The old name became a misnomer once `layout: "inline"` existed — an inline card embeds the page directly and opens no modal — so the whole chain renamed together (`iframeHref` in the manifest and the UI kit, `iframe_href` in `app-config.json` and on the wire). No migration and no alias: the field is only reachable on an `iframeExtension` app, which no environment can create yet, so no config in the wild carries the old key. The upload diff's row follows the field and reads `iframe URL:` rather than `modal URL:`.

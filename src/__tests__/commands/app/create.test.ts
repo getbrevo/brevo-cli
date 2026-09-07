@@ -1789,9 +1789,9 @@ describe('app/create', () => {
     });
 
     // The Iframe branch: same five questions, but the URL answer lands in
-    // `modal_iframe_url` — never `redirect_link`, which the platform refuses on an
+    // `iframe_href` — never `redirect_link`, which the platform refuses on an
     // iframeExtension entry — and both registry reads narrow by the chosen type.
-    it('authors modal_iframe_url, not redirect_link, when Iframe is chosen', async () => {
+    it('authors iframe_href, not redirect_link, when Iframe is chosen', async () => {
       answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
 
       await createCommand(CLI_OPTIONS);
@@ -1805,7 +1805,7 @@ describe('app/create', () => {
       expect(uiApp.extension_type).toBe('iframeExtension');
       expect(uiApp.surface_point_list).toHaveLength(1);
       const entry = uiApp.surface_point_list[0];
-      expect(entry.modal_iframe_url).toBe('https://example.com/embed');
+      expect(entry.iframe_href).toBe('https://example.com/embed');
       expect(entry).not.toHaveProperty('redirect_link');
       expect(entry).not.toHaveProperty('link_target');
     });

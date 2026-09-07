@@ -241,7 +241,7 @@ describe('smoke-suite prompt patterns', () => {
       ['label', messages.APP_CREATE_UI_LABEL_PROMPT],
       ['moreInfo', messages.APP_CREATE_UI_MORE_INFO_PROMPT],
       ['redirect', messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT],
-      ['iframeUrl', messages.APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT],
+      ['iframeUrl', messages.APP_CREATE_UI_IFRAME_HREF_PROMPT],
       ['layout', messages.APP_CREATE_UI_LAYOUT_PROMPT],
       ['modalSize', messages.APP_CREATE_UI_MODAL_SIZE_PROMPT],
       ['outputDir', messages.APP_SCAFFOLD_DIR_PROMPT],

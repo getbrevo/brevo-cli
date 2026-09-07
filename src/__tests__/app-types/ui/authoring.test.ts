@@ -94,7 +94,7 @@ describe('buildSurfacePointList', () => {
     sizeFor: () => undefined,
     label: 'Open in Acme',
     more_info: '',
-    urlField: 'modal_iframe_url' as const,
+    urlField: 'iframe_href' as const,
     url: 'https://example.com/embed',
     ...extra,
   });

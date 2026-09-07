@@ -1066,7 +1066,7 @@ describe('app/upload', () => {
       ['label', 'View in CRM'],
       ['more_info', 'Some detail'],
       ['redirect_link', 'https://example.com/brevo'],
-      ['modal_iframe_url', 'https://example.com/embed'],
+      ['iframe_href', 'https://example.com/embed'],
     ])('rejects a root-level %s with a migration hint', async (key, value) => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
@@ -1131,12 +1131,12 @@ describe('app/upload', () => {
         {
           surface_point_name: 'contact-details-header-menu',
           label: 'View in CRM',
-          modal_iframe_url: 'https://example.com/embed',
+          iframe_href: 'https://example.com/embed',
         },
       ],
     };
 
-    it('uploads an iframeExtension with a modal_iframe_url', async () => {
+    it('uploads an iframeExtension with a iframe_href', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: IFRAME_UI_APP,
@@ -1190,7 +1190,7 @@ describe('app/upload', () => {
             {
               surface_point_name: 'contact-details-header-menu',
               label: 'View in CRM',
-              modal_iframe_url: 'https://example.com/embed',
+              iframe_href: 'https://example.com/embed',
               redirect_link: 'https://example.com/go',
             },
           ],
@@ -1247,12 +1247,12 @@ describe('app/upload', () => {
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    // The UI kit drops modal_iframe_url for anything that isn't an
+    // The UI kit drops iframe_href for anything that isn't an
     // iframeExtension, so authoring one on an action link entry is a silent no-op.
-    it('rejects modal_iframe_url on an action link entry', async () => {
+    it('rejects iframe_href on an action link entry', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: withUiEntry({ modal_iframe_url: 'https://example.com/modal' }),
+        ui_app: withUiEntry({ iframe_href: 'https://example.com/modal' }),
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/only used by "iframeExtension"/i);
@@ -1519,7 +1519,7 @@ describe('app/upload', () => {
           surface_point_name: 'contact-details-overview-main',
           context: ['recordId'],
           label: 'View in CRM',
-          modal_iframe_url: 'https://example.com/embed',
+          iframe_href: 'https://example.com/embed',
           layout: 'inline' as const,
           modal_size: 'small' as const,
         };

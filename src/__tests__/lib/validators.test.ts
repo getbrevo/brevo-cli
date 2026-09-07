@@ -580,7 +580,7 @@ describe('validateUiApp', () => {
     ['label', 'View in CRM'],
     ['more_info', 'Some detail'],
     ['redirect_link', 'https://example.com/brevo'],
-    ['modal_iframe_url', 'https://example.com/embed'],
+    ['iframe_href', 'https://example.com/embed'],
   ])('rejects a root-level %s, pointing at the per-entry field', (key, value) => {
     expect(() => validateUiApp({ ...VALID, [key]: value })).toThrow(
       new RegExp(`ui_app\\.${key} moved into each surface_point_list entry`),
@@ -597,17 +597,17 @@ describe('validateUiApp', () => {
     },
   );
 
-  // The UI kit keeps modal_iframe_url only for iframeExtension, so one on an
+  // The UI kit keeps iframe_href only for iframeExtension, so one on an
   // action link entry is silently discarded.
-  it('rejects modal_iframe_url on an action link entry', () => {
-    expect(() =>
-      validateUiApp(withEntry({ modal_iframe_url: 'https://example.com/modal' })),
-    ).toThrow(/only used by/i);
+  it('rejects iframe_href on an action link entry', () => {
+    expect(() => validateUiApp(withEntry({ iframe_href: 'https://example.com/modal' }))).toThrow(
+      /only used by/i,
+    );
   });
 
   // layout and modal_size describe how an iframe presents. An actionLink has exactly one
   // presentation (the redirect) and opens no modal, so both are dropped without a word —
-  // refused here for the same reason modal_iframe_url is.
+  // refused here for the same reason iframe_href is.
   it.each([
     ['layout', 'inline'],
     ['modal_size', 'small'],
@@ -629,7 +629,7 @@ describe('validateUiApp — iframeExtension', () => {
     surface_point_name: VALID_POINT,
     context: ['recordId'],
     label: 'View in CRM',
-    modal_iframe_url: 'https://example.com/embed',
+    iframe_href: 'https://example.com/embed',
   };
   const VALID_IFRAME = {
     extension_type: 'iframeExtension',
@@ -652,8 +652,8 @@ describe('validateUiApp — iframeExtension', () => {
   });
 
   it.each([
-    ['a missing modal_iframe_url', withIframeEntry({ modal_iframe_url: undefined })],
-    ['an insecure modal_iframe_url', withIframeEntry({ modal_iframe_url: 'http://example.com' })],
+    ['a missing iframe_href', withIframeEntry({ iframe_href: undefined })],
+    ['an insecure iframe_href', withIframeEntry({ iframe_href: 'http://example.com' })],
     ['an empty label', withIframeEntry({ label: ' ' })],
   ])('rejects an entry with %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(CliError);
@@ -662,7 +662,7 @@ describe('validateUiApp — iframeExtension', () => {
   // The two delivery paths disagree about which URL wins when both are set: the card path
   // pairs strictly by extension_type and opens the modal, while the header-menu path routes
   // on redirect_link first and never opens it. Same entry, different behaviour per slot kind.
-  it('rejects redirect_link alongside modal_iframe_url on an entry', () => {
+  it('rejects redirect_link alongside iframe_href on an entry', () => {
     expect(() =>
       validateUiApp(withIframeEntry({ redirect_link: 'https://example.com/go' })),
     ).toThrow(/cannot be combined/i);

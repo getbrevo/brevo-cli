@@ -45,7 +45,7 @@ import { formatPlacementLines } from './fields';
 //       4. label            → menu entry text / card CTA, for THAT placement.
 //       5. more_info        → optional supporting line, for THAT placement.
 //       6. destination URL  → for THAT placement: `redirect_link` for a Link,
-//                             `modal_iframe_url` for an Iframe — the type picked at
+//                             `iframe_href` for an Iframe — the type picked at
 //                             step 1 decides which single URL question this is.
 //
 //     Five questions, one optional, and two registry reads that ask for different things:
@@ -415,7 +415,7 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
 
   // ONE URL question either way — the integration type decides which field it answers.
   // A Link's destination opens in a new tab (`redirect_link`); an Iframe's page is
-  // embedded in a modal inside Brevo (`modal_iframe_url`). Same validator: both fields
+  // embedded in a modal inside Brevo (`iframe_href`). Same validator: both fields
   // carry the same https contract, judged again server-side at upload.
   const isIframe = extensionType === EXTENSION_TYPE_IFRAME;
   const { url } = await inquirer.prompt([
@@ -423,7 +423,7 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
       type: 'input',
       name: 'url',
       message: isIframe
-        ? messages.APP_CREATE_UI_MODAL_IFRAME_URL_PROMPT
+        ? messages.APP_CREATE_UI_IFRAME_HREF_PROMPT
         : messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
       validate: validateUiAppUrl,
     },
@@ -463,7 +463,7 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
       sizeFor: (row) => row.default_size ?? undefined,
       label: String(label ?? '').trim(),
       more_info: String(more_info ?? '').trim(),
-      urlField: isIframe ? 'modal_iframe_url' : 'redirect_link',
+      urlField: isIframe ? 'iframe_href' : 'redirect_link',
       url: String(url ?? '').trim(),
       layout,
       modal_size: modalSize,
@@ -639,7 +639,7 @@ async function promptModalSize(
  * the host's own fallback keeps applying, exactly as before the seed existed.
  *
  * `urlField` names which destination the answered URL is: `redirect_link` for a Link,
- * `modal_iframe_url` for an Iframe. One field, never both — the platform refuses the
+ * `iframe_href` for an Iframe. One field, never both — the platform refuses the
  * other type's URL on an entry, so writing both would author a block upload 400s on.
  *
  * `layout` and `modal_size` are written only when non-default, so a default answer leaves
@@ -654,7 +654,7 @@ export function buildSurfacePointList(
     sizeFor: (row: UsableSurfacePoint) => { width?: string; height?: string } | undefined;
     label: string;
     more_info: string;
-    urlField: 'redirect_link' | 'modal_iframe_url';
+    urlField: 'redirect_link' | 'iframe_href';
     url: string;
     /** Written only when `'inline'` — absent means modal, and absent is the default. */
     layout?: 'inline';
@@ -743,7 +743,7 @@ function buildExampleContextUrl(redirectLink: string, context: readonly string[]
  * The example-URL lines for the created-app box, or none at all.
  *
  * Built from the FIRST placement that declares both a context and its own destination —
- * `redirect_link` or `modal_iframe_url`, whichever the entry's type carries (the two live
+ * `redirect_link` or `iframe_href`, whichever the entry's type carries (the two live
  * on the same entry since BEX-426): entries can differ, but one example makes the point
  * without turning the box into a list. Nothing is printed when no placement declares a
  * context — the entry's plain destination line above already says everything there is to
@@ -752,11 +752,11 @@ function buildExampleContextUrl(redirectLink: string, context: readonly string[]
  */
 function renderExampleContextUrlLines(uiApp: UiApp): string[] {
   const withContext = uiApp.surface_point_list.find(
-    (entry) => entry.context?.length && (entry.redirect_link || entry.modal_iframe_url),
+    (entry) => entry.context?.length && (entry.redirect_link || entry.iframe_href),
   );
   if (!withContext) return [];
   const example = buildExampleContextUrl(
-    (withContext.redirect_link ?? withContext.modal_iframe_url)!,
+    (withContext.redirect_link ?? withContext.iframe_href)!,
     withContext.context ?? [],
   );
   if (!example) return [];
