@@ -39,6 +39,8 @@ import {
   parseJson,
   printOrphanWarning,
   readJsonFile,
+  configField,
+  configRedirectUris,
   requireApp,
   requireCommand,
   requireProjectDir,
@@ -260,7 +262,7 @@ async function createUiSmokeApp(state: State, integration: UiIntegration): Promi
   const projectDir = join(tmp, computeSlug(name));
   const configPath = join(projectDir, 'app-config.json');
   if (!appId && existsSync(configPath)) {
-    const rawId = readJsonFile(configPath).appId;
+    const rawId = configField(readJsonFile(configPath), 'app_id', 'appId');
     if (typeof rawId === 'string' || typeof rawId === 'number') appId = String(rawId);
   }
 
@@ -287,11 +289,13 @@ async function createUiSmokeApp(state: State, integration: UiIntegration): Promi
   // (BEX-426), the omit-when-blank rules, and the absence of OAuth material.
   must(existsSync(configPath), `create did not write ${configPath}`);
   const cfg = readJsonFile(configPath);
+  const cfgAppId = configField(cfg, 'app_id', 'appId');
   must(
-    String(cfg.appId) === appId,
-    `app-config.json appId ${JSON.stringify(cfg.appId)} != ${appId}`,
+    String(cfgAppId) === appId,
+    `app-config.json app_id ${JSON.stringify(cfgAppId)} != ${appId}`,
   );
-  must(cfg.appName === name, `app-config.json appName ${JSON.stringify(cfg.appName)} != ${name}`);
+  const cfgAppName = configField(cfg, 'app_name', 'appName');
+  must(cfgAppName === name, `app-config.json app_name ${JSON.stringify(cfgAppName)} != ${name}`);
   must(
     cfg.distribution_type === 'private',
     `app-config.json distribution_type ${JSON.stringify(cfg.distribution_type)} != private`,
@@ -350,7 +354,7 @@ async function createUiSmokeApp(state: State, integration: UiIntegration): Promi
     !('more_info' in entry),
     'blank more_info must be omitted from the entry, not written empty',
   );
-  const authUrls = (cfg.auth as Record<string, unknown> | undefined)?.redirectUris;
+  const authUrls = configRedirectUris(cfg);
   must(
     !Array.isArray(authUrls) || authUrls.length === 0,
     `UI app config carries OAuth redirect URIs: ${JSON.stringify(authUrls)}`,

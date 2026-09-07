@@ -17,6 +17,7 @@ import {
   parseJson,
   printOrphanWarning,
   readJsonFile,
+  configField,
   sleep,
   stampedName,
   trackTmpDir,
@@ -58,9 +59,9 @@ function readInitAppIdFromConfig(state: State, tmp: string): string | null {
     if (!existsSync(cfgPath)) continue;
     try {
       const cfg = readJsonFile(cfgPath);
-      // Narrow before stringifying — `appId` is unknown here, and an object would
+      // Narrow before stringifying — the id is unknown here, and an object would
       // stringify to "[object Object]" and then be used as an app id.
-      const rawId = cfg.appId;
+      const rawId = configField(cfg, 'app_id', 'appId');
       if (typeof rawId === 'string' || typeof rawId === 'number') return String(rawId);
     } catch (e) {
       logToFile(state, `${cfgPath} parse failed: ${errMsg(e)}`);

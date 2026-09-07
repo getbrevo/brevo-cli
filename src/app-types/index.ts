@@ -14,6 +14,7 @@ import type { ProjectConfig } from '../lib/config';
 import type { AppRecordLike, AppTypeId, AppTypeModule } from './contract';
 import { oauthAppType } from './oauth';
 import { uiAppType } from './ui';
+import { functionAppType } from './function';
 
 export type { AppTypeId, AppTypeModule, AppRecordLike } from './contract';
 export {
@@ -27,13 +28,16 @@ export {
 export const APP_TYPES: Readonly<Record<AppTypeId, AppTypeModule>> = {
   oauth: oauthAppType,
   ui: uiAppType,
+  function: functionAppType,
 };
 
 /**
  * Every type except the fallback, in detection order. `oauth` is excluded because its
  * predicate is the negation of the others' and matches anything that reaches it.
+ * `function` is checked before `ui` because both share the absence of OAuth material,
+ * but `function` has the positive `brevo_function` marker on the config path.
  */
-const POSITIVELY_DETECTED: readonly AppTypeModule[] = [uiAppType];
+const POSITIVELY_DETECTED: readonly AppTypeModule[] = [functionAppType, uiAppType];
 
 /** Which type does this local `app-config.json` describe? Never null — OAuth is the default. */
 export function resolveFromConfig(
