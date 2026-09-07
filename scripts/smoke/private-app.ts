@@ -14,6 +14,7 @@ import {
   assertMappedFailure,
   assertPortFree,
   brevoCmd,
+  computeSlug,
   createSmokeApp,
   deleteSmokeApp,
   ensureWorkRoot,
@@ -24,6 +25,7 @@ import {
   must,
   optStr,
   parseJson,
+  pickId,
   probeHttp,
   renamedName,
   requireApp,
@@ -31,6 +33,7 @@ import {
   requireProjectDir,
   sameSet,
   sleep,
+  stampedName,
   uploadApp,
   waitForExit,
 } from './core';
@@ -299,6 +302,162 @@ async function stepDeleteMainApp(state: State): Promise<string> {
   return detail;
 }
 
+// ──────────────────────────── M2M (machine-to-machine) ────────────────────────────
+//
+// An M2M app is CREATE-ONLY: `brevo app create --m2m` writes no directory and no
+// app-config.json. So it cannot go through `createSmokeApp`, which sends `--redirect-uri`
+// and asserts a project on disk — the two things an M2M app is defined by not having.
+// That absence is what these steps check; everything else about the app is ordinary.
+
+const M2M_SCOPES = ['contacts:read', 'crm:read'];
+
+async function stepM2mCreate(state: State): Promise<string> {
+  const workRoot = ensureWorkRoot(state);
+  const name = stampedName(state, 'm2m');
+
+  const created = parseJson<Record<string, unknown>>(
+    execOrThrow(
+      brevoCmd(state),
+      [
+        'app',
+        'create',
+        '--name',
+        name,
+        '--distribution',
+        'private',
+        '--m2m',
+        '--scopes',
+        M2M_SCOPES.join(','),
+        '--json',
+      ],
+      state,
+      { cwd: workRoot },
+    ).stdout,
+  );
+
+  const appId = pickId(created);
+  must(appId, `no app id in m2m create output: ${JSON.stringify(created).slice(0, 200)}`);
+  // Registered before any assertion below can throw, so a failure still cleans up.
+  state.m2mApp = { appId, name, distribution: 'private', projectDir: '', redirectUri: '' };
+
+  must(created.appName === name, `m2m create returned appName ${JSON.stringify(created.appName)}`);
+  must(
+    created.authType === 'm2m',
+    `m2m create returned authType ${JSON.stringify(created.authType)}, expected "m2m"`,
+  );
+  // `appType` stays `oauth` — M2M is a flow within the OAuth app type, not a third type.
+  must(
+    created.appType === 'oauth',
+    `m2m create returned appType ${JSON.stringify(created.appType)}, expected "oauth"`,
+  );
+  must(
+    typeof created.clientId === 'string' && created.clientId.length > 0,
+    'm2m create returned no clientId',
+  );
+  must(
+    sameSet(asStringArray(created.scopes, 'm2m create scopes'), M2M_SCOPES),
+    `m2m create returned scopes ${JSON.stringify(created.scopes)}, expected ${JSON.stringify(M2M_SCOPES)}`,
+  );
+
+  // The create-only contract, asserted as absence on both sides: no key in the JSON…
+  for (const key of ['redirectUri', 'directory', 'scaffolded']) {
+    must(!(key in created), `m2m create --json unexpectedly emitted "${key}"`);
+  }
+  // …and nothing on disk. `app create` would have used `./<slug>` had it written one.
+  const wouldBeDir = join(workRoot, computeSlug(name));
+  must(!existsSync(wouldBeDir), `m2m create wrote a project directory at ${wouldBeDir}`);
+
+  return `m2m app ${appId} created, no project directory written`;
+}
+
+// The credentials read is what proves the app is usable: it is also the check that
+// catches the app being MISCLASSIFIED server-side. `app credentials` refuses a UI app,
+// and the CLI calls a record with no client_id and no callbacks a UI app — so if the
+// listing ever stops returning `client_id` for an M2M app, this step fails loudly here
+// rather than the misclassification surfacing to a partner.
+function stepM2mCredentials(state: State): string {
+  const app = requireApp(state.m2mApp, 'm2m');
+  const creds = parseJson<Record<string, unknown>>(
+    execOrThrow(
+      brevoCmd(state),
+      ['app', 'credentials', '--app-id', app.appId, '--reveal-secret', '--json'],
+      state,
+      { cwd: ensureWorkRoot(state) },
+    ).stdout,
+  );
+  must(
+    typeof creds.clientId === 'string' && creds.clientId.length > 0,
+    'm2m credentials returned no clientId',
+  );
+  must(
+    typeof creds.clientSecret === 'string' && creds.clientSecret.length > 0,
+    'm2m credentials did not reveal a clientSecret',
+  );
+  return `m2m app ${app.appId} credentials readable`;
+}
+
+// Every refusal `assertM2mFlags` owns, driven through the real binary. They must all fail
+// before the app is created, so a leaked app here would itself be the finding.
+function stepM2mNegativeFlags(state: State): string {
+  const workRoot = ensureWorkRoot(state);
+  const run = (args: string[]): ReturnType<typeof exec> =>
+    exec(
+      brevoCmd(state),
+      ['app', 'create', '--name', stampedName(state, 'm2m-neg'), ...args],
+      state,
+      {
+        cwd: workRoot,
+      },
+    );
+
+  const details = [
+    assertMappedFailure(run(['--distribution', 'private', '--m2m', '--json']), {
+      what: '--m2m without --scopes',
+      patterns: [/--m2m` needs `--scopes/],
+      exitCodes: [1],
+    }),
+    assertMappedFailure(run(['--distribution', 'private', '--scopes', 'contacts:read', '--json']), {
+      what: '--scopes without --m2m',
+      patterns: [/--scopes` only applies to an M2M app/],
+      exitCodes: [1],
+    }),
+    assertMappedFailure(
+      run([
+        '--distribution',
+        'private',
+        '--m2m',
+        '--scopes',
+        'contacts:read',
+        '--redirect-uri',
+        `http://localhost:${state.opts.port}/auth/callback`,
+        '--json',
+      ]),
+      {
+        what: '--m2m with --redirect-uri',
+        patterns: [/can't be combined with `--redirect-uri`/],
+        exitCodes: [1],
+      },
+    ),
+    assertMappedFailure(
+      run(['--distribution', 'private', '--m2m', '--scopes', 'not a scope!', '--json']),
+      {
+        what: '--m2m with a malformed scope',
+        patterns: [/Invalid scope/],
+        exitCodes: [1],
+      },
+    ),
+  ];
+
+  return details.join('; ');
+}
+
+async function stepM2mDelete(state: State): Promise<string> {
+  const app = requireApp(state.m2mApp, 'm2m');
+  const detail = await deleteSmokeApp(state, app);
+  state.m2mApp = null;
+  return detail;
+}
+
 // ──────────────────────────── public-app lifecycle ────────────────────────────
 
 export const privateAppSuite: Suite = {
@@ -315,5 +474,9 @@ export const privateAppSuite: Suite = {
     ['Negative: client guardrails', stepNegativeClientGuardrails],
     ['Negative: submit a private app', stepNegativeSubmitPrivate],
     ['Delete main test app', stepDeleteMainApp],
+    ['M2M create', stepM2mCreate],
+    ['M2M credentials', stepM2mCredentials],
+    ['Negative: M2M flag combinations', stepM2mNegativeFlags],
+    ['Delete M2M app', stepM2mDelete],
   ],
 };

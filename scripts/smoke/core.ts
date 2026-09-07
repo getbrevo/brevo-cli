@@ -118,6 +118,10 @@ export interface State {
   publicApp: SmokeApp | null;
   // The UI app the `ui` suite created (`redirectUri` is '' — a UI app has none).
   uiApp: SmokeApp | null;
+  // The M2M app the `private` suite created. Both `redirectUri` and `projectDir` are ''
+  // — an M2M app has no callback AND no project on disk, which is the property the steps
+  // that use this assert.
+  m2mApp: SmokeApp | null;
   initAppId: string | null;
   linked: boolean;
   caps: Record<string, boolean> | null;
@@ -1424,6 +1428,13 @@ export function stepDeleteLeftoverApps(state: State): string {
       clear: () => (state.uiApp = null),
     });
   }
+  if (state.m2mApp) {
+    leftovers.push({
+      label: 'm2m',
+      appId: state.m2mApp.appId,
+      clear: () => (state.m2mApp = null),
+    });
+  }
   if (state.initAppId) {
     leftovers.push({
       label: 'init',
@@ -1553,6 +1564,7 @@ export function trapDeleteApps(state: State): void {
   state.mainApp = null;
   state.publicApp = null;
   state.uiApp = null;
+  state.m2mApp = null;
   state.initAppId = null;
 
   if (orphans.length > 0) {

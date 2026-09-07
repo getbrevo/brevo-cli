@@ -396,6 +396,7 @@ async function main(): Promise<void> {
     mainApp: null,
     publicApp: null,
     uiApp: null,
+    m2mApp: null,
     initAppId: null,
     linked: false,
     caps: null,

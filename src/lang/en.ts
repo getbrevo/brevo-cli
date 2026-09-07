@@ -1,4 +1,9 @@
-import { CLI, BREVO_CLI_REFERENCE_URL, BREVO_OAUTH_SCOPES_DOCS_URL } from '../lib/constants';
+import {
+  CLI,
+  BREVO_CLI_REFERENCE_URL,
+  BREVO_OAUTH_SCOPES_DOCS_URL,
+  OAUTH_TOKEN_URL,
+} from '../lib/constants';
 import { previewMessages } from './preview-messages';
 
 /**
@@ -123,6 +128,20 @@ const coreMessages = {
   APP_CREATE_APP_TYPE_OAUTH:
     'OAuth app  (Authorize against Brevo and call the API on a user’s behalf)',
   APP_CREATE_APP_TYPE_UI: 'UI app     (Render inside Brevo — opens your app from a record)',
+  // The OAuth flow, asked only for a PRIVATE OAuth app — a sibling of the app-type
+  // question right above, and phrased as a full question for the same reason.
+  //
+  // "Consent Based" and "Machine to Machine" are the product's own names for the two
+  // flows, so they are used verbatim rather than being restated as the grant names
+  // (`authorization_code` / `client_credentials`). The parentheticals carry the
+  // distinction that actually decides the answer — whether a Brevo user is involved —
+  // because that is the thing a partner knows about their own integration before they
+  // know which grant it implies. Padded so the parentheticals align, matching the
+  // app-type choices above.
+  APP_CREATE_OAUTH_FLOW_PROMPT: 'Which OAuth flow does this app use?',
+  APP_CREATE_OAUTH_FLOW_CONSENT:
+    'Consent Based       (A user authorizes it; you act on their behalf)',
+  APP_CREATE_OAUTH_FLOW_M2M: 'Machine to Machine  (Your server calls the API as itself; no user)',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   // Shown only after every prompt has been answered — hence the reassurance:
@@ -281,6 +300,55 @@ const coreMessages = {
   // Also the pointer to MORE placements: the flow authors one, and each further one is a
   // hand-written `surface_point_list` entry carrying its own label and destination.
   APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
+
+  // App create — M2M (machine-to-machine) OAuth apps.
+  //
+  // An M2M app uses the `client_credentials` grant: the partner's own server holds the
+  // credentials and calls the API as itself, so there is no Brevo user to redirect and no
+  // callback to register. That is the whole reason this path exists as its own branch —
+  // every OAuth string above assumes a redirect URL.
+  //
+  // It is also CREATE-ONLY: nothing is written to disk, so none of the copy here may
+  // mention `app-config.json`, `cd`, `app upload` or `app scaffold` as a next step. The
+  // absence is stated once, in APP_CREATE_M2M_NEXT, rather than left for the partner to
+  // discover by running a command that has nothing to read.
+  APP_CREATE_M2M_SCOPES_PROMPT: 'Scopes (comma-separated):',
+  APP_CREATE_M2M_SCOPES_HINT: (cmd: string) =>
+    `Tip: Run \`${cmd}\` in another terminal to see every scope your account can grant. Scopes are fixed at creation for an M2M app — there is no app-config.json to edit afterwards.`,
+  APP_CREATE_M2M_SCOPES_EMPTY: 'Enter at least one scope.',
+  APP_CREATE_M2M_BOX_SCOPES_LABEL: 'Scopes:',
+  // Deliberately NOT `APP_CREATE_BOX_SCOPE_HINT`, which tells the user to edit
+  // `auth.scopes` in app-config.json — a file an M2M app does not have.
+  //
+  // Every line is kept inside the box's content budget (terminal width minus chrome,
+  // so ~74 columns on a standard 80-column terminal) rather than written as prose and
+  // left to `printBox` to fold: a wrapped command or URL is no longer copy-pasteable,
+  // and the continuation indent reads as a second step. That budget is also why the
+  // command shown is `--app-id` alone with `--reveal-secret` named on the next line —
+  // both flags plus a 36-character app UUID is 83 columns and cannot fit either way.
+  APP_CREATE_M2M_NEXT: (appId: string): string[] => [
+    '1. Read the credentials back at any time:',
+    `   ${CLI.APP_CREDENTIALS(appId)}`,
+    '   Add `--reveal-secret` to print the client secret.',
+    '',
+    '2. Request an access token with `grant_type=client_credentials` from:',
+    `   ${OAUTH_TOKEN_URL}`,
+    '   Authenticate the request with the client ID and secret.',
+    '',
+    `No project files were written: an M2M app has no app-config.json, so \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_SCAFFOLD}\` do not apply to it.`,
+  ],
+
+  // App create — M2M flag combinations. Every one of these is checked before the first
+  // prompt, so a bad invocation costs the caller nothing; see `assertM2mFlags`.
+  APP_CREATE_M2M_SCOPES_REQUIRED: `\`--m2m\` needs \`--scopes\` — an M2M app's scopes are fixed at creation and there is no app-config.json to edit later. Example: \`--m2m --scopes "contacts:read,crm:read"\`.`,
+  // Refused rather than ignored: a consent-based create always sends the default scope
+  // set, so silently dropping `--scopes` would leave the caller believing they had
+  // narrowed an app that in fact got the defaults.
+  APP_CREATE_M2M_SCOPES_WITHOUT_M2M: `\`--scopes\` only applies to an M2M app — pass \`--m2m\` as well. A consent-based OAuth app is created with the default scopes; change them by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_M2M_REDIRECT_URI: `\`--m2m\` can't be combined with \`--redirect-uri\` — an M2M app calls the API as itself, so there is no user to redirect and no callback to register.`,
+  APP_CREATE_M2M_UI_FLAG: (flag: string) =>
+    `\`--m2m\` can't be combined with \`${flag}\` — an app is either an OAuth app or a UI app, not both.`,
+  APP_CREATE_M2M_PUBLIC: `\`--m2m\` requires \`--distribution private\` — the machine-to-machine flow is only available for private apps.`,
 
   // App install / uninstall — per-account availability for UI apps (BEX-290).
   // Moved here from `preview-messages.ts` at UI-apps GA.

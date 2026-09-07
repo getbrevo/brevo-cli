@@ -249,11 +249,26 @@ function resolveOauthBaseUrl(): string {
 export const OAUTH_BASE = resolveOauthBaseUrl();
 export const OAUTH_REALM = 'partner';
 export const OAUTH_SCOPES_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/scopes`;
+// The token endpoint, spelled out once. `ENDPOINTS.OAUTH_TOKEN` is the bare path used
+// against the API client's base URL; this is the absolute URL, which is what guidance
+// copy has to print — an M2M app's whole runtime contract is a POST to it, and the
+// created-app box is the only place the CLI ever tells the partner where that is.
+export const OAUTH_TOKEN_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/oauth/token`;
 
 // Legacy catch-all OAuth scope being deprecated (BEX-214). Single source of
 // truth for the spelling — every detection path goes through
 // `containsLegacyAllScope` in lib/validators.
 export const LEGACY_ALL_SCOPE = 'all';
+
+/**
+ * The `auth.type` value that marks an app as machine-to-machine on the wire.
+ *
+ * Sent on `POST /v3/app-store/apps` inside the `auth` block. A consent-based app sends
+ * **no** `type` key at all rather than some counterpart value — omitting it keeps that
+ * request byte-identical to every CLI version that predates M2M, so an older backend is
+ * unaffected. There is deliberately no `'consent'` constant to pair with this one.
+ */
+export const M2M_AUTH_TYPE = 'm2m';
 
 export const DEFAULT_SCOPES: readonly string[] = [
   'contacts:read',

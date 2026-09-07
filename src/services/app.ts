@@ -428,9 +428,16 @@ export function createAppService(client: ApiClient) {
       distribution_type: 'public' | 'private';
       // OAuth fields travel inside `auth`, the same block the upload endpoint
       // takes (unified payload structure). Omitted entirely for UI apps.
+      //
+      // `type` marks a machine-to-machine app (`client_credentials`), and a
+      // consent-based app omits it rather than sending a counterpart value — so
+      // this block stays byte-identical to what pre-M2M versions sent. An M2M app
+      // sends no `redirect_uris` at all, which is why that key is optional here:
+      // it has no callback, and `[]` would register state the grant never reads.
       auth?: {
+        type?: string;
         scopes: string[];
-        redirect_uris: string[];
+        redirect_uris?: string[];
       };
       // Sent for UI apps only, under the same key the upload endpoint takes and
       // the same key the block carries in app-config.json. It is the app-type

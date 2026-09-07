@@ -125,6 +125,8 @@ describe('messages (lang/en)', () => {
       ['APP_CREATE_LOGO_PROMPT', messages.APP_CREATE_LOGO_PROMPT],
       ['APP_CREATE_TYPE_PROMPT', messages.APP_CREATE_TYPE_PROMPT],
       ['APP_CREATE_APP_TYPE_PROMPT', messages.APP_CREATE_APP_TYPE_PROMPT],
+      ['APP_CREATE_OAUTH_FLOW_PROMPT', messages.APP_CREATE_OAUTH_FLOW_PROMPT],
+      ['APP_CREATE_M2M_SCOPES_PROMPT', messages.APP_CREATE_M2M_SCOPES_PROMPT],
       ['APP_CREATE_REDIRECT_PROMPT', messages.APP_CREATE_REDIRECT_PROMPT],
       ['APP_SCAFFOLD_FEATURE_EXISTS', messages.APP_SCAFFOLD_FEATURE_EXISTS],
       ['APP_CREATE_UI_LABEL_PROMPT', messages.APP_CREATE_UI_LABEL_PROMPT],
@@ -142,6 +144,58 @@ describe('messages (lang/en)', () => {
     expect(messages.WHOAMI_AUTHENTICATED('a@b.com', 'Corp')).toContain('a@b.com');
     expect(messages.WHOAMI_AUTHENTICATED('a@b.com', 'Corp')).toContain('Corp');
     expect(messages.WHOAMI_NOT_AUTHENTICATED).toContain('brevo login');
+  });
+
+  describe('M2M create messages', () => {
+    // A `list` choice renders one line per option, so the same 80-column budget applies —
+    // but with inquirer's pointer (`> `) plus `indentChoices`' own indent rather than the
+    // `? ` prefix the prompt test above counts.
+    it('keeps both flow choices inside 80 columns', () => {
+      for (const choice of [
+        messages.APP_CREATE_OAUTH_FLOW_CONSENT,
+        messages.APP_CREATE_OAUTH_FLOW_M2M,
+      ]) {
+        expect([...choice].length + 4).toBeLessThanOrEqual(80);
+      }
+    });
+
+    // The parentheticals are what distinguish the two flows at a glance; they only do
+    // that if they start at the same column.
+    it('aligns the two flow choices’ parentheticals', () => {
+      const consent = messages.APP_CREATE_OAUTH_FLOW_CONSENT.indexOf('(');
+      const m2m = messages.APP_CREATE_OAUTH_FLOW_M2M.indexOf('(');
+      expect(consent).toBeGreaterThan(0);
+      expect(m2m).toBe(consent);
+    });
+
+    // An M2M app writes no app-config.json, so any copy on this path that tells the
+    // reader to edit one is describing a file that does not exist.
+    it('never points an M2M user at app-config.json', () => {
+      const m2mCopy = [
+        messages.APP_CREATE_M2M_SCOPES_PROMPT,
+        messages.APP_CREATE_M2M_BOX_SCOPES_LABEL,
+        messages.APP_CREATE_M2M_REDIRECT_URI,
+        messages.APP_CREATE_M2M_PUBLIC,
+        ...messages.APP_CREATE_M2M_NEXT('app-1'),
+      ].join('\n');
+      expect(m2mCopy).not.toMatch(/edit .*app-config\.json/i);
+    });
+
+    it('names the token grant and the app id in the next steps', () => {
+      const next = messages.APP_CREATE_M2M_NEXT('app-1').join('\n');
+      expect(next).toContain('client_credentials');
+      expect(next).toContain('app-1');
+      // The absence of a project is stated rather than left to be discovered.
+      expect(next).toMatch(/no project files/i);
+    });
+
+    it('names the flag each refusal is about', () => {
+      expect(messages.APP_CREATE_M2M_SCOPES_REQUIRED).toContain('--scopes');
+      expect(messages.APP_CREATE_M2M_SCOPES_WITHOUT_M2M).toContain('--m2m');
+      expect(messages.APP_CREATE_M2M_REDIRECT_URI).toContain('--redirect-uri');
+      expect(messages.APP_CREATE_M2M_UI_FLAG('--ui-app')).toContain('--ui-app');
+      expect(messages.APP_CREATE_M2M_PUBLIC).toContain('--distribution private');
+    });
   });
 
   describe('scope-related messages', () => {

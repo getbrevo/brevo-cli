@@ -86,6 +86,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
         'brevo app create --name "My App" --ui-app --record-page contactDetails --placement contactDetails.header.menu --label "Open in Acme" --url https://example.com/open --json',
         'brevo app create --name "My App" --ui-config ./ui-app.json --json',
+        'brevo app create --name "My App" --distribution private --m2m --scopes "contacts:read,crm:read" --json',
       ],
       // A UI app is authored either through the interactive prompts (BEX-290), or
       // non-interactively via --ui-config or the --ui-app flag set — both build an
@@ -130,6 +131,14 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           description: 'UI app supporting text, max 255 chars, optional (with --ui-app)',
         },
         { flags: '--url <url>', description: 'UI app destination URL (with --ui-app)' },
+        {
+          flags: '--m2m',
+          description: 'Create a machine-to-machine OAuth app (private only; needs --scopes)',
+        },
+        {
+          flags: '--scopes <list>',
+          description: 'Comma-separated scopes for the M2M app (with --m2m)',
+        },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
@@ -145,6 +154,12 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           label: opts.label as string | undefined,
           moreInfo: opts.moreInfo as string | undefined,
           url: opts.url as string | undefined,
+          m2m: Boolean(opts.m2m),
+          // Deliberately NOT parsed here. Commander parsers throw before the command's
+          // own pre-flight runs, so `--scopes` without `--m2m` would fail on the scope
+          // charset instead of naming the real problem. `resolveM2mScopes` splits and
+          // validates it, after `assertM2mFlags` has ruled out the combination errors.
+          scopes: opts.scopes as string | undefined,
           json: Boolean(opts.json),
         }),
     },
