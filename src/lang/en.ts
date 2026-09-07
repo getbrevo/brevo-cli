@@ -230,13 +230,23 @@ const coreMessages = {
   APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID: (file: string, reason: string) =>
     `Could not read --ui-config "${file}": ${reason}`,
   // --ui-config reads a FIXED key set and drops everything else, so a key it does not
-  // read has to be refused by name rather than ignored: silently dropping `layout` or
-  // `modal_size` would create an app that renders differently from the file that asked
-  // for it, with no error anywhere. Both are `iframeExtension`-only fields and both
-  // non-interactive routes author `actionLink`, so there is no version of this file that
-  // could carry one and be honoured.
+  // read has to be refused by name rather than ignored: silently dropping `iframe_href`,
+  // `layout` or `modal_size` would create an app that renders differently from the file
+  // that asked for it, with no error anywhere. All three are `iframeExtension`-only
+  // fields and both non-interactive routes author `actionLink`, so there is no version of
+  // this file that could carry one and be honoured. They ARE authorable elsewhere — in an
+  // iframe app's `app-config.json` — which is what the second sentence points at.
   APP_CREATE_UI_NONINTERACTIVE_UNSUPPORTED_KEY: (key: string) =>
     `"${key}" is not supported by --ui-config: it applies to "iframeExtension" entries only, and non-interactive UI app creation authors "actionLink". Create the app interactively instead, or add it to the \`ui_app\` block in app-config.json and run \`${CLI.APP_UPLOAD}\`.`,
+  // The other silent-drop class, and a different failure: these are not authored ANYWHERE.
+  // The platform stamps them onto the stored snapshot — `link_target` is injected by
+  // `app upload`, `sandbox` is the platform's own iframe policy (and bo-be 400s an
+  // authored one), `extension_point_name` is derived from the slug, `version` is
+  // server-managed — and the CLI strips all four off the echo so none reaches
+  // `app-config.json`. So the advice cannot be "put it in app-config.json instead"; it is
+  // "delete it", the same thing `validateUiApp` says about a root `link_target`.
+  APP_CREATE_UI_NONINTERACTIVE_SERVER_OWNED_KEY: (key: string) =>
+    `"${key}" is not supported by --ui-config: the Brevo platform owns it and stamps it onto the stored app itself, so it is never authored — not here and not in app-config.json. Remove it from the file.`,
   APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_RECORD_PAGE: (page: string, valid: string[]) =>
     `Unknown --record-page "${page}". Valid record pages: ${valid.join(', ')}.`,
   APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_PLACEMENT: (

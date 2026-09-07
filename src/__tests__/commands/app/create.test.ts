@@ -103,6 +103,9 @@ import {
   computeCdHint,
 } from '../../../commands/app/project-writer';
 import { promptFeatureType } from '../../../commands/app/scaffold-prompts';
+// The platform-owned key list `--ui-config` derives its second refusal from. Imported
+// so the test asserts the derivation rather than re-typing the four names.
+import { uiAppType } from '../../../app-types/ui';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
@@ -2664,28 +2667,95 @@ describe('app/create', () => {
       });
 
       // The file's key set is fixed and everything else is DROPPED, so an iframe-only
-      // presentation field has to be refused by name: silently ignoring it would create an
-      // app that renders differently from the file that asked for it, with nothing said.
+      // field has to be refused by name: silently ignoring it would create an app that
+      // renders differently from the file that asked for it, with nothing said.
+      // `iframe_href` is the destination itself, so dropping it is the worst of the three
+      // — the app would be created pointing at the `redirect_link` the file may not even
+      // carry, on the wrong extension type.
       it.each([
+        ['iframe_href', 'https://example.com/embed'],
         ['layout', 'inline'],
         ['modal_size', 'small'],
-      ])('rejects a %s key in --ui-config before any network call', async (key, value) => {
-        (fs.readFileSync as jest.Mock).mockReturnValue(
-          JSON.stringify({
-            extension_type: 'actionLink',
-            record_page: 'contactDetails',
-            surface_point_name: 'contact-details-header-menu',
-            label: 'Open in Acme',
-            redirect_link: 'https://example.com/open',
-            [key]: value,
-          }),
-        );
+      ])(
+        'rejects an iframe-only %s key in --ui-config before any network call',
+        async (key, value) => {
+          (fs.readFileSync as jest.Mock).mockReturnValue(
+            JSON.stringify({
+              extension_type: 'actionLink',
+              record_page: 'contactDetails',
+              surface_point_name: 'contact-details-header-menu',
+              label: 'Open in Acme',
+              redirect_link: 'https://example.com/open',
+              [key]: value,
+            }),
+          );
 
-        await expect(
-          createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
-        ).rejects.toThrow(new RegExp(`"${key}" is not supported by --ui-config`));
-        expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
-        expect(appService.createApp).not.toHaveBeenCalled();
+          await expect(
+            createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
+          ).rejects.toThrow(
+            new RegExp(`"${key}" is not supported by --ui-config: it applies to "iframeExtension"`),
+          );
+          expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
+          expect(appService.createApp).not.toHaveBeenCalled();
+        },
+      );
+
+      // The second silent-drop class: keys the PLATFORM owns and stamps onto the stored
+      // snapshot. Not authorable anywhere, so the refusal says "remove it" rather than
+      // "put it in app-config.json" — and for `sandbox` this is the CLI's only local
+      // refusal at all (`validateUiApp` has no unknown-key sweep, so a `sandbox` in
+      // app-config.json reaches the wire and comes back a 400).
+      it.each([
+        ['link_target', '_blank'],
+        ['version', '3'],
+        ['extension_point_name', 'contactDetails.headerMenu.action'],
+        ['sandbox', 'allow-scripts'],
+      ])(
+        'rejects the server-owned %s key in --ui-config before any network call',
+        async (key, value) => {
+          (fs.readFileSync as jest.Mock).mockReturnValue(
+            JSON.stringify({
+              extension_type: 'actionLink',
+              record_page: 'contactDetails',
+              surface_point_name: 'contact-details-header-menu',
+              label: 'Open in Acme',
+              redirect_link: 'https://example.com/open',
+              [key]: value,
+            }),
+          );
+
+          await expect(
+            createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
+          ).rejects.toThrow(
+            new RegExp(`"${key}" is not supported by --ui-config: the Brevo platform owns it`),
+          );
+          expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
+          expect(appService.createApp).not.toHaveBeenCalled();
+        },
+      );
+
+      // The server-owned refusal is DERIVED from `uiAppType.wireOnlyKeys`, so this asserts
+      // the derivation rather than a hand-copied list: a fifth platform-stamped key must
+      // become a `--ui-config` refusal without anyone editing create.ts. Fails loudly if
+      // someone re-lists the keys literally and the two then drift.
+      it('refuses every wire-only key the ui app type declares', async () => {
+        for (const key of uiAppType.wireOnlyKeys) {
+          (fs.readFileSync as jest.Mock).mockReturnValue(
+            JSON.stringify({
+              extension_type: 'actionLink',
+              record_page: 'contactDetails',
+              surface_point_name: 'contact-details-header-menu',
+              label: 'Open in Acme',
+              redirect_link: 'https://example.com/open',
+              [key]: 'anything',
+            }),
+          );
+
+          await expect(
+            createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
+          ).rejects.toThrow(new RegExp(`"${key}" is not supported by --ui-config`));
+          expect(appService.createApp).not.toHaveBeenCalled();
+        }
       });
 
       it('rejects --ui-config and --ui-app together', async () => {
