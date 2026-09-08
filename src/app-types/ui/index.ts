@@ -30,14 +30,19 @@ import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
  *                      `surface_point_name` slug and stamps onto its own copy. Also INSIDE
  *                      an entry, which — with `link_target` — is why the strip recurses.
  *   - `sandbox`      — the iframe sandbox attributes the platform decides and stamps onto
- *                      the stored snapshot's root. Server policy, not partner policy: what an
+ *                      the stored snapshot. Server policy, not partner policy: what an
  *                      iframe is allowed to do is the platform's call, and both `validateUiApp`
  *                      (`rejectAuthoredSandbox`) and bo-be refuse an authored one — it is
- *                      simply not the partner's field to write. Don't
- *                      re-justify this by who *reads* the value: app-store-backend now serves
- *                      the stored `sandbox` on the manifest and the UI kit renders from it
- *                      rather than the fixed constant it used to, which makes the
- *                      not-authorable rule matter more, not less.
+ *                      simply not the partner's field to write. And the stamp is
+ *                      LOAD-BEARING rather than decorative: the platform stamps the policy,
+ *                      app-store-backend serves it on the manifest, and the UI kit applies it
+ *                      verbatim with **no default of its own** — `@dtsl/extensibility-ui-kit`
+ *                      0.11.0 deleted the fallback constant it used to render under. An entry
+ *                      served without a sandbox renders the fail-closed `sandbox=""`: an inert
+ *                      frame whose scripts never run. So this is not merely a field the partner
+ *                      may not author, it is one whose *absence* breaks the app. Don't
+ *                      re-justify this by who *reads* the value — the rule is authorability,
+ *                      and a reader with no fallback of its own only makes it matter more.
  *
  * All four exist on the server's side of a comparison only. Left in, the first successful
  * upload writes them into the file this command just decided to keep them out of, and every
