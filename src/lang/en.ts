@@ -315,6 +315,26 @@ const coreMessages = {
   // mention `app-config.json`, `cd`, `app upload` or `app scaffold` as a next step. The
   // absence is stated once, in APP_CREATE_M2M_NEXT, rather than left for the partner to
   // discover by running a command that has nothing to read.
+  //
+  // Scopes are collected two ways, and both are reachable: a multi-select over the IdP's
+  // live catalog (the normal path), and the free-text prompt below when that catalog
+  // cannot be read. The picker copy therefore may not be the only place a rule is
+  // stated — anything the partner must know about M2M scopes has to survive the
+  // fallback too, which is why the "fixed at creation" warning lives in
+  // APP_CREATE_M2M_SCOPES_FIXED and is printed on both paths.
+  APP_CREATE_M2M_SCOPES_FIXED:
+    'Scopes are fixed at creation for an M2M app — there is no app-config.json to edit afterwards, so select everything this integration needs.',
+  APP_CREATE_M2M_SCOPES_PICKER_SPINNER: 'Loading available scopes...',
+  APP_CREATE_M2M_SCOPES_PICKER_PROMPT: 'Which scopes does this app need?',
+  // The trailing half of a selectable section heading — the category's own label from the
+  // IdP precedes it, and the two are styled differently, which is why this owns only the
+  // phrase. Says the count because that number IS the breadth being granted, and an M2M
+  // grant has no consent screen where anyone reads it back.
+  APP_CREATE_M2M_SCOPES_SECTION_ALL: (count: number) => `— all ${count} scopes`,
+  // Named for what the partner does next, not for what broke: the catalog read is a
+  // convenience, and typing the names is still a supported way to answer.
+  APP_CREATE_M2M_SCOPES_CATALOG_UNAVAILABLE: (cmd: string) =>
+    `Could not load the scope catalog, so scopes have to be typed. Run \`${cmd}\` once the connection is back to see every scope your account can grant.`,
   APP_CREATE_M2M_SCOPES_PROMPT: 'Scopes (comma-separated):',
   APP_CREATE_M2M_SCOPES_HINT: (cmd: string) =>
     `Tip: Run \`${cmd}\` in another terminal to see every scope your account can grant. Scopes are fixed at creation for an M2M app — there is no app-config.json to edit afterwards.`,

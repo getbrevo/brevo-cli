@@ -429,6 +429,13 @@ export function createAppService(client: ApiClient) {
     async createApp(payload: {
       name: string;
       distribution_type: 'public' | 'private';
+      /**
+       * What kind of app to create — `oauth.consent`, `oauth.m2m`, `ui_app.<extension_type>`
+       * or `brevo_function` (`WIRE_APP_TYPE`). Built by the caller from the discriminator
+       * block below and passed through untouched: this service must never synthesise or
+       * default it, or the label could describe an app the body does not.
+       */
+      app_type: string;
       // OAuth fields travel inside `auth`, the same block the upload endpoint
       // takes (unified payload structure). Omitted entirely for UI and Function apps.
       //

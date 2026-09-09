@@ -8,6 +8,7 @@ import {
   DEFAULT_SCOPES,
   EXTENSION_TYPE_ACTION_LINK,
   M2M_AUTH_TYPE,
+  WIRE_APP_TYPE,
 } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
 import { logInfo, logError, logWarn } from '../../lib/logger';
@@ -15,14 +16,14 @@ import { messages } from '../../lang/en';
 import { ApiError, AuthExpiredError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
+import { validateEnum, validateAppName, validateYesNo, splitScopes } from '../../lib/validators';
+// Every M2M scope answer — flag, picker, or typed fallback — goes through this module.
 import {
-  validateEnum,
-  validateAppName,
-  validateYesNo,
-  splitScopes,
-  validateScopes,
-  containsLegacyAllScope,
-} from '../../lib/validators';
+  checkScopeList,
+  promptScopeSelection,
+  validateM2mScopesInput,
+  SCOPE_INPUT_QUESTION,
+} from './scope-prompts';
 import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
 import {
@@ -322,41 +323,22 @@ async function resolveOAuthFlow(
 }
 
 /**
- * Validate a comma-or-whitespace-separated scope list the way inquirer wants it.
+ * 4c. The M2M scope list, from `--scopes`, the catalog picker, or the typed fallback.
  *
- * `validateScopes` throws a `CliError` — correct for a flag, wrong for a prompt, where a
- * throw aborts the whole command instead of re-asking. This adapts it to the
- * `true | string` contract, the same shape `validateRedirectUrl` above uses.
- *
- * The legacy `all` scope is refused here rather than being left to `app upload`, which is
- * where an OAuth app meets that check — an M2M app never reaches an upload, so this is the
- * only chance to catch it.
- */
-const validateM2mScopesInput = (input: string): true | string => {
-  const scopes = splitScopes(input);
-  if (scopes.length === 0) return messages.APP_CREATE_M2M_SCOPES_EMPTY;
-  try {
-    validateScopes(scopes);
-  } catch (err) {
-    return err instanceof Error ? err.message : String(err);
-  }
-  if (containsLegacyAllScope(scopes)) return messages.LEGACY_ALL_SCOPE_DEPRECATED_BLOCK;
-  return true;
-};
-
-/**
- * 4c. The M2M scope list, from `--scopes` or the prompt.
- *
- * One function for both inputs so they can never disagree: each runs the same
- * `splitScopes` (which handles commas AND whitespace, and de-duplicates) and the same
- * checks. Only the failure mode differs — the flag throws, because there is nobody to
- * re-ask, while the prompt hands the message back to inquirer and asks again.
+ * One function for all three so they can never disagree: each ends at `checkScopeList`
+ * (`scope-prompts.ts`), which rejects an empty list, a malformed scope name and the legacy
+ * `all` scope alike. Only the failure mode differs — the flag throws, because there is
+ * nobody to re-ask, while a prompt hands the message back to inquirer and asks again.
  *
  * **The prompt is deliberately not pre-filled with `DEFAULT_SCOPES`.** A consent-based app
  * can afford a default because a Brevo user reviews the scopes at the authorize screen; an
- * M2M app has no such review step, so the grant is whatever was typed here and nothing
+ * M2M app has no such review step, so the grant is whatever was chosen here and nothing
  * ever shows it to a human again. Making the partner name the scopes is the least-privilege
- * default; the hint points at the catalog so they are not guessing.
+ * default; the picker is what stops them guessing.
+ *
+ * The typed prompt survives as the fallback for an unreadable catalog, and keeps its
+ * `available-scopes` tip — advice that is only useful when the CLI could not show the list
+ * itself.
  *
  * `quiet` is defensive rather than exercised: the prompt branch is interactive by
  * construction today (`--m2m` requires `--scopes`, and the flow can otherwise only be
@@ -370,16 +352,28 @@ async function resolveM2mScopes(scopesFlag: string | undefined, quiet: boolean):
     if (check !== true) throw new CliError(check);
     return splitScopes(scopesFlag);
   }
+
+  const picked = await promptScopeSelection(quiet);
+  if (picked !== null) {
+    // The picker's own `validate` has already refused an empty selection, so this is the
+    // belt to that braces: a list that got here empty means the prompt was bypassed, and
+    // creating an M2M app with no scopes at all would build a CONSENT body instead (see
+    // `CreateAppInputs.m2mScopes`).
+    const check = checkScopeList(picked);
+    if (check !== true) throw new CliError(check);
+    return picked;
+  }
+
   if (!quiet) logInfo(messages.APP_CREATE_M2M_SCOPES_HINT(CLI.APP_SCOPES));
-  const { scopes } = await inquirer.prompt([
+  const answer = await inquirer.prompt([
     {
       type: 'input',
-      name: 'scopes',
+      name: SCOPE_INPUT_QUESTION,
       message: messages.APP_CREATE_M2M_SCOPES_PROMPT,
       validate: validateM2mScopesInput,
     },
   ]);
-  return splitScopes(String(scopes ?? ''));
+  return splitScopes(String(answer[SCOPE_INPUT_QUESTION] ?? ''));
 }
 
 /**
@@ -680,16 +674,44 @@ function buildAuthOrUiBlock(inputs: CreateAppInputs): Record<string, unknown> {
   if (inputs.m2mScopes) {
     return { auth: { type: M2M_AUTH_TYPE, scopes: inputs.m2mScopes } };
   }
-  // Consent-based sends no `type` key at all. Omitting it keeps this body byte-identical
-  // to what every CLI version before M2M sent, so a backend that predates the field is
-  // unaffected — and there is deliberately no `'consent'` counterpart value to send.
+  // Consent-based sends no `type` key at all — there is deliberately no `'consent'`
+  // counterpart value inside `auth`. The flow is named once, at the top level, by
+  // `app_type` (`wireAppTypeForBlock`).
   return { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } };
 }
 
+/**
+ * The `app_type` the request states, read back off the block that was just built.
+ *
+ * Derived from the BLOCK rather than from `CreateAppInputs` on purpose: the block is the
+ * thing the platform branches on, so reading it is what makes the label and the shape
+ * structurally incapable of disagreeing. Re-deriving both from the inputs would give two
+ * expressions of one decision — exactly the drift `app upload`'s `assertAppTypeAgrees` has
+ * to *check* for on the config side, where the label is authored by hand.
+ *
+ * The UI value carries the block's own `extension_type`, so `iframeExtension` becoming
+ * authorable needs no change here.
+ *
+ * **Unrelated to `app-config.json`'s `app_type`**, which stays a local one-word label and
+ * still never travels (see `WIRE_APP_TYPE`).
+ */
+function wireAppTypeForBlock(block: Record<string, unknown>): string {
+  const uiApp = block.ui_app as UiApp | undefined;
+  if (uiApp) return `${WIRE_APP_TYPE.UI_PREFIX}.${uiApp.extension_type}`;
+  if (block.brevo_function) return WIRE_APP_TYPE.FUNCTION;
+  const auth = block.auth as { type?: string } | undefined;
+  return auth?.type === M2M_AUTH_TYPE ? WIRE_APP_TYPE.OAUTH_M2M : WIRE_APP_TYPE.OAUTH_CONSENT;
+}
+
 function buildCreatePayload(inputs: CreateAppInputs) {
+  const block = buildAuthOrUiBlock(inputs);
   return {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
+    // What kind of app this is, said out loud rather than inferred from which of the
+    // blocks below is present. The presence of `ui_app` / `brevo_function` / `auth.type`
+    // remains the discriminator — this is derived from it, never the other way round.
+    app_type: wireAppTypeForBlock(block),
     // OAuth fields travel inside the `auth` block, same as the upload payload
     // (unified structure). A UI app and a Function app have no OAuth block at
     // all (`auth: {}` in a UI app's config) — the key is omitted entirely, not
@@ -705,7 +727,7 @@ function buildCreatePayload(inputs: CreateAppInputs) {
     // platform's validation authority for it — this is the same block under the
     // same key, sent early enough that the record is created with the right app
     // type.
-    ...buildAuthOrUiBlock(inputs),
+    ...block,
     ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
 }

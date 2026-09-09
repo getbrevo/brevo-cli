@@ -323,11 +323,19 @@ describe('services/app', () => {
       };
       (mockClient.post as jest.Mock).mockResolvedValue(response);
 
-      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'Test App',
+        distribution_type: 'private',
+        app_type: 'oauth.consent',
+      });
 
+      // Exactly what the caller passed, `app_type` included and nothing added: the
+      // service must not synthesise or default that field — `create.ts` derives it from
+      // the request's own discriminator block, which is the only place that can.
       expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps', {
         name: 'Test App',
         distribution_type: 'private',
+        app_type: 'oauth.consent',
       });
       expect(result).toEqual({ ...response, app_id: '1' });
     });
@@ -352,7 +360,11 @@ describe('services/app', () => {
         updated_at: '2026-01-01',
       });
 
-      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'Test App',
+        distribution_type: 'private',
+        app_type: 'oauth.consent',
+      });
 
       expect(result.client_id).toBe('cli-123');
       expect(result.client_secret).toBe('secret');
@@ -372,7 +384,11 @@ describe('services/app', () => {
         updated_at: '2026-01-01',
       });
 
-      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'Test App',
+        distribution_type: 'private',
+        app_type: 'oauth.consent',
+      });
 
       expect(result.client_id).toBe('cli-123');
       expect(result.client_secret).toBe('secret');
@@ -397,7 +413,11 @@ describe('services/app', () => {
         updated_at: '2026-01-01',
       });
 
-      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'Test App',
+        distribution_type: 'private',
+        app_type: 'oauth.consent',
+      });
 
       expect(result.client_id).toBe('flat-wins');
       expect(result.redirect_uris).toEqual(['https://flat.example.com/cb']);
@@ -416,7 +436,11 @@ describe('services/app', () => {
         updated_at: '2026-01-01',
       });
 
-      const result = await service.createApp({ name: 'UI App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'UI App',
+        distribution_type: 'private',
+        app_type: 'ui_app.actionLink',
+      });
 
       expect(result.client_id).toBeUndefined();
       expect(result.client_secret).toBeUndefined();
@@ -427,7 +451,11 @@ describe('services/app', () => {
     it('should propagate API errors', async () => {
       (mockClient.post as jest.Mock).mockRejectedValue(new Error('API error'));
       await expect(
-        service.createApp({ name: 'Test', distribution_type: 'private' }),
+        service.createApp({
+          name: 'Test',
+          distribution_type: 'private',
+          app_type: 'oauth.consent',
+        }),
       ).rejects.toThrow('API error');
     });
   });

@@ -280,11 +280,33 @@ export const LEGACY_ALL_SCOPE = 'all';
  * The `auth.type` value that marks an app as machine-to-machine on the wire.
  *
  * Sent on `POST /v3/app-store/apps` inside the `auth` block. A consent-based app sends
- * **no** `type` key at all rather than some counterpart value — omitting it keeps that
- * request byte-identical to every CLI version that predates M2M, so an older backend is
- * unaffected. There is deliberately no `'consent'` constant to pair with this one.
+ * **no** `type` key at all rather than some counterpart value; the flow it is in is stated
+ * once, at the top level, by `WIRE_APP_TYPE.OAUTH_CONSENT`. There is deliberately no
+ * `'consent'` constant to pair with this one.
  */
 export const M2M_AUTH_TYPE = 'm2m';
+
+/**
+ * The `app_type` values `brevo app create` sends on `POST /v3/app-store/apps`.
+ *
+ * **Not the same vocabulary as `app-config.json`'s `app_type` key**, which is a one-word
+ * local label (`oauth` / `ui` / `function`) written by the project writer and never sent
+ * anywhere. This one names the app type *and* the variant within it, because the two
+ * things the platform has to branch on — which contract, and which flow of it — are not
+ * separable at the top level of the request. The two fields share a name and nothing else:
+ * different values, different source (derived from the request's own discriminator block,
+ * see `wireAppTypeForBlock`), different lifetime.
+ *
+ * A UI app's value is completed with the block's `extension_type`
+ * (`ui_app.actionLink` today), so the day another extension type becomes authorable there
+ * is nothing here to remember to update.
+ */
+export const WIRE_APP_TYPE = {
+  FUNCTION: 'brevo_function',
+  UI_PREFIX: 'ui_app',
+  OAUTH_CONSENT: 'oauth.consent',
+  OAUTH_M2M: 'oauth.m2m',
+} as const;
 
 export const DEFAULT_SCOPES: readonly string[] = [
   'contacts:read',

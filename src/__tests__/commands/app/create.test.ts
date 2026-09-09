@@ -3,6 +3,9 @@ import { ApiError, AuthExpiredError, ErrorCode } from '../../../lib/errors';
 
 jest.mock('inquirer', () => ({
   prompt: jest.fn(),
+  // The M2M scope picker registers its own cascading checkbox at prompt time; without this
+  // the registration fails and these tests would quietly exercise its fallback instead.
+  registerPrompt: jest.fn(),
   // The grouped placement prompt puts one separator above each page's placements.
   // Mirrors inquirer 8's own Separator, which carries `type: 'separator'` and the
   // rendered `line` — the tests read both to assert the grouping.
@@ -77,6 +80,14 @@ jest.mock('../../../commands/app/scaffold-prompts', () => ({
   promptFeatureType: jest.fn(),
 }));
 
+// The M2M scope picker reads the IdP catalog live. Only the network call is mocked —
+// `groupScopesByCategory` is pure and shared with `app available-scopes`, so the real one
+// runs and the choices these tests read are grouped the way the command groups them.
+jest.mock('../../../services/oauth-metadata', () => ({
+  ...jest.requireActual('../../../services/oauth-metadata'),
+  fetchSupportedScopes: jest.fn(),
+}));
+
 jest.mock('node:fs');
 
 // Need to import after mocks
@@ -103,6 +114,8 @@ import {
   computeCdHint,
 } from '../../../commands/app/project-writer';
 import { promptFeatureType } from '../../../commands/app/scaffold-prompts';
+import { fetchSupportedScopes } from '../../../services/oauth-metadata';
+import { SECTION_CHECKBOX_PROMPT } from '../../../commands/app/section-checkbox';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
@@ -256,6 +269,7 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Test App',
       distribution_type: 'private',
+      app_type: 'oauth.consent',
       auth: {
         scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
         redirect_uris: ['http://localhost:3009/auth/callback'],
@@ -1072,6 +1086,7 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenLastCalledWith({
       name: 'New Name',
       distribution_type: 'private',
+      app_type: 'oauth.consent',
       auth: {
         scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
         redirect_uris: ['http://localhost:3009/auth/callback'],
@@ -1225,6 +1240,7 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Prompted App',
       distribution_type: 'private',
+      app_type: 'oauth.consent',
       auth: {
         scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
         redirect_uris: ['http://localhost:3009/auth/callback'],
@@ -1263,6 +1279,7 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Public App',
       distribution_type: 'public',
+      app_type: 'oauth.consent',
       auth: {
         scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
         redirect_uris: ['http://localhost:3009/auth/callback'],
@@ -1311,6 +1328,7 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Café Résumé',
       distribution_type: 'private',
+      app_type: 'oauth.consent',
       auth: {
         scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
         redirect_uris: ['http://localhost:3009/auth/callback'],
@@ -1342,6 +1360,7 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Multi URL App',
       distribution_type: 'private',
+      app_type: 'oauth.consent',
       auth: {
         scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
         redirect_uris: ['http://localhost:3009/auth/callback', 'https://myapp.com/callback'],
@@ -1378,6 +1397,7 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Flag App',
       distribution_type: 'private',
+      app_type: 'oauth.consent',
       auth: {
         scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
         redirect_uris: ['https://myapp.com/callback'],
@@ -1409,6 +1429,7 @@ describe('app/create', () => {
     expect(appService.createApp).toHaveBeenCalledWith({
       name: 'Multi Flag App',
       distribution_type: 'private',
+      app_type: 'oauth.consent',
       auth: {
         scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
         redirect_uris: ['http://localhost:3000/cb', 'https://prod.example.com/cb'],
@@ -2567,6 +2588,17 @@ describe('app/create', () => {
         expect(payload).not.toHaveProperty('auth');
       });
 
+      // The label is DERIVED from the block, not written alongside it: it is built from
+      // the block's own `extension_type`, so the day `iframeExtension` becomes authorable
+      // there is no second place to update and no way for the two to disagree.
+      it('states app_type as ui_app.<extension_type>, taken from the block itself', async () => {
+        await createCommand(FLAG_OPTIONS as never);
+
+        const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+        expect(payload.app_type).toBe('ui_app.actionLink');
+        expect(payload.app_type).toBe(`ui_app.${payload.ui_app.extension_type}`);
+      });
+
       it('creates a UI app from --ui-config without a TTY', async () => {
         (fs.readFileSync as jest.Mock).mockReturnValue(
           JSON.stringify({
@@ -2804,8 +2836,29 @@ describe('app/create', () => {
       version: '0.0.1',
     };
 
+    // Shaped like the real catalog: two categories, one of them labelled and one not, so
+    // the heading fallback is exercised alongside the labelled case.
+    const CATALOG = [
+      {
+        name: 'contacts:read',
+        category: 'contacts_crm',
+        apiEndpoints: ['/contacts'],
+        description: 'Read contacts, lists and attributes',
+        categoryLabel: 'Contacts & CRM',
+      },
+      {
+        name: 'crm:read',
+        category: 'contacts_crm',
+        apiEndpoints: ['/crm'],
+        description: 'Read CRM deals, tasks and companies',
+        categoryLabel: 'Contacts & CRM',
+      },
+      { name: 'events:write', category: 'events', apiEndpoints: ['/events'] },
+    ];
+
     beforeEach(() => {
       (appService.createApp as jest.Mock).mockResolvedValue(m2mCreated);
+      (fetchSupportedScopes as jest.Mock).mockResolvedValue(CATALOG);
     });
 
     it('asks the OAuth flow after the app type and before any callback URL', async () => {
@@ -2817,7 +2870,7 @@ describe('app/create', () => {
           distribution: 'private',
           appType: 'oauth',
           oauthFlow: 'm2m',
-          scopes: 'contacts:read, crm:read',
+          scopes: ['contacts:read', 'crm:read'],
         },
         asked,
       );
@@ -2870,7 +2923,7 @@ describe('app/create', () => {
         logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'm2m',
-        scopes: 'contacts:read, crm:read',
+        scopes: ['contacts:read', 'crm:read'],
       });
 
       await createCommand({ name: 'Ledger Sync', distribution: 'private' });
@@ -2878,6 +2931,7 @@ describe('app/create', () => {
       expect(appService.createApp).toHaveBeenCalledWith({
         name: 'Ledger Sync',
         distribution_type: 'private',
+        app_type: 'oauth.m2m',
         auth: { type: 'm2m', scopes: ['contacts:read', 'crm:read'] },
       });
       // Not `redirect_uris: []` — the key is absent, which is what says "no callback by
@@ -2886,12 +2940,88 @@ describe('app/create', () => {
       expect(payload.auth).not.toHaveProperty('redirect_uris');
     });
 
+    it('picks the scopes from the live IdP catalog instead of asking for a typed list', async () => {
+      const asked: string[] = [];
+      answerPrompts(
+        {
+          logoUrl: '',
+          appType: 'oauth',
+          oauthFlow: 'm2m',
+          scopes: ['contacts:read', 'events:write'],
+        },
+        asked,
+      );
+
+      await createCommand({ name: 'Ledger Sync', distribution: 'private' });
+
+      expect(fetchSupportedScopes).toHaveBeenCalled();
+      const question = mockPrompt.mock.calls
+        .flatMap((call) => call[0])
+        .find((q) => q?.name === 'scopes');
+      // A checkbox, and specifically the cascading one, so a whole category can be taken
+      // by selecting its heading.
+      expect(question.type).toBe(SECTION_CHECKBOX_PROMPT);
+      // The typed prompt is the fallback and must not also fire — being asked twice for the
+      // same thing is how a partner ends up with a list they did not mean.
+      expect(asked).not.toContain('scopesRaw');
+      expect(appService.createApp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          auth: { type: 'm2m', scopes: ['contacts:read', 'events:write'] },
+        }),
+      );
+    });
+
+    it('falls back to the typed prompt when the catalog cannot be read, and still creates', async () => {
+      (fetchSupportedScopes as jest.Mock).mockRejectedValue(new ApiError('idp down', 503));
+      const asked: string[] = [];
+      answerPrompts(
+        {
+          logoUrl: '',
+          appType: 'oauth',
+          oauthFlow: 'm2m',
+          scopesRaw: 'contacts:read, crm:read',
+        },
+        asked,
+      );
+
+      await createCommand({ name: 'Ledger Sync', distribution: 'private' });
+
+      expect(asked).toContain('scopesRaw');
+      expect(appService.createApp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          auth: { type: 'm2m', scopes: ['contacts:read', 'crm:read'] },
+        }),
+      );
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+      expect(output).toContain('Could not load the scope catalog');
+    });
+
+    it('never reads the catalog when --scopes named the list', async () => {
+      // Fully non-interactive: `--m2m --scopes` is the whole answer, so neither the picker
+      // nor the round trip behind it has anything to add.
+      answerPrompts({ logoUrl: '' });
+
+      await createCommand({
+        name: 'Ledger Sync',
+        distribution: 'private',
+        m2m: true,
+        scopes: 'contacts:read',
+        json: true,
+      });
+
+      expect(fetchSupportedScopes).not.toHaveBeenCalled();
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(appService.createApp).toHaveBeenCalledWith(
+        expect.objectContaining({ auth: { type: 'm2m', scopes: ['contacts:read'] } }),
+      );
+    });
+
     it('writes nothing to disk — no directory, no app-config.json, no scaffold', async () => {
       answerPrompts({
         logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'm2m',
-        scopes: 'contacts:read',
+        scopes: ['contacts:read'],
       });
 
       await createCommand({ name: 'Ledger Sync', distribution: 'private' });
@@ -2910,7 +3040,7 @@ describe('app/create', () => {
         logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'm2m',
-        scopes: 'contacts:read',
+        scopes: ['contacts:read'],
       });
 
       await createCommand({ name: 'Ledger Sync', distribution: 'private' });
@@ -2927,7 +3057,7 @@ describe('app/create', () => {
         logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'm2m',
-        scopes: 'contacts:read, crm:read',
+        scopes: ['contacts:read', 'crm:read'],
       });
 
       await createCommand({ name: 'Ledger Sync', distribution: 'private' });
@@ -2954,6 +3084,7 @@ describe('app/create', () => {
       expect(appService.createApp).toHaveBeenCalledWith({
         name: 'Ledger Sync',
         distribution_type: 'private',
+        app_type: 'oauth.m2m',
         auth: { type: 'm2m', scopes: ['contacts:read', 'crm:read'] },
       });
       // No prompt was needed at all — this is the path a pipeline takes.
@@ -3100,15 +3231,58 @@ describe('app/create', () => {
         json: true,
       });
 
-      // Byte-identical to what every pre-M2M version sent: no `type` key at all.
+      // The `auth` block is byte-identical to what every pre-M2M version sent: no `type`
+      // key at all. The body as a whole is not — every create now names its `app_type`.
       expect(appService.createApp).toHaveBeenCalledWith({
         name: 'Script App',
         distribution_type: 'private',
+        app_type: 'oauth.consent',
         auth: {
           scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
           redirect_uris: ['http://localhost:3009/auth/callback'],
         },
       });
+    });
+  });
+
+  // The wire `app_type` — what kind of app the request ASKS FOR, stated rather than left
+  // to be inferred from which discriminator block is present. Unrelated to the `app_type`
+  // key in app-config.json, which is a one-word local label and still never travels
+  // (pinned by `upload.test.ts`). The oauth.consent, oauth.m2m and ui_app.actionLink
+  // values are asserted in place above, next to the bodies they belong to; a Function
+  // app's create payload had no assertion anywhere before this.
+  describe('wire app_type', () => {
+    it('sends brevo_function for a Brevo Function app', async () => {
+      answerPrompts({ logoUrl: '', appType: 'function', scaffoldRaw: 'n' });
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 'fn-1',
+        name: 'Nightly Sync',
+      });
+
+      await createCommand({ name: 'Nightly Sync', distribution: 'private' });
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.app_type).toBe('brevo_function');
+      // The empty block is still the discriminator; the label is read off it, never
+      // instead of it.
+      expect(payload.brevo_function).toEqual({});
+      expect(payload).not.toHaveProperty('auth');
+    });
+
+    it('names the M2M flow at the top level, not just inside auth', async () => {
+      answerPrompts({ logoUrl: '' });
+
+      await createCommand({
+        name: 'Ledger Sync',
+        distribution: 'private',
+        m2m: true,
+        scopes: 'contacts:read',
+        json: true,
+      });
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.app_type).toBe('oauth.m2m');
+      expect(payload.auth.type).toBe('m2m');
     });
   });
 });

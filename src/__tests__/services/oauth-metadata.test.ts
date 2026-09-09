@@ -1,4 +1,4 @@
-import { fetchSupportedScopes } from '../../services/oauth-metadata';
+import { fetchSupportedScopes, groupScopesByCategory } from '../../services/oauth-metadata';
 import { OAUTH_SCOPES_URL } from '../../lib/constants';
 import { ApiError, CliError } from '../../lib/errors';
 
@@ -128,5 +128,103 @@ describe('fetchSupportedScopes', () => {
     });
     const scopes = await fetchSupportedScopes();
     expect(scopes).toEqual([{ name: 'contacts:read', category: 'data_crm', apiEndpoints: [] }]);
+  });
+  it('keeps the English display name and description, ignoring the other languages', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          scopes: [
+            {
+              name: 'contacts:read',
+              category: 'contacts_crm',
+              api_endpoints: ['/contacts'],
+              display_name: { en: 'Contacts', fr: 'Contacts', de: 'Kontakte' },
+              description: { en: 'Read contacts', fr: 'Lire les contacts' },
+            },
+          ],
+        }),
+    });
+
+    await expect(fetchSupportedScopes()).resolves.toEqual([
+      expect.objectContaining({ displayName: 'Contacts', description: 'Read contacts' }),
+    ]);
+  });
+
+  it('labels each scope’s category from the response’s own categories list', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          scopes: [
+            { name: 'contacts:read', category: 'contacts_crm' },
+            { name: 'events:write', category: 'events' },
+          ],
+          categories: [
+            { key: 'contacts_crm', display_name: { en: 'Contacts & CRM', fr: 'Contacts et CRM' } },
+            // Malformed rows are skipped rather than throwing or labelling something wrong.
+            { key: 'events' },
+            { display_name: { en: 'No key' } },
+            null,
+          ],
+        }),
+    });
+
+    await expect(fetchSupportedScopes()).resolves.toEqual([
+      expect.objectContaining({ name: 'contacts:read', categoryLabel: 'Contacts & CRM' }),
+      // No usable label for `events`, so the field is absent and callers fall back to the key.
+      { name: 'events:write', category: 'events', apiEndpoints: [] },
+    ]);
+  });
+
+  it('omits a label that is missing, non-string, or in no language the CLI speaks', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          scopes: [
+            {
+              name: 'contacts:read',
+              category: 'contacts_crm',
+              display_name: { fr: 'Contacts' },
+              description: 'not a localized map',
+            },
+            { name: 'crm:read', category: 'contacts_crm', display_name: { en: '' } },
+          ],
+          categories: 'not an array',
+        }),
+    });
+
+    // Present-and-undefined would make every `toEqual` on a bare catalog entry a lie, so
+    // an unusable label leaves no key behind at all.
+    await expect(fetchSupportedScopes()).resolves.toEqual([
+      { name: 'contacts:read', category: 'contacts_crm', apiEndpoints: [] },
+      { name: 'crm:read', category: 'contacts_crm', apiEndpoints: [] },
+    ]);
+  });
+});
+
+describe('groupScopesByCategory', () => {
+  const entry = (name: string, category: string) => ({ name, category, apiEndpoints: [] });
+
+  it('groups by category in first-seen order, keeping the catalog’s own ordering', () => {
+    const grouped = groupScopesByCategory([
+      entry('transactional.email:read', 'transactional'),
+      entry('contacts:read', 'contacts_crm'),
+      entry('transactional.email:write', 'transactional'),
+    ]);
+
+    expect([...grouped.keys()]).toEqual(['transactional', 'contacts_crm']);
+    expect(grouped.get('transactional')?.map((s) => s.name)).toEqual([
+      'transactional.email:read',
+      'transactional.email:write',
+    ]);
+  });
+
+  it('returns an empty map for an empty catalog', () => {
+    expect(groupScopesByCategory([]).size).toBe(0);
   });
 });
