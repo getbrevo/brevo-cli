@@ -2,6 +2,7 @@ import { messages } from '../../lang/en';
 // Cross-root import on purpose: the assertion is that the smoke suite's
 // patterns and this repo's copy agree, so the test has to see both.
 import { UI_CREATE_EXPECT } from '../../../scripts/smoke/ui-app';
+import { M2M_CREATE_EXPECT } from '../../../scripts/smoke/m2m';
 
 describe('messages (lang/en)', () => {
   it('should export all required static messages', () => {
@@ -205,6 +206,19 @@ describe('messages (lang/en)', () => {
       expect(messages.APP_CREATE_BOX_SCOPE_HINT).toContain('brevo app upload');
     });
 
+    it('exports the M2M scope-picker strings, and its typed fallback', () => {
+      expect(messages.APP_CREATE_M2M_SCOPES_PICKER_PROMPT).toMatch(/scope/i);
+      expect(messages.APP_CREATE_M2M_SCOPES_PICKER_SPINNER).toMatch(/scope/i);
+      // The picker cannot be the only place this is said: the fallback prompt shows when
+      // the catalog is unreachable, so the warning has to live outside the picker copy.
+      expect(messages.APP_CREATE_M2M_SCOPES_FIXED).toMatch(/fixed at creation/i);
+      expect(messages.APP_CREATE_M2M_SCOPES_FIXED).toContain('app-config.json');
+      expect(
+        messages.APP_CREATE_M2M_SCOPES_CATALOG_UNAVAILABLE('brevo app available-scopes'),
+      ).toContain('brevo app available-scopes');
+      expect(messages.APP_CREATE_M2M_SCOPES_PROMPT).toMatch(/comma/i);
+    });
+
     it('exports the app scopes empty-result message', () => {
       expect(messages.APP_SCOPES_EMPTY).toBeDefined();
       expect(messages.APP_SCOPES_EMPTY).toMatch(/scope/i);
@@ -270,9 +284,9 @@ describe('messages (lang/en)', () => {
 
 // ── Smoke-suite prompt patterns ────────────────────────────────────────────
 //
-// `scripts/smoke/ui-app.ts` drives `brevo app create` through a pty and waits
-// for each prompt by regex. Those regexes duplicate the copy in this file by
-// necessity — the smoke exercises the REAL binary, and under
+// `scripts/smoke/ui-app.ts` and `scripts/smoke/m2m.ts` drive `brevo app create`
+// through a pty and wait for each prompt by regex. Those regexes duplicate the
+// copy in this file by necessity — the smoke exercises the REAL binary, and under
 // `--against=published` its strings may legitimately lag this repo — so nothing
 // in the smoke itself can catch a reword. This does.
 //
@@ -300,12 +314,47 @@ describe('smoke-suite prompt patterns', () => {
     }
   });
 
+  // Same contract for the interactive M2M route. `scopes` is pinned against BOTH
+  // scope prompts because it matches either: the suite waits on one pattern and
+  // lets the sender decide which prompt actually rendered, so a reword of the
+  // FALLBACK copy would strand the run just as surely as a reword of the picker's.
+  it('every M2M create pattern still matches the copy it waits for', () => {
+    const pairs: ReadonlyArray<[keyof typeof M2M_CREATE_EXPECT, string]> = [
+      ['logo', messages.APP_CREATE_LOGO_PROMPT],
+      ['appTypeOAuth', messages.APP_CREATE_APP_TYPE_OAUTH],
+      ['flowConsent', messages.APP_CREATE_OAUTH_FLOW_CONSENT],
+      ['flowM2m', messages.APP_CREATE_OAUTH_FLOW_M2M],
+      ['scopes', messages.APP_CREATE_M2M_SCOPES_PICKER_PROMPT],
+      ['scopes', messages.APP_CREATE_M2M_SCOPES_PROMPT],
+      ['scopePicker', messages.APP_CREATE_M2M_SCOPES_PICKER_PROMPT],
+    ];
+    for (const [key, copy] of pairs) {
+      expect({ key, copy, matches: M2M_CREATE_EXPECT[key].test(copy) }).toEqual({
+        key,
+        copy,
+        matches: true,
+      });
+    }
+  });
+
   // The traps #73 walked into. A pattern spanning a curly apostrophe or an em
   // dash is brittle against a reword, and a long one can wrap in the pty
   // transcript — so they are kept short and punctuation-free on purpose.
   it('keeps the patterns free of typographic punctuation', () => {
-    for (const [key, re] of Object.entries(UI_CREATE_EXPECT)) {
-      expect({ key, clean: !/[’‘“”—–]/.test(re.source) }).toEqual({ key, clean: true });
+    // Iterated per map rather than spread into one: the two share keys (`logo`,
+    // `appTypeOAuth`), and a spread would check one and silently drop the other.
+    const maps: ReadonlyArray<[string, Record<string, RegExp>]> = [
+      ['ui', UI_CREATE_EXPECT],
+      ['m2m', M2M_CREATE_EXPECT],
+    ];
+    for (const [suite, patterns] of maps) {
+      for (const [key, re] of Object.entries(patterns)) {
+        expect({ suite, key, clean: !/[’‘“”—–]/.test(re.source) }).toEqual({
+          suite,
+          key,
+          clean: true,
+        });
+      }
     }
   });
 });

@@ -828,8 +828,15 @@ export type GatedCommand = (typeof GATED_COMMANDS)[number];
  * opens by creating a public app, so without this the whole lifecycle *failed* on a
  * published-surface build instead of skipping — and `yarn build` has produced that surface
  * by default since `link:dev` stopped implying preview.
+ *
+ * `m2m-flag` is gated by RELEASE, not by the build: `--m2m` is GA and ships in every
+ * artefact this repo produces, but it is newer than the version npm currently serves, so
+ * `--against=published` runs a `brevo app create` that answers `unknown option '--m2m'`.
+ * Detected for the same reason as the one above — the four M2M steps live in the DEFAULT
+ * `private` suite, so without this every published-surface run reports them as four hard
+ * failures. This row can be dropped once the release carrying `--m2m` is on `latest`.
  */
-export const GATED_FEATURES = ['public-distribution'] as const;
+export const GATED_FEATURES = ['public-distribution', 'm2m-flag'] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];
 
@@ -875,6 +882,20 @@ export function publicDistributionOffered(state: State): boolean {
   return /Distribution type \([^)]*\bpublic\b/.test(r.stdout + r.stderr);
 }
 
+/**
+ * Does this build's `app create` take `--m2m`?
+ *
+ * Matched as an option LINE (`^\s+--m2m`) rather than anywhere in the text, because
+ * `--scopes`' own description and two of the command's examples name the flag as well —
+ * a substring match would answer "present" off a build that only mentions it. Same
+ * help-only reasoning as the probe above: running the flag for real either creates an app
+ * or burns a call to be told it can't.
+ */
+export function m2mFlagOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'create', '--help'], state);
+  return /^\s+--m2m\b/m.test(r.stdout + r.stderr);
+}
+
 // Detection is help-text based, with one probe per unlisted command (see above).
 export function detectCapabilities(state: State): Record<string, boolean> {
   const help = exec(brevoCmd(state), ['--help'], state);
@@ -902,6 +923,7 @@ export function detectCapabilities(state: State): Record<string, boolean> {
       : listedInHelp(helpText, name);
   }
   caps['public-distribution'] = publicDistributionOffered(state);
+  caps['m2m-flag'] = m2mFlagOffered(state);
   logToFile(state, `capabilities: ${JSON.stringify(caps)}`);
   state.caps = caps;
   return caps;
@@ -1558,6 +1580,10 @@ export function trapDeleteApps(state: State): void {
     state.mainApp?.appId,
     state.publicApp?.appId,
     state.uiApp?.appId,
+    // Listed here as well as in `stepDeleteLeftoverApps`: the loop below is the only
+    // thing that turns a live app into an orphan REPORT, and `state.m2mApp` is cleared
+    // unconditionally a few lines down — so omitting it here dropped the id silently.
+    state.m2mApp?.appId,
     state.initAppId,
   ]) {
     if (!appId) continue;
