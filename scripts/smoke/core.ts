@@ -882,18 +882,27 @@ export function publicDistributionOffered(state: State): boolean {
   return /Distribution type \([^)]*\bpublic\b/.test(r.stdout + r.stderr);
 }
 
+/** An option line for `--m2m`, tested against a help line whose indent is already off. */
+const M2M_OPTION_LINE = /^--m2m\b/;
+
 /**
  * Does this build's `app create` take `--m2m`?
  *
- * Matched as an option LINE (`^\s+--m2m`) rather than anywhere in the text, because
- * `--scopes`' own description and two of the command's examples name the flag as well —
- * a substring match would answer "present" off a build that only mentions it. Same
- * help-only reasoning as the probe above: running the flag for real either creates an app
- * or burns a call to be told it can't.
+ * Matched as an option LINE rather than anywhere in the text, because `--scopes`' own
+ * description and two of the command's examples name the flag as well — a substring match
+ * would answer "present" off a build that only mentions it. Same help-only reasoning as
+ * the probe above: running the flag for real either creates an app or burns a call to be
+ * told it can't.
+ *
+ * Split-and-trim rather than the obvious `/^\s+--m2m\b/m`, which Sonar rejects (S8786)
+ * and is right to: `\s` matches a newline, so under `/m` the quantifier can run across
+ * line boundaries and every start position backtracks against every other — super-linear
+ * on a long help screen. Anchoring at the start of an already-trimmed line has no
+ * quantifier to backtrack at all.
  */
 export function m2mFlagOffered(state: State): boolean {
   const r = exec(brevoCmd(state), ['app', 'create', '--help'], state);
-  return /^\s+--m2m\b/m.test(r.stdout + r.stderr);
+  return (r.stdout + r.stderr).split('\n').some((line) => M2M_OPTION_LINE.test(line.trimStart()));
 }
 
 // Detection is help-text based, with one probe per unlisted command (see above).
