@@ -64,6 +64,13 @@ export interface SubcommandGroupDefinition {
   aliases?: string[];
   description: string;
   commands: CommandDefinition[];
+  /**
+   * Nested groups one level deeper, e.g. `app scopes update` (`scopes` nested inside
+   * `app`). Optional and undefined for every group that doesn't need it — `registerAll`'s
+   * top-level `groups` list is unaffected either way; nesting is expressed inside one
+   * group's own `groups` field rather than by reshaping the top-level call.
+   */
+  groups?: SubcommandGroupDefinition[];
 }
 
 /**
@@ -193,6 +200,13 @@ function registerSubcommandGroup(parent: Command, group: SubcommandGroupDefiniti
   }
   for (const removed of removedCommandsIn(group.name)) {
     registerRemovedCommand(groupCmd, removed);
+  }
+  // One level of nesting (e.g. `scopes` inside `app`, for `app scopes update`).
+  // `registerSubcommandGroup` is generic over "any parent Command" already — it has
+  // just never been called with a non-root parent before — so recursing on `groupCmd`
+  // works unchanged.
+  for (const nested of group.groups ?? []) {
+    registerSubcommandGroup(groupCmd, nested);
   }
 }
 

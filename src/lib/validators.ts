@@ -672,3 +672,32 @@ export function parseAppId(value: string): string {
   }
   return trimmed;
 }
+
+// ──────────────── M2M scopes update (BEX-486) ────────────────
+
+/**
+ * How `brevo app scopes update`'s `--scopes` is applied against an M2M app's existing
+ * scopes. Sent to the backend as an explicit field (BEX-481) rather than resolved
+ * client-side, so the server — the authority on the app's current scope set — does the
+ * actual merge/replace itself; the CLI only uses the current scopes it reads locally to
+ * render a confirmation preview, never to compute the request body.
+ */
+export type ScopeUpdateMode = 'append' | 'replace';
+
+const SCOPE_UPDATE_MODES: readonly ScopeUpdateMode[] = ['append', 'replace'] as const;
+
+/**
+ * Parse and validate a `--mode` flag value for `app scopes update`. No default — in
+ * particular no silent default to "replace", since that would risk quietly dropping
+ * scopes the user did not intend to remove. An invalid value is refused here, before the
+ * command handler ever runs.
+ */
+export function parseScopeUpdateMode(value: string): ScopeUpdateMode {
+  const trimmed = value.trim();
+  if (!SCOPE_UPDATE_MODES.includes(trimmed as ScopeUpdateMode)) {
+    throw new CliError(
+      `Invalid --mode "${value}". Must be one of: ${SCOPE_UPDATE_MODES.join(', ')}.`,
+    );
+  }
+  return trimmed as ScopeUpdateMode;
+}

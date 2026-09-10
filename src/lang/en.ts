@@ -320,10 +320,15 @@ const coreMessages = {
   // live catalog (the normal path), and the free-text prompt below when that catalog
   // cannot be read. The picker copy therefore may not be the only place a rule is
   // stated — anything the partner must know about M2M scopes has to survive the
-  // fallback too, which is why the "fixed at creation" warning lives in
+  // fallback too, which is why the reminder to name every needed scope lives in
   // APP_CREATE_M2M_SCOPES_FIXED and is printed on both paths.
-  APP_CREATE_M2M_SCOPES_FIXED:
-    'Scopes are fixed at creation for an M2M app — there is no app-config.json to edit afterwards, so select everything this integration needs.',
+  //
+  // NOTE (BEX-486): scopes are no longer permanent — `brevo app scopes update` can
+  // change them after creation — so this copy, despite its constant name, must not
+  // claim otherwise. The name is kept (renaming touches every call site for no
+  // behavioural gain); only the wording changed.
+  APP_CREATE_M2M_SCOPES_FIXED: (updateCmd: string) =>
+    `Select every scope this app needs — you can add or remove scopes later with \`${updateCmd}\`.`,
   APP_CREATE_M2M_SCOPES_PICKER_SPINNER: 'Loading available scopes...',
   APP_CREATE_M2M_SCOPES_PICKER_PROMPT: 'Which scopes does this app need?',
   // The trailing half of a selectable section heading — the category's own label from the
@@ -336,8 +341,8 @@ const coreMessages = {
   APP_CREATE_M2M_SCOPES_CATALOG_UNAVAILABLE: (cmd: string) =>
     `Could not load the scope catalog, so scopes have to be typed. Run \`${cmd}\` once the connection is back to see every scope your account can grant.`,
   APP_CREATE_M2M_SCOPES_PROMPT: 'Scopes (comma-separated):',
-  APP_CREATE_M2M_SCOPES_HINT: (cmd: string) =>
-    `Tip: Run \`${cmd}\` in another terminal to see every scope your account can grant. Scopes are fixed at creation for an M2M app — there is no app-config.json to edit afterwards.`,
+  APP_CREATE_M2M_SCOPES_HINT: (cmd: string, updateCmd: string) =>
+    `Tip: Run \`${cmd}\` in another terminal to see every scope your account can grant. You can add or remove scopes later with \`${updateCmd}\`.`,
   APP_CREATE_M2M_SCOPES_EMPTY: 'Enter at least one scope.',
   APP_CREATE_M2M_BOX_SCOPES_LABEL: 'Scopes:',
   // Deliberately NOT `APP_CREATE_BOX_SCOPE_HINT`, which tells the user to edit
@@ -363,7 +368,7 @@ const coreMessages = {
 
   // App create — M2M flag combinations. Every one of these is checked before the first
   // prompt, so a bad invocation costs the caller nothing; see `assertM2mFlags`.
-  APP_CREATE_M2M_SCOPES_REQUIRED: `\`--m2m\` needs \`--scopes\` — an M2M app's scopes are fixed at creation and there is no app-config.json to edit later. Example: \`--m2m --scopes "contacts:read,crm:read"\`.`,
+  APP_CREATE_M2M_SCOPES_REQUIRED: `\`--m2m\` needs \`--scopes\` at creation time — there is no app-config.json to seed them from later, though scopes can still be changed afterwards with \`${CLI.APP_SCOPES_UPDATE()}\`. Example: \`--m2m --scopes "contacts:read,crm:read"\`.`,
   // Refused rather than ignored: a consent-based create always sends the default scope
   // set, so silently dropping `--scopes` would leave the caller believing they had
   // narrowed an app that in fact got the defaults.
@@ -372,6 +377,56 @@ const coreMessages = {
   APP_CREATE_M2M_UI_FLAG: (flag: string) =>
     `\`--m2m\` can't be combined with \`${flag}\` — an app is either an OAuth app or a UI app, not both.`,
   APP_CREATE_M2M_PUBLIC: `\`--m2m\` requires \`--distribution private\` — the machine-to-machine flow is only available for private apps.`,
+
+  // App scopes update (BEX-486) — change an existing M2M app's granted scopes.
+  //
+  // ASSUMPTION pending BEX-481 (the backend scopes-update API, "Ready for dev" as of this
+  // writing): the endpoint contract this command sends is built from BEX-481's own spec,
+  // not a live implementation — see the plan doc for BEX-486. `mode` ("append" | "replace")
+  // is a CLI-driven addition on top of that spec and needs to be confirmed/negotiated with
+  // backend alongside the rest of BEX-481.
+  APP_SCOPES_UPDATE_SELECT: 'Select an M2M app to update:',
+  APP_SCOPES_UPDATE_NO_M2M_APPS:
+    'No M2M apps found in this account. Scopes can only be updated on an app created with `--m2m`.',
+  APP_SCOPES_UPDATE_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app's scopes can be changed with this command.`,
+  APP_SCOPES_UPDATE_MODE_REQUIRED: () =>
+    `\`--scopes\` needs \`--mode\` — pass \`--mode append\` to add scopes without touching the rest, or \`--mode replace\` to overwrite the whole set. Example: \`${CLI.APP_SCOPES_UPDATE()}\`.`,
+  APP_SCOPES_UPDATE_MODE_PROMPT: 'How should these scopes be applied?',
+  APP_SCOPES_UPDATE_MODE_APPEND_LABEL: 'Append — add these scopes, keep the existing ones',
+  APP_SCOPES_UPDATE_MODE_REPLACE_LABEL:
+    'Replace — overwrite the existing scopes with these (may remove some)',
+  APP_SCOPES_UPDATE_NO_CHANGE: (appId: string) =>
+    `No change: app ${appId} already has exactly these scopes.`,
+  // The one message that must foreground a REMOVAL: in `replace` mode a scope the app
+  // currently has, but that wasn't in the new list, silently disappears unless this line
+  // calls it out. `mode` heads the block so the reader knows which behaviour is active
+  // before reading the diff.
+  APP_SCOPES_UPDATE_DIFF: (
+    mode: 'append' | 'replace',
+    current: readonly string[],
+    next: readonly string[],
+    added: readonly string[],
+    removed: readonly string[],
+  ): string => {
+    const lines = [
+      mode === 'append'
+        ? 'Mode: append — these scopes will be ADDED; every existing scope is kept.'
+        : "Mode: replace — the app's scopes will be OVERWRITTEN with this exact list.",
+      `Current scopes: ${current.length ? current.join(', ') : '(none)'}`,
+      `New scopes:     ${next.length ? next.join(', ') : '(none)'}`,
+    ];
+    if (added.length) lines.push(`  + ${added.join(', ')}`);
+    if (removed.length) {
+      lines.push(`  ⚠ this will REMOVE: ${removed.join(', ')}`);
+    }
+    return lines.join('\n  ');
+  },
+  APP_SCOPES_UPDATE_CONFIRM: (appLabel: string, appId: string, mode: 'append' | 'replace') =>
+    `${mode === 'append' ? 'Append to' : 'Replace'} the scopes on "${appLabel}" (${appId})?`,
+  APP_SCOPES_UPDATE_CANCELLED: 'Cancelled — no scopes were changed.',
+  APP_SCOPES_UPDATE_SUCCESS: (appId: string, scopes: readonly string[]) =>
+    `Updated app ${appId}. Scopes: ${scopes.length ? scopes.join(', ') : '(none)'}`,
 
   // App install / uninstall — per-account availability for UI apps (BEX-290).
   // Moved here from `preview-messages.ts` at UI-apps GA.

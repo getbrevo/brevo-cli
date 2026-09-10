@@ -232,7 +232,7 @@ export async function promptScopeSelection(quiet = false): Promise<string[] | nu
   const entries = await readScopeCatalog(quiet);
   if (entries === null) return null;
 
-  if (!quiet) logInfo(messages.APP_CREATE_M2M_SCOPES_FIXED);
+  if (!quiet) logInfo(messages.APP_CREATE_M2M_SCOPES_FIXED(CLI.APP_SCOPES_UPDATE()));
   // A plain `checkbox` if the cascading one could not be registered: a heading then stays a
   // value that `expandSelection` resolves, rather than one that ticks its scopes on screen.
   const promptType = registerSectionCheckbox() ?? 'checkbox';
@@ -251,4 +251,27 @@ export async function promptScopeSelection(quiet = false): Promise<string[] | nu
 
   const picked = answer[SCOPE_PICKER_QUESTION];
   return expandSelection(Array.isArray(picked) ? picked : [], entries);
+}
+
+/**
+ * The free-text scope prompt, used when the IdP catalog cannot be read (by
+ * `resolveM2mScopes` in `create.ts`) and reused as-is by `app scopes update` for the same
+ * reason. Extracted here rather than kept inline in `create.ts` so the two callers cannot
+ * drift into two different free-text prompts for the same shape of answer.
+ *
+ * `quiet` silences the tip line, for the same defensive reason `promptScopeSelection`
+ * threads it — nothing reachable today prompts with it set, but a future non-interactive
+ * caller must not have a hint printed into a document it is parsing.
+ */
+export async function promptTypedScopeList(quiet = false): Promise<string[]> {
+  if (!quiet) logInfo(messages.APP_CREATE_M2M_SCOPES_HINT(CLI.APP_SCOPES, CLI.APP_SCOPES_UPDATE()));
+  const answer = await inquirer.prompt([
+    {
+      type: 'input',
+      name: SCOPE_INPUT_QUESTION,
+      message: messages.APP_CREATE_M2M_SCOPES_PROMPT,
+      validate: validateM2mScopesInput,
+    },
+  ]);
+  return splitScopes(String(answer[SCOPE_INPUT_QUESTION] ?? ''));
 }

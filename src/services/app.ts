@@ -25,6 +25,7 @@ import {
   saveAppCredentials,
 } from '../lib/config';
 import { normalizeAppId } from './normalize-app-id';
+import { ScopeUpdateMode } from '../lib/validators';
 
 /** First of the candidates that is a non-blank string, trimmed; `undefined` if none is. */
 function firstNonEmptyString(...candidates: unknown[]): string | undefined {
@@ -97,6 +98,20 @@ function rethrowNotFound(err: unknown, appId: string): never {
     throw new CliError(`App ${appId} not found.`, err.exitCode);
   }
   throw err;
+}
+
+/**
+ * Whether an app is machine-to-machine (BEX-486).
+ *
+ * HEURISTIC, not a server-sent discriminator — `OAuthApp` carries no `type`/`app_type`
+ * field distinguishing an M2M app from a consent-based one (verified: neither exists on
+ * the type). This mirrors the structural signal `app create`'s own M2M detection relies
+ * on: an OAuth app (`client_id` present) with no redirect URIs and no `ui_app`/
+ * `brevo_function` block. Prefer a real discriminator over this heuristic the moment
+ * BEX-481 (or related backend work) exposes one on `GET /v3/app-store/apps/{id}`.
+ */
+export function isM2mApp(app: OAuthApp): boolean {
+  return Boolean(app.client_id) && !app.ui_app && !app.brevo_function && !app.redirect_uris?.length;
 }
 
 /**
@@ -474,6 +489,32 @@ export function createAppService(client: ApiClient) {
     async deleteApp(appId: string): Promise<void> {
       try {
         await client.delete(ENDPOINTS.APP_STORE_APP(appId));
+      } catch (err) {
+        rethrowNotFound(err, appId);
+      }
+    },
+
+    /**
+     * Update an M2M app's granted scopes (BEX-486). ASSUMPTION pending BEX-481: the
+     * exact endpoint path/body shape is not yet confirmed against a real backend
+     * implementation.
+     *
+     * `scopes` is always the raw list the user asked for — never client-merged with the
+     * app's current scopes — and `mode` travels alongside it so the server, which owns
+     * the authoritative current scope set, performs the actual append/replace itself.
+     * The response reflects the FINAL scope set after that server-side merge.
+     */
+    async updateAppScopes(
+      appId: string,
+      scopes: string[],
+      mode: ScopeUpdateMode,
+    ): Promise<OAuthApp> {
+      try {
+        const raw = await client.patch<OAuthApp>(ENDPOINTS.APP_STORE_APP_SCOPES(appId), {
+          scopes,
+          mode,
+        });
+        return normalizeAppId(raw);
       } catch (err) {
         rethrowNotFound(err, appId);
       }

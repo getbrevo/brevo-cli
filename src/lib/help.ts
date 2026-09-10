@@ -142,6 +142,8 @@ function formatRootHelp(description: string): string {
     `Scope commands:`,
     `  brevo app available-scopes  [--web] [--json]          List OAuth scopes supported by the IdP`,
     `                                                        (--web opens the catalog in a browser)`,
+    `  brevo app scopes update     [--app-id <id>] [--scopes <a,b,c>] [--mode append|replace] [--yes] [--json]`,
+    `                                                        Change an M2M app's granted scopes`,
     ``,
     `Run \`brevo <command> --help\` for details on a specific command.`,
     ``,

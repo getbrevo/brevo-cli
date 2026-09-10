@@ -210,9 +210,12 @@ describe('messages (lang/en)', () => {
       expect(messages.APP_CREATE_M2M_SCOPES_PICKER_PROMPT).toMatch(/scope/i);
       expect(messages.APP_CREATE_M2M_SCOPES_PICKER_SPINNER).toMatch(/scope/i);
       // The picker cannot be the only place this is said: the fallback prompt shows when
-      // the catalog is unreachable, so the warning has to live outside the picker copy.
-      expect(messages.APP_CREATE_M2M_SCOPES_FIXED).toMatch(/fixed at creation/i);
-      expect(messages.APP_CREATE_M2M_SCOPES_FIXED).toContain('app-config.json');
+      // the catalog is unreachable, so the reminder has to live outside the picker copy.
+      // BEX-486: scopes are no longer permanent, so this now names the update command
+      // instead of claiming they're fixed at creation.
+      expect(
+        messages.APP_CREATE_M2M_SCOPES_FIXED('brevo app scopes update --app-id <id>'),
+      ).toContain('brevo app scopes update --app-id <id>');
       expect(
         messages.APP_CREATE_M2M_SCOPES_CATALOG_UNAVAILABLE('brevo app available-scopes'),
       ).toContain('brevo app available-scopes');

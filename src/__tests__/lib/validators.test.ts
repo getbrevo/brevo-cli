@@ -12,6 +12,7 @@ import {
   validateUiAppMoreInfo,
   validateUiAppUrl,
   validateSurfacePoint,
+  parseScopeUpdateMode,
 } from '../../lib/validators';
 import { CliError } from '../../lib/errors';
 
@@ -219,6 +220,22 @@ describe('parseAppId', () => {
 
   it('throws CliError on whitespace-only string', () => {
     expect(() => parseAppId('   ')).toThrow(CliError);
+  });
+});
+
+describe('parseScopeUpdateMode', () => {
+  it('accepts "append"', () => {
+    expect(parseScopeUpdateMode('append')).toBe('append');
+  });
+
+  it('accepts "replace"', () => {
+    expect(parseScopeUpdateMode('replace')).toBe('replace');
+  });
+
+  it('throws CliError on any other value', () => {
+    expect(() => parseScopeUpdateMode('add')).toThrow(CliError);
+    expect(() => parseScopeUpdateMode('')).toThrow(CliError);
+    expect(() => parseScopeUpdateMode('Append')).toThrow(CliError);
   });
 });
 

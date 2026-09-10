@@ -281,13 +281,13 @@ describe('app/scope-prompts', () => {
       expect(validate(['contacts:read'])).toBe(true);
     });
 
-    it('states that the scopes are fixed at creation, since there is no config to edit', async () => {
+    it('points to `app scopes update` for changing scopes later (BEX-486)', async () => {
       mockPrompt.mockResolvedValue({ [SCOPE_PICKER_QUESTION]: ['contacts:read'] });
 
       await promptScopeSelection();
 
       const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
-      expect(output).toContain(messages.APP_CREATE_M2M_SCOPES_FIXED);
+      expect(output).toContain('brevo app scopes update');
     });
 
     it('prints nothing under quiet, but still asks — never chooses scopes for the partner', async () => {

@@ -1,5 +1,5 @@
 import { ApiClient } from '../../api/client';
-import { createAppService } from '../../services/app';
+import { createAppService, isM2mApp } from '../../services/app';
 import { ApiError } from '../../lib/errors';
 import { getAppCredentials, getOrganizationId, saveAppCredentials } from '../../lib/config';
 
@@ -685,6 +685,75 @@ describe('services/app', () => {
     });
   });
 
+  // BEX-486 / ASSUMPTION pending BEX-481 — see the plan doc for this feature; the
+  // endpoint path and `{ scopes, mode }` body shape are not yet confirmed against a
+  // real backend implementation.
+  describe('updateAppScopes', () => {
+    it('PATCHes the scopes endpoint with the raw scopes list and mode, never a merge', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'test',
+        client_id: 'client-1',
+        redirect_uris: null,
+        scopes: ['contacts:read', 'crm:write'],
+      });
+
+      const result = await service.updateAppScopes('42', ['crm:write'], 'append');
+
+      expect(mockClient.patch).toHaveBeenCalledWith('/v3/app-store/apps/42/scopes', {
+        scopes: ['crm:write'],
+        mode: 'append',
+      });
+      expect(result.scopes).toEqual(['contacts:read', 'crm:write']);
+    });
+
+    it('sends "replace" mode unchanged', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'test',
+        client_id: 'client-1',
+        redirect_uris: null,
+        scopes: ['contacts:read'],
+      });
+
+      await service.updateAppScopes('42', ['contacts:read'], 'replace');
+
+      expect(mockClient.patch).toHaveBeenCalledWith('/v3/app-store/apps/42/scopes', {
+        scopes: ['contacts:read'],
+        mode: 'replace',
+      });
+    });
+
+    it('normalizes a numeric app_id on the response', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue({
+        app_id: 42,
+        name: 'test',
+        client_id: 'client-1',
+        redirect_uris: null,
+        scopes: [],
+      });
+
+      const result = await service.updateAppScopes('42', [], 'replace');
+
+      expect(result.app_id).toBe('42');
+    });
+
+    it('converts a 404 into a friendly not-found CliError', async () => {
+      (mockClient.patch as jest.Mock).mockRejectedValue(new ApiError('Not found', 404));
+
+      await expect(service.updateAppScopes('999', ['crm:write'], 'append')).rejects.toThrow(
+        'App 999 not found.',
+      );
+    });
+
+    it('propagates every other error unchanged (e.g. 400 invalid scope)', async () => {
+      const err = new ApiError('Unknown scope: bogus:read', 400);
+      (mockClient.patch as jest.Mock).mockRejectedValue(err);
+
+      await expect(service.updateAppScopes('42', ['bogus:read'], 'append')).rejects.toBe(err);
+    });
+  });
+
   describe('installApp / uninstallApp', () => {
     beforeEach(() => {
       (getOrganizationId as jest.Mock).mockReturnValue('12345');
@@ -844,5 +913,68 @@ describe('services/app', () => {
 
       await expect(service.withdrawApp('42')).rejects.toMatchObject({ statusCode: 422 });
     });
+  });
+});
+
+// HEURISTIC pending BEX-481 — no server-sent discriminator distinguishes an M2M app from
+// a consent-based one yet; see the doc comment on `isM2mApp` itself.
+describe('isM2mApp', () => {
+  it('is true for an OAuth app with a client_id, no redirect_uris, no ui_app/brevo_function', () => {
+    expect(
+      isM2mApp({
+        app_id: '1',
+        name: 'm2m',
+        client_id: 'client-1',
+        redirect_uris: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('is false for a consent-based OAuth app (has redirect_uris)', () => {
+    expect(
+      isM2mApp({
+        app_id: '2',
+        name: 'consent',
+        client_id: 'client-2',
+        redirect_uris: ['https://example.com/callback'],
+      }),
+    ).toBe(false);
+  });
+
+  it('is false for a UI app (has ui_app, no client_id)', () => {
+    expect(
+      isM2mApp({
+        app_id: '3',
+        name: 'ui',
+        client_id: '',
+        redirect_uris: null,
+        ui_app: {} as never,
+      }),
+    ).toBe(false);
+  });
+
+  it('is false for a Function app (has brevo_function)', () => {
+    expect(
+      isM2mApp({
+        app_id: '4',
+        name: 'fn',
+        client_id: '',
+        redirect_uris: null,
+        brevo_function: {},
+      }),
+    ).toBe(false);
+  });
+
+  it('is false with an empty redirect_uris array (still counts as present)', () => {
+    // Structurally identical to "no callback" today, but kept a separate case since an
+    // empty array and `null` are different wire values `OAuthApp.redirect_uris` allows.
+    expect(
+      isM2mApp({
+        app_id: '5',
+        name: 'm2m-empty-array',
+        client_id: 'client-5',
+        redirect_uris: [],
+      }),
+    ).toBe(true);
   });
 });
