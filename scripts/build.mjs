@@ -188,6 +188,9 @@ const GA_MARKERS = [
   'appInstallCommand', // commands/app/install.ts — GA at BEX-290
   'appUninstallCommand', // commands/app/uninstall.ts — GA at BEX-290
   'resolveInstallTarget', // commands/app/account-install.ts — GA at BEX-290
+  'listFunctionCommand', // commands/function/list.ts — GA at Brevo Functions release
+  'initFunctionCommand', // commands/function/init.ts — GA at Brevo Functions release
+  'deployFunctionCommand', // commands/function/deploy.ts — GA at Brevo Functions release
 ];
 
 // The INVERSE leak, and the one `LEAK_MARKERS` is structurally blind to: not a gated

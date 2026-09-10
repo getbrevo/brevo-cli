@@ -97,7 +97,7 @@ brevo app uninstall          # remove it from that account again
 `brevo app upload` has no edit flags — it always pushes the whole of `app-config.json`. `install` and `uninstall` both take an optional `[account-id]`; omitted, the target resolves from the authenticated account (a corporate account is asked which sub-account).
 
 ## The `ui_app` block
-The presence of `ui_app` is the app-type discriminator — it is what makes this a UI app rather than an OAuth one. That is why `auth` is `{}`, and it must stay empty: `brevo app upload` refuses a UI app carrying `scopes` or `redirectUris`.
+The presence of `ui_app` is the app-type discriminator — it is what makes this a UI app rather than an OAuth one. That is why `auth` is `{}`, and it must stay empty: `brevo app upload` refuses a UI app carrying `scopes` or `redirect_uris`.
 
 `extension_type` is the only field at the root, because an app is one kind of extension rather than several:
 

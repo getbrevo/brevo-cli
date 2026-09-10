@@ -55,7 +55,7 @@ async function ensureRedirectRegistered(
   config: ProjectConfig,
   port: number,
 ): Promise<string | undefined> {
-  const redirectUris = config.auth?.redirectUris ?? [];
+  const redirectUris = config.auth?.redirect_uris ?? [];
   const existing = findMatchingLocalRedirect(redirectUris, port);
   if (existing) return existing;
 
@@ -85,7 +85,7 @@ async function ensureRedirectRegistered(
   // single write path for app state. Never PATCH fields directly (BEX-366).
   const updatedConfig: ProjectConfig = {
     ...config,
-    auth: { ...config.auth, redirectUris: [...redirectUris, newRedirectUrl] },
+    auth: { ...config.auth, redirect_uris: [...redirectUris, newRedirectUrl] },
   };
   writeProjectConfig(updatedConfig);
 
@@ -128,7 +128,7 @@ function resolveFeatureEntry(feature: string | undefined): string {
 
 function resolvePort(config: ProjectConfig | null, optionsPort?: number): number {
   if (optionsPort) return optionsPort;
-  const redirectUrl = config?.auth?.redirectUris?.[0];
+  const redirectUrl = config?.auth?.redirect_uris?.[0];
   if (!redirectUrl) return DEFAULT_PORT;
   try {
     const parsed = new URL(redirectUrl);
@@ -201,7 +201,7 @@ export const startCommand = withCommandHandler(
     // its registered redirect URLs — otherwise the OAuth callback will be
     // rejected by Brevo at runtime. Skipped when there's no linked app
     // (no appId means we'd have nowhere to push the update).
-    const redirectUri = config?.appId ? await ensureRedirectRegistered(config, port) : undefined;
+    const redirectUri = config?.app_id ? await ensureRedirectRegistered(config, port) : undefined;
 
     logInfo(`\n  Starting ${feature}...`);
 

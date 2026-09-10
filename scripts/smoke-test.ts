@@ -6,12 +6,17 @@
  * uninstall) always run. In between it runs whichever suites `--suite` selects:
  *
  *   scripts/smoke/private-app.ts  create → credentials → upload → verify rename
- *                                 → scaffold → start → delete, + guardrail probes
+ *                                 → scaffold → start → delete, + guardrail probes,
+ *                                 then the M2M (client_credentials) create-only flow:
+ *                                 create → credentials → flag refusals → delete
  *   scripts/smoke/public-app.ts   create → upload → status → submit → submit again
  *                                 → status → withdraw → status → delete
  *   scripts/smoke/ui-app.ts       UI-app lifecycle: interactive create (pty) → upload
  *                                 no-op → per-entry edit upload → install → uninstall
  *                                 → delete (opt-in)
+ *   scripts/smoke/m2m.ts          interactive M2M create (pty): OAuth-flow prompt →
+ *                                 scope-catalog picker → delete (opt-in; the
+ *                                 non-interactive M2M steps are in private-app.ts)
  *   scripts/smoke/init-wizard.ts  the `brevo app init` wizard (opt-in)
  *
  * Shared plumbing lives in scripts/smoke/core.ts.
@@ -51,19 +56,22 @@ import {
 import { privateAppSuite } from './smoke/private-app';
 import { publicAppSuite } from './smoke/public-app';
 import { uiAppSuite } from './smoke/ui-app';
+import { m2mSuite } from './smoke/m2m';
 import { initWizardSuite } from './smoke/init-wizard';
+import { functionSuite } from './smoke/function';
 
-// Suite registry. `--suite=<name[,name]>` picks from these; the ui suite and
-// the init wizard are opt-in because they drive interactive prompts (ui through
-// a pty, init through scripted stdin).
+// Suite registry. `--suite=<name[,name]>` picks from these; the init wizard is
+// opt-in because it drives interactive prompts through scripted stdin.
 const SUITES: Record<string, Suite> = {
   private: privateAppSuite,
   public: publicAppSuite,
   ui: uiAppSuite,
+  m2m: m2mSuite,
   init: initWizardSuite,
+  function: functionSuite,
 };
 
-const DEFAULT_SUITES = ['private', 'public'];
+const DEFAULT_SUITES = ['private', 'public', 'function'];
 
 // Minimum spacing between `brevo` invocations. Chosen to cost ~40s across a full
 // ~40-call run — cheap next to the 126s a single rate-limited delete burned before
@@ -193,12 +201,17 @@ Flags:
                                --gap=0 disables it.
   --suite=<names>              Which suites to run, comma-separated, in order.
                                private  private-app lifecycle + client guardrails
+                                        + the M2M create-only flow
                                public   public-app submission/review lifecycle
                                ui       UI-app lifecycle (interactive create via a
                                         pty; opt-in)
+                               m2m      interactive M2M create — OAuth-flow prompt
+                                        and scope picker (pty; opt-in). The
+                                        non-interactive M2M steps run in 'private'.
                                init     'brevo app init' wizard (interactive, opt-in)
+                               function Brevo Function list/get/activate/deactivate/deploy/delete/init
                                all      every suite
-                               Default: private,public
+                               Default: private,public,function
   --with-init                  Append the init suite (same as adding 'init').
   --with-ui                    Append the ui suite.
   --with-public                Append the public suite.
@@ -217,7 +230,8 @@ Steps that need a command the installed CLI doesn't have (notably
 'app upload' may not be released yet) are auto-detected and reported as
 skipped rather than failed. The same detection covers gated *features* that
 come with no command of their own — '--distribution public', which a published
-build refuses (BEX-405).
+build refuses (BEX-405), and 'app create --m2m', which is GA in every build here
+but newer than the version npm serves.
 
 --against=local builds what the selected suites need, and one 'yarn link' can
 only hold one build:
@@ -226,10 +240,11 @@ only hold one build:
   * with only 'private' selected it builds the published surface, i.e. what npm
     actually ships. Run 'yarn smoke --suite=private' when that is the thing you
     want to verify.
-The ui suite needs neither: UI apps are GA (BEX-290) and ship in every build, so
-it runs on whichever artefact the other selected suites decided on. It DOES need
-a pty — 'brevo app create' only offers the UI app type on a real terminal — so
-the suite drives the prompts through script(1) and is opt-in like init.
+The ui and m2m suites need neither: UI apps are GA (BEX-290) and M2M ships in
+every build, so both run on whichever artefact the other selected suites decided
+on. They DO need a pty — 'brevo app create' only offers the UI app type, and only
+asks which OAuth flow, on a real terminal — so both drive the prompts through
+script(1) and are opt-in like init.
 `);
 }
 
@@ -368,6 +383,9 @@ function hasLeftoverState(state: State): boolean {
     state.mainApp ||
     state.publicApp ||
     state.uiApp ||
+    // Gates the post-run safety net, so an M2M app left behind by a failed delete step
+    // has to be named here or it is never deleted AND never reported as a leak.
+    state.m2mApp ||
     state.initAppId ||
     state.tmpDirs.length > 0 ||
     state.linked ||

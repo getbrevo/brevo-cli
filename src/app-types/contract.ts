@@ -35,10 +35,10 @@ export type { AppConfigLike, AppRecordLike };
  * `lib/config` here would put the registry behind a module half the test suites mock.
  */
 export interface ValidatableConfig {
-  appId: string;
-  appName: string;
+  app_id: string;
+  app_name: string;
   distribution_type: 'private' | 'public';
-  auth: { scopes?: string[]; redirectUris?: string[] };
+  auth: { scopes?: string[]; redirect_uris?: string[] };
   ui_app?: UiApp;
 }
 
@@ -47,7 +47,7 @@ export interface ValidatableConfig {
  * account for it — which is the main reason the registry is a static object literal
  * rather than something plugin-loaded.
  */
-export type AppTypeId = 'oauth' | 'ui';
+export type AppTypeId = 'oauth' | 'ui' | 'function';
 
 export interface AppTypeModule {
   id: AppTypeId;

@@ -58,7 +58,7 @@ describe('app/status', () => {
   });
 
   it('should resolve the app id from app-config.json when no flag is given', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '77' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '77' });
     mockFetchAppState.mockResolvedValue({ state: 'submitted' });
 
     await statusCommand({});
@@ -79,7 +79,7 @@ describe('app/status', () => {
   });
 
   it('should prefer the flag over app-config.json', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '77' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '77' });
     mockFetchAppState.mockResolvedValue({ state: 'rejected' });
 
     await statusCommand({ appId: '42' });

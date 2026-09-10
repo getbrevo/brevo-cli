@@ -119,6 +119,26 @@ function formatRootHelp(description: string): string {
     `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
     `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,
     ``,
+    // GA (Brevo Functions shipped): `brevo-function-type` is 'ga' in FEATURE_STAGE, so
+    // this renders in every build. The gatedSection call stays for the same reason as
+    // `account-install` above: an emergency flip back to 'preview' hides it here.
+    // NOTE: the function command definitions do not carry a `requires` gate, so flipping
+    // the stage back to 'preview' only hides this help section — the commands themselves
+    // remain reachable. To fully gate them, add `requires: 'brevo-function-type'` to
+    // each definition in `functionCommandGroup`.
+    ...gatedSection('brevo-function-type', [
+      `Function commands (alias: brevo fn):`,
+      `  brevo function list              [--draft] [--json]   List all Brevo Functions in your account`,
+      `  brevo function get               [--id <id>] [--json] Show details of a Brevo Function`,
+      `  brevo function activate          [--id <id>] [--json] Activate a Brevo Function`,
+      `  brevo function deactivate        [--id <id>] [--json] Deactivate a Brevo Function`,
+      `  brevo function delete            [--id <id>] [--force] [--json]`,
+      `                                                        Delete a Brevo Function`,
+      `  brevo function init                                   Create a new Brevo Function (interactive)`,
+      `  brevo function deploy            [--id <id>] [--app-id <id>] [--json]`,
+      `                                                        Deploy a draft Brevo Function`,
+      ``,
+    ]),
     `Scope commands:`,
     `  brevo app available-scopes  [--web] [--json]          List OAuth scopes supported by the IdP`,
     `                                                        (--web opens the catalog in a browser)`,

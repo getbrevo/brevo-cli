@@ -677,6 +677,25 @@ export function readJsonFile<T = Record<string, unknown>>(path: string): T {
   return JSON.parse(readFileSync(path, 'utf8')) as T;
 }
 
+// app-config.json keys are snake_case (`app_id`, `app_name`, `logo_uri`,
+// `auth.redirect_uris`). Builds before the rename wrote camelCase, and the smoke
+// also runs against published versions, so every read accepts both spellings.
+export function configField(cfg: Record<string, unknown>, snake: string, camel: string): unknown {
+  return cfg[snake] ?? cfg[camel];
+}
+
+export function configRedirectUris(cfg: Record<string, unknown>): unknown {
+  const auth = cfg.auth as Record<string, unknown> | undefined;
+  return auth?.redirect_uris ?? auth?.redirectUris;
+}
+
+// Whether a config file uses the current snake_case keys. Edits made "the way a
+// user would" must keep the file's own spelling so the assertion exercises the
+// build under test, not the migration path.
+export function usesSnakeCaseKeys(cfg: Record<string, unknown>): boolean {
+  return 'app_id' in cfg;
+}
+
 // `brevo app list --json` returns `app_id` (snake_case, per src/types.ts).
 // `brevo app create --json` returns `appId` (camelCase). Some endpoints use
 // plain `id`. We accept all three so comparisons work across boundaries.
@@ -809,8 +828,15 @@ export type GatedCommand = (typeof GATED_COMMANDS)[number];
  * opens by creating a public app, so without this the whole lifecycle *failed* on a
  * published-surface build instead of skipping — and `yarn build` has produced that surface
  * by default since `link:dev` stopped implying preview.
+ *
+ * `m2m-flag` is gated by RELEASE, not by the build: `--m2m` is GA and ships in every
+ * artefact this repo produces, but it is newer than the version npm currently serves, so
+ * `--against=published` runs a `brevo app create` that answers `unknown option '--m2m'`.
+ * Detected for the same reason as the one above — the four M2M steps live in the DEFAULT
+ * `private` suite, so without this every published-surface run reports them as four hard
+ * failures. This row can be dropped once the release carrying `--m2m` is on `latest`.
  */
-export const GATED_FEATURES = ['public-distribution'] as const;
+export const GATED_FEATURES = ['public-distribution', 'm2m-flag'] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];
 
@@ -856,6 +882,29 @@ export function publicDistributionOffered(state: State): boolean {
   return /Distribution type \([^)]*\bpublic\b/.test(r.stdout + r.stderr);
 }
 
+/** An option line for `--m2m`, tested against a help line whose indent is already off. */
+const M2M_OPTION_LINE = /^--m2m\b/;
+
+/**
+ * Does this build's `app create` take `--m2m`?
+ *
+ * Matched as an option LINE rather than anywhere in the text, because `--scopes`' own
+ * description and two of the command's examples name the flag as well — a substring match
+ * would answer "present" off a build that only mentions it. Same help-only reasoning as
+ * the probe above: running the flag for real either creates an app or burns a call to be
+ * told it can't.
+ *
+ * Split-and-trim rather than the obvious `/^\s+--m2m\b/m`, which Sonar rejects (S8786)
+ * and is right to: `\s` matches a newline, so under `/m` the quantifier can run across
+ * line boundaries and every start position backtracks against every other — super-linear
+ * on a long help screen. Anchoring at the start of an already-trimmed line has no
+ * quantifier to backtrack at all.
+ */
+export function m2mFlagOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'create', '--help'], state);
+  return (r.stdout + r.stderr).split('\n').some((line) => M2M_OPTION_LINE.test(line.trimStart()));
+}
+
 // Detection is help-text based, with one probe per unlisted command (see above).
 export function detectCapabilities(state: State): Record<string, boolean> {
   const help = exec(brevoCmd(state), ['--help'], state);
@@ -883,6 +932,7 @@ export function detectCapabilities(state: State): Record<string, boolean> {
       : listedInHelp(helpText, name);
   }
   caps['public-distribution'] = publicDistributionOffered(state);
+  caps['m2m-flag'] = m2mFlagOffered(state);
   logToFile(state, `capabilities: ${JSON.stringify(caps)}`);
   state.caps = caps;
   return caps;
@@ -1221,11 +1271,13 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
   // and version are round-tripped from the server (see buildTemplateVars in
   // scaffold.ts), so this also proves the create response persisted correctly.
   const cfg = readJsonFile(join(app.projectDir, 'app-config.json'));
+  const cfgAppId = configField(cfg, 'app_id', 'appId');
   must(
-    String(cfg.appId) === appId,
-    `app-config.json appId ${JSON.stringify(cfg.appId)} != ${appId}`,
+    String(cfgAppId) === appId,
+    `app-config.json app_id ${JSON.stringify(cfgAppId)} != ${appId}`,
   );
-  must(cfg.appName === name, `app-config.json appName ${JSON.stringify(cfg.appName)} != ${name}`);
+  const cfgAppName = configField(cfg, 'app_name', 'appName');
+  must(cfgAppName === name, `app-config.json app_name ${JSON.stringify(cfgAppName)} != ${name}`);
   must(
     cfg.distribution_type === opts.distribution,
     `app-config.json distribution_type ${JSON.stringify(cfg.distribution_type)} != ${opts.distribution}`,
@@ -1238,12 +1290,10 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     'app-config.json still carries the removed permittedUrls/support blocks',
   );
   if (opts.logoUri) {
-    must(cfg.logoUri === opts.logoUri, `app-config.json logoUri ${JSON.stringify(cfg.logoUri)}`);
+    const cfgLogo = configField(cfg, 'logo_uri', 'logoUri');
+    must(cfgLogo === opts.logoUri, `app-config.json logo_uri ${JSON.stringify(cfgLogo)}`);
   }
-  const cfgUrls = asStringArray(
-    (cfg.auth as Record<string, unknown> | undefined)?.redirectUris,
-    'app-config.json auth.redirectUris',
-  );
+  const cfgUrls = asStringArray(configRedirectUris(cfg), 'app-config.json auth.redirect_uris');
   must(cfgUrls.includes(redirectUri), `app-config.json is missing redirect URL ${redirectUri}`);
 
   // List endpoint lags create — retry with backoff before declaring missing.
@@ -1286,17 +1336,16 @@ export function uploadApp(state: State, app: SmokeApp): Record<string, unknown> 
   const auth = (cfg.auth ?? {}) as Record<string, unknown>;
   const nextName = renamedName(app);
   const nextUrls = [
-    ...asStringArray(auth.redirectUris, 'app-config.json auth.redirectUris'),
+    ...asStringArray(configRedirectUris(cfg), 'app-config.json auth.redirect_uris'),
     EXTRA_REDIRECT_URI,
   ];
-  writeFileSync(
-    configPath,
-    JSON.stringify(
-      { ...cfg, appName: nextName, auth: { ...auth, redirectUris: nextUrls } },
-      null,
-      2,
-    ),
-  );
+  // Edit under the file's own key spelling: a pre-rename build wrote camelCase and
+  // would not read `app_name` back.
+  const snake = usesSnakeCaseKeys(cfg);
+  const edited = snake
+    ? { ...cfg, app_name: nextName, auth: { ...auth, redirect_uris: nextUrls } }
+    : { ...cfg, appName: nextName, auth: { ...auth, redirectUris: nextUrls } };
+  writeFileSync(configPath, JSON.stringify(edited, null, 2));
 
   const r = execOrThrow(brevoCmd(state), ['app', 'upload', '--yes', '--json'], state, {
     cwd: projectDir,
@@ -1328,14 +1377,17 @@ export function uploadApp(state: State, app: SmokeApp): Record<string, unknown> 
 
   // Success writes the server-confirmed values back into app-config.json.
   const written = readJsonFile(configPath);
-  must(written.appName === nextName, `app-config.json was not rewritten with ${nextName}`);
+  must(
+    configField(written, 'app_name', 'appName') === nextName,
+    `app-config.json was not rewritten with ${nextName}`,
+  );
   must(
     written.version === res.version,
     `app-config.json version ${JSON.stringify(written.version)} != response ${JSON.stringify(res.version)}`,
   );
   const writtenUrls = asStringArray(
-    (written.auth as Record<string, unknown> | undefined)?.redirectUris,
-    'app-config.json auth.redirectUris after upload',
+    configRedirectUris(written),
+    'app-config.json auth.redirect_uris after upload',
   );
   must(
     writtenUrls.includes(app.redirectUri) && writtenUrls.includes(EXTRA_REDIRECT_URI),
@@ -1537,6 +1589,10 @@ export function trapDeleteApps(state: State): void {
     state.mainApp?.appId,
     state.publicApp?.appId,
     state.uiApp?.appId,
+    // Listed here as well as in `stepDeleteLeftoverApps`: the loop below is the only
+    // thing that turns a live app into an orphan REPORT, and `state.m2mApp` is cleared
+    // unconditionally a few lines down — so omitting it here dropped the id silently.
+    state.m2mApp?.appId,
     state.initAppId,
   ]) {
     if (!appId) continue;

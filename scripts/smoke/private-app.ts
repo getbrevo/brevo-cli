@@ -20,6 +20,7 @@ import {
   ensureWorkRoot,
   exec,
   execOrThrow,
+  featureMissing,
   findAppByName,
   logToFile,
   must,
@@ -30,6 +31,7 @@ import {
   renamedName,
   requireApp,
   requireCommand,
+  requireFeature,
   requireProjectDir,
   sameSet,
   sleep,
@@ -308,10 +310,16 @@ async function stepDeleteMainApp(state: State): Promise<string> {
 // app-config.json. So it cannot go through `createSmokeApp`, which sends `--redirect-uri`
 // and asserts a project on disk — the two things an M2M app is defined by not having.
 // That absence is what these steps check; everything else about the app is ordinary.
+//
+// Every step opens with `requireFeature(state, 'm2m-flag')`. The flag is GA and in every
+// build this repo produces, but it is newer than the version on npm, so an
+// `--against=published` run has to SKIP these four rather than fail them — and the checks
+// below are the reason the skip has to be per step: each one is reached independently.
 
 const M2M_SCOPES = ['contacts:read', 'crm:read'];
 
 async function stepM2mCreate(state: State): Promise<string> {
+  requireFeature(state, 'm2m-flag');
   const workRoot = ensureWorkRoot(state);
   const name = stampedName(state, 'm2m');
 
@@ -376,6 +384,7 @@ async function stepM2mCreate(state: State): Promise<string> {
 // listing ever stops returning `client_id` for an M2M app, this step fails loudly here
 // rather than the misclassification surfacing to a partner.
 function stepM2mCredentials(state: State): string {
+  requireFeature(state, 'm2m-flag');
   const app = requireApp(state.m2mApp, 'm2m');
   const creds = parseJson<Record<string, unknown>>(
     execOrThrow(
@@ -399,6 +408,7 @@ function stepM2mCredentials(state: State): string {
 // Every refusal `assertM2mFlags` owns, driven through the real binary. They must all fail
 // before the app is created, so a leaked app here would itself be the finding.
 function stepM2mNegativeFlags(state: State): string {
+  requireFeature(state, 'm2m-flag');
   const workRoot = ensureWorkRoot(state);
   const run = (args: string[]): ReturnType<typeof exec> =>
     exec(
@@ -446,12 +456,65 @@ function stepM2mNegativeFlags(state: State): string {
         exitCodes: [1],
       },
     ),
+    assertMappedFailure(
+      run([
+        '--distribution',
+        'private',
+        '--m2m',
+        '--scopes',
+        'contacts:read',
+        '--ui-app',
+        '--json',
+      ]),
+      {
+        what: '--m2m with --ui-app',
+        patterns: [/can't be combined with `--ui-app`/],
+        exitCodes: [1],
+      },
+    ),
+    // The path deliberately does not exist: the refusal has to come from the flag
+    // COMBINATION, before anything tries to read the file, so a "no such file" error here
+    // would mean `assertM2mFlags` had stopped running first.
+    assertMappedFailure(
+      run([
+        '--distribution',
+        'private',
+        '--m2m',
+        '--scopes',
+        'contacts:read',
+        '--ui-config',
+        join(workRoot, 'no-such-ui-app.json'),
+        '--json',
+      ]),
+      {
+        what: '--m2m with --ui-config',
+        patterns: [/can't be combined with `--ui-config`/],
+        exitCodes: [1],
+      },
+    ),
+    assertMappedFailure(
+      run(['--distribution', 'public', '--m2m', '--scopes', 'contacts:read', '--json']),
+      {
+        what: '--m2m with --distribution public',
+        // Refused twice over, and WHICH refusal fires depends on the build: a
+        // published-surface build drops `--distribution public` entirely (BEX-405) and
+        // `assertDistributionFlag` — which runs first — refuses it as an unreleased
+        // feature, so only a preview build reaches `APP_CREATE_M2M_PUBLIC`. Asserted as
+        // either rather than skipped, because the property under test is that no build
+        // creates a public M2M app.
+        patterns: featureMissing(state, 'public-distribution')
+          ? [/not available yet/]
+          : [/requires `--distribution private`/],
+        exitCodes: [1],
+      },
+    ),
   ];
 
   return details.join('; ');
 }
 
 async function stepM2mDelete(state: State): Promise<string> {
+  requireFeature(state, 'm2m-flag');
   const app = requireApp(state.m2mApp, 'm2m');
   const detail = await deleteSmokeApp(state, app);
   state.m2mApp = null;

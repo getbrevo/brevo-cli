@@ -147,6 +147,15 @@ const coreEndpoints = {
   // record-page prompt and then narrows the row read with `?location=<csv>`, rather than
   // pulling the whole registry to derive the same handful of strings client-side.
   APP_STORE_SURFACE_POINT_LOCATIONS: '/v3/app-store/surface-points/locations',
+  DP_FUNCTIONS: '/v3/dp-functions/functions',
+  DP_FUNCTION: (id: string) => `/v3/dp-functions/functions/${encodeURIComponent(id)}`,
+  DP_FUNCTION_GENERATE_STREAM: '/v3/dp-functions/generate/stream',
+  DP_FUNCTION_CREATE: '/v3/dp-functions/functions',
+  DP_FUNCTION_TEMPLATES: '/v3/dp-functions/functions/templates',
+  DP_FUNCTION_CONTACTS: '/v3/dp-functions/live-data/contacts',
+  DP_FUNCTION_EXECUTE: '/v3/dp-functions/execute',
+  DP_FUNCTION_CREATE_FROM_TEMPLATE: '/v3/dp-functions/functions/from-template',
+  APP_STORE_APP_FUNCTIONS: '/v3/app-store/app-functions',
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -208,6 +217,13 @@ const coreCli = {
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
+  FUNCTION_LIST: 'brevo function list',
+  FUNCTION_GET: 'brevo function get --id <id>',
+  FUNCTION_ACTIVATE: 'brevo function activate --id <id>',
+  FUNCTION_DEACTIVATE: 'brevo function deactivate --id <id>',
+  FUNCTION_DELETE: 'brevo function delete --id <id>',
+  FUNCTION_INIT: 'brevo function init',
+  FUNCTION_DEPLOY: 'brevo function deploy --id <draft-id>',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;
@@ -264,11 +280,33 @@ export const LEGACY_ALL_SCOPE = 'all';
  * The `auth.type` value that marks an app as machine-to-machine on the wire.
  *
  * Sent on `POST /v3/app-store/apps` inside the `auth` block. A consent-based app sends
- * **no** `type` key at all rather than some counterpart value — omitting it keeps that
- * request byte-identical to every CLI version that predates M2M, so an older backend is
- * unaffected. There is deliberately no `'consent'` constant to pair with this one.
+ * **no** `type` key at all rather than some counterpart value; the flow it is in is stated
+ * once, at the top level, by `WIRE_APP_TYPE.OAUTH_CONSENT`. There is deliberately no
+ * `'consent'` constant to pair with this one.
  */
 export const M2M_AUTH_TYPE = 'm2m';
+
+/**
+ * The `app_type` values `brevo app create` sends on `POST /v3/app-store/apps`.
+ *
+ * **Not the same vocabulary as `app-config.json`'s `app_type` key**, which is a one-word
+ * local label (`oauth` / `ui` / `function`) written by the project writer and never sent
+ * anywhere. This one names the app type *and* the variant within it, because the two
+ * things the platform has to branch on — which contract, and which flow of it — are not
+ * separable at the top level of the request. The two fields share a name and nothing else:
+ * different values, different source (derived from the request's own discriminator block,
+ * see `wireAppTypeForBlock`), different lifetime.
+ *
+ * A UI app's value is completed with the block's `extension_type`
+ * (`ui_app.actionLink` today), so the day another extension type becomes authorable there
+ * is nothing here to remember to update.
+ */
+export const WIRE_APP_TYPE = {
+  FUNCTION: 'brevo_function',
+  UI_PREFIX: 'ui_app',
+  OAUTH_CONSENT: 'oauth.consent',
+  OAUTH_M2M: 'oauth.m2m',
+} as const;
 
 export const DEFAULT_SCOPES: readonly string[] = [
   'contacts:read',
