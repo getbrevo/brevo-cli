@@ -16,6 +16,8 @@ Iframe entries that open a modal can also author `modal_size`: `"small"`, `"medi
 
 `brevo app upload` translates the platform's own layout refusal into a message that names the file and field to edit, keeping the server's sentence (which names the offending slots) inline. Only a `400` mentioning `layout` is relabelled; every other error keeps the server's own text.
 
+Iframe-extension authoring is also gated by a per-account rollout flag on the platform. `brevo app create` and `brevo app upload` both translate that refusal into a message suggesting Link instead, or asking Brevo to enable iframe extensions for the account — the prompt has no way to know the flag's state, so it offers Iframe on every private app regardless, and only the server's `400` reveals whether the account can actually use it. Narrowed to a `400` naming the flag; every other error keeps the server's own text.
+
 `sandbox` joins `link_target`, `version` and `extension_point_name` as a server-stamped key stripped from `ui_app` echoes, so it never lands in `app-config.json` and never shows up as drift.
 
 The iframe entry's URL field is named `iframe_href` (it was `modal_iframe_url` while this feature was in development). The old name became a misnomer once `layout: "inline"` existed — an inline card embeds the page directly and opens no modal — so the whole chain renamed together (`iframeHref` in the manifest and the UI kit, `iframe_href` in `app-config.json` and on the wire). No migration and no alias: the field is only reachable on an `iframeExtension` app, which no environment can create yet, so no config in the wild carries the old key. The upload diff's row follows the field and reads `iframe URL:` rather than `modal URL:`.

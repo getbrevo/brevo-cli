@@ -1929,6 +1929,63 @@ describe('app/create', () => {
       expect(String(question?.message)).toContain('Iframe URL');
     });
 
+    // The platform's per-account Unleash rollout gate on iframe-extension authoring
+    // (`app-store-bo-be-iframe-extension`). The prompt offers Iframe on every private
+    // app — it has no way to know the flag's state — so a client without it enabled
+    // only finds out here, from the server's own 400.
+    describe('iframe extensions disabled by the platform feature flag', () => {
+      const SERVER_MESSAGE =
+        'ui_app.extension_type "iframeExtension" is not enabled for this client (feature flag "app-store-bo-be-iframe-extension")';
+      const rejection = (): ApiError =>
+        new ApiError(SERVER_MESSAGE, 400, undefined, 'invalid_parameter');
+
+      it('explains the refusal and suggests Link or asking Brevo to enable it', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+        (appService.createApp as jest.Mock).mockRejectedValue(rejection());
+
+        const err: Error = await createCommand(CLI_OPTIONS).then(
+          () => {
+            throw new Error('expected the create to be refused');
+          },
+          (e: Error) => e,
+        );
+        expect(err.message).toMatch(/can't create iframe extensions yet/i);
+        expect(err.message).toMatch(/choose Link instead/i);
+      });
+
+      it("quotes the server's own sentence so a different 400 cannot hide behind it", async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+        (appService.createApp as jest.Mock).mockRejectedValue(rejection());
+
+        await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+          /app-store-bo-be-iframe-extension/,
+        );
+      });
+
+      // Guard against the CLI growing a local mirror of the flag — the same reasoning
+      // as the public-apps refusal test of the same name: the flag is per-account, so
+      // a local guard would be wrong rather than merely stale, and the create must
+      // always reach the server.
+      it('does not pre-empt the server — an Iframe create is still attempted', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(appService.createApp).toHaveBeenCalled();
+      });
+
+      it('leaves an unrelated 400 on an Iframe create alone', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+        (appService.createApp as jest.Mock).mockRejectedValue(
+          new ApiError('logo_uri must be a valid https URL', 400, undefined, 'invalid_parameter'),
+        );
+
+        await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+          'logo_uri must be a valid https URL',
+        );
+      });
+    });
+
     // ──────── The two registry reads ────────
     // Different questions, not the same call twice: the pages come from the registry's own
     // location list, so no run pulls every row just to learn that three pages exist.

@@ -146,6 +146,20 @@ const coreMessages = {
     '  Do this:     re-run with `--distribution private`\n' +
     `  Note:        \`distribution_type\` is fixed at creation — \`${CLI.APP_UPLOAD}\` can't change it later\n` +
     `  Brevo said:  ${serverMessage}`,
+  // The platform's per-account Unleash rollout gate on iframe-extension authoring
+  // (bo-be `app-store-bo-be-iframe-extension`, checked by `validateIframeDistribution`
+  // alongside the private-only rule). Unlike that rule — which `uiAppType.validateConfig`
+  // already catches locally before any round trip — the flag is per-account and the CLI
+  // holds no copy of it (same reasoning as `isPublicDistributionRefusal` just above and
+  // CLAUDE.md's standing rule), so this can only translate the server's answer.
+  //
+  // `Brevo said:` is deliberate, for the same reason `APP_CREATE_PUBLIC_REJECTED` quotes
+  // it: if the platform ever rewords the rejection (and `isIframeExtensionDisabledRefusal`
+  // stops recognising it), nothing is hidden in the meantime.
+  APP_CREATE_UI_IFRAME_DISABLED: (serverMessage: string): string =>
+    "This account can't create iframe extensions yet — Brevo rejected this request.\n\n" +
+    '  Do this:     choose Link instead, or ask Brevo to enable iframe extensions for this account\n' +
+    `  Brevo said:  ${serverMessage}`,
   APP_CREATE_REDIRECT_PROMPT:
     'OAuth callback URL — where users are sent after authorizing your app:',
   APP_CREATE_REDIRECT_HINT: (cmd: string) =>
@@ -694,6 +708,13 @@ const coreMessages = {
   // text. The server's sentence is kept inline because it names the offending slot(s).
   APP_UPLOAD_UI_LAYOUT_REJECTED: (serverMessage: string) =>
     `Brevo rejected this app's iframe layout: ${serverMessage}\n  \`layout: "inline"\` only works on a placement that renders a card. Remove \`layout\` from that \`surface_point_list\` entry in app-config.json (or set it to "modal"), then run \`${CLI.APP_UPLOAD}\` again.`,
+  // The platform's per-account Unleash rollout gate on iframe-extension authoring — see
+  // `APP_CREATE_UI_IFRAME_DISABLED` for why this is a translation, not a local guard.
+  // Reaches an existing app on its first upload that switches `extension_type` to
+  // `iframeExtension`, since that combination cannot have been created in the first place
+  // while the flag was off.
+  APP_UPLOAD_UI_IFRAME_DISABLED: (serverMessage: string) =>
+    `Brevo rejected this app's iframe extension: ${serverMessage}\n  Iframe extensions are still rolling out; ask Brevo to enable them for this account, or set \`extension_type\` to "actionLink" in app-config.json and run \`${CLI.APP_UPLOAD}\` again.`,
   // `app_type` is informational — the blocks are the discriminator — so a disagreement
   // between the two is a hand-edit that half-landed, and the fix is always to make the
   // label match the blocks (or to finish the edit the label was reaching for). Phrased

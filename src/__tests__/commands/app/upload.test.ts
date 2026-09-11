@@ -1617,6 +1617,52 @@ describe('app/upload', () => {
       });
     });
 
+    // ─── the server's per-account iframe-extension rollout gate, translated ───
+    // The flag (`app-store-bo-be-iframe-extension`) is per-account and the CLI holds no
+    // copy of it, so a client without it enabled can only find out from the server.
+    describe('iframe extensions disabled by the platform feature flag', () => {
+      // The bo-be sentence, verbatim.
+      const SERVER_MESSAGE =
+        'ui_app.extension_type "iframeExtension" is not enabled for this client (feature flag "app-store-bo-be-iframe-extension")';
+
+      it('translates the 400 into a message naming what to do', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(SERVER_MESSAGE, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          messages.APP_UPLOAD_UI_IFRAME_DISABLED(SERVER_MESSAGE),
+        );
+      });
+
+      it('keeps the server sentence inside the translated message', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(SERVER_MESSAGE, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          /app-store-bo-be-iframe-extension/,
+        );
+      });
+
+      it('leaves an unrelated 400 with the server text', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(
+          new ApiError('logo_uri must be an https URL', 400),
+        );
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow('logo_uri must be an https URL');
+      });
+
+      // Narrow on the STATUS as well as the flag name: a 500 that happens to mention the
+      // flag is an outage, not an account restriction, and relabelling it would send the
+      // partner asking Brevo to enable a flag that was never the problem.
+      it('leaves a non-400 that mentions the flag alone', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(
+          new ApiError('feature flag service app-store-bo-be-iframe-extension unavailable', 503),
+        );
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          'feature flag service app-store-bo-be-iframe-extension unavailable',
+        );
+      });
+    });
+
     // ─── the installed-app warning ───
     // A UI app's block IS what its installs render, and an upload replaces it there with
     // no separate publish step. The CLI cannot list an app's installs, so the notice names

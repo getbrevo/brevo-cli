@@ -338,6 +338,26 @@ function isUiLayoutRefusal(err: unknown): err is ApiError {
   return err instanceof ApiError && err.statusCode === 400 && /layout/i.test(err.message);
 }
 
+/**
+ * Whether a failed upload is the platform's per-account Unleash rollout gate on
+ * iframe-extension authoring (bo-be `app-store-bo-be-iframe-extension`,
+ * `validateIframeDistribution` in app-store-bo-be#404).
+ *
+ * A translation, for the same reason `isUiLayoutRefusal` above is one: the flag is
+ * per-account and the CLI holds no copy of it. Reachable here (not just from `app
+ * create`) because an existing app's FIRST upload authoring `iframeExtension` — e.g. an
+ * `actionLink` app hand-edited to switch types — hits this same server-side gate.
+ *
+ * Narrowed on the flag's own name, so a reworded server sentence still matches.
+ */
+function isIframeExtensionDisabledRefusal(err: unknown): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    err.statusCode === 400 &&
+    err.message.includes('app-store-bo-be-iframe-extension')
+  );
+}
+
 export interface ConfigUploadOutcome {
   confirmedVersion: string;
   finalName: string;
@@ -413,6 +433,9 @@ export async function uploadProjectConfig(
   } catch (err) {
     if (isUiLayoutRefusal(err)) {
       throw new CliError(messages.APP_UPLOAD_UI_LAYOUT_REJECTED(err.message));
+    }
+    if (isIframeExtensionDisabledRefusal(err)) {
+      throw new CliError(messages.APP_UPLOAD_UI_IFRAME_DISABLED(err.message));
     }
     throw err;
   } finally {

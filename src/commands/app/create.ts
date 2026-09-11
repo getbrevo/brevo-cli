@@ -681,6 +681,29 @@ function isPublicDistributionRefusal(err: unknown, distribution: string): err is
   );
 }
 
+/**
+ * Recognise the platform's per-account Unleash rollout gate on iframe-extension
+ * authoring: bo-be's `validateIframeDistribution` (app-store-bo-be#404) refuses an
+ * `iframeExtension` block with a 400 naming the flag `app-store-bo-be-iframe-extension`
+ * when it is off for the calling client, judged BEFORE the private-only rule.
+ *
+ * A translation, not a local guard — the same reasoning as `isPublicDistributionRefusal`
+ * above and CLAUDE.md's standing rule that the CLI must not mirror per-account platform
+ * policy locally. Unlike the private-only rule, which `uiAppType.validateConfig` already
+ * catches offline (it is answerable from the file alone), this one genuinely cannot be:
+ * the flag is per-account, so only the server knows its state.
+ *
+ * Narrowed on the flag's own name rather than the sentence around it — the flag name is
+ * the stable part of the message, so a reworded sentence still matches.
+ */
+function isIframeExtensionDisabledRefusal(err: unknown): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    err.statusCode === 400 &&
+    err.message.includes('app-store-bo-be-iframe-extension')
+  );
+}
+
 // 5. Create the app
 async function createAppWithRetry(
   inputs: CreateAppInputs,
@@ -702,6 +725,9 @@ async function createAppWithRetry(
     }
     if (isPublicDistributionRefusal(err, inputs.distribution)) {
       throw new CliError(messages.APP_CREATE_PUBLIC_REJECTED(err.message));
+    }
+    if (isIframeExtensionDisabledRefusal(err)) {
+      throw new CliError(messages.APP_CREATE_UI_IFRAME_DISABLED(err.message));
     }
     if (err instanceof ApiError && err.statusCode === 409) {
       return retryCreateWithNewName(inputs);
