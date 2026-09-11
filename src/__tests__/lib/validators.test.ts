@@ -580,7 +580,7 @@ describe('validateUiApp', () => {
     ['label', 'View in CRM'],
     ['more_info', 'Some detail'],
     ['redirect_link', 'https://example.com/brevo'],
-    ['modal_iframe_url', 'https://example.com/embed'],
+    ['iframe_href', 'https://example.com/embed'],
   ])('rejects a root-level %s, pointing at the per-entry field', (key, value) => {
     expect(() => validateUiApp({ ...VALID, [key]: value })).toThrow(
       new RegExp(`ui_app\\.${key} moved into each surface_point_list entry`),
@@ -597,12 +597,54 @@ describe('validateUiApp', () => {
     },
   );
 
-  // The UI kit keeps modal_iframe_url only for iframeExtension, so one on an
+  // The UI kit keeps iframe_href only for iframeExtension, so one on an
   // action link entry is silently discarded.
-  it('rejects modal_iframe_url on an action link entry', () => {
+  it('rejects iframe_href on an action link entry', () => {
+    expect(() => validateUiApp(withEntry({ iframe_href: 'https://example.com/modal' }))).toThrow(
+      /only used by/i,
+    );
+  });
+
+  // layout and modal_size describe how an iframe presents. An actionLink has exactly one
+  // presentation (the redirect) and opens no modal, so both are dropped without a word —
+  // refused here for the same reason iframe_href is.
+  it.each([
+    ['layout', 'inline'],
+    ['modal_size', 'small'],
+  ])('rejects %s on an action link entry', (key, value) => {
+    expect(() => validateUiApp(withEntry({ [key]: value }))).toThrow(/only used by/i);
+  });
+
+  it.each([['layout'], ['modal_size']])('names the entry carrying a rejected %s', (key) => {
     expect(() =>
-      validateUiApp(withEntry({ modal_iframe_url: 'https://example.com/modal' })),
-    ).toThrow(/only used by/i);
+      validateUiApp(withEntry({ [key]: key === 'layout' ? 'inline' : 'small' })),
+    ).toThrow(new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.${key}`));
+  });
+
+  // ──────── sandbox is not the partner's field, at either depth ────────
+  // The platform stamps the iframe's sandbox attributes onto the stored snapshot and the
+  // UI kit applies whatever it is served verbatim, so an authored value would be a partner
+  // writing the attributes their own frame runs under. Refused rather than stripped: the
+  // upload sends the file's block as-is, and dropping the key silently would leave the
+  // partner believing their value is in force.
+  it('rejects a root-level sandbox', () => {
+    expect(() => validateUiApp({ ...VALID, sandbox: 'allow-scripts' })).toThrow(
+      /ui_app\.sandbox is not authored in app-config\.json/,
+    );
+  });
+
+  it('rejects a per-entry sandbox, naming the entry', () => {
+    expect(() => validateUiApp(withEntry({ sandbox: 'allow-scripts' }))).toThrow(
+      new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.sandbox is not authored`),
+    );
+  });
+
+  // Ahead of the per-entry checks on purpose: a second problem in the block must not
+  // decide whether the security-relevant one is the message the partner sees.
+  it('reports a sandbox before an unrelated entry problem', () => {
+    expect(() => validateUiApp({ ...withEntry({ label: ' ', sandbox: 'allow-scripts' }) })).toThrow(
+      /\.sandbox is not authored/,
+    );
   });
 });
 
@@ -613,7 +655,7 @@ describe('validateUiApp — iframeExtension', () => {
     surface_point_name: VALID_POINT,
     context: ['recordId'],
     label: 'View in CRM',
-    modal_iframe_url: 'https://example.com/embed',
+    iframe_href: 'https://example.com/embed',
   };
   const VALID_IFRAME = {
     extension_type: 'iframeExtension',
@@ -636,8 +678,8 @@ describe('validateUiApp — iframeExtension', () => {
   });
 
   it.each([
-    ['a missing modal_iframe_url', withIframeEntry({ modal_iframe_url: undefined })],
-    ['an insecure modal_iframe_url', withIframeEntry({ modal_iframe_url: 'http://example.com' })],
+    ['a missing iframe_href', withIframeEntry({ iframe_href: undefined })],
+    ['an insecure iframe_href', withIframeEntry({ iframe_href: 'http://example.com' })],
     ['an empty label', withIframeEntry({ label: ' ' })],
   ])('rejects an entry with %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(CliError);
@@ -646,7 +688,7 @@ describe('validateUiApp — iframeExtension', () => {
   // The two delivery paths disagree about which URL wins when both are set: the card path
   // pairs strictly by extension_type and opens the modal, while the header-menu path routes
   // on redirect_link first and never opens it. Same entry, different behaviour per slot kind.
-  it('rejects redirect_link alongside modal_iframe_url on an entry', () => {
+  it('rejects redirect_link alongside iframe_href on an entry', () => {
     expect(() =>
       validateUiApp(withIframeEntry({ redirect_link: 'https://example.com/go' })),
     ).toThrow(/cannot be combined/i);
@@ -663,5 +705,46 @@ describe('validateUiApp — iframeExtension', () => {
     expect(() => validateUiApp(withIframeEntry({ link_target: '_blank' }))).toThrow(
       new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.link_target`),
     );
+  });
+
+  // ──────── layout and modal_size: vocabulary only ────────
+  // Both are pinned to their value set and nothing more. Whether the SLOT can honour the
+  // value — an 'inline' layout needs a placement that renders a card — is a registry fact
+  // the CLI deliberately holds no copy of, so it stays the upload endpoint's call.
+  it.each([
+    ['an inline layout', withIframeEntry({ layout: 'inline' })],
+    ['an explicit modal layout', withIframeEntry({ layout: 'modal' })],
+    ['a small modal', withIframeEntry({ modal_size: 'small' })],
+    ['a medium modal', withIframeEntry({ modal_size: 'medium' })],
+    ['an explicit large modal', withIframeEntry({ modal_size: 'large' })],
+    ['both together', withIframeEntry({ layout: 'modal', modal_size: 'medium' })],
+  ])('accepts %s', (_label, block) => {
+    expect(() => validateUiApp(block)).not.toThrow();
+  });
+
+  it.each([
+    ['layout', 'popover'],
+    ['modal_size', 'huge'],
+  ])('rejects an unsupported %s value', (key, value) => {
+    expect(() => validateUiApp(withIframeEntry({ [key]: value }))).toThrow(/is not supported/i);
+  });
+
+  it.each([
+    ['layout', 'popover'],
+    ['modal_size', 'huge'],
+  ])('names the entry carrying an unsupported %s', (key, value) => {
+    expect(() => validateUiApp(withIframeEntry({ [key]: value }))).toThrow(
+      new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.${key}`),
+    );
+  });
+
+  // The type the field would actually apply to, and still refused: an iframeExtension is
+  // the only extension that renders an iframe at all, so this is the config a partner
+  // would try it in. The platform stamps the attributes; the partner never writes them.
+  it.each([
+    ['at the root', { ...VALID_IFRAME, sandbox: 'allow-scripts allow-same-origin' }],
+    ['on the entry', withIframeEntry({ sandbox: 'allow-scripts allow-same-origin' })],
+  ])('rejects an authored sandbox %s', (_label, block) => {
+    expect(() => validateUiApp(block)).toThrow(/\.sandbox is not authored in app-config\.json/);
   });
 });

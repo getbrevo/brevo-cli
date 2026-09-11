@@ -14,7 +14,7 @@ import type { UiApp } from '../../types';
 describe('stripUiAppWireOnlyKeys', () => {
   it('reads its key list from the ui app type rather than a local copy', () => {
     expect(appTypeById('ui').wireOnlyKeys).toEqual(
-      expect.arrayContaining(['link_target', 'version', 'extension_point_name']),
+      expect.arrayContaining(['link_target', 'version', 'extension_point_name', 'sandbox']),
     );
   });
 
@@ -36,6 +36,21 @@ describe('stripUiAppWireOnlyKeys', () => {
       redirect_link: 'https://example.com/open',
     });
     expect(stripped.extension_type).toBe('actionLink');
+  });
+
+  // Server policy, stamped onto the stored snapshot: what an iframe is allowed to do is
+  // the platform's call, not the partner's, and bo-be 400s an authored one — so a copy in
+  // app-config.json is a field they may not write, and every upload after the first would
+  // report drift on it. Not because the value is inert, either: the UI kit applies the
+  // served sandbox verbatim and keeps no default of its own, so an entry served without
+  // one renders the fail-closed `sandbox=""`. The strip is unaffected either way.
+  it('strips the server-stamped sandbox from the top level', () => {
+    const stripped = stripUiAppWireOnlyKeys({
+      extension_type: 'iframeExtension',
+      sandbox: 'allow-scripts allow-same-origin',
+    } as unknown as UiApp);
+    expect(stripped).not.toHaveProperty('sandbox');
+    expect(stripped.extension_type).toBe('iframeExtension');
   });
 
   it('strips the server-managed version from the top level', () => {
@@ -80,7 +95,7 @@ describe('stripUiAppWireOnlyKeys', () => {
   it('leaves a block with nothing to strip structurally identical', () => {
     const clean = {
       extension_type: 'iframeExtension',
-      modal_iframe_url: 'https://example.com/panel',
+      iframe_href: 'https://example.com/panel',
       surface_point_list: [{ surface_point_name: 'contact-details-widget' }],
     } as unknown as UiApp;
     expect(stripUiAppWireOnlyKeys(clean)).toEqual(clean);

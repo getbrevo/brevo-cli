@@ -4,6 +4,7 @@ import {
   EXTENSION_TYPE_ACTION_LINK,
   EXTENSION_TYPE_IFRAME,
   UPLOADABLE_LINK_TARGETS,
+  UI_APP_MODAL_SIZES,
 } from './constants';
 
 const APP_NAME_MAX_LENGTH = 48;
@@ -364,8 +365,49 @@ export function validateUiApp(uiApp: unknown): void {
 
   rejectPreBex290Fields(block);
   rejectRootCtaFields(block);
+  rejectAuthoredSandbox(block);
 
   validateSurfacePointList(block.surface_point_list, extensionType);
+}
+
+/**
+ * Refuse an authored `sandbox`, at the block root or on any entry.
+ *
+ * What an embedded iframe is allowed to do is the PLATFORM's decision, not the partner's:
+ * bo-be stamps the attributes onto the stored snapshot at write time, app-store-backend
+ * serves that stored value on the manifest, and the UI kit applies whatever it is served
+ * verbatim — it keeps no default of its own any more, and renders the fail-closed
+ * `sandbox=""` when nothing arrives. So an authored value is not a preference weighed
+ * against the platform's own; it is a partner writing the attributes their own frame runs
+ * under, which is the one key on this block that must never be authorable.
+ *
+ * Refused rather than stripped: dropping a security-relevant key without a word would
+ * leave a partner believing the file's value is in force. Refused HERE rather than left to
+ * bo-be's `unknown key` 400, because `app upload` sends the file's block verbatim — the
+ * wire-only strip in `src/app-types/wire.ts` runs on what comes BACK, so nothing local
+ * stood between an authored value and the wire. `--ui-config` already refuses it one layer
+ * earlier (`UI_CONFIG_SERVER_OWNED_KEYS` in `app create`); this closes the hand-authored
+ * path, which is the one a partner actually reaches.
+ *
+ * Checked at both depths the strip recurses through, so the key cannot slip in one level
+ * down inside an entry. Ahead of `validateSurfacePointList` on purpose: a blank label on
+ * entry one must not decide whether this is reported at all.
+ */
+function rejectAuthoredSandbox(block: Record<string, unknown>): void {
+  const refusal = (at: string) =>
+    `${at}.sandbox is not authored in app-config.json — what an embedded iframe is allowed to do is the Brevo platform's decision, and it stamps the attributes onto the stored app itself. Remove it from the file.`;
+
+  if (block.sandbox !== undefined) throw new CliError(refusal('ui_app'));
+
+  if (!Array.isArray(block.surface_point_list)) return;
+  for (const entry of block.surface_point_list) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const row = entry as Record<string, unknown>;
+    if (row.sandbox === undefined) continue;
+    throw new CliError(
+      refusal(`ui_app.surface_point_list["${asText(row.surface_point_name).trim()}"]`),
+    );
+  }
 }
 
 /**
@@ -406,7 +448,7 @@ function rejectPreBex290Fields(block: Record<string, unknown>): void {
 /**
  * Refuse the four CTA fields at the `ui_app` root with a migration hint (BEX-426).
  *
- * `label`, `more_info`, `redirect_link` and `modal_iframe_url` moved into each
+ * `label`, `more_info`, `redirect_link` and `iframe_href` moved into each
  * `surface_point_list` entry so an app on three slots can label each differently and
  * deep-link each somewhere else — the same move `context` and `size` already made, for
  * the same reason. Hard move, no root fallback: a root value silently mirrored onto
@@ -422,7 +464,7 @@ function rejectRootCtaFields(block: Record<string, unknown>): void {
     ['label', '"label": "Open in Acme"'],
     ['more_info', '"more_info": "See this record in Acme"'],
     ['redirect_link', '"redirect_link": "https://example.com/open"'],
-    ['modal_iframe_url', '"modal_iframe_url": "https://example.com/embed"'],
+    ['iframe_href', '"iframe_href": "https://example.com/embed"'],
   ];
   for (const [key, hint] of moved) {
     if (block[key] !== undefined) {
@@ -451,8 +493,8 @@ function rejectRootCtaFields(block: Record<string, unknown>): void {
  *
  * Since BEX-426 each entry also carries its own CTA fields, so the per-type rules run
  * per entry (`extensionType` selects which set): an `actionLink` entry needs `label` and
- * `redirect_link` and must not carry `modal_iframe_url`; an `iframeExtension` entry needs
- * `label` and `modal_iframe_url` and must not carry `redirect_link`. Every message names
+ * `redirect_link` and must not carry `iframe_href`; an `iframeExtension` entry needs
+ * `label` and `iframe_href` and must not carry `redirect_link`. Every message names
  * the offending entry — "ui_app.redirect_link is required" is useless once there are
  * three of them.
  *
@@ -583,8 +625,26 @@ function validateEntryCtaFields(
   if (moreInfoCheck !== true) throw new CliError(`${at('more_info')}: ${moreInfoCheck}`);
 
   if (extensionType === EXTENSION_TYPE_IFRAME) {
-    const urlCheck = validateUiAppUrl(asText(row.modal_iframe_url));
-    if (urlCheck !== true) throw new CliError(`${at('modal_iframe_url')}: ${urlCheck}`);
+    const urlCheck = validateUiAppUrl(asText(row.iframe_href));
+    if (urlCheck !== true) throw new CliError(`${at('iframe_href')}: ${urlCheck}`);
+
+    // layout is optional (absent = modal, the launch behavior) and pinned to the vocabulary;
+    // whether the slot actually renders a card for an 'inline' value needs the registry and
+    // is the upload endpoint's call, same as every other registry fact.
+    const layout = asText(row.layout);
+    if (layout && layout !== 'modal' && layout !== 'inline') {
+      throw new CliError(`${at('layout')} "${layout}" is not supported — use "modal" or "inline".`);
+    }
+
+    // modal_size is optional (absent = large, the default) and pinned the same way. Which
+    // entries it applies to is a slot fact — an inline card opens no modal — so that part
+    // is the upload endpoint's call, exactly like the layout vocabulary above.
+    const modalSize = asText(row.modal_size);
+    if (modalSize && !UI_APP_MODAL_SIZES.includes(modalSize)) {
+      throw new CliError(
+        `${at('modal_size')} "${modalSize}" is not supported — use ${UI_APP_MODAL_SIZES.map((size) => `"${size}"`).join(', ')}.`,
+      );
+    }
 
     // A modal embeds its URL rather than navigating to it, so there is no link target to
     // set. Refused rather than ignored: the server refuses it per entry as well, and a
@@ -592,17 +652,17 @@ function validateEntryCtaFields(
     // applies.
     if (isPresentField(row.link_target)) {
       throw new CliError(
-        `${at('link_target')} has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL in a modal rather than navigating to it. Remove it.`,
+        `${at('link_target')} has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL rather than navigating to it. Remove it.`,
       );
     }
 
     // Refused because the two delivery paths disagree about which URL wins: the
-    // widget-card path pairs strictly by extension_type and opens the modal, while the
+    // widget-card path pairs strictly by extension_type and shows the iframe, while the
     // header-menu path routes on redirect_link first and never opens it. The same entry
     // would behave differently depending on the kind of slot it names.
     if (isPresentField(row.redirect_link)) {
       throw new CliError(
-        `${at('redirect_link')} cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the modal, while a card would open the modal. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
+        `${at('redirect_link')} cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the iframe, while a card would show the iframe. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
       );
     }
     return;
@@ -622,12 +682,26 @@ function validateEntryCtaFields(
     );
   }
 
-  // The UI kit keeps `modal_iframe_url` only for an `iframeExtension` item, so one
+  // The UI kit keeps `iframe_href` only for an `iframeExtension` item, so one
   // carried by an actionLink entry is dropped without a word. Reject rather than let a
   // partner ship a URL that will never open.
-  if (isPresentField(row.modal_iframe_url)) {
+  if (isPresentField(row.iframe_href)) {
     throw new CliError(
-      `${at('modal_iframe_url')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
+      `${at('iframe_href')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
+    );
+  }
+  // layout picks between an iframe's two presentations; an actionLink has exactly one
+  // (the redirect), so the field is refused here for the same reason iframe_href is.
+  if (isPresentField(row.layout)) {
+    throw new CliError(
+      `${at('layout')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it.`,
+    );
+  }
+  // modal_size sizes the modal an iframe opens; an actionLink opens no modal at all, so
+  // the field is refused here for the same reason layout is.
+  if (isPresentField(row.modal_size)) {
+    throw new CliError(
+      `${at('modal_size')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it.`,
     );
   }
 }

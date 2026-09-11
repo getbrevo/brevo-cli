@@ -146,6 +146,20 @@ const coreMessages = {
     '  Do this:     re-run with `--distribution private`\n' +
     `  Note:        \`distribution_type\` is fixed at creation — \`${CLI.APP_UPLOAD}\` can't change it later\n` +
     `  Brevo said:  ${serverMessage}`,
+  // The platform's per-account Unleash rollout gate on iframe-extension authoring
+  // (bo-be `app-store-bo-be-iframe-extension`, checked by `validateIframeDistribution`
+  // alongside the private-only rule). Unlike that rule — which `uiAppType.validateConfig`
+  // already catches locally before any round trip — the flag is per-account and the CLI
+  // holds no copy of it (same reasoning as `isPublicDistributionRefusal` just above and
+  // CLAUDE.md's standing rule), so this can only translate the server's answer.
+  //
+  // `Brevo said:` is deliberate, for the same reason `APP_CREATE_PUBLIC_REJECTED` quotes
+  // it: if the platform ever rewords the rejection (and `isIframeExtensionDisabledRefusal`
+  // stops recognising it), nothing is hidden in the meantime.
+  APP_CREATE_UI_IFRAME_DISABLED: (serverMessage: string): string =>
+    "This account can't create iframe extensions yet — Brevo rejected this request.\n\n" +
+    '  Do this:     choose Link instead, or ask Brevo to enable iframe extensions for this account\n' +
+    `  Brevo said:  ${serverMessage}`,
   APP_CREATE_REDIRECT_PROMPT:
     'OAuth callback URL — where users are sent after authorizing your app:',
   APP_CREATE_REDIRECT_HINT: (cmd: string) =>
@@ -229,6 +243,24 @@ const coreMessages = {
     `${flag} is for OAuth apps only and cannot be combined with --ui-config or --ui-app.`,
   APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID: (file: string, reason: string) =>
     `Could not read --ui-config "${file}": ${reason}`,
+  // --ui-config reads a FIXED key set and drops everything else, so a key it does not
+  // read has to be refused by name rather than ignored: silently dropping `iframe_href`,
+  // `layout` or `modal_size` would create an app that renders differently from the file
+  // that asked for it, with no error anywhere. All three are `iframeExtension`-only
+  // fields and both non-interactive routes author `actionLink`, so there is no version of
+  // this file that could carry one and be honoured. They ARE authorable elsewhere — in an
+  // iframe app's `app-config.json` — which is what the second sentence points at.
+  APP_CREATE_UI_NONINTERACTIVE_UNSUPPORTED_KEY: (key: string) =>
+    `"${key}" is not supported by --ui-config: it applies to "iframeExtension" entries only, and non-interactive UI app creation authors "actionLink". Create the app interactively instead, or add it to the \`ui_app\` block in app-config.json and run \`${CLI.APP_UPLOAD}\`.`,
+  // The other silent-drop class, and a different failure: these are not authored ANYWHERE.
+  // The platform stamps them onto the stored snapshot — `link_target` is injected by
+  // `app upload`, `sandbox` is the platform's own iframe policy (and bo-be 400s an
+  // authored one), `extension_point_name` is derived from the slug, `version` is
+  // server-managed — and the CLI strips all four off the echo so none reaches
+  // `app-config.json`. So the advice cannot be "put it in app-config.json instead"; it is
+  // "delete it", the same thing `validateUiApp` says about a root `link_target`.
+  APP_CREATE_UI_NONINTERACTIVE_SERVER_OWNED_KEY: (key: string) =>
+    `"${key}" is not supported by --ui-config: the Brevo platform owns it and stamps it onto the stored app itself, so it is never authored — not here and not in app-config.json. Remove it from the file.`,
   APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_RECORD_PAGE: (page: string, valid: string[]) =>
     `Unknown --record-page "${page}". Valid record pages: ${valid.join(', ')}.`,
   APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_PLACEMENT: (
@@ -249,10 +281,13 @@ const coreMessages = {
   APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
     `Where should it appear on the ${page} page?`,
   // Integration type — asked SECOND, before any placement, because it is the decision a
-  // partner arrives with. Only Link is offered for now: the disabled "coming soon"
-  // Iframe choice was removed 2026-08-19 until iframe support is ready to author.
+  // partner arrives with. Iframe is back since the iframe-extension launch (it was removed
+  // 2026-08-19 while authoring wasn't ready) but is offered only on a PRIVATE app —
+  // iframe extensions are private-only in v1, and the same rule is enforced by
+  // `validateConfig` locally and by the platform at upload/create.
   APP_CREATE_UI_INTEGRATION_PROMPT: 'What type of integration are you adding?',
   APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link (Opens your URL in a new tab)',
+  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe (Embeds your page in a modal)',
   // Each field renders in two places (`label` is the menu entry's text AND a card's CTA
   // button; `more_info` is the menu entry's second line AND a card's description) and
   // `redirect_link`'s query-param behaviour is easy to miss — all three explanations stay
@@ -270,6 +305,37 @@ const coreMessages = {
     'More info (optional) — the menu entry’s subtext, and the card’s description:',
   APP_CREATE_UI_REDIRECT_LINK_PROMPT:
     'Redirect link — the destination URL (record context arrives as query params):',
+  // The iframe counterpart of the question above: same slot in the flow, different field —
+  // the answer lands in `iframe_href`, and the page opens INSIDE Brevo rather than in
+  // a new tab, which is what the wording has to make unmistakable.
+  // Asked only for an Iframe on a WIDGET slot (an action slot's menu entry must open
+  // something, so it is always a modal). Inline is written to the entry; modal is the
+  // default and deliberately not written, so the config stays minimal.
+  APP_CREATE_UI_LAYOUT_PROMPT: 'How should it appear on the page?',
+  APP_CREATE_UI_LAYOUT_MODAL: 'Opens in a modal (card button)',
+  APP_CREATE_UI_LAYOUT_INLINE: 'Embedded directly on the page',
+  // Modal size — asked for every iframe entry that actually OPENS a modal: an action
+  // slot's menu entry always does, and a widget slot does too unless its layout answer
+  // was `inline` (an inline card embeds the page in place and opens nothing). So the
+  // gating is NOT the layout question's — that one is widget-only, this one is
+  // "everything except inline".
+  //
+  // Large is the default and is deliberately NOT written to the entry, the same contract
+  // as the layout question above: a default answer leaves app-config.json byte-identical
+  // to one authored before modal sizes existed.
+  APP_CREATE_UI_MODAL_SIZE_PROMPT: 'How big should the modal be?',
+  APP_CREATE_UI_MODAL_SIZE_SMALL: 'Small',
+  APP_CREATE_UI_MODAL_SIZE_MEDIUM: 'Medium',
+  APP_CREATE_UI_MODAL_SIZE_LARGE: 'Large (default)',
+  APP_CREATE_UI_IFRAME_HREF_PROMPT:
+    'Iframe URL — the page Brevo embeds in the modal (record context arrives as query params):',
+  // The create-time counterpart of the platform's own refusal: `layout` is only
+  // meaningful on a placement that renders a card, so stamping it onto a row that
+  // renders none would author a block the upload endpoint 400s on. Named per entry, in
+  // the `ui_app.surface_point_list["<slug>"].<field>` shape `validateUiApp` uses, so the
+  // two refusals read the same whichever one a partner meets first.
+  APP_CREATE_UI_LAYOUT_NOT_WIDGET: (slug: string) =>
+    `ui_app.surface_point_list["${slug}"].layout cannot be authored on this placement — it renders no card, so there is nothing to embed inline. Only widget placements take a layout.`,
   APP_CREATE_UI_BOX_TITLE: 'UI app created',
   // `label` labels the menu entry (BEX-290). The one piece of rendered text that has
   // no field is a CARD's title, which is the app name — worth saying, since it is now
@@ -283,7 +349,14 @@ const coreMessages = {
     'Values are placeholders. Read them as query parameters — the path is never templated.',
   // Also the pointer to MORE placements: the flow authors one, and each further one is a
   // hand-written `surface_point_list` entry carrying its own label and destination.
-  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and destination URL — then run \`${CLI.APP_UPLOAD}\`.`,
+  // The private-only rule (iframe-extension v1), enforced in three places that all say the
+  // same thing: the create prompt only offers Iframe on a private app, this message refuses
+  // a hand-authored combination locally before any round trip, and the platform 400s it at
+  // upload/create. Named the same way the server's own refusal is, so the two read as one
+  // rule rather than two opinions.
+  APP_UI_IFRAME_PRIVATE_ONLY:
+    'ui_app.extension_type "iframeExtension" requires distribution_type "private" — iframe extensions are private-only. Change distribution_type to "private", or use "actionLink".',
 
   // App install / uninstall — per-account availability for UI apps (BEX-290).
   // Moved here from `preview-messages.ts` at UI-apps GA.
@@ -625,6 +698,23 @@ const coreMessages = {
     'This is a UI app (app-config.json has a `ui_app` block), so it uses no OAuth — set `auth` to `{}`.',
   APP_UPLOAD_UI_APP_AUTH_HAS_OAUTH_FIELDS:
     "UI apps don't use OAuth — remove `scopes` and `redirect_uris` from `auth` and keep it empty (`{}`).",
+  // Whether a slot renders a card is a REGISTRY fact, and the CLI deliberately holds no
+  // copy of the registry (see CLAUDE.md) — so `layout: "inline"` on a slot that renders
+  // none can only be caught server-side. This translates that refusal into a message that
+  // says what to edit, rather than leaving the partner with the wire's own sentence.
+  //
+  // Narrow on purpose, exactly like `isPublicDistributionRefusal` in `app create`: only a
+  // 400 that names `layout` is relabelled, so an unrelated 400 keeps the server's own
+  // text. The server's sentence is kept inline because it names the offending slot(s).
+  APP_UPLOAD_UI_LAYOUT_REJECTED: (serverMessage: string) =>
+    `Brevo rejected this app's iframe layout: ${serverMessage}\n  \`layout: "inline"\` only works on a placement that renders a card. Remove \`layout\` from that \`surface_point_list\` entry in app-config.json (or set it to "modal"), then run \`${CLI.APP_UPLOAD}\` again.`,
+  // The platform's per-account Unleash rollout gate on iframe-extension authoring — see
+  // `APP_CREATE_UI_IFRAME_DISABLED` for why this is a translation, not a local guard.
+  // Reaches an existing app on its first upload that switches `extension_type` to
+  // `iframeExtension`, since that combination cannot have been created in the first place
+  // while the flag was off.
+  APP_UPLOAD_UI_IFRAME_DISABLED: (serverMessage: string) =>
+    `Brevo rejected this app's iframe extension: ${serverMessage}\n  Iframe extensions are still rolling out; ask Brevo to enable them for this account, or set \`extension_type\` to "actionLink" in app-config.json and run \`${CLI.APP_UPLOAD}\` again.`,
   // `app_type` is informational — the blocks are the discriminator — so a disagreement
   // between the two is a hand-edit that half-landed, and the fix is always to make the
   // label match the blocks (or to finish the edit the label was reaching for). Phrased

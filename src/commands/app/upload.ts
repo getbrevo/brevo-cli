@@ -5,7 +5,7 @@ import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { CliError } from '../../lib/errors';
+import { ApiError, CliError, isIframeExtensionDisabledRefusal } from '../../lib/errors';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import {
@@ -320,6 +320,30 @@ function hasNoChanges(diff: UploadDiff): boolean {
   );
 }
 
+/**
+ * Whether a failed upload is the platform refusing an iframe `layout`.
+ *
+ * A translation, deliberately NOT a local guard — the same reasoning as
+ * `isPublicDistributionRefusal` in `app create`, and CLAUDE.md's standing rule. Whether a
+ * slot renders a card is a REGISTRY fact and the CLI holds no copy of the registry, so a
+ * local check could only ever lag it in both directions. The server is the authority; this
+ * only puts its answer into words that name the file and the field to edit.
+ *
+ * Narrowed to a 400 that mentions `layout`, so an unrelated 400 on a UI-app upload (a bad
+ * `logo_uri`, an unregistered slot) keeps the server's own text. If the server rewords its
+ * sentence this stops matching and the raw message surfaces again — the previous
+ * behaviour, not a new failure mode.
+ */
+function isUiLayoutRefusal(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.statusCode === 400 && /layout/i.test(err.message);
+}
+
+// isIframeExtensionDisabledRefusal (shared with `app create`) lives in `lib/errors.ts` —
+// the flag guards both write paths, so one definition rather than two. Reachable here
+// (not just from create) because an existing app's FIRST upload authoring
+// `iframeExtension` — e.g. an `actionLink` app hand-edited to switch types — hits the
+// same server-side gate.
+
 export interface ConfigUploadOutcome {
   confirmedVersion: string;
   finalName: string;
@@ -392,6 +416,14 @@ export async function uploadProjectConfig(
       // A Function app sends its static discriminator block on the wire.
       ...(isFnApp ? { brevo_function: {} } : {}),
     });
+  } catch (err) {
+    if (isUiLayoutRefusal(err)) {
+      throw new CliError(messages.APP_UPLOAD_UI_LAYOUT_REJECTED(err.message));
+    }
+    if (isIframeExtensionDisabledRefusal(err)) {
+      throw new CliError(messages.APP_UPLOAD_UI_IFRAME_DISABLED(err.message));
+    }
+    throw err;
   } finally {
     spinner.stop();
   }

@@ -34,6 +34,8 @@ import {
   migrateProjectConfigKeys,
   hasLegacyProjectConfigKeys,
 } from '../../../lib/config';
+import { ApiError } from '../../../lib/errors';
+import { messages } from '../../../lang/en';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
@@ -1064,7 +1066,7 @@ describe('app/upload', () => {
       ['label', 'View in CRM'],
       ['more_info', 'Some detail'],
       ['redirect_link', 'https://example.com/brevo'],
-      ['modal_iframe_url', 'https://example.com/embed'],
+      ['iframe_href', 'https://example.com/embed'],
     ])('rejects a root-level %s with a migration hint', async (key, value) => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
@@ -1129,12 +1131,12 @@ describe('app/upload', () => {
         {
           surface_point_name: 'contact-details-header-menu',
           label: 'View in CRM',
-          modal_iframe_url: 'https://example.com/embed',
+          iframe_href: 'https://example.com/embed',
         },
       ],
     };
 
-    it('uploads an iframeExtension with a modal_iframe_url', async () => {
+    it('uploads an iframeExtension with a iframe_href', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
         ui_app: IFRAME_UI_APP,
@@ -1163,6 +1165,22 @@ describe('app/upload', () => {
       expect(payload.ui_app).toEqual(IFRAME_UI_APP);
     });
 
+    // Iframe extensions are private-only (v1). The create prompt never authors the
+    // combination (Iframe is hidden on a public app), so this local refusal exists for
+    // the hand-edited config — caught before the round trip the platform 400s with the
+    // same rule. readProjectConfig defaults an absent distribution_type to 'private',
+    // so only an explicit 'public' can reach it.
+    it('rejects an iframeExtension on a public app before any round trip', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...UI_CONFIG,
+        distribution_type: 'public',
+        ui_app: IFRAME_UI_APP,
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/private-only/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
     it('rejects an iframeExtension entry carrying a redirect_link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
@@ -1172,7 +1190,7 @@ describe('app/upload', () => {
             {
               surface_point_name: 'contact-details-header-menu',
               label: 'View in CRM',
-              modal_iframe_url: 'https://example.com/embed',
+              iframe_href: 'https://example.com/embed',
               redirect_link: 'https://example.com/go',
             },
           ],
@@ -1229,15 +1247,32 @@ describe('app/upload', () => {
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
-    // The UI kit drops modal_iframe_url for anything that isn't an
+    // The UI kit drops iframe_href for anything that isn't an
     // iframeExtension, so authoring one on an action link entry is a silent no-op.
-    it('rejects modal_iframe_url on an action link entry', async () => {
+    it('rejects iframe_href on an action link entry', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,
-        ui_app: withUiEntry({ modal_iframe_url: 'https://example.com/modal' }),
+        ui_app: withUiEntry({ iframe_href: 'https://example.com/modal' }),
       });
 
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/only used by "iframeExtension"/i);
+    });
+
+    // `sandbox` is the platform's own iframe policy, stamped onto the stored snapshot at
+    // write time — and this command sends the file's block verbatim, so before the local
+    // refusal an authored value was the one thing in the file that travelled to the wire
+    // unexamined. Refused at both depths the wire-only strip recurses through, ahead of
+    // every round trip.
+    it.each([
+      ['at the root', { ...UI_APP, sandbox: 'allow-scripts allow-same-origin' }],
+      ['on an entry', withUiEntry({ sandbox: 'allow-scripts allow-same-origin' })],
+    ])('rejects an authored sandbox %s before any round trip', async (_label, uiApp) => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: uiApp });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(
+        /\.sandbox is not authored in app-config\.json/,
+      );
+      expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
     it('writes the ui_app block back into app-config.json, preferring the server copy', async () => {
@@ -1492,6 +1527,39 @@ describe('app/upload', () => {
         expect(printed).toContain('(context: recordId, accountId → recordId)');
       });
 
+      // The iframe presentation fields render in the diff like every other per-entry
+      // value — they are table-driven off the same VALUE_ROWS as the plain renderer, so a
+      // field that shows in the created-app box and not here (or the reverse) is exactly
+      // what these pin.
+      it('renders the iframe layout and modal size, changed and unchanged', async () => {
+        const iframeEntry = {
+          surface_point_name: 'contact-details-overview-main',
+          context: ['recordId'],
+          label: 'View in CRM',
+          iframe_href: 'https://example.com/embed',
+          layout: 'inline' as const,
+          modal_size: 'small' as const,
+        };
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: { extension_type: 'iframeExtension' as const, surface_point_list: [iframeEntry] },
+        });
+        (appService.fetchApp as jest.Mock).mockResolvedValue(
+          remoteWith({
+            extension_type: 'iframeExtension' as const,
+            // Same slot, a different presentation: the layout changed, the size did not.
+            surface_point_list: [{ ...iframeEntry, layout: 'modal' as const }],
+          }),
+        );
+
+        await uploadCommand({ yes: true });
+
+        const printed = output();
+        expect(printed).toContain('layout:        modal → inline');
+        expect(printed).toContain('modal size:    small');
+        expect(printed).not.toContain('modal size:    small →');
+      });
+
       // A build that accepts the block on write but echoes none on read leaves nothing to
       // compare with. Printing every placement as `(new)` there would assert something the
       // absent block is no evidence of.
@@ -1501,6 +1569,97 @@ describe('app/upload', () => {
         const printed = output();
         expect(printed).toContain('Placement:      contact-details-header-menu');
         expect(printed).not.toContain('(new)');
+      });
+    });
+
+    // ─── the server's own layout refusal, translated ───
+    // Whether a slot renders a card is a registry fact and the CLI holds no copy of the
+    // registry on purpose, so `layout: "inline"` on a slot that renders none can only be
+    // caught server-side. The CLI's job is to say what to edit — narrowly, so an
+    // unrelated 400 keeps the server's own sentence.
+    describe('a layout rejected by the platform', () => {
+      // The bo-be sentence, verbatim: it names the offending slot(s), which is why it is
+      // kept inline in the CLI's message rather than replaced.
+      const SERVER_MESSAGE =
+        'ui_app.surface_point_list authors layout "inline" on slot(s) that render no card: contact-details-header-menu (component_type "action")';
+
+      it('translates the 400 into a message naming the field to edit', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(SERVER_MESSAGE, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          messages.APP_UPLOAD_UI_LAYOUT_REJECTED(SERVER_MESSAGE),
+        );
+      });
+
+      it('keeps the server sentence inside the translated message', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(SERVER_MESSAGE, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(/render no card/);
+      });
+
+      it('leaves an unrelated 400 with the server text', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(
+          new ApiError('logo_uri must be an https URL', 400),
+        );
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow('logo_uri must be an https URL');
+      });
+
+      // Narrow on the STATUS as well as the word: a 500 that happens to mention layout is
+      // an outage, not a configuration mistake, and relabelling it would send the partner
+      // editing a file that is fine.
+      it('leaves a non-400 that mentions layout alone', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(
+          new ApiError('layout service unavailable', 503),
+        );
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow('layout service unavailable');
+      });
+    });
+
+    // ─── the server's per-account iframe-extension rollout gate, translated ───
+    // The flag (`app-store-bo-be-iframe-extension`) is per-account and the CLI holds no
+    // copy of it, so a client without it enabled can only find out from the server.
+    describe('iframe extensions disabled by the platform feature flag', () => {
+      // The bo-be sentence, verbatim.
+      const SERVER_MESSAGE =
+        'ui_app.extension_type "iframeExtension" is not enabled for this client (feature flag "app-store-bo-be-iframe-extension")';
+
+      it('translates the 400 into a message naming what to do', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(SERVER_MESSAGE, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          messages.APP_UPLOAD_UI_IFRAME_DISABLED(SERVER_MESSAGE),
+        );
+      });
+
+      it('keeps the server sentence inside the translated message', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(SERVER_MESSAGE, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          /app-store-bo-be-iframe-extension/,
+        );
+      });
+
+      it('leaves an unrelated 400 with the server text', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(
+          new ApiError('logo_uri must be an https URL', 400),
+        );
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow('logo_uri must be an https URL');
+      });
+
+      // Narrow on the STATUS as well as the flag name: a 500 that happens to mention the
+      // flag is an outage, not an account restriction, and relabelling it would send the
+      // partner asking Brevo to enable a flag that was never the problem.
+      it('leaves a non-400 that mentions the flag alone', async () => {
+        (appService.uploadApp as jest.Mock).mockRejectedValue(
+          new ApiError('feature flag service app-store-bo-be-iframe-extension unavailable', 503),
+        );
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          'feature flag service app-store-bo-be-iframe-extension unavailable',
+        );
       });
     });
 

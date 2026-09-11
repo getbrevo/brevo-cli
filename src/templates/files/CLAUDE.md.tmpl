@@ -104,7 +104,7 @@ The presence of `ui_app` is the app-type discriminator — it is what makes this
 | Value | What it does | Destination field |
 |-------|--------------|-------------------|
 | `actionLink` | Opens your URL in a new tab | `redirect_link` |
-| `iframeExtension` | Embeds your URL in a modal | `modal_iframe_url` |
+| `iframeExtension` | Embeds your URL — in a modal, or in the card body with `layout: "inline"` | `iframe_href` |
 
 Values are camelCase. The older snake_case spellings (`action_link`) are rejected outright, not aliased.
 
@@ -117,15 +117,19 @@ One entry is one placement, and each carries its own text and destination — so
 | `label` | yes | Max 48 chars. The menu entry's text on an `.action` slot; the CTA button on a `.widget` slot's card. |
 | `more_info` | no | Max 255 chars. The menu entry's second line; a card's description. |
 | `redirect_link` | for `actionLink` | `https://` (or `http://localhost`). Record context arrives as **query parameters** — the path is never templated. |
-| `modal_iframe_url` | for `iframeExtension` | Rejected on an `actionLink`, which navigates rather than embedding. |
+| `iframe_href` | for `iframeExtension` | Rejected on an `actionLink`, which navigates rather than embedding. |
 | `context` | no | Narrows the record context Brevo sends. Omitted, the slot's full allow-list applies. |
 | `size` | no | `{ "width": "280px", "height": "160px" }` — a positive integer with an explicit `px` or `%` unit (`%` capped at 100). An omitted axis keeps the slot's default. |
+| `layout` | no | `iframeExtension` on a **widget** placement only. `"inline"` embeds the page in the card body; `"modal"`, or the key absent, opens it from the card's CTA. Rejected on an `actionLink`, and `"inline"` on a placement that renders no card. |
+| `modal_size` | no | `iframeExtension` entries that **open a modal** — an `.action` slot's menu entry always does, a widget placement does unless its `layout` is `"inline"`. `"small"`, `"medium"` or `"large"`; absent means `"large"`. Rejected on an `actionLink`. |
 
 A card's **title** is the app name (`{{APP_NAME}}`) — there is no field for it.
 
-`label`, `more_info`, `redirect_link`, `modal_iframe_url`, `context` and `size` all live **per entry**, never at the `ui_app` root. The root spellings are refused by name with a migration hint, as are the older `heading` / `subheading`.
+`label`, `more_info`, `redirect_link`, `iframe_href`, `context` and `size` all live **per entry**, never at the `ui_app` root. The root spellings are refused by name with a migration hint, as are the older `heading` / `subheading`.
 
 Do not add `link_target`, `version` or `extension_point_name`. The platform owns all three — `brevo app upload` injects or strips them — so a copy in this file only shows up as permanent, unfixable drift in the upload diff.
+
+Do not add `sandbox` either, at the root or on an entry. What an embedded iframe is allowed to do is Brevo's decision, stamped onto the stored app at write time; `brevo app upload` refuses an authored one by name rather than dropping it, so a value here never quietly takes effect.
 
 ## Adding a placement
 `brevo app create` authors exactly one. Add further placements by hand as extra `surface_point_list` entries, each with its own `label` and destination, then run `brevo app upload`.
