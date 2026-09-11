@@ -686,10 +686,12 @@ describe('services/app', () => {
   });
 
   // BEX-486 / ASSUMPTION pending BEX-481 — see the plan doc for this feature; the
-  // endpoint path and `{ scopes, mode }` body shape are not yet confirmed against a
-  // real backend implementation.
+  // endpoint path and `{ scopes }` body shape are not yet confirmed against a real
+  // backend implementation. `scopes` is always the FULL desired list — the command
+  // pre-fills the picker/prompt with the app's current scopes so the server can treat
+  // this as a plain replace.
   describe('updateAppScopes', () => {
-    it('PATCHes the scopes endpoint with the raw scopes list and mode, never a merge', async () => {
+    it('PATCHes the scopes endpoint with the full scopes list', async () => {
       (mockClient.patch as jest.Mock).mockResolvedValue({
         app_id: '42',
         name: 'test',
@@ -698,30 +700,12 @@ describe('services/app', () => {
         scopes: ['contacts:read', 'crm:write'],
       });
 
-      const result = await service.updateAppScopes('42', ['crm:write'], 'append');
+      const result = await service.updateAppScopes('42', ['contacts:read', 'crm:write']);
 
       expect(mockClient.patch).toHaveBeenCalledWith('/v3/app-store/apps/42/scopes', {
-        scopes: ['crm:write'],
-        mode: 'append',
+        scopes: ['contacts:read', 'crm:write'],
       });
       expect(result.scopes).toEqual(['contacts:read', 'crm:write']);
-    });
-
-    it('sends "replace" mode unchanged', async () => {
-      (mockClient.patch as jest.Mock).mockResolvedValue({
-        app_id: '42',
-        name: 'test',
-        client_id: 'client-1',
-        redirect_uris: null,
-        scopes: ['contacts:read'],
-      });
-
-      await service.updateAppScopes('42', ['contacts:read'], 'replace');
-
-      expect(mockClient.patch).toHaveBeenCalledWith('/v3/app-store/apps/42/scopes', {
-        scopes: ['contacts:read'],
-        mode: 'replace',
-      });
     });
 
     it('normalizes a numeric app_id on the response', async () => {
@@ -733,7 +717,7 @@ describe('services/app', () => {
         scopes: [],
       });
 
-      const result = await service.updateAppScopes('42', [], 'replace');
+      const result = await service.updateAppScopes('42', []);
 
       expect(result.app_id).toBe('42');
     });
@@ -741,7 +725,7 @@ describe('services/app', () => {
     it('converts a 404 into a friendly not-found CliError', async () => {
       (mockClient.patch as jest.Mock).mockRejectedValue(new ApiError('Not found', 404));
 
-      await expect(service.updateAppScopes('999', ['crm:write'], 'append')).rejects.toThrow(
+      await expect(service.updateAppScopes('999', ['crm:write'])).rejects.toThrow(
         'App 999 not found.',
       );
     });
@@ -750,7 +734,7 @@ describe('services/app', () => {
       const err = new ApiError('Unknown scope: bogus:read', 400);
       (mockClient.patch as jest.Mock).mockRejectedValue(err);
 
-      await expect(service.updateAppScopes('42', ['bogus:read'], 'append')).rejects.toBe(err);
+      await expect(service.updateAppScopes('42', ['bogus:read'])).rejects.toBe(err);
     });
   });
 

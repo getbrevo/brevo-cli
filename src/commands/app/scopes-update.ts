@@ -8,14 +8,13 @@ import { jsonOutput } from '../../lib/json-output';
 import { createSpinner } from '../../lib/ui';
 import { appService } from '../../container';
 import { isM2mApp } from '../../services/app';
-import { splitScopes, ScopeUpdateMode } from '../../lib/validators';
+import { splitScopes } from '../../lib/validators';
 import { assertAppSelectionAllowed, promptAppSelection } from './select-app';
 import { checkScopeList, promptScopeSelection, promptTypedScopeList } from './scope-prompts';
 
 export interface UpdateScopesOptions {
   appId?: string;
   scopes?: string;
-  mode?: ScopeUpdateMode;
   yes?: boolean;
   json?: boolean;
 }
@@ -24,12 +23,15 @@ export interface UpdateScopesOptions {
  * `brevo app scopes update` (BEX-486) — change an existing M2M app's granted OAuth
  * scopes. ASSUMPTION pending BEX-481 (the backend scopes-update API): built against the
  * contract BEX-481's own spec describes, not a live implementation — see the plan doc for
- * this feature. The `mode` field this sends is a CLI-driven addition on top of that spec.
+ * this feature.
  *
- * The current scopes read here (`appService.fetchApp`) is used ONLY to render the
- * confirmation preview below — the request always sends the raw `scopes` list the user
- * asked for plus `mode`, never a client-computed merge, since the server is the authority
- * on the app's actual current scope set and performs the real append/replace itself.
+ * There is deliberately no `--mode append|replace` flag. The current scopes read here
+ * (`appService.fetchApp`) are used to PRE-FILL the interactive picker/typed prompt when
+ * `--scopes` is omitted, so a partner edits a complete, already-visible set rather than a
+ * delta — whatever they submit (ticked/unticked, or edited text) already IS the full
+ * desired scope list. That is what lets `appService.updateAppScopes` send a plain replace:
+ * there is no separate merge for the server to reconcile. `--scopes`, when passed
+ * directly, is the same contract non-interactively — the full desired list, not a delta.
  */
 export const updateScopesCommand = withCommandHandler(
   async (options: UpdateScopesOptions): Promise<void> => {
@@ -56,10 +58,10 @@ export const updateScopesCommand = withCommandHandler(
     if (!isM2mApp(app)) throw new CliError(messages.APP_SCOPES_UPDATE_NOT_M2M(appId));
 
     const currentScopes = app.scopes ?? [];
-    const interactive = !options.json && Boolean(process.stdin.isTTY);
 
-    // Resolve new scopes: --scopes flag, or interactive picker/typed-fallback reusing the
-    // same M2M scope-collection module `app create` uses.
+    // Resolve the new (full) scope list: --scopes flag, or the interactive
+    // picker/typed-fallback — both pre-filled with `currentScopes` so the result is always
+    // a complete set, never a delta.
     let newScopes: string[];
     if (options.scopes !== undefined) {
       newScopes = splitScopes(options.scopes);
@@ -67,42 +69,18 @@ export const updateScopesCommand = withCommandHandler(
       if (check !== true) throw new CliError(check);
     } else {
       assertAppSelectionAllowed(CLI.APP_SCOPES_UPDATE(appId), options.json);
-      const picked = await promptScopeSelection();
-      newScopes = picked ?? (await promptTypedScopeList());
+      const picked = await promptScopeSelection(false, currentScopes);
+      newScopes = picked ?? (await promptTypedScopeList(false, currentScopes));
     }
 
-    // Resolve mode: --mode flag, or (interactive only) a list prompt. Non-interactive with
-    // --mode omitted is a hard failure — no silent default, and specifically no silent
-    // default to "replace", which could quietly drop scopes the user did not intend to
-    // remove.
-    let mode = options.mode;
-    if (!mode) {
-      if (!interactive) throw new CliError(messages.APP_SCOPES_UPDATE_MODE_REQUIRED());
-      const { selectedMode } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selectedMode',
-          message: messages.APP_SCOPES_UPDATE_MODE_PROMPT,
-          choices: [
-            { name: messages.APP_SCOPES_UPDATE_MODE_APPEND_LABEL, value: 'append' },
-            { name: messages.APP_SCOPES_UPDATE_MODE_REPLACE_LABEL, value: 'replace' },
-          ],
-        },
-      ]);
-      mode = selectedMode as ScopeUpdateMode;
-    }
+    // Diff for the CONFIRMATION PREVIEW — the request itself always sends `newScopes`
+    // verbatim as a plain replace.
+    const added = newScopes.filter((s) => !currentScopes.includes(s));
+    const removed = currentScopes.filter((s) => !newScopes.includes(s));
 
-    // Diff for the CONFIRMATION PREVIEW only — never what's sent to the server. The
-    // server receives `newScopes` + `mode` verbatim and performs the actual merge/replace
-    // against its own authoritative current-scopes state.
-    const previewAdded = newScopes.filter((s) => !currentScopes.includes(s));
-    const previewRemoved =
-      mode === 'replace' ? currentScopes.filter((s) => !newScopes.includes(s)) : [];
-    const previewFinal = mode === 'append' ? [...currentScopes, ...previewAdded] : newScopes;
-
-    if (previewAdded.length === 0 && previewRemoved.length === 0) {
+    if (added.length === 0 && removed.length === 0) {
       if (options.json) {
-        jsonOutput({ appId, scopes: currentScopes, mode, changed: false });
+        jsonOutput({ appId, scopes: currentScopes, changed: false });
         return;
       }
       logInfo(messages.APP_SCOPES_UPDATE_NO_CHANGE(appId));
@@ -110,14 +88,12 @@ export const updateScopesCommand = withCommandHandler(
     }
 
     if (!options.yes) {
-      logInfo(
-        `\n  ${messages.APP_SCOPES_UPDATE_DIFF(mode, currentScopes, previewFinal, previewAdded, previewRemoved)}\n`,
-      );
+      logInfo(`\n  ${messages.APP_SCOPES_UPDATE_DIFF(currentScopes, newScopes, added, removed)}\n`);
       const { confirmed } = await inquirer.prompt([
         {
           type: 'confirm',
           name: 'confirmed',
-          message: messages.APP_SCOPES_UPDATE_CONFIRM(appLabel || appId, appId, mode),
+          message: messages.APP_SCOPES_UPDATE_CONFIRM(appLabel || appId, appId),
           default: false,
         },
       ]);
@@ -128,20 +104,19 @@ export const updateScopesCommand = withCommandHandler(
     }
 
     const updateSpinner = createSpinner('Updating scopes...', { silent: options.json });
-    const updated = await appService.updateAppScopes(appId, newScopes, mode);
+    const updated = await appService.updateAppScopes(appId, newScopes);
     updateSpinner.stop();
 
     if (options.json) {
       jsonOutput({
         appId,
-        scopes: updated.scopes ?? previewFinal,
-        mode,
+        scopes: updated.scopes ?? newScopes,
         changed: true,
-        added: previewAdded,
-        removed: previewRemoved,
+        added,
+        removed,
       });
       return;
     }
-    logSuccess(messages.APP_SCOPES_UPDATE_SUCCESS(appId, updated.scopes ?? previewFinal));
+    logSuccess(messages.APP_SCOPES_UPDATE_SUCCESS(appId, updated.scopes ?? newScopes));
   },
 );

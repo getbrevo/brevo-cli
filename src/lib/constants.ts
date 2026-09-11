@@ -125,9 +125,11 @@ const coreEndpoints = {
   CLI_INFO: '/cli/info',
   APP_STORE_APP_UPLOAD: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/upload`,
   // BEX-486 / BEX-481 — scopes-only PATCH for an M2M app. ASSUMPTION pending BEX-481:
-  // path and body shape (`{ scopes, mode }`) are not yet confirmed against a real backend
+  // path and body shape (`{ scopes }`) are not yet confirmed against a real backend
   // implementation — see the plan for BEX-486. Must not touch grant_types/redirect_uris/
-  // public; only the scopes array (via `mode: 'append' | 'replace'`) changes.
+  // public; only the scopes array changes. The CLI always sends the full desired scope
+  // list — the app's new scopes are exactly what's in the request — never a partial
+  // add/remove delta, so the server can apply it as a straight replace.
   APP_STORE_APP_SCOPES: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/scopes`,
   // Per-account availability for UI apps (BEX-290). Until an in-product
   // enable/disable surface ships, this endpoint *is* the install mechanism for
@@ -226,8 +228,8 @@ const coreCli = {
   // existing M2M app's granted scopes).
   APP_SCOPES_UPDATE: (appId?: string) =>
     appId
-      ? `brevo app scopes update --app-id ${appId} --scopes <a,b,c> --mode <append|replace>`
-      : 'brevo app scopes update --app-id <id> --scopes <a,b,c> --mode <append|replace>',
+      ? `brevo app scopes update --app-id ${appId} --scopes <a,b,c>`
+      : 'brevo app scopes update --app-id <id> --scopes <a,b,c>',
   FUNCTION_LIST: 'brevo function list',
   FUNCTION_GET: 'brevo function get --id <id>',
   FUNCTION_ACTIVATE: 'brevo function activate --id <id>',

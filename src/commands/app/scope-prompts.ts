@@ -164,8 +164,17 @@ function scopeChoiceLabel(entry: ScopeEntry, nameWidth: number): string {
  * `value` is always the bare scope name — the label is presentation and must never be what
  * travels. Headings fall back to the raw category key when the response labels no such
  * category, which is also what `app available-scopes` prints.
+ *
+ * `preselected` pre-checks a scope's box when the caller already has it granted (BEX-486,
+ * `app scopes update`) — a heading is pre-checked too, but only when every scope beneath it
+ * is, so the picker's own cascade (`section-checkbox.ts`'s `syncHeadings`) stays honest
+ * from the first render rather than needing a toggle to catch up. Empty for `app create`,
+ * where nothing should start ticked (see `promptScopeSelection`'s doc comment).
  */
-function buildScopeChoices(entries: readonly ScopeEntry[]): unknown[] {
+function buildScopeChoices(
+  entries: readonly ScopeEntry[],
+  preselected: ReadonlySet<string> = new Set(),
+): unknown[] {
   const nameWidth = Math.max(...entries.map((entry) => entry.name.length));
   const choices: unknown[] = [];
   for (const [category, scopes] of groupScopesByCategory(entries)) {
@@ -182,6 +191,7 @@ function buildScopeChoices(entries: readonly ScopeEntry[]): unknown[] {
         )}`,
         value: { section: category },
         section: category,
+        checked: scopes.every((scope) => preselected.has(scope.name)),
         // Only the fallback prompt echoes a heading, and only there does it stand for
         // anything: the cascading one ticks the scopes themselves, so they echo on their
         // own and the heading is left out of the answer entirely.
@@ -199,6 +209,7 @@ function buildScopeChoices(entries: readonly ScopeEntry[]): unknown[] {
         name: `  ${scopeChoiceLabel(scope, nameWidth)}`,
         value: scope.name,
         short: scope.name,
+        checked: preselected.has(scope.name),
         // Read by the cascade to find a heading's members. inquirer's `Choice` copies every
         // own property, so this survives onto the row it renders.
         section: scope.category,
@@ -212,9 +223,15 @@ function buildScopeChoices(entries: readonly ScopeEntry[]): unknown[] {
  * Pick M2M scopes from the IdP's live catalog.
  *
  * Resolves to `null` — no prompt shown — when the catalog cannot be read, which is the
- * caller's signal to ask for the names instead. Nothing is pre-selected: an M2M grant has
- * no consent screen to review it, so the partner naming every scope is the least-privilege
- * default (the same reason the free-text prompt is not pre-filled with `DEFAULT_SCOPES`).
+ * caller's signal to ask for the names instead.
+ *
+ * `preselected` pre-checks the caller's already-granted scopes (BEX-486's `app scopes
+ * update`, editing an existing app) — an empty list (the default, and what `app create`
+ * passes) starts with nothing ticked: an M2M grant has no consent screen to review it, so
+ * naming every scope from scratch is the least-privilege default for a NEW app (the same
+ * reason the free-text prompt is not pre-filled with `DEFAULT_SCOPES` there). Either way
+ * the box the partner submits IS the full desired scope set — there is no separate
+ * add/remove step, so what they confirm here is exactly what travels to the server.
  *
  * A category can be taken whole by selecting its heading, which ticks every scope under it
  * so the selection is on screen and any one of them can be unticked again — the heading is
@@ -228,11 +245,20 @@ function buildScopeChoices(entries: readonly ScopeEntry[]): unknown[] {
  * deliberately NOT suppressed by it, because silently choosing scopes on a partner's
  * behalf is the one thing this flow must never do.
  */
-export async function promptScopeSelection(quiet = false): Promise<string[] | null> {
+export async function promptScopeSelection(
+  quiet = false,
+  preselected: readonly string[] = [],
+): Promise<string[] | null> {
   const entries = await readScopeCatalog(quiet);
   if (entries === null) return null;
 
-  if (!quiet) logInfo(messages.APP_CREATE_M2M_SCOPES_FIXED(CLI.APP_SCOPES_UPDATE()));
+  if (!quiet) {
+    logInfo(
+      preselected.length
+        ? messages.APP_SCOPES_UPDATE_PICKER_INTRO
+        : messages.APP_CREATE_M2M_SCOPES_FIXED(CLI.APP_SCOPES_UPDATE()),
+    );
+  }
   // A plain `checkbox` if the cascading one could not be registered: a heading then stays a
   // value that `expandSelection` resolves, rather than one that ticks its scopes on screen.
   const promptType = registerSectionCheckbox() ?? 'checkbox';
@@ -241,7 +267,7 @@ export async function promptScopeSelection(quiet = false): Promise<string[] | nu
       type: promptType,
       name: SCOPE_PICKER_QUESTION,
       message: messages.APP_CREATE_M2M_SCOPES_PICKER_PROMPT,
-      choices: indentChoices(buildScopeChoices(entries)),
+      choices: indentChoices(buildScopeChoices(entries, new Set(preselected))),
       pageSize: PAGE_SIZE,
       loop: false,
       validate: (selected: unknown) =>
@@ -259,17 +285,26 @@ export async function promptScopeSelection(quiet = false): Promise<string[] | nu
  * reason. Extracted here rather than kept inline in `create.ts` so the two callers cannot
  * drift into two different free-text prompts for the same shape of answer.
  *
+ * `prefill` seeds the input line with the caller's current scopes (BEX-486) via inquirer's
+ * `default`, so a partner edits a complete, already-visible list rather than retyping it
+ * from memory — the free-text equivalent of `promptScopeSelection`'s `preselected`. Empty
+ * for `app create`, where there is nothing to prefill.
+ *
  * `quiet` silences the tip line, for the same defensive reason `promptScopeSelection`
  * threads it — nothing reachable today prompts with it set, but a future non-interactive
  * caller must not have a hint printed into a document it is parsing.
  */
-export async function promptTypedScopeList(quiet = false): Promise<string[]> {
+export async function promptTypedScopeList(
+  quiet = false,
+  prefill: readonly string[] = [],
+): Promise<string[]> {
   if (!quiet) logInfo(messages.APP_CREATE_M2M_SCOPES_HINT(CLI.APP_SCOPES, CLI.APP_SCOPES_UPDATE()));
   const answer = await inquirer.prompt([
     {
       type: 'input',
       name: SCOPE_INPUT_QUESTION,
       message: messages.APP_CREATE_M2M_SCOPES_PROMPT,
+      default: prefill.length ? prefill.join(',') : undefined,
       validate: validateM2mScopesInput,
     },
   ]);

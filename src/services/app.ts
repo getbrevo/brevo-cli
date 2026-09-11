@@ -25,7 +25,6 @@ import {
   saveAppCredentials,
 } from '../lib/config';
 import { normalizeAppId } from './normalize-app-id';
-import { ScopeUpdateMode } from '../lib/validators';
 
 /** First of the candidates that is a non-blank string, trimmed; `undefined` if none is. */
 function firstNonEmptyString(...candidates: unknown[]): string | undefined {
@@ -495,24 +494,20 @@ export function createAppService(client: ApiClient) {
     },
 
     /**
-     * Update an M2M app's granted scopes (BEX-486). ASSUMPTION pending BEX-481: the
-     * exact endpoint path/body shape is not yet confirmed against a real backend
+     * Set an M2M app's granted scopes (BEX-486). ASSUMPTION pending BEX-481: the exact
+     * endpoint path/body shape is not yet confirmed against a real backend
      * implementation.
      *
-     * `scopes` is always the raw list the user asked for — never client-merged with the
-     * app's current scopes — and `mode` travels alongside it so the server, which owns
-     * the authoritative current scope set, performs the actual append/replace itself.
-     * The response reflects the FINAL scope set after that server-side merge.
+     * `scopes` is always the FULL desired scope list — the command that calls this
+     * pre-fills the interactive picker/prompt with the app's current scopes so a partner
+     * edits a complete set rather than typing a delta, which is what lets this be a plain
+     * replace with no separate add/remove mode. The response reflects the scope set the
+     * server actually stored.
      */
-    async updateAppScopes(
-      appId: string,
-      scopes: string[],
-      mode: ScopeUpdateMode,
-    ): Promise<OAuthApp> {
+    async updateAppScopes(appId: string, scopes: string[]): Promise<OAuthApp> {
       try {
         const raw = await client.patch<OAuthApp>(ENDPOINTS.APP_STORE_APP_SCOPES(appId), {
           scopes,
-          mode,
         });
         return normalizeAppId(raw);
       } catch (err) {

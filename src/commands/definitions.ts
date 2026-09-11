@@ -1,12 +1,5 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import {
-  parseAppId,
-  parsePositiveInt,
-  parseScopeUpdateMode,
-  collectUrls,
-  validateUrl,
-  ScopeUpdateMode,
-} from '../lib/validators';
+import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
 import { EXAMPLE_APP_ID } from '../lib/constants';
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
@@ -405,18 +398,15 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           name: 'update',
           description: "Update an M2M app's granted OAuth scopes",
           examples: [
-            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read,crm:read --mode append`,
-            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --mode replace --yes`,
-            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --mode append --json`,
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read,crm:read`,
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --yes`,
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --json`,
           ],
           options: [
             { flags: '--app-id <id>', description: 'App ID', parser: (v) => parseAppId(v) },
-            { flags: '--scopes <list>', description: 'Comma-separated scope list' },
             {
-              flags: '--mode <mode>',
-              description:
-                'How to apply --scopes: "append" to add to the existing set, "replace" to overwrite it',
-              parser: (v) => parseScopeUpdateMode(v),
+              flags: '--scopes <list>',
+              description: 'Comma-separated scope list — the full desired set of scopes',
             },
             { flags: '--yes', description: 'Skip confirmation (for CI)' },
             { flags: '--json', description: 'Output as JSON' },
@@ -425,7 +415,6 @@ export const appCommandGroup: SubcommandGroupDefinition = {
             updateScopesCommand({
               appId: opts.appId as string | undefined,
               scopes: opts.scopes as string | undefined,
-              mode: opts.mode as ScopeUpdateMode | undefined,
               yes: Boolean(opts.yes),
               json: Boolean(opts.json),
             }),

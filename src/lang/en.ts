@@ -382,37 +382,38 @@ const coreMessages = {
   //
   // ASSUMPTION pending BEX-481 (the backend scopes-update API, "Ready for dev" as of this
   // writing): the endpoint contract this command sends is built from BEX-481's own spec,
-  // not a live implementation — see the plan doc for BEX-486. `mode` ("append" | "replace")
-  // is a CLI-driven addition on top of that spec and needs to be confirmed/negotiated with
-  // backend alongside the rest of BEX-481.
+  // not a live implementation — see the plan doc for BEX-486.
+  //
+  // Design note: there is deliberately no `--mode append|replace` flag. The picker and the
+  // typed fallback are both pre-filled with the app's CURRENT scopes (see
+  // `promptScopeSelection`'s `preselected` / `promptTypedScopeList`'s `prefill` in
+  // `scope-prompts.ts`), so whatever a partner submits — with scopes ticked/unticked or
+  // edited from that starting point — already IS the complete desired set. The server can
+  // then always treat the request as a plain replace; there is no separate delta to
+  // reconcile, and no ambiguity about whether an omitted scope should be dropped.
   APP_SCOPES_UPDATE_SELECT: 'Select an M2M app to update:',
   APP_SCOPES_UPDATE_NO_M2M_APPS:
     'No M2M apps found in this account. Scopes can only be updated on an app created with `--m2m`.',
   APP_SCOPES_UPDATE_NOT_M2M: (appId: string) =>
     `App ${appId} is not an M2M app — only an M2M app's scopes can be changed with this command.`,
-  APP_SCOPES_UPDATE_MODE_REQUIRED: () =>
-    `\`--scopes\` needs \`--mode\` — pass \`--mode append\` to add scopes without touching the rest, or \`--mode replace\` to overwrite the whole set. Example: \`${CLI.APP_SCOPES_UPDATE()}\`.`,
-  APP_SCOPES_UPDATE_MODE_PROMPT: 'How should these scopes be applied?',
-  APP_SCOPES_UPDATE_MODE_APPEND_LABEL: 'Append — add these scopes, keep the existing ones',
-  APP_SCOPES_UPDATE_MODE_REPLACE_LABEL:
-    'Replace — overwrite the existing scopes with these (may remove some)',
+  // Printed instead of `APP_CREATE_M2M_SCOPES_FIXED` when the picker opens with existing
+  // scopes already ticked — that message's "select every scope this app needs" reads oddly
+  // once the boxes already reflect a grant, and would say nothing about editing them.
+  APP_SCOPES_UPDATE_PICKER_INTRO:
+    "Already-granted scopes are pre-selected below — untick to remove, tick more to add. What you submit becomes the app's complete set of scopes.",
   APP_SCOPES_UPDATE_NO_CHANGE: (appId: string) =>
     `No change: app ${appId} already has exactly these scopes.`,
-  // The one message that must foreground a REMOVAL: in `replace` mode a scope the app
-  // currently has, but that wasn't in the new list, silently disappears unless this line
-  // calls it out. `mode` heads the block so the reader knows which behaviour is active
-  // before reading the diff.
+  // The one message that must foreground a REMOVAL: a scope the app currently has, but
+  // that isn't in the submitted list, silently disappears unless this line calls it out —
+  // easy to miss on the typed-fallback path, where the field starts pre-filled but nothing
+  // stops someone deleting more than they meant to.
   APP_SCOPES_UPDATE_DIFF: (
-    mode: 'append' | 'replace',
     current: readonly string[],
     next: readonly string[],
     added: readonly string[],
     removed: readonly string[],
   ): string => {
     const lines = [
-      mode === 'append'
-        ? 'Mode: append — these scopes will be ADDED; every existing scope is kept.'
-        : "Mode: replace — the app's scopes will be OVERWRITTEN with this exact list.",
       `Current scopes: ${current.length ? current.join(', ') : '(none)'}`,
       `New scopes:     ${next.length ? next.join(', ') : '(none)'}`,
     ];
@@ -422,8 +423,8 @@ const coreMessages = {
     }
     return lines.join('\n  ');
   },
-  APP_SCOPES_UPDATE_CONFIRM: (appLabel: string, appId: string, mode: 'append' | 'replace') =>
-    `${mode === 'append' ? 'Append to' : 'Replace'} the scopes on "${appLabel}" (${appId})?`,
+  APP_SCOPES_UPDATE_CONFIRM: (appLabel: string, appId: string) =>
+    `Set the scopes on "${appLabel}" (${appId}) to this list?`,
   APP_SCOPES_UPDATE_CANCELLED: 'Cancelled — no scopes were changed.',
   APP_SCOPES_UPDATE_SUCCESS: (appId: string, scopes: readonly string[]) =>
     `Updated app ${appId}. Scopes: ${scopes.length ? scopes.join(', ') : '(none)'}`,
