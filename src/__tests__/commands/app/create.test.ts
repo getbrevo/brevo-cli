@@ -109,6 +109,48 @@ import { uiAppType } from '../../../app-types/ui';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
+/**
+ * Mocks a successful OAuth-app create response with the standard fixture fields —
+ * every field overridable, unset ones keep this default. Extracted because the same
+ * response shape, repeated with different literal values across many tests, is
+ * indistinguishable duplication to SonarCloud's copy-paste detector (it normalizes
+ * literals), which is what pushed this file's "duplication on new code" over budget.
+ */
+function mockOAuthCreateResponse(overrides: Record<string, unknown> = {}): void {
+  (appService.createApp as jest.Mock).mockResolvedValue({
+    app_id: 1,
+    name: 'Test App',
+    client_id: 'cli-123',
+    client_secret: 'secret-456',
+    redirect_uris: ['http://localhost:3009/auth/callback'],
+    ...overrides,
+  });
+}
+
+/**
+ * Queues the standard interactive OAuth-create prompt chain — logo, app type, one
+ * redirect URL, the "any more?" question, then scaffold-a-feature — so a test overrides
+ * only the answer it's actually testing. Same duplication rationale as
+ * `mockOAuthCreateResponse` above. `fourthAnswer` covers the two spellings this file
+ * uses for "any more redirect URLs?" (`{ another: false }` vs `{ anotherRaw: 'n' }`).
+ */
+function mockOAuthPromptChain(
+  overrides: {
+    redirectUrl?: string;
+    fourthAnswer?: Record<string, unknown>;
+    scaffoldRaw?: string;
+  } = {},
+): void {
+  mockPrompt
+    .mockResolvedValueOnce({ logoUrl: '' })
+    .mockResolvedValueOnce({ appType: 'oauth' })
+    .mockResolvedValueOnce({
+      redirectUrl: overrides.redirectUrl ?? 'http://localhost:3009/auth/callback',
+    })
+    .mockResolvedValueOnce(overrides.fourthAnswer ?? { another: false })
+    .mockResolvedValueOnce({ scaffoldRaw: overrides.scaffoldRaw ?? 'y' });
+}
+
 describe('app/create', () => {
   let stdoutSpy: jest.SpyInstance;
   const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
@@ -184,22 +226,8 @@ describe('app/create', () => {
   });
 
   it('should create an app, write base files, then scaffold the feature on consent', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 1,
-      name: 'Test App',
-      client_id: 'cli-123',
-      client_secret: 'secret-456',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      created_at: '2026-01-01',
-      updated_at: '2026-01-01',
-    });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' }) // logo
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
-      .mockResolvedValueOnce({ another: false }) // no more URLs
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' }); // scaffold a feature?
+    mockOAuthCreateResponse({ created_at: '2026-01-01', updated_at: '2026-01-01' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
@@ -327,19 +355,13 @@ describe('app/create', () => {
 
   describe('feature scaffolding', () => {
     it('prompts to scaffold a feature (default yes) and scaffolds oauth when accepted', async () => {
-      (appService.createApp as jest.Mock).mockResolvedValue({
+      mockOAuthCreateResponse({
         app_id: 8,
         name: 'Feature App',
         client_id: 'cli-feat',
         client_secret: 'secret-feat',
-        redirect_uris: ['http://localhost:3009/auth/callback'],
       });
-      mockPrompt
-        .mockResolvedValueOnce({ logoUrl: '' })
-        .mockResolvedValueOnce({ appType: 'oauth' })
-        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+      mockOAuthPromptChain();
 
       await createCommand({ name: 'Feature App', distribution: 'private' });
 
@@ -361,20 +383,14 @@ describe('app/create', () => {
     });
 
     it('renders the created-app box + base files before prompting to scaffold a feature', async () => {
-      (appService.createApp as jest.Mock).mockResolvedValue({
+      mockOAuthCreateResponse({
         app_id: 30,
         name: 'Order App',
         client_id: 'cli-order',
         client_secret: 'secret-order',
-        redirect_uris: ['http://localhost:3009/auth/callback'],
         version: '0.0.1',
       });
-      mockPrompt
-        .mockResolvedValueOnce({ logoUrl: '' })
-        .mockResolvedValueOnce({ appType: 'oauth' })
-        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+      mockOAuthPromptChain({ scaffoldRaw: 'n' });
 
       await createCommand({ name: 'Order App', distribution: 'private' });
 
@@ -391,19 +407,13 @@ describe('app/create', () => {
     });
 
     it('writes only base files when the user declines the feature prompt', async () => {
-      (appService.createApp as jest.Mock).mockResolvedValue({
+      mockOAuthCreateResponse({
         app_id: 8,
         name: 'Base Only App',
         client_id: 'cli-base',
         client_secret: 'secret-base',
-        redirect_uris: ['http://localhost:3009/auth/callback'],
       });
-      mockPrompt
-        .mockResolvedValueOnce({ logoUrl: '' })
-        .mockResolvedValueOnce({ appType: 'oauth' })
-        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+      mockOAuthPromptChain({ scaffoldRaw: 'n' });
 
       await createCommand({ name: 'Base Only App', distribution: 'private' });
 
@@ -732,21 +742,14 @@ describe('app/create', () => {
   });
 
   it('should show the server-assigned version in the created-app box', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
+    mockOAuthCreateResponse({
       app_id: 3,
       name: 'Versioned App',
       client_id: 'cli-v',
       client_secret: 'secret-v',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
       version: '0.0.1',
     });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Versioned App', distribution: 'private' });
 
@@ -798,20 +801,13 @@ describe('app/create', () => {
   });
 
   it('should print the test-flow hint above the redirect prompt in interactive mode', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
+    mockOAuthCreateResponse({
       app_id: 4,
       name: 'Hint App',
       client_id: 'cli-hint',
       client_secret: 'secret-hint',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
     });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Hint App', distribution: 'private' });
 
@@ -1165,20 +1161,13 @@ describe('app/create', () => {
   });
 
   it('should create a public app when --distribution public is passed', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
+    mockOAuthCreateResponse({
       app_id: 7,
       name: 'Public App',
       client_id: 'cli-public',
       client_secret: 'secret-public',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
     });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Public App', distribution: 'public' });
 
@@ -1212,20 +1201,13 @@ describe('app/create', () => {
   });
 
   it('should accept app name with accented characters via --name flag', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
+    mockOAuthCreateResponse({
       app_id: 5,
       name: 'Café Résumé',
       client_id: 'cli-accent',
       client_secret: 'secret',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
     });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Café Résumé', distribution: 'private' });
 
@@ -1422,19 +1404,8 @@ describe('app/create', () => {
   });
 
   it('sends DEFAULT_SCOPES on create (not the legacy "all")', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 1,
-      name: 'Test App',
-      client_id: 'cli-123',
-      client_secret: 'secret-456',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-    });
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ anotherRaw: 'n' })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthCreateResponse();
+    mockOAuthPromptChain({ fourthAnswer: { anotherRaw: 'n' } });
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
@@ -1448,19 +1419,8 @@ describe('app/create', () => {
   });
 
   it('prints the scope info line in text mode', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 1,
-      name: 'Test App',
-      client_id: 'cli-123',
-      client_secret: 'secret-456',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-    });
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ anotherRaw: 'n' })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthCreateResponse();
+    mockOAuthPromptChain({ fourthAnswer: { anotherRaw: 'n' } });
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
@@ -2723,6 +2683,32 @@ describe('app/create', () => {
         expect(appService.createApp).not.toHaveBeenCalled();
       });
 
+      // Shared by both refusal classes below: a base actionLink --ui-config file with one
+      // extra key injected, asserted to reject before any registry read or create call —
+      // only the expected-message template differs between the two classes.
+      const expectUiConfigKeyRejected = async (
+        key: string,
+        value: string,
+        messageTemplate: string,
+      ) => {
+        (fs.readFileSync as jest.Mock).mockReturnValue(
+          JSON.stringify({
+            extension_type: 'actionLink',
+            record_page: 'contactDetails',
+            surface_point_name: 'contact-details-header-menu',
+            label: 'Open in Acme',
+            redirect_link: 'https://example.com/open',
+            [key]: value,
+          }),
+        );
+
+        await expect(
+          createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
+        ).rejects.toThrow(new RegExp(messageTemplate));
+        expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
+        expect(appService.createApp).not.toHaveBeenCalled();
+      };
+
       // The file's key set is fixed and everything else is DROPPED, so an iframe-only
       // field has to be refused by name: silently ignoring it would create an app that
       // renders differently from the file that asked for it, with nothing said.
@@ -2733,28 +2719,12 @@ describe('app/create', () => {
         ['iframe_href', 'https://example.com/embed'],
         ['layout', 'inline'],
         ['modal_size', 'small'],
-      ])(
-        'rejects an iframe-only %s key in --ui-config before any network call',
-        async (key, value) => {
-          (fs.readFileSync as jest.Mock).mockReturnValue(
-            JSON.stringify({
-              extension_type: 'actionLink',
-              record_page: 'contactDetails',
-              surface_point_name: 'contact-details-header-menu',
-              label: 'Open in Acme',
-              redirect_link: 'https://example.com/open',
-              [key]: value,
-            }),
-          );
-
-          await expect(
-            createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
-          ).rejects.toThrow(
-            new RegExp(`"${key}" is not supported by --ui-config: it applies to "iframeExtension"`),
-          );
-          expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
-          expect(appService.createApp).not.toHaveBeenCalled();
-        },
+      ])('rejects an iframe-only %s key in --ui-config before any network call', (key, value) =>
+        expectUiConfigKeyRejected(
+          key,
+          value,
+          `"${key}" is not supported by --ui-config: it applies to "iframeExtension"`,
+        ),
       );
 
       // The second silent-drop class: keys the PLATFORM owns and stamps onto the stored
@@ -2767,28 +2737,12 @@ describe('app/create', () => {
         ['version', '3'],
         ['extension_point_name', 'contactDetails.headerMenu.action'],
         ['sandbox', 'allow-scripts'],
-      ])(
-        'rejects the server-owned %s key in --ui-config before any network call',
-        async (key, value) => {
-          (fs.readFileSync as jest.Mock).mockReturnValue(
-            JSON.stringify({
-              extension_type: 'actionLink',
-              record_page: 'contactDetails',
-              surface_point_name: 'contact-details-header-menu',
-              label: 'Open in Acme',
-              redirect_link: 'https://example.com/open',
-              [key]: value,
-            }),
-          );
-
-          await expect(
-            createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
-          ).rejects.toThrow(
-            new RegExp(`"${key}" is not supported by --ui-config: the Brevo platform owns it`),
-          );
-          expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
-          expect(appService.createApp).not.toHaveBeenCalled();
-        },
+      ])('rejects the server-owned %s key in --ui-config before any network call', (key, value) =>
+        expectUiConfigKeyRejected(
+          key,
+          value,
+          `"${key}" is not supported by --ui-config: the Brevo platform owns it`,
+        ),
       );
 
       // The server-owned refusal is DERIVED from `uiAppType.wireOnlyKeys`, so this asserts
