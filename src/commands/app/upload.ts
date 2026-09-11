@@ -5,7 +5,7 @@ import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { ApiError, CliError } from '../../lib/errors';
+import { ApiError, CliError, isIframeExtensionDisabledRefusal } from '../../lib/errors';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import {
@@ -338,25 +338,11 @@ function isUiLayoutRefusal(err: unknown): err is ApiError {
   return err instanceof ApiError && err.statusCode === 400 && /layout/i.test(err.message);
 }
 
-/**
- * Whether a failed upload is the platform's per-account Unleash rollout gate on
- * iframe-extension authoring (bo-be `app-store-bo-be-iframe-extension`,
- * `validateIframeDistribution` in app-store-bo-be#404).
- *
- * A translation, for the same reason `isUiLayoutRefusal` above is one: the flag is
- * per-account and the CLI holds no copy of it. Reachable here (not just from `app
- * create`) because an existing app's FIRST upload authoring `iframeExtension` — e.g. an
- * `actionLink` app hand-edited to switch types — hits this same server-side gate.
- *
- * Narrowed on the flag's own name, so a reworded server sentence still matches.
- */
-function isIframeExtensionDisabledRefusal(err: unknown): err is ApiError {
-  return (
-    err instanceof ApiError &&
-    err.statusCode === 400 &&
-    err.message.includes('app-store-bo-be-iframe-extension')
-  );
-}
+// isIframeExtensionDisabledRefusal (shared with `app create`) lives in `lib/errors.ts` —
+// the flag guards both write paths, so one definition rather than two. Reachable here
+// (not just from create) because an existing app's FIRST upload authoring
+// `iframeExtension` — e.g. an `actionLink` app hand-edited to switch types — hits the
+// same server-side gate.
 
 export interface ConfigUploadOutcome {
   confirmedVersion: string;

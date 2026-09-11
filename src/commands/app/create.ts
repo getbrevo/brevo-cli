@@ -11,7 +11,13 @@ import {
 import { findAvailablePort } from '../../lib/port';
 import { logInfo, logError, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { ApiError, AuthExpiredError, CliError, ErrorCode } from '../../lib/errors';
+import {
+  ApiError,
+  AuthExpiredError,
+  CliError,
+  ErrorCode,
+  isIframeExtensionDisabledRefusal,
+} from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName, validateYesNo } from '../../lib/validators';
@@ -678,29 +684,6 @@ function isPublicDistributionRefusal(err: unknown, distribution: string): err is
     err.statusCode === 400 &&
     distribution === 'public' &&
     /distribution_type/i.test(err.message)
-  );
-}
-
-/**
- * Recognise the platform's per-account Unleash rollout gate on iframe-extension
- * authoring: bo-be's `validateIframeDistribution` (app-store-bo-be#404) refuses an
- * `iframeExtension` block with a 400 naming the flag `app-store-bo-be-iframe-extension`
- * when it is off for the calling client, judged BEFORE the private-only rule.
- *
- * A translation, not a local guard — the same reasoning as `isPublicDistributionRefusal`
- * above and CLAUDE.md's standing rule that the CLI must not mirror per-account platform
- * policy locally. Unlike the private-only rule, which `uiAppType.validateConfig` already
- * catches offline (it is answerable from the file alone), this one genuinely cannot be:
- * the flag is per-account, so only the server knows its state.
- *
- * Narrowed on the flag's own name rather than the sentence around it — the flag name is
- * the stable part of the message, so a reworded sentence still matches.
- */
-function isIframeExtensionDisabledRefusal(err: unknown): err is ApiError {
-  return (
-    err instanceof ApiError &&
-    err.statusCode === 400 &&
-    err.message.includes('app-store-bo-be-iframe-extension')
   );
 }
 
