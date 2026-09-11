@@ -8,7 +8,8 @@
  *   scripts/smoke/private-app.ts  create → credentials → upload → verify rename
  *                                 → scaffold → start → delete, + guardrail probes,
  *                                 then the M2M (client_credentials) create-only flow:
- *                                 create → credentials → flag refusals → delete
+ *                                 create → credentials → scopes update → scopes update
+ *                                 (no-op) → flag refusals → delete
  *   scripts/smoke/public-app.ts   create → upload → status → submit → submit again
  *                                 → status → withdraw → status → delete
  *   scripts/smoke/ui-app.ts       UI-app lifecycle: interactive create (pty) → upload
