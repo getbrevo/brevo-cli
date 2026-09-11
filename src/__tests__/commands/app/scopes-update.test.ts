@@ -107,6 +107,36 @@ describe('app/scopes-update', () => {
     expect(mockUpdateAppScopes).toHaveBeenCalledWith('app-1', ['contacts:read', 'crm:write']);
   });
 
+  // Regression: `--json` without `--yes` used to still print the human diff and open an
+  // inquirer confirm — corrupting the "stdout is one JSON document" contract and dying with
+  // ERR_USE_AFTER_CLOSE off a TTY. `--json` alone must be enough to skip confirmation, same
+  // as `upload.ts`.
+  it('--json without --yes also skips confirmation, applying the update directly', async () => {
+    await updateScopesCommand({
+      appId: 'app-1',
+      scopes: 'contacts:read,crm:write',
+      json: true,
+    });
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockUpdateAppScopes).toHaveBeenCalledWith('app-1', ['contacts:read', 'crm:write']);
+    expect(stdoutSpy).toHaveBeenCalledTimes(1);
+    const parsed = JSON.parse(String(stdoutSpy.mock.calls[0][0]));
+    expect(parsed.changed).toBe(true);
+  });
+
+  // Regression: the confirm message used to read `"app-1" (app-1)` on the --app-id path —
+  // the ID twice, the app's own name never — because `appLabel` was only ever set by the
+  // picker. The app we just fetched has a `name`; fall back to it.
+  it('uses the app name (not the bare ID twice) in the confirm prompt on the --app-id path', async () => {
+    mockPrompt.mockResolvedValueOnce({ confirmed: true });
+
+    await updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:write' });
+
+    const confirmCall = mockPrompt.mock.calls[0][0][0];
+    expect(confirmCall.message).toContain(M2M_APP.name);
+  });
+
   it('is a no-op when the submitted set equals the current set', async () => {
     await updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:read' });
 
@@ -133,6 +163,24 @@ describe('app/scopes-update', () => {
     );
 
     expect(mockFetchAppsList).not.toHaveBeenCalled();
+  });
+
+  // Regression: this used to reuse `assertAppSelectionAllowed`, whose message ("Cannot show
+  // the app picker… name the app instead") mis-diagnoses the failure — the app WAS named via
+  // --app-id; what can't be shown is the scope picker. Must name the actual missing flag.
+  it('names --scopes (not --app-id) when --scopes is omitted non-interactively', async () => {
+    withTTY(false);
+
+    await expect(updateScopesCommand({ appId: 'app-1' })).rejects.toThrow(/--scopes/);
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockUpdateAppScopes).not.toHaveBeenCalled();
+  });
+
+  it('also refuses under --json even with --app-id given and scopes omitted', async () => {
+    withTTY(true);
+
+    await expect(updateScopesCommand({ appId: 'app-1', json: true })).rejects.toThrow(/--scopes/);
   });
 
   it('prompts the app picker, filtered to M2M apps only, when --app-id is omitted', async () => {

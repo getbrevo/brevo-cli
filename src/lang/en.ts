@@ -384,23 +384,43 @@ const coreMessages = {
   // writing): the endpoint contract this command sends is built from BEX-481's own spec,
   // not a live implementation — see the plan doc for BEX-486.
   //
-  // Design note: there is deliberately no `--mode append|replace` flag. The picker and the
-  // typed fallback are both pre-filled with the app's CURRENT scopes (see
-  // `promptScopeSelection`'s `preselected` / `promptTypedScopeList`'s `prefill` in
-  // `scope-prompts.ts`), so whatever a partner submits — with scopes ticked/unticked or
-  // edited from that starting point — already IS the complete desired set. The server can
-  // then always treat the request as a plain replace; there is no separate delta to
-  // reconcile, and no ambiguity about whether an omitted scope should be dropped.
+  // Design note: there is deliberately no `--mode append|replace` flag. The interactive
+  // picker is genuinely pre-selected with the app's CURRENT scopes (`promptScopeSelection`'s
+  // `preselected` in `scope-prompts.ts` pre-checks each box), so what a partner ticks/unticks
+  // there already IS the complete desired set. The TYPED fallback (catalog unreadable) is
+  // weaker: inquirer 8's `input` prompt does not write `default` into an editable line — it
+  // only shows it as a dim hint and substitutes it if the line is submitted EMPTY — so
+  // `promptTypedScopeList`'s `prefill` cannot make someone's partial edit start from the
+  // full list. `APP_SCOPES_UPDATE_TYPED_INTRO` below exists to close that gap in words
+  // instead: it tells the partner the current scopes and that Enter alone keeps them, so
+  // typing anything is understood as typing the COMPLETE new list, not an addition to it.
+  // Either way the server can always treat the request as a plain replace — there is no
+  // separate delta to reconcile, and no ambiguity about whether an omitted scope should be
+  // dropped, as long as the partner reads that reminder on the typed path.
   APP_SCOPES_UPDATE_SELECT: 'Select an M2M app to update:',
   APP_SCOPES_UPDATE_NO_M2M_APPS:
     'No M2M apps found in this account. Scopes can only be updated on an app created with `--m2m`.',
   APP_SCOPES_UPDATE_NOT_M2M: (appId: string) =>
     `App ${appId} is not an M2M app — only an M2M app's scopes can be changed with this command.`,
+  // Refuses BEFORE the scope prompt when there's no terminal to show it on. Distinct from
+  // `APP_SELECT_NON_INTERACTIVE` (the app picker's own refusal): by the time this fires the
+  // app has already been named (via `--app-id` or that picker) — what can't be shown here is
+  // the SCOPE picker, a different prompt with a different fix (`--scopes`, not `--app-id`).
+  APP_SCOPES_UPDATE_SCOPES_REQUIRED: (cmd: string) =>
+    `\`--scopes\` is required when scripting — there is no terminal to prompt for scopes on. Example: \`${cmd}\`.`,
   // Printed instead of `APP_CREATE_M2M_SCOPES_FIXED` when the picker opens with existing
   // scopes already ticked — that message's "select every scope this app needs" reads oddly
   // once the boxes already reflect a grant, and would say nothing about editing them.
   APP_SCOPES_UPDATE_PICKER_INTRO:
     "Already-granted scopes are pre-selected below — untick to remove, tick more to add. What you submit becomes the app's complete set of scopes.",
+  // Printed instead of `APP_CREATE_M2M_SCOPES_HINT` on the typed-fallback path when there
+  // ARE current scopes to show (i.e. always, for `app scopes update` — `app create` has
+  // none and keeps the plain hint). Says explicitly that Enter-with-no-input keeps the
+  // list shown, because inquirer does NOT pre-populate the editable line — see the design
+  // note above. Without this a partner could reasonably type just the scope they meant to
+  // ADD and silently lose the rest.
+  APP_SCOPES_UPDATE_TYPED_INTRO: (current: readonly string[]) =>
+    `Current scopes: ${current.length ? current.join(', ') : '(none)'} — press Enter to keep them as-is, or type the complete new list (not just what's being added).`,
   APP_SCOPES_UPDATE_NO_CHANGE: (appId: string) =>
     `No change: app ${appId} already has exactly these scopes.`,
   // The one message that must foreground a REMOVAL: a scope the app currently has, but

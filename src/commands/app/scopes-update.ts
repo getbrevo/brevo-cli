@@ -27,11 +27,15 @@ export interface UpdateScopesOptions {
  *
  * There is deliberately no `--mode append|replace` flag. The current scopes read here
  * (`appService.fetchApp`) are used to PRE-FILL the interactive picker/typed prompt when
- * `--scopes` is omitted, so a partner edits a complete, already-visible set rather than a
- * delta — whatever they submit (ticked/unticked, or edited text) already IS the full
- * desired scope list. That is what lets `appService.updateAppScopes` send a plain replace:
- * there is no separate merge for the server to reconcile. `--scopes`, when passed
- * directly, is the same contract non-interactively — the full desired list, not a delta.
+ * `--scopes` is omitted, so whatever comes back already IS the full desired scope list —
+ * that is what lets `appService.updateAppScopes` send a plain replace, with no separate
+ * merge for the server to reconcile. The two prompts keep that promise differently, though:
+ * the picker (`promptScopeSelection`) genuinely starts with the current scopes ticked, so
+ * ticking/unticking edits a complete set; the typed fallback (`promptTypedScopeList`) can
+ * only show the current scopes as a hint and default-on-empty-submit (inquirer 8 does not
+ * pre-populate an editable input line) — see that function's doc comment for how it warns
+ * a partner not to type a partial list there. `--scopes`, passed directly, is the same
+ * contract non-interactively: the full desired list, not a delta.
  */
 export const updateScopesCommand = withCommandHandler(
   async (options: UpdateScopesOptions): Promise<void> => {
@@ -56,6 +60,11 @@ export const updateScopesCommand = withCommandHandler(
     loadSpinner.stop();
     if (!app) throw new CliError(`App ${appId} not found.`);
     if (!isM2mApp(app)) throw new CliError(messages.APP_SCOPES_UPDATE_NOT_M2M(appId));
+    // Only set from the picker (`select-app.ts` names the app it just listed) — a
+    // directly-typed `--app-id` has no label yet, and the app we just fetched has a
+    // `name` sitting right here, so fall back to it rather than leaving the confirm
+    // prompt to repeat the bare ID.
+    appLabel = appLabel || app.name || '';
 
     const currentScopes = app.scopes ?? [];
 
@@ -68,7 +77,15 @@ export const updateScopesCommand = withCommandHandler(
       const check = checkScopeList(newScopes);
       if (check !== true) throw new CliError(check);
     } else {
-      assertAppSelectionAllowed(CLI.APP_SCOPES_UPDATE(appId), options.json);
+      // Not `assertAppSelectionAllowed` — the app was already named (by `--app-id` or the
+      // picker above); what can't be shown here is the SCOPE picker, a different prompt
+      // with a different fix (`--scopes`, not `--app-id`). Reusing that helper's message
+      // would blame the wrong flag.
+      if (options.json || !process.stdin.isTTY) {
+        throw new CliError(
+          messages.APP_SCOPES_UPDATE_SCOPES_REQUIRED(CLI.APP_SCOPES_UPDATE(appId)),
+        );
+      }
       const picked = await promptScopeSelection(false, currentScopes);
       newScopes = picked ?? (await promptTypedScopeList(false, currentScopes));
     }
@@ -87,7 +104,7 @@ export const updateScopesCommand = withCommandHandler(
       return;
     }
 
-    if (!options.yes) {
+    if (!options.json && !options.yes) {
       logInfo(`\n  ${messages.APP_SCOPES_UPDATE_DIFF(currentScopes, newScopes, added, removed)}\n`);
       const { confirmed } = await inquirer.prompt([
         {

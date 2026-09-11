@@ -166,14 +166,20 @@ function scopeChoiceLabel(entry: ScopeEntry, nameWidth: number): string {
  * category, which is also what `app available-scopes` prints.
  *
  * `preselected` pre-checks a scope's box when the caller already has it granted (BEX-486,
- * `app scopes update`) — a heading is pre-checked too, but only when every scope beneath it
- * is, so the picker's own cascade (`section-checkbox.ts`'s `syncHeadings`) stays honest
- * from the first render rather than needing a toggle to catch up. Empty for `app create`,
- * where nothing should start ticked (see `promptScopeSelection`'s doc comment).
+ * `app scopes update`). A heading is pre-checked too, but ONLY when `cascading` is true —
+ * i.e. only under the custom cascading prompt (`section-checkbox.ts`), whose `syncHeadings`
+ * keeps a heading's tick derived from its members from the very first render. In the plain
+ * `checkbox` fallback (`registerSectionCheckbox()` returned `null`) a heading is a REAL
+ * answer value with no such wiring: `expandSelection` still expands a ticked heading to
+ * every scope in its category regardless of which members are individually ticked, so
+ * pre-checking a fully-granted category's heading there would silently re-add any member
+ * scope the partner unticks. Individual scope checkboxes are unaffected either way — they
+ * are independent regardless of which prompt is in use.
  */
 function buildScopeChoices(
   entries: readonly ScopeEntry[],
   preselected: ReadonlySet<string> = new Set(),
+  cascading = false,
 ): unknown[] {
   const nameWidth = Math.max(...entries.map((entry) => entry.name.length));
   const choices: unknown[] = [];
@@ -191,7 +197,7 @@ function buildScopeChoices(
         )}`,
         value: { section: category },
         section: category,
-        checked: scopes.every((scope) => preselected.has(scope.name)),
+        checked: cascading && scopes.every((scope) => preselected.has(scope.name)),
         // Only the fallback prompt echoes a heading, and only there does it stand for
         // anything: the cascading one ticks the scopes themselves, so they echo on their
         // own and the heading is left out of the answer entirely.
@@ -261,13 +267,16 @@ export async function promptScopeSelection(
   }
   // A plain `checkbox` if the cascading one could not be registered: a heading then stays a
   // value that `expandSelection` resolves, rather than one that ticks its scopes on screen.
-  const promptType = registerSectionCheckbox() ?? 'checkbox';
+  const cascadingPromptType = registerSectionCheckbox();
+  const promptType = cascadingPromptType ?? 'checkbox';
   const answer = await inquirer.prompt([
     {
       type: promptType,
       name: SCOPE_PICKER_QUESTION,
       message: messages.APP_CREATE_M2M_SCOPES_PICKER_PROMPT,
-      choices: indentChoices(buildScopeChoices(entries, new Set(preselected))),
+      choices: indentChoices(
+        buildScopeChoices(entries, new Set(preselected), cascadingPromptType !== null),
+      ),
       pageSize: PAGE_SIZE,
       loop: false,
       validate: (selected: unknown) =>
@@ -285,10 +294,16 @@ export async function promptScopeSelection(
  * reason. Extracted here rather than kept inline in `create.ts` so the two callers cannot
  * drift into two different free-text prompts for the same shape of answer.
  *
- * `prefill` seeds the input line with the caller's current scopes (BEX-486) via inquirer's
- * `default`, so a partner edits a complete, already-visible list rather than retyping it
- * from memory — the free-text equivalent of `promptScopeSelection`'s `preselected`. Empty
- * for `app create`, where there is nothing to prefill.
+ * `prefill` sets inquirer's `default` for the caller's current scopes (BEX-486) — but that
+ * is NOT an editable pre-filled line. inquirer 8's `input` prompt renders the actual typed
+ * buffer, not `default`; `default` only shows as a dim hint and is substituted in if the
+ * line is submitted completely EMPTY. So typing anything at all discards the hint entirely
+ * — there is no "start from the current list and edit it" here the way there is in
+ * `promptScopeSelection`'s checkbox. `APP_SCOPES_UPDATE_TYPED_INTRO` exists to cover that
+ * gap in words: when there IS a prefill, it replaces the plain tip with one that states the
+ * current scopes and says plainly that Enter alone keeps them, so typing means typing the
+ * COMPLETE new list. Empty `prefill` (what `app create` passes) keeps the original hint —
+ * there is nothing to prefill or warn about for a brand-new app.
  *
  * `quiet` silences the tip line, for the same defensive reason `promptScopeSelection`
  * threads it — nothing reachable today prompts with it set, but a future non-interactive
@@ -298,7 +313,13 @@ export async function promptTypedScopeList(
   quiet = false,
   prefill: readonly string[] = [],
 ): Promise<string[]> {
-  if (!quiet) logInfo(messages.APP_CREATE_M2M_SCOPES_HINT(CLI.APP_SCOPES, CLI.APP_SCOPES_UPDATE()));
+  if (!quiet) {
+    logInfo(
+      prefill.length
+        ? messages.APP_SCOPES_UPDATE_TYPED_INTRO(prefill)
+        : messages.APP_CREATE_M2M_SCOPES_HINT(CLI.APP_SCOPES, CLI.APP_SCOPES_UPDATE()),
+    );
+  }
   const answer = await inquirer.prompt([
     {
       type: 'input',

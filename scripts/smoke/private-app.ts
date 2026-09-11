@@ -419,14 +419,27 @@ function stepM2mCredentials(state: State): string {
   return `m2m app ${app.appId} credentials readable`;
 }
 
+// Brevo declining the scopes-update PATCH because the backend (BEX-481) hasn't shipped in
+// this environment yet — matched narrowly, the same way `SERVER_REFUSES_PUBLIC` in
+// public-app.ts matches Brevo declining public-app creation. `rethrowNotFound` in
+// services/app.ts maps ANY 404 on this endpoint to "App … not found.", which is ambiguous
+// on its own — but a route that doesn't exist yet is the far likelier read here than the
+// app vanishing between the credentials step and this one — so it's included alongside the
+// other "route not there" shapes a gateway or origin might answer with.
+const SCOPES_UPDATE_ENDPOINT_NOT_READY = /not found\.|not implemented|method not allowed|\b404\b|\b405\b|\b501\b/i;
+
 // `brevo app scopes update` (BEX-486). Unlike every other M2M step, this one can be
 // unavailable in TWO independent ways, and only the first is what `requireFeature` checks
 // automatically: the CLI build may predate the command (`m2m-flag`'s own reason, checked
 // by `requireFeature` below), OR the build may have it but the backend it calls (BEX-481)
 // may not have shipped in this environment yet. The second is discovered here, the same
-// way `stepPublicAppCreate` discovers Brevo declining public-app creation: on failure,
-// downgrade the capability with `markFeatureUnavailable` and skip, rather than treating an
-// unimplemented backend as a hard smoke failure.
+// way `stepPublicAppCreate` discovers Brevo declining public-app creation: on a failure
+// that LOOKS LIKE the endpoint isn't there (see `SCOPES_UPDATE_ENDPOINT_NOT_READY`),
+// downgrade the capability with `markFeatureUnavailable` and skip. Anything else — a 400 on
+// a bad payload, a crash, a real regression — rethrows and fails the step for real: a
+// catch-all here would let every one of those report as "backend not ready" instead, and
+// since the capability gets downgraded either way, `stepM2mScopesUpdateNoop` would then
+// skip too — silently disabling both steps' gating value on any genuine bug.
 async function stepM2mScopesUpdate(state: State): Promise<string> {
   requireFeature(state, 'm2m-flag');
   requireFeature(state, 'm2m-scopes-update');
@@ -453,6 +466,7 @@ async function stepM2mScopesUpdate(state: State): Promise<string> {
     ).stdout;
   } catch (err) {
     const message = errMsg(err);
+    if (!SCOPES_UPDATE_ENDPOINT_NOT_READY.test(message)) throw err;
     markFeatureUnavailable(state, 'm2m-scopes-update', firstLine(message));
     skip(`scopes-update backend not available in this environment: ${firstLine(message)}`);
   }

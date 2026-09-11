@@ -708,9 +708,9 @@ describe('services/app', () => {
       expect(result.scopes).toEqual(['contacts:read', 'crm:write']);
     });
 
-    it('normalizes a numeric app_id on the response', async () => {
+    it('always returns the app_id it was called with, regardless of the response', async () => {
       (mockClient.patch as jest.Mock).mockResolvedValue({
-        app_id: 42,
+        app_id: 999, // deliberately NOT '42' — must not leak through
         name: 'test',
         client_id: 'client-1',
         redirect_uris: null,
@@ -720,6 +720,28 @@ describe('services/app', () => {
       const result = await service.updateAppScopes('42', []);
 
       expect(result.app_id).toBe('42');
+    });
+
+    // Regression: this used to run the response through `normalizeAppId`, which throws on a
+    // missing/malformed `app_id`. The PATCH response shape is unverified (BEX-481) — a 204
+    // maps to `{}`, and even a real body might omit `app_id` since callers already know it —
+    // so a successful update must not fail just because the field the caller never reads
+    // (only `.scopes` is used, with its own fallback) came back missing.
+    it('does not throw when the response has no app_id at all', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue({ scopes: ['contacts:read'] });
+
+      const result = await service.updateAppScopes('42', ['contacts:read']);
+
+      expect(result.app_id).toBe('42');
+      expect(result.scopes).toEqual(['contacts:read']);
+    });
+
+    it('does not throw on a bare empty response (e.g. a 204 mapped to {})', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue({});
+
+      await expect(service.updateAppScopes('42', ['contacts:read'])).resolves.toMatchObject({
+        app_id: '42',
+      });
     });
 
     it('converts a 404 into a friendly not-found CliError', async () => {

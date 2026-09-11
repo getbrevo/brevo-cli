@@ -26,8 +26,10 @@ import { fetchSupportedScopes, ScopeEntry } from '../../../services/oauth-metada
 import {
   checkScopeList,
   promptScopeSelection,
+  promptTypedScopeList,
   validateM2mScopesInput,
   SCOPE_PICKER_QUESTION,
+  SCOPE_INPUT_QUESTION,
 } from '../../../commands/app/scope-prompts';
 import {
   SECTION_CHECKBOX_PROMPT,
@@ -271,6 +273,58 @@ describe('app/scope-prompts', () => {
       expect(choices.every((choice) => !choice.checked)).toBe(true);
     });
 
+    it('pre-selects a scope and its (fully-granted) heading when preselected + cascading', async () => {
+      mockPrompt.mockResolvedValue({
+        [SCOPE_PICKER_QUESTION]: ['contacts:read', 'contacts:write'],
+      });
+
+      await promptScopeSelection(false, ['contacts:read', 'contacts:write']);
+
+      const choices = pickerQuestion().choices as Array<Choice & { checked?: boolean }>;
+      const heading = choices[0] as Choice & { checked?: boolean };
+      const contactsRead = choices.find((c) => c.value === 'contacts:read') as {
+        checked?: boolean;
+      };
+      const eventsWrite = choices.find((c) => c.value === 'events:write') as {
+        checked?: boolean;
+      };
+      expect(heading.checked).toBe(true);
+      expect(contactsRead.checked).toBe(true);
+      expect(eventsWrite.checked).toBeFalsy();
+    });
+
+    // Regression: a heading is a REAL selectable value in the plain-checkbox fallback (no
+    // cascade wiring), so `expandSelection` expands a ticked heading to the whole category
+    // regardless of which members are individually ticked. Pre-checking it there would
+    // silently re-add a scope the partner just unticked.
+    it('does NOT pre-select a heading in the plain-checkbox fallback, even if fully granted', async () => {
+      (inquirer.registerPrompt as jest.Mock).mockImplementationOnce(() => {
+        throw new Error('no such prompt');
+      });
+      mockPrompt.mockResolvedValue({ [SCOPE_PICKER_QUESTION]: ['contacts:read'] });
+
+      await promptScopeSelection(false, ['contacts:read', 'contacts:write']);
+
+      expect(pickerQuestion().type).toBe('checkbox');
+      const choices = pickerQuestion().choices as Array<Choice & { checked?: boolean }>;
+      const heading = choices[0] as Choice & { checked?: boolean };
+      const contactsRead = choices.find((c) => c.value === 'contacts:read') as {
+        checked?: boolean;
+      };
+      expect(heading.checked).toBeFalsy();
+      // Individual scope pre-checks are unaffected by the fallback — only the heading is.
+      expect(contactsRead.checked).toBe(true);
+    });
+
+    it('prints the update-specific intro (not the create one) when scopes are preselected', async () => {
+      mockPrompt.mockResolvedValue({ [SCOPE_PICKER_QUESTION]: ['contacts:read'] });
+
+      await promptScopeSelection(false, ['contacts:read']);
+
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+      expect(output).toContain(messages.APP_SCOPES_UPDATE_PICKER_INTRO);
+    });
+
     it('refuses an empty selection through its own validate, rather than creating an app', async () => {
       mockPrompt.mockResolvedValue({ [SCOPE_PICKER_QUESTION]: ['contacts:read'] });
 
@@ -323,6 +377,52 @@ describe('app/scope-prompts', () => {
       const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
       expect(output).toContain(messages.APP_SCOPES_EMPTY);
       expect(output).not.toContain('Could not load the scope catalog');
+    });
+  });
+
+  describe('promptTypedScopeList', () => {
+    it('keeps the plain create-time hint when there is nothing to prefill', async () => {
+      mockPrompt.mockResolvedValue({ [SCOPE_INPUT_QUESTION]: 'contacts:read' });
+
+      await promptTypedScopeList();
+
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+      expect(output).toContain('Tip:');
+      expect(output).not.toContain(messages.APP_SCOPES_UPDATE_TYPED_INTRO(['contacts:read']));
+    });
+
+    // Regression: inquirer 8's `input` prompt does NOT pre-populate an editable line from
+    // `default` — it only shows it as a dim hint and substitutes it on an EMPTY submit (see
+    // node_modules/inquirer/lib/prompts/input.js `render`/`filterInput`). So typing anything
+    // discards the prefill entirely; the intro line is what has to carry that warning.
+    it('shows the current scopes and warns typing means the complete new list, when prefilled', async () => {
+      mockPrompt.mockResolvedValue({ [SCOPE_INPUT_QUESTION]: 'contacts:read' });
+
+      await promptTypedScopeList(false, ['contacts:read', 'crm:read']);
+
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+      expect(output).toContain(
+        messages.APP_SCOPES_UPDATE_TYPED_INTRO(['contacts:read', 'crm:read']),
+      );
+      expect(output).not.toContain('Tip:');
+    });
+
+    it('sets inquirer default to the prefill, comma-joined', async () => {
+      mockPrompt.mockResolvedValue({ [SCOPE_INPUT_QUESTION]: 'contacts:read' });
+
+      await promptTypedScopeList(false, ['contacts:read', 'crm:read']);
+
+      const question = mockPrompt.mock.calls[0][0][0];
+      expect(question.default).toBe('contacts:read,crm:read');
+    });
+
+    it('leaves default unset when there is nothing to prefill', async () => {
+      mockPrompt.mockResolvedValue({ [SCOPE_INPUT_QUESTION]: 'contacts:read' });
+
+      await promptTypedScopeList();
+
+      const question = mockPrompt.mock.calls[0][0][0];
+      expect(question.default).toBeUndefined();
     });
   });
 

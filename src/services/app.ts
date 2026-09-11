@@ -503,13 +503,21 @@ export function createAppService(client: ApiClient) {
      * edits a complete set rather than typing a delta, which is what lets this be a plain
      * replace with no separate add/remove mode. The response reflects the scope set the
      * server actually stored.
+     *
+     * Deliberately does NOT run the response through `normalizeAppId`: that throws on a
+     * missing/malformed `app_id`, and the unverified response shape could plausibly be a
+     * bare `{ scopes }` body or an empty one (a 204 maps to `{}`). The caller already knows
+     * `appId` — it's what it just PATCHed — and only ever reads `.scopes` off the result
+     * (with its own `?? newScopes` fallback), so trusting the response's own `app_id`
+     * buys nothing and risks turning a successful update into a reported failure over a
+     * field nobody reads back.
      */
     async updateAppScopes(appId: string, scopes: string[]): Promise<OAuthApp> {
       try {
-        const raw = await client.patch<OAuthApp>(ENDPOINTS.APP_STORE_APP_SCOPES(appId), {
+        const raw = await client.patch<Partial<OAuthApp>>(ENDPOINTS.APP_STORE_APP_SCOPES(appId), {
           scopes,
         });
-        return normalizeAppId(raw);
+        return { ...raw, app_id: appId } as OAuthApp;
       } catch (err) {
         rethrowNotFound(err, appId);
       }
