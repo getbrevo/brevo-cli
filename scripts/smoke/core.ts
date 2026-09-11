@@ -835,8 +835,18 @@ export type GatedCommand = (typeof GATED_COMMANDS)[number];
  * Detected for the same reason as the one above — the four M2M steps live in the DEFAULT
  * `private` suite, so without this every published-surface run reports them as four hard
  * failures. This row can be dropped once the release carrying `--m2m` is on `latest`.
+ *
+ * `m2m-scopes-update` (BEX-486) is gated the same way as `m2m-flag` and for the same
+ * reason: `app scopes update` is new, GA, and newer than what `--against=published` may be
+ * running. It ALSO has a second, independent way to be unavailable that `m2m-flag` does
+ * not: the scopes-update command depends on a backend endpoint (BEX-481) that had not
+ * shipped as of this writing, so even a build that offers the command can still have it
+ * refused server-side. `stepM2mScopesUpdate` in `private-app.ts` downgrades this same
+ * capability with `markFeatureUnavailable` on that failure, exactly like
+ * `public-distribution` does for a build that offers `--distribution public` but whose
+ * environment declines the create — see that step for the pattern.
  */
-export const GATED_FEATURES = ['public-distribution', 'm2m-flag'] as const;
+export const GATED_FEATURES = ['public-distribution', 'm2m-flag', 'm2m-scopes-update'] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];
 
@@ -905,6 +915,25 @@ export function m2mFlagOffered(state: State): boolean {
   return (r.stdout + r.stderr).split('\n').some((line) => M2M_OPTION_LINE.test(line.trimStart()));
 }
 
+/**
+ * Does this build register `brevo app scopes update`?
+ *
+ * `scopes update` is nested one level deeper than the commands `respondsToOwnHelp` probes
+ * (`app <command>`), so it gets its own probe rather than reusing that one: Commander
+ * still answers a registered subcommand's own `--help` with its own usage line
+ * (`Usage: brevo app scopes update`), falling back to the PARENT group's usage
+ * (`Usage: brevo app scopes [options] [command]`) when `update` isn't registered — so the
+ * same line-prefix check `respondsToOwnHelp` relies on for `withdraw` still distinguishes
+ * present from absent here. Split-and-check per line, not a multiline regex, for the same
+ * super-linear-regex reason `m2mFlagOffered` above avoids one.
+ */
+export function scopesUpdateOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'scopes', 'update', '--help'], state);
+  return (r.stdout + r.stderr)
+    .split('\n')
+    .some((line) => line.startsWith('Usage: brevo app scopes update'));
+}
+
 // Detection is help-text based, with one probe per unlisted command (see above).
 export function detectCapabilities(state: State): Record<string, boolean> {
   const help = exec(brevoCmd(state), ['--help'], state);
@@ -933,6 +962,7 @@ export function detectCapabilities(state: State): Record<string, boolean> {
   }
   caps['public-distribution'] = publicDistributionOffered(state);
   caps['m2m-flag'] = m2mFlagOffered(state);
+  caps['m2m-scopes-update'] = scopesUpdateOffered(state);
   logToFile(state, `capabilities: ${JSON.stringify(caps)}`);
   state.caps = caps;
   return caps;

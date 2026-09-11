@@ -21,8 +21,8 @@ import { validateEnum, validateAppName, validateYesNo, splitScopes } from '../..
 import {
   checkScopeList,
   promptScopeSelection,
+  promptTypedScopeList,
   validateM2mScopesInput,
-  SCOPE_INPUT_QUESTION,
 } from './scope-prompts';
 import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
@@ -364,16 +364,7 @@ async function resolveM2mScopes(scopesFlag: string | undefined, quiet: boolean):
     return picked;
   }
 
-  if (!quiet) logInfo(messages.APP_CREATE_M2M_SCOPES_HINT(CLI.APP_SCOPES));
-  const answer = await inquirer.prompt([
-    {
-      type: 'input',
-      name: SCOPE_INPUT_QUESTION,
-      message: messages.APP_CREATE_M2M_SCOPES_PROMPT,
-      validate: validateM2mScopesInput,
-    },
-  ]);
-  return splitScopes(String(answer[SCOPE_INPUT_QUESTION] ?? ''));
+  return promptTypedScopeList(quiet);
 }
 
 /**

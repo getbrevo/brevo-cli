@@ -18,11 +18,14 @@ import {
   createSmokeApp,
   deleteSmokeApp,
   ensureWorkRoot,
+  errMsg,
   exec,
   execOrThrow,
   featureMissing,
   findAppByName,
+  firstLine,
   logToFile,
+  markFeatureUnavailable,
   must,
   optStr,
   parseJson,
@@ -34,6 +37,7 @@ import {
   requireFeature,
   requireProjectDir,
   sameSet,
+  skip,
   sleep,
   stampedName,
   uploadApp,
@@ -313,10 +317,20 @@ async function stepDeleteMainApp(state: State): Promise<string> {
 //
 // Every step opens with `requireFeature(state, 'm2m-flag')`. The flag is GA and in every
 // build this repo produces, but it is newer than the version on npm, so an
-// `--against=published` run has to SKIP these four rather than fail them — and the checks
+// `--against=published` run has to SKIP these six rather than fail them — and the checks
 // below are the reason the skip has to be per step: each one is reached independently.
+//
+// `brevo app scopes update` (BEX-486) is checked here too, with its own extra gate:
+// `m2m-scopes-update` covers the CLI-build side (same reasoning as `m2m-flag`), but the
+// command also depends on a backend endpoint (BEX-481) that had not shipped as of this
+// writing — see `stepM2mScopesUpdate`'s own comment for how that second gate is
+// discovered and downgraded at runtime rather than assumed.
 
 const M2M_SCOPES = ['contacts:read', 'crm:read'];
+// The set `stepM2mScopesUpdate` submits: every original scope plus one new one, so the
+// update is checkable as a genuine add (not a no-op) and the no-op step after it has a
+// stable target to resubmit.
+const UPDATED_M2M_SCOPES = [...M2M_SCOPES, 'crm:write'];
 
 async function stepM2mCreate(state: State): Promise<string> {
   requireFeature(state, 'm2m-flag');
@@ -403,6 +417,125 @@ function stepM2mCredentials(state: State): string {
     'm2m credentials did not reveal a clientSecret',
   );
   return `m2m app ${app.appId} credentials readable`;
+}
+
+// Brevo declining the scopes-update PATCH because the backend (BEX-481) hasn't shipped in
+// this environment yet — matched narrowly, the same way `SERVER_REFUSES_PUBLIC` in
+// public-app.ts matches Brevo declining public-app creation. `rethrowNotFound` in
+// services/app.ts maps ANY 404 on this endpoint to "App … not found.", which is ambiguous
+// on its own — but a route that doesn't exist yet is the far likelier read here than the
+// app vanishing between the credentials step and this one — so it's included alongside the
+// other "route not there" shapes a gateway or origin might answer with.
+const SCOPES_UPDATE_ENDPOINT_NOT_READY = /not found\.|not implemented|method not allowed|\b404\b|\b405\b|\b501\b/i;
+
+// `brevo app scopes update` (BEX-486). Unlike every other M2M step, this one can be
+// unavailable in TWO independent ways, and only the first is what `requireFeature` checks
+// automatically: the CLI build may predate the command (`m2m-flag`'s own reason, checked
+// by `requireFeature` below), OR the build may have it but the backend it calls (BEX-481)
+// may not have shipped in this environment yet. The second is discovered here, the same
+// way `stepPublicAppCreate` discovers Brevo declining public-app creation: on a failure
+// that LOOKS LIKE the endpoint isn't there (see `SCOPES_UPDATE_ENDPOINT_NOT_READY`),
+// downgrade the capability with `markFeatureUnavailable` and skip. Anything else — a 400 on
+// a bad payload, a crash, a real regression — rethrows and fails the step for real: a
+// catch-all here would let every one of those report as "backend not ready" instead, and
+// since the capability gets downgraded either way, `stepM2mScopesUpdateNoop` would then
+// skip too — silently disabling both steps' gating value on any genuine bug.
+async function stepM2mScopesUpdate(state: State): Promise<string> {
+  requireFeature(state, 'm2m-flag');
+  requireFeature(state, 'm2m-scopes-update');
+  const app = requireApp(state.m2mApp, 'm2m');
+  const workRoot = ensureWorkRoot(state);
+
+  let raw: string;
+  try {
+    raw = execOrThrow(
+      brevoCmd(state),
+      [
+        'app',
+        'scopes',
+        'update',
+        '--app-id',
+        app.appId,
+        '--scopes',
+        UPDATED_M2M_SCOPES.join(','),
+        '--yes',
+        '--json',
+      ],
+      state,
+      { cwd: workRoot },
+    ).stdout;
+  } catch (err) {
+    const message = errMsg(err);
+    if (!SCOPES_UPDATE_ENDPOINT_NOT_READY.test(message)) throw err;
+    markFeatureUnavailable(state, 'm2m-scopes-update', firstLine(message));
+    skip(`scopes-update backend not available in this environment: ${firstLine(message)}`);
+  }
+
+  const updated = parseJson<Record<string, unknown>>(raw);
+  must(
+    updated.changed === true,
+    `scopes update returned changed=${JSON.stringify(updated.changed)}`,
+  );
+  must(
+    sameSet(asStringArray(updated.scopes, 'scopes update scopes'), UPDATED_M2M_SCOPES),
+    `scopes update returned scopes ${JSON.stringify(updated.scopes)}, expected ${JSON.stringify(UPDATED_M2M_SCOPES)}`,
+  );
+  must(
+    sameSet(asStringArray(updated.added, 'scopes update added'), ['crm:write']),
+    `scopes update returned added ${JSON.stringify(updated.added)}, expected ["crm:write"]`,
+  );
+  must(
+    asStringArray(updated.removed, 'scopes update removed').length === 0,
+    `scopes update returned removed ${JSON.stringify(updated.removed)}, expected none`,
+  );
+
+  // The command's own --json output only proves it echoed the right answer, not that the
+  // server actually stored it — read the app back through a wholly separate command to
+  // confirm the PATCH was really persisted.
+  const creds = parseJson<Record<string, unknown>>(
+    execOrThrow(brevoCmd(state), ['app', 'credentials', '--app-id', app.appId, '--json'], state, {
+      cwd: workRoot,
+    }).stdout,
+  );
+  must(
+    sameSet(asStringArray(creds.scopes, 'credentials scopes after update'), UPDATED_M2M_SCOPES),
+    `app credentials after scopes update returned ${JSON.stringify(creds.scopes)}, expected ${JSON.stringify(UPDATED_M2M_SCOPES)}`,
+  );
+
+  return `m2m app ${app.appId} scopes updated to [${UPDATED_M2M_SCOPES.join(', ')}], verified via a fresh credentials read`;
+}
+
+// Resubmitting the same (now-current) scopes must be a no-op: no PATCH-worthy change, and
+// — since nothing changed — no confirmation prompt to skip either, so this deliberately
+// omits `--yes` to prove the no-op path never reaches one.
+function stepM2mScopesUpdateNoop(state: State): string {
+  requireFeature(state, 'm2m-flag');
+  requireFeature(state, 'm2m-scopes-update');
+  const app = requireApp(state.m2mApp, 'm2m');
+
+  const result = parseJson<Record<string, unknown>>(
+    execOrThrow(
+      brevoCmd(state),
+      [
+        'app',
+        'scopes',
+        'update',
+        '--app-id',
+        app.appId,
+        '--scopes',
+        UPDATED_M2M_SCOPES.join(','),
+        '--json',
+      ],
+      state,
+      { cwd: ensureWorkRoot(state) },
+    ).stdout,
+  );
+  must(
+    result.changed === false,
+    `no-op scopes update returned changed=${JSON.stringify(result.changed)}`,
+  );
+
+  return `resubmitting the app's current scopes is a no-op (changed=false), no confirmation needed`;
 }
 
 // Every refusal `assertM2mFlags` owns, driven through the real binary. They must all fail
@@ -539,6 +672,8 @@ export const privateAppSuite: Suite = {
     ['Delete main test app', stepDeleteMainApp],
     ['M2M create', stepM2mCreate],
     ['M2M credentials', stepM2mCredentials],
+    ['M2M scopes update', stepM2mScopesUpdate],
+    ['M2M scopes update (no-op)', stepM2mScopesUpdateNoop],
     ['Negative: M2M flag combinations', stepM2mNegativeFlags],
     ['Delete M2M app', stepM2mDelete],
   ],

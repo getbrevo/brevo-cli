@@ -100,6 +100,20 @@ function rethrowNotFound(err: unknown, appId: string): never {
 }
 
 /**
+ * Whether an app is machine-to-machine (BEX-486).
+ *
+ * HEURISTIC, not a server-sent discriminator — `OAuthApp` carries no `type`/`app_type`
+ * field distinguishing an M2M app from a consent-based one (verified: neither exists on
+ * the type). This mirrors the structural signal `app create`'s own M2M detection relies
+ * on: an OAuth app (`client_id` present) with no redirect URIs and no `ui_app`/
+ * `brevo_function` block. Prefer a real discriminator over this heuristic the moment
+ * BEX-481 (or related backend work) exposes one on `GET /v3/app-store/apps/{id}`.
+ */
+export function isM2mApp(app: OAuthApp): boolean {
+  return Boolean(app.client_id) && !app.ui_app && !app.brevo_function && !app.redirect_uris?.length;
+}
+
+/**
  * An account identifier as a number, or `undefined` when it is not one.
  *
  * Brevo identifies accounts two different ways depending on where the value came
@@ -474,6 +488,36 @@ export function createAppService(client: ApiClient) {
     async deleteApp(appId: string): Promise<void> {
       try {
         await client.delete(ENDPOINTS.APP_STORE_APP(appId));
+      } catch (err) {
+        rethrowNotFound(err, appId);
+      }
+    },
+
+    /**
+     * Set an M2M app's granted scopes (BEX-486). ASSUMPTION pending BEX-481: the exact
+     * endpoint path/body shape is not yet confirmed against a real backend
+     * implementation.
+     *
+     * `scopes` is always the FULL desired scope list — the command that calls this
+     * pre-fills the interactive picker/prompt with the app's current scopes so a partner
+     * edits a complete set rather than typing a delta, which is what lets this be a plain
+     * replace with no separate add/remove mode. The response reflects the scope set the
+     * server actually stored.
+     *
+     * Deliberately does NOT run the response through `normalizeAppId`: that throws on a
+     * missing/malformed `app_id`, and the unverified response shape could plausibly be a
+     * bare `{ scopes }` body or an empty one (a 204 maps to `{}`). The caller already knows
+     * `appId` — it's what it just PATCHed — and only ever reads `.scopes` off the result
+     * (with its own `?? newScopes` fallback), so trusting the response's own `app_id`
+     * buys nothing and risks turning a successful update into a reported failure over a
+     * field nobody reads back.
+     */
+    async updateAppScopes(appId: string, scopes: string[]): Promise<OAuthApp> {
+      try {
+        const raw = await client.patch<Partial<OAuthApp>>(ENDPOINTS.APP_STORE_APP_SCOPES(appId), {
+          scopes,
+        });
+        return { ...raw, app_id: appId } as OAuthApp;
       } catch (err) {
         rethrowNotFound(err, appId);
       }

@@ -20,6 +20,7 @@ import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
+import { updateScopesCommand } from './app/scopes-update';
 import { startCommand } from './app/start';
 import { appInstallCommand } from './app/install';
 import { appUninstallCommand } from './app/uninstall';
@@ -383,6 +384,43 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     // `brevo app --help` is unaffected in a public build (there is nothing to order);
     // a preview build simply lists these three last.
     ...(__BREVO_PREVIEW__ ? previewAppCommands : []),
+  ],
+  // One level of nesting (`app scopes update`) — see `groups` on
+  // `SubcommandGroupDefinition` in command-registry.ts. GA immediately: M2M app creation
+  // and `available-scopes` are both already GA with no capability/preview gate, and this
+  // command is a natural extension of that already-GA M2M lifecycle surface.
+  groups: [
+    {
+      name: 'scopes',
+      description: 'Manage OAuth scopes on an existing M2M app',
+      commands: [
+        {
+          name: 'update',
+          description: "Update an M2M app's granted OAuth scopes",
+          examples: [
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read,crm:read`,
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --yes`,
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --json`,
+          ],
+          options: [
+            { flags: '--app-id <id>', description: 'App ID', parser: (v) => parseAppId(v) },
+            {
+              flags: '--scopes <list>',
+              description: 'Comma-separated scope list — the full desired set of scopes',
+            },
+            { flags: '--yes', description: 'Skip confirmation (for CI)' },
+            { flags: '--json', description: 'Output as JSON' },
+          ],
+          handler: (opts) =>
+            updateScopesCommand({
+              appId: opts.appId as string | undefined,
+              scopes: opts.scopes as string | undefined,
+              yes: Boolean(opts.yes),
+              json: Boolean(opts.json),
+            }),
+        },
+      ],
+    },
   ],
 };
 

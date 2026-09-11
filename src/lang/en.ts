@@ -320,10 +320,15 @@ const coreMessages = {
   // live catalog (the normal path), and the free-text prompt below when that catalog
   // cannot be read. The picker copy therefore may not be the only place a rule is
   // stated — anything the partner must know about M2M scopes has to survive the
-  // fallback too, which is why the "fixed at creation" warning lives in
+  // fallback too, which is why the reminder to name every needed scope lives in
   // APP_CREATE_M2M_SCOPES_FIXED and is printed on both paths.
-  APP_CREATE_M2M_SCOPES_FIXED:
-    'Scopes are fixed at creation for an M2M app — there is no app-config.json to edit afterwards, so select everything this integration needs.',
+  //
+  // NOTE (BEX-486): scopes are no longer permanent — `brevo app scopes update` can
+  // change them after creation — so this copy, despite its constant name, must not
+  // claim otherwise. The name is kept (renaming touches every call site for no
+  // behavioural gain); only the wording changed.
+  APP_CREATE_M2M_SCOPES_FIXED: (updateCmd: string) =>
+    `Select every scope this app needs — you can add or remove scopes later with \`${updateCmd}\`.`,
   APP_CREATE_M2M_SCOPES_PICKER_SPINNER: 'Loading available scopes...',
   APP_CREATE_M2M_SCOPES_PICKER_PROMPT: 'Which scopes does this app need?',
   // The trailing half of a selectable section heading — the category's own label from the
@@ -336,8 +341,8 @@ const coreMessages = {
   APP_CREATE_M2M_SCOPES_CATALOG_UNAVAILABLE: (cmd: string) =>
     `Could not load the scope catalog, so scopes have to be typed. Run \`${cmd}\` once the connection is back to see every scope your account can grant.`,
   APP_CREATE_M2M_SCOPES_PROMPT: 'Scopes (comma-separated):',
-  APP_CREATE_M2M_SCOPES_HINT: (cmd: string) =>
-    `Tip: Run \`${cmd}\` in another terminal to see every scope your account can grant. Scopes are fixed at creation for an M2M app — there is no app-config.json to edit afterwards.`,
+  APP_CREATE_M2M_SCOPES_HINT: (cmd: string, updateCmd: string) =>
+    `Tip: Run \`${cmd}\` in another terminal to see every scope your account can grant. You can add or remove scopes later with \`${updateCmd}\`.`,
   APP_CREATE_M2M_SCOPES_EMPTY: 'Enter at least one scope.',
   APP_CREATE_M2M_BOX_SCOPES_LABEL: 'Scopes:',
   // Deliberately NOT `APP_CREATE_BOX_SCOPE_HINT`, which tells the user to edit
@@ -363,7 +368,7 @@ const coreMessages = {
 
   // App create — M2M flag combinations. Every one of these is checked before the first
   // prompt, so a bad invocation costs the caller nothing; see `assertM2mFlags`.
-  APP_CREATE_M2M_SCOPES_REQUIRED: `\`--m2m\` needs \`--scopes\` — an M2M app's scopes are fixed at creation and there is no app-config.json to edit later. Example: \`--m2m --scopes "contacts:read,crm:read"\`.`,
+  APP_CREATE_M2M_SCOPES_REQUIRED: `\`--m2m\` needs \`--scopes\` at creation time — there is no app-config.json to seed them from later, though scopes can still be changed afterwards with \`${CLI.APP_SCOPES_UPDATE()}\`. Example: \`--m2m --scopes "contacts:read,crm:read"\`.`,
   // Refused rather than ignored: a consent-based create always sends the default scope
   // set, so silently dropping `--scopes` would leave the caller believing they had
   // narrowed an app that in fact got the defaults.
@@ -372,6 +377,77 @@ const coreMessages = {
   APP_CREATE_M2M_UI_FLAG: (flag: string) =>
     `\`--m2m\` can't be combined with \`${flag}\` — an app is either an OAuth app or a UI app, not both.`,
   APP_CREATE_M2M_PUBLIC: `\`--m2m\` requires \`--distribution private\` — the machine-to-machine flow is only available for private apps.`,
+
+  // App scopes update (BEX-486) — change an existing M2M app's granted scopes.
+  //
+  // ASSUMPTION pending BEX-481 (the backend scopes-update API, "Ready for dev" as of this
+  // writing): the endpoint contract this command sends is built from BEX-481's own spec,
+  // not a live implementation — see the plan doc for BEX-486.
+  //
+  // Design note: there is deliberately no `--mode append|replace` flag. The interactive
+  // picker is genuinely pre-selected with the app's CURRENT scopes (`promptScopeSelection`'s
+  // `preselected` in `scope-prompts.ts` pre-checks each box), so what a partner ticks/unticks
+  // there already IS the complete desired set. The TYPED fallback (catalog unreadable) is
+  // weaker: inquirer 8's `input` prompt does not write `default` into an editable line — it
+  // only shows it as a dim hint and substitutes it if the line is submitted EMPTY — so
+  // `promptTypedScopeList`'s `prefill` cannot make someone's partial edit start from the
+  // full list. `APP_SCOPES_UPDATE_TYPED_INTRO` below exists to close that gap in words
+  // instead: it tells the partner the current scopes and that Enter alone keeps them, so
+  // typing anything is understood as typing the COMPLETE new list, not an addition to it.
+  // Either way the server can always treat the request as a plain replace — there is no
+  // separate delta to reconcile, and no ambiguity about whether an omitted scope should be
+  // dropped, as long as the partner reads that reminder on the typed path.
+  APP_SCOPES_UPDATE_SELECT: 'Select an M2M app to update:',
+  APP_SCOPES_UPDATE_NO_M2M_APPS:
+    'No M2M apps found in this account. Scopes can only be updated on an app created with `--m2m`.',
+  APP_SCOPES_UPDATE_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app's scopes can be changed with this command.`,
+  // Refuses BEFORE the scope prompt when there's no terminal to show it on. Distinct from
+  // `APP_SELECT_NON_INTERACTIVE` (the app picker's own refusal): by the time this fires the
+  // app has already been named (via `--app-id` or that picker) — what can't be shown here is
+  // the SCOPE picker, a different prompt with a different fix (`--scopes`, not `--app-id`).
+  APP_SCOPES_UPDATE_SCOPES_REQUIRED: (cmd: string) =>
+    `\`--scopes\` is required when scripting — there is no terminal to prompt for scopes on. Example: \`${cmd}\`.`,
+  // Printed instead of `APP_CREATE_M2M_SCOPES_FIXED` when the picker opens with existing
+  // scopes already ticked — that message's "select every scope this app needs" reads oddly
+  // once the boxes already reflect a grant, and would say nothing about editing them.
+  APP_SCOPES_UPDATE_PICKER_INTRO:
+    "Already-granted scopes are pre-selected below — untick to remove, tick more to add. What you submit becomes the app's complete set of scopes.",
+  // Printed instead of `APP_CREATE_M2M_SCOPES_HINT` on the typed-fallback path when there
+  // ARE current scopes to show (i.e. always, for `app scopes update` — `app create` has
+  // none and keeps the plain hint). Says explicitly that Enter-with-no-input keeps the
+  // list shown, because inquirer does NOT pre-populate the editable line — see the design
+  // note above. Without this a partner could reasonably type just the scope they meant to
+  // ADD and silently lose the rest.
+  APP_SCOPES_UPDATE_TYPED_INTRO: (current: readonly string[]) =>
+    `Current scopes: ${current.length ? current.join(', ') : '(none)'} — press Enter to keep them as-is, or type the complete new list (not just what's being added).`,
+  APP_SCOPES_UPDATE_NO_CHANGE: (appId: string) =>
+    `No change: app ${appId} already has exactly these scopes.`,
+  // The one message that must foreground a REMOVAL: a scope the app currently has, but
+  // that isn't in the submitted list, silently disappears unless this line calls it out —
+  // easy to miss on the typed-fallback path, where the field starts pre-filled but nothing
+  // stops someone deleting more than they meant to.
+  APP_SCOPES_UPDATE_DIFF: (
+    current: readonly string[],
+    next: readonly string[],
+    added: readonly string[],
+    removed: readonly string[],
+  ): string => {
+    const lines = [
+      `Current scopes: ${current.length ? current.join(', ') : '(none)'}`,
+      `New scopes:     ${next.length ? next.join(', ') : '(none)'}`,
+    ];
+    if (added.length) lines.push(`  + ${added.join(', ')}`);
+    if (removed.length) {
+      lines.push(`  ⚠ this will REMOVE: ${removed.join(', ')}`);
+    }
+    return lines.join('\n  ');
+  },
+  APP_SCOPES_UPDATE_CONFIRM: (appLabel: string, appId: string) =>
+    `Set the scopes on "${appLabel}" (${appId}) to this list?`,
+  APP_SCOPES_UPDATE_CANCELLED: 'Cancelled — no scopes were changed.',
+  APP_SCOPES_UPDATE_SUCCESS: (appId: string, scopes: readonly string[]) =>
+    `Updated app ${appId}. Scopes: ${scopes.length ? scopes.join(', ') : '(none)'}`,
 
   // App install / uninstall — per-account availability for UI apps (BEX-290).
   // Moved here from `preview-messages.ts` at UI-apps GA.
