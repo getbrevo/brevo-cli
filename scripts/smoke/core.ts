@@ -845,8 +845,20 @@ export type GatedCommand = (typeof GATED_COMMANDS)[number];
  * capability with `markFeatureUnavailable` on that failure, exactly like
  * `public-distribution` does for a build that offers `--distribution public` but whose
  * environment declines the create — see that step for the pattern.
+ *
+ * `m2m-app-token` (BEX-482) is gated the same two ways as `m2m-scopes-update`: the CLI
+ * build may predate `brevo app token` (checked via `appTokenOffered`), or the build may
+ * have it while the backend it depends on ("brevo app token [Backend]", not yet built as
+ * of this writing) has not shipped in this environment. `stepM2mAppToken` in
+ * `private-app.ts` downgrades this capability with `markFeatureUnavailable` on that
+ * second failure, exactly like `m2m-scopes-update` does.
  */
-export const GATED_FEATURES = ['public-distribution', 'm2m-flag', 'm2m-scopes-update'] as const;
+export const GATED_FEATURES = [
+  'public-distribution',
+  'm2m-flag',
+  'm2m-scopes-update',
+  'm2m-app-token',
+] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];
 
@@ -934,6 +946,19 @@ export function scopesUpdateOffered(state: State): boolean {
     .some((line) => line.startsWith('Usage: brevo app scopes update'));
 }
 
+/**
+ * Does this build register `brevo app token`?
+ *
+ * Same `respondsToOwnHelp`-style probe as the commands in `GATED_COMMANDS`, kept
+ * separate because `token` is a feature (gated by release readiness, not by the build —
+ * see the `m2m-app-token` doc comment on `GATED_FEATURES`) rather than a command whose
+ * presence is assumed.
+ */
+export function appTokenOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'token', '--help'], state);
+  return (r.stdout + r.stderr).split('\n').some((line) => line.startsWith('Usage: brevo app token'));
+}
+
 // Detection is help-text based, with one probe per unlisted command (see above).
 export function detectCapabilities(state: State): Record<string, boolean> {
   const help = exec(brevoCmd(state), ['--help'], state);
@@ -963,6 +988,7 @@ export function detectCapabilities(state: State): Record<string, boolean> {
   caps['public-distribution'] = publicDistributionOffered(state);
   caps['m2m-flag'] = m2mFlagOffered(state);
   caps['m2m-scopes-update'] = scopesUpdateOffered(state);
+  caps['m2m-app-token'] = appTokenOffered(state);
   logToFile(state, `capabilities: ${JSON.stringify(caps)}`);
   state.caps = caps;
   return caps;

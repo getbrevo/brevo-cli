@@ -16,6 +16,7 @@ import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
+import { tokenCommand } from './app/token';
 import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
@@ -198,6 +199,33 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         credentialsCommand({
           appId: opts.appId as string | undefined,
           revealSecret: Boolean(opts.revealSecret),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'token',
+      description: 'Mint a short-lived M2M access token for an app',
+      examples: [
+        `brevo app token --app-id ${EXAMPLE_APP_ID}`,
+        `brevo app token --app-id ${EXAMPLE_APP_ID} --scope contacts:read,crm:read`,
+        `brevo app token --app-id ${EXAMPLE_APP_ID} --json`,
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID',
+          parser: (v) => parseAppId(v),
+        },
+        {
+          flags: '--scope <list>',
+          description: 'Comma-separated scopes to request (default: full granted set)',
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        tokenCommand({
+          appId: opts.appId as string | undefined,
+          scope: opts.scope as string | undefined,
           json: Boolean(opts.json),
         }),
     },
