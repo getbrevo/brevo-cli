@@ -852,12 +852,20 @@ export type GatedCommand = (typeof GATED_COMMANDS)[number];
  * of this writing) has not shipped in this environment. `stepM2mAppToken` in
  * `private-app.ts` downgrades this capability with `markFeatureUnavailable` on that
  * second failure, exactly like `m2m-scopes-update` does.
+ *
+ * `m2m-secret-rotate` (BEX-484) is gated the same two ways as `m2m-app-token`: the CLI
+ * build may predate `brevo app secret rotate` (checked via `secretRotateOffered`), or the
+ * build may have it while the backend it depends on ("brevo app secret rotate [Backend]",
+ * not yet built as of this writing) has not shipped in this environment.
+ * `stepM2mSecretRotate` in `private-app.ts` downgrades this capability with
+ * `markFeatureUnavailable` on that second failure, exactly like `m2m-app-token` does.
  */
 export const GATED_FEATURES = [
   'public-distribution',
   'm2m-flag',
   'm2m-scopes-update',
   'm2m-app-token',
+  'm2m-secret-rotate',
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];
@@ -956,7 +964,24 @@ export function scopesUpdateOffered(state: State): boolean {
  */
 export function appTokenOffered(state: State): boolean {
   const r = exec(brevoCmd(state), ['app', 'token', '--help'], state);
-  return (r.stdout + r.stderr).split('\n').some((line) => line.startsWith('Usage: brevo app token'));
+  return (r.stdout + r.stderr)
+    .split('\n')
+    .some((line) => line.startsWith('Usage: brevo app token'));
+}
+
+/**
+ * Does this build register `brevo app secret rotate`?
+ *
+ * Nested one level deeper than the commands `respondsToOwnHelp` probes, same reasoning as
+ * `scopesUpdateOffered`: a registered subcommand answers its own `--help` with its own
+ * usage line (`Usage: brevo app secret rotate`), falling back to the parent group's usage
+ * (`Usage: brevo app secret [options] [command]`) when `rotate` isn't registered.
+ */
+export function secretRotateOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'secret', 'rotate', '--help'], state);
+  return (r.stdout + r.stderr)
+    .split('\n')
+    .some((line) => line.startsWith('Usage: brevo app secret rotate'));
 }
 
 // Detection is help-text based, with one probe per unlisted command (see above).
@@ -989,6 +1014,7 @@ export function detectCapabilities(state: State): Record<string, boolean> {
   caps['m2m-flag'] = m2mFlagOffered(state);
   caps['m2m-scopes-update'] = scopesUpdateOffered(state);
   caps['m2m-app-token'] = appTokenOffered(state);
+  caps['m2m-secret-rotate'] = secretRotateOffered(state);
   logToFile(state, `capabilities: ${JSON.stringify(caps)}`);
   state.caps = caps;
   return caps;

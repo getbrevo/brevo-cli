@@ -17,6 +17,7 @@ import { createCommand } from './app/create';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
 import { tokenCommand } from './app/token';
+import { secretRotateCommand } from './app/secret-rotate';
 import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
@@ -443,6 +444,32 @@ export const appCommandGroup: SubcommandGroupDefinition = {
             updateScopesCommand({
               appId: opts.appId as string | undefined,
               scopes: opts.scopes as string | undefined,
+              yes: Boolean(opts.yes),
+              json: Boolean(opts.json),
+            }),
+        },
+      ],
+    },
+    {
+      name: 'secret',
+      description: "Manage an M2M app's client secret",
+      commands: [
+        {
+          name: 'rotate',
+          description: "Rotate an M2M app's client secret",
+          examples: [
+            `brevo app secret rotate --app-id ${EXAMPLE_APP_ID}`,
+            `brevo app secret rotate --app-id ${EXAMPLE_APP_ID} --yes`,
+            `brevo app secret rotate --app-id ${EXAMPLE_APP_ID} --json`,
+          ],
+          options: [
+            { flags: '--app-id <id>', description: 'App ID', parser: (v) => parseAppId(v) },
+            { flags: '--yes', description: 'Skip confirmation (for CI)' },
+            { flags: '--json', description: 'Output as JSON' },
+          ],
+          handler: (opts) =>
+            secretRotateCommand({
+              appId: opts.appId as string | undefined,
               yes: Boolean(opts.yes),
               json: Boolean(opts.json),
             }),

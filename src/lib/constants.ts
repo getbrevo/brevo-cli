@@ -136,6 +136,12 @@ const coreEndpoints = {
   // ticket: path and body shape (`{ scopes? }`) are a reasonable guess, not a verified
   // implementation — see the plan for BEX-482.
   APP_STORE_APP_TOKEN: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/token`,
+  // BEX-484 / backend "brevo app secret rotate [Backend]" (not yet built at the time this
+  // was written) — rotates an M2M app's client secret. ASSUMPTION pending that ticket:
+  // path and response shape are a reasonable guess, not a verified implementation — see
+  // the plan for BEX-484.
+  APP_STORE_APP_SECRET_ROTATE: (appId: string) =>
+    `/v3/app-store/apps/${encodeURIComponent(appId)}/secret/rotate`,
   // Per-account availability for UI apps (BEX-290). Until an in-product
   // enable/disable surface ships, this endpoint *is* the install mechanism for
   // an action link: POST to install into an account, DELETE to remove.
@@ -238,6 +244,9 @@ const coreCli = {
   // Mints a short-lived M2M access token for an app (BEX-482).
   APP_TOKEN: (appId?: string) =>
     appId ? `brevo app token --app-id ${appId}` : 'brevo app token --app-id <id>',
+  // Rotates an M2M app's client secret (BEX-484).
+  APP_SECRET_ROTATE: (appId?: string) =>
+    appId ? `brevo app secret rotate --app-id ${appId}` : 'brevo app secret rotate --app-id <id>',
   FUNCTION_LIST: 'brevo function list',
   FUNCTION_GET: 'brevo function get --id <id>',
   FUNCTION_ACTIVATE: 'brevo function activate --id <id>',

@@ -841,6 +841,65 @@ describe('services/app', () => {
     });
   });
 
+  describe('rotateAppSecret', () => {
+    it('POSTs the rotate endpoint and normalizes the response', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        client_id: 'client-42',
+        client_secret: 'new-secret',
+      });
+
+      const result = await service.rotateAppSecret('42');
+
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps/42/secret/rotate');
+      expect(result).toEqual({
+        clientId: 'client-42',
+        clientSecret: 'new-secret',
+        graceUntil: undefined,
+      });
+    });
+
+    it('falls back to the requested appId when client_id is omitted', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({ client_secret: 'new-secret' });
+
+      const result = await service.rotateAppSecret('42');
+
+      expect(result.clientId).toBe('42');
+    });
+
+    it('surfaces a grace window when the backend sends one', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        client_id: 'client-42',
+        client_secret: 'new-secret',
+        grace_until: '2026-09-22T00:00:00Z',
+      });
+
+      const result = await service.rotateAppSecret('42');
+
+      expect(result.graceUntil).toBe('2026-09-22T00:00:00Z');
+    });
+
+    it('rejects a malformed response missing client_secret', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({ client_id: 'client-42' });
+
+      await expect(service.rotateAppSecret('42')).rejects.toThrow(
+        'The server returned a secret-rotation response the CLI does not recognize.',
+      );
+    });
+
+    it('converts a 404 into a friendly not-found CliError', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('Not found', 404));
+
+      await expect(service.rotateAppSecret('999')).rejects.toThrow('App 999 not found.');
+    });
+
+    it('propagates every other error unchanged', async () => {
+      const err = new ApiError('unauthorized', 401);
+      (mockClient.post as jest.Mock).mockRejectedValue(err);
+
+      await expect(service.rotateAppSecret('42')).rejects.toBe(err);
+    });
+  });
+
   describe('installApp / uninstallApp', () => {
     beforeEach(() => {
       (getOrganizationId as jest.Mock).mockReturnValue('12345');
