@@ -173,6 +173,14 @@ export interface SurfacePointEntry {
    */
   modal_size?: 'small' | 'medium' | 'large';
   /**
+   * `iframeExtension` entries that open a MODAL, same set `modal_size` applies to: an
+   * explicit height override, a CSS length string — `"<positive integer>px"` (absolute),
+   * `"<1-100>vh"` or `"<1-100>%"` (both viewport-relative, hence the bound). Absent means
+   * the dialog kit's own default height applies, so height-less configs stay
+   * byte-identical. Refused on an `actionLink` entry, same as `modal_size`.
+   */
+  modal_height?: string;
+  /**
    * The entry's own text: the menu entry's label on an `.action` slot, the card's CTA
    * button text on a `.widget` slot. Per placement since BEX-426 — an app on three slots
    * can label each differently. Required in practice (`validateUiApp` refuses an empty

@@ -605,21 +605,26 @@ describe('validateUiApp', () => {
     );
   });
 
-  // layout and modal_size describe how an iframe presents. An actionLink has exactly one
-  // presentation (the redirect) and opens no modal, so both are dropped without a word —
-  // refused here for the same reason iframe_href is.
+  // layout, modal_size and modal_height describe how an iframe presents. An actionLink has
+  // exactly one presentation (the redirect) and opens no modal, so all three are dropped
+  // without a word — refused here for the same reason iframe_href is.
   it.each([
     ['layout', 'inline'],
     ['modal_size', 'small'],
+    ['modal_height', '600px'],
   ])('rejects %s on an action link entry', (key, value) => {
     expect(() => validateUiApp(withEntry({ [key]: value }))).toThrow(/only used by/i);
   });
 
-  it.each([['layout'], ['modal_size']])('names the entry carrying a rejected %s', (key) => {
-    expect(() =>
-      validateUiApp(withEntry({ [key]: key === 'layout' ? 'inline' : 'small' })),
-    ).toThrow(new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.${key}`));
-  });
+  it.each([['layout'], ['modal_size'], ['modal_height']])(
+    'names the entry carrying a rejected %s',
+    (key) => {
+      const value = key === 'layout' ? 'inline' : key === 'modal_size' ? 'small' : '600px';
+      expect(() => validateUiApp(withEntry({ [key]: value }))).toThrow(
+        new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.${key}`),
+      );
+    },
+  );
 
   // ──────── sandbox is not the partner's field, at either depth ────────
   // The platform stamps the iframe's sandbox attributes onto the stored snapshot and the
@@ -735,6 +740,48 @@ describe('validateUiApp — iframeExtension', () => {
   ])('names the entry carrying an unsupported %s', (key, value) => {
     expect(() => validateUiApp(withIframeEntry({ [key]: value }))).toThrow(
       new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.${key}`),
+    );
+  });
+
+  // ──────── modal_height: a CSS length, not a preset ────────
+  // Unlike modal_size, this is a free-form value the platform still bounds — px is
+  // unbounded (the dialog clips), vh/% are viewport-relative and capped at 100 the same
+  // way a % card-size axis is.
+  it.each([
+    ['a px height', withIframeEntry({ modal_height: '600px' })],
+    ['an unbounded px height', withIframeEntry({ modal_height: '4000px' })],
+    ['a vh height', withIframeEntry({ modal_height: '80vh' })],
+    ['a boundary 100vh height', withIframeEntry({ modal_height: '100vh' })],
+    ['a percentage height', withIframeEntry({ modal_height: '50%' })],
+    ['a boundary 100% height', withIframeEntry({ modal_height: '100%' })],
+  ])('accepts %s', (_label, block) => {
+    expect(() => validateUiApp(block)).not.toThrow();
+  });
+
+  it.each([
+    ['a unitless value', '600'],
+    ['an unsupported unit', '10em'],
+    ['a zero value', '0px'],
+  ])('rejects modal_height with %s', (_label, value) => {
+    expect(() => validateUiApp(withIframeEntry({ modal_height: value }))).toThrow(
+      /modal_height ".*" is invalid/,
+    );
+  });
+
+  it.each([
+    ['vh', '150vh'],
+    ['%', '120%'],
+  ])('rejects a modal_height %s value over the 1-100 bound', (unit, value) => {
+    expect(() => validateUiApp(withIframeEntry({ modal_height: value }))).toThrow(
+      new RegExp(
+        `modal_height "${value}" is out of range — a ${unit} value must be between 1${unit} and 100${unit}\\.`,
+      ),
+    );
+  });
+
+  it('names the entry carrying an invalid modal_height', () => {
+    expect(() => validateUiApp(withIframeEntry({ modal_height: '10em' }))).toThrow(
+      new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.modal_height`),
     );
   });
 

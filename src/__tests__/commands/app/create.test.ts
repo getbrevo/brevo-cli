@@ -2719,6 +2719,7 @@ describe('app/create', () => {
         ['iframe_href', 'https://example.com/embed'],
         ['layout', 'inline'],
         ['modal_size', 'small'],
+        ['modal_height', '600px'],
       ])('rejects an iframe-only %s key in --ui-config before any network call', (key, value) =>
         expectUiConfigKeyRejected(
           key,

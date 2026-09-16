@@ -545,6 +545,12 @@ function validateSurfacePointList(entries: unknown, extensionType: string): void
 // always a CSS length the record page can apply verbatim.
 const SIZE_AXIS_PATTERN = /^([1-9]\d*)(px|%)$/;
 
+// One authored modal height: a positive integer with a px, vh or % unit. vh and % are
+// both viewport-relative, so both are bounded 1-100 the same way a % size axis is; px is
+// unbounded because the dialog is max-height-capped, so an oversized value only clips
+// rather than overflowing the layout.
+const MODAL_HEIGHT_PATTERN = /^([1-9]\d*)(px|vh|%)$/;
+
 /**
  * Validate one entry's authored card size: an object with `width` and/or `height`, each a
  * CSS length string — "<positive integer>px" (absolute) or "<1-100>%" (relative to the host
@@ -646,6 +652,25 @@ function validateEntryCtaFields(
       );
     }
 
+    // modal_height is optional (absent = the dialog kit's own default) and, unlike
+    // modal_size, not a preset vocabulary — a CSS length the platform enforces the same
+    // grammar and bound on, so accepting more here would only defer the 400 to app upload.
+    const modalHeight = asText(row.modal_height);
+    if (modalHeight) {
+      const match = MODAL_HEIGHT_PATTERN.exec(modalHeight);
+      if (!match) {
+        throw new CliError(
+          `${at('modal_height')} "${modalHeight}" is invalid — use a positive integer with a px, vh or % unit, e.g. "600px", "80vh" or "50%".`,
+        );
+      }
+      const unit = match[2];
+      if ((unit === 'vh' || unit === '%') && Number(match[1]) > 100) {
+        throw new CliError(
+          `${at('modal_height')} "${modalHeight}" is out of range — a ${unit} value must be between 1${unit} and 100${unit}.`,
+        );
+      }
+    }
+
     // A modal embeds its URL rather than navigating to it, so there is no link target to
     // set. Refused rather than ignored: the server refuses it per entry as well, and a
     // stored `_blank` on an iframe entry is a field the read path serves and nothing
@@ -702,6 +727,12 @@ function validateEntryCtaFields(
   if (isPresentField(row.modal_size)) {
     throw new CliError(
       `${at('modal_size')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it.`,
+    );
+  }
+  // modal_height sizes the same modal modal_size does; refused for the same reason.
+  if (isPresentField(row.modal_height)) {
+    throw new CliError(
+      `${at('modal_height')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it.`,
     );
   }
 }

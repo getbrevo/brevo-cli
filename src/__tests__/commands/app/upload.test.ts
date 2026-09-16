@@ -1560,6 +1560,37 @@ describe('app/upload', () => {
         expect(printed).not.toContain('modal size:    small →');
       });
 
+      // modal_height is table-driven off the same VALUE_ROWS as layout/modal_size, so it
+      // gets the same changed/unchanged pin rather than a fresh row-rendering test.
+      it('renders the iframe modal height, changed and unchanged', async () => {
+        const iframeEntry = {
+          surface_point_name: 'contact-details-overview-main',
+          context: ['recordId'],
+          label: 'View in CRM',
+          iframe_href: 'https://example.com/embed',
+          modal_size: 'small' as const,
+          modal_height: '600px',
+        };
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: { extension_type: 'iframeExtension' as const, surface_point_list: [iframeEntry] },
+        });
+        (appService.fetchApp as jest.Mock).mockResolvedValue(
+          remoteWith({
+            extension_type: 'iframeExtension' as const,
+            // Same slot: the height changed, the size did not.
+            surface_point_list: [{ ...iframeEntry, modal_height: '80vh' }],
+          }),
+        );
+
+        await uploadCommand({ yes: true });
+
+        const printed = output();
+        expect(printed).toContain('modal height:  80vh → 600px');
+        expect(printed).toContain('modal size:    small');
+        expect(printed).not.toContain('modal size:    small →');
+      });
+
       // A build that accepts the block on write but echoes none on read leaves nothing to
       // compare with. Printing every placement as `(new)` there would assert something the
       // absent block is no evidence of.

@@ -143,13 +143,14 @@ function stringField(value: unknown): string {
 /**
  * Keys a `--ui-config` file may not carry because they are `iframeExtension`-only, and
  * this route authors `actionLink` alone — see the refusal in `parseUiConfigFile`. The
- * same three fields `validateUiApp` refuses on an `actionLink` entry of a hand-authored
+ * same four fields `validateUiApp` refuses on an `actionLink` entry of a hand-authored
  * `app-config.json`, refused here for the same reason and one layer earlier.
  */
 const UI_CONFIG_IFRAME_ONLY_KEYS: readonly string[] = [
   'iframe_href',
   'layout',
   'modal_size',
+  'modal_height',
 ] as const;
 
 /**

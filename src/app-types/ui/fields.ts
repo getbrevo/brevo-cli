@@ -36,6 +36,7 @@ const VALUE_ROWS: ReadonlyArray<{
   { label: 'iframe URL:    ', read: (e) => e.iframe_href },
   { label: 'layout:        ', read: (e) => e.layout },
   { label: 'modal size:    ', read: (e) => e.modal_size },
+  { label: 'modal height:  ', read: (e) => e.modal_height },
   { label: 'card size:     ', read: (e) => formatSize(e.size) },
 ];
 
