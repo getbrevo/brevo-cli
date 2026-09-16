@@ -930,6 +930,21 @@ const coreMessages = {
   // directory, so the two remaining routes go on screen instead of exiting silently.
   APP_SCAFFOLD_BOOTSTRAP_DECLINED: `Nothing to do here yet.\n\n  - run \`${CLI.APP_CREATE}\` to create a new app in this directory, or\n  - cd into an existing project folder and run \`${CLI.APP_SCAFFOLD}\` there.`,
   APP_SCAFFOLD_SELECT: 'Which app do you want to set a project up for?',
+  // An M2M app is create-only (BEX-488) — no directory, no app-config.json, nothing
+  // for `app scaffold` to set up. Named after the picker filter that keeps M2M apps
+  // off this list in the first place; this is what fires when filtering empties it.
+  APP_SCAFFOLD_NO_BOOTSTRAPPABLE_APPS:
+    "All of this account's apps are M2M apps, which have no local project to set up. " +
+    `M2M apps support only ${CLI.APP_CREATE}, ${CLI.APP_DELETE}, ${CLI.APP_LIST}, ` +
+    '`app scopes update`, `app secret rotate`, `app token` and `app credentials`.',
+  // The authoritative backstop behind the filter above — reached when `--app-id`
+  // names an M2M app directly, bypassing the picker.
+  APP_SCAFFOLD_BOOTSTRAP_M2M: (appId: string) =>
+    `App ${appId} is an M2M app, which has no local project to set up — ` +
+    `\`${CLI.APP_SCAFFOLD}\` does not apply to it.\n\n` +
+    `  M2M apps support only \`${CLI.APP_CREATE}\`, ${CLI.APP_DELETE_APP_ID(appId)}, ` +
+    `${CLI.APP_LIST}, ${CLI.APP_SCOPES_UPDATE(appId)}, ${CLI.APP_SECRET_ROTATE(appId)}, ` +
+    `${CLI.APP_TOKEN(appId)} and ${CLI.APP_CREDENTIALS(appId)}.`,
   // Refuses rather than bootstrapping a nested project. `readProjectConfig` reads cwd and
   // does not walk up, so this is the only thing standing between a mistyped `cd` and a
   // second app-config.json inside an existing project — after which `app upload` from that

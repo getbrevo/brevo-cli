@@ -194,8 +194,18 @@ describe('app/scaffold', () => {
         it('offers to set the directory up for an existing app, then bootstraps the picked one', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
           (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-            { app_id: '1', name: 'Test App', client_id: 'cli-123' },
-            { app_id: '2', name: 'Other App', client_id: 'cli-456' },
+            {
+              app_id: '1',
+              name: 'Test App',
+              client_id: 'cli-123',
+              redirect_uris: ['https://example.com/callback'],
+            },
+            {
+              app_id: '2',
+              name: 'Other App',
+              client_id: 'cli-456',
+              redirect_uris: ['https://example.com/callback'],
+            },
           ]);
           mockPrompt
             .mockResolvedValueOnce({ useExisting: true })
@@ -220,7 +230,12 @@ describe('app/scaffold', () => {
         it('offers a directory named after the app and creates it', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
           (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-            { app_id: '1', name: 'Test App', client_id: 'cli-123' },
+            {
+              app_id: '1',
+              name: 'Test App',
+              client_id: 'cli-123',
+              redirect_uris: ['https://example.com/callback'],
+            },
           ]);
           mockPrompt
             .mockResolvedValueOnce({ useExisting: true })
@@ -250,7 +265,12 @@ describe('app/scaffold', () => {
         it('stays in the current directory when the user answers `.`, with no cd step', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
           (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-            { app_id: '1', name: 'Test App', client_id: 'cli-123' },
+            {
+              app_id: '1',
+              name: 'Test App',
+              client_id: 'cli-123',
+              redirect_uris: ['https://example.com/callback'],
+            },
           ]);
           // Only cwd exists: the directory prompt hits its overwrite/merge branch
           // (as it always does for `.`), while the feature files still look fresh.
@@ -290,7 +310,12 @@ describe('app/scaffold', () => {
 
           beforeEach(() => {
             (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-              { app_id: '1', name: 'Test App', client_id: 'cli-123' },
+              {
+                app_id: '1',
+                name: 'Test App',
+                client_id: 'cli-123',
+                redirect_uris: ['https://example.com/callback'],
+              },
             ]);
             // The directory and every file a previous scaffold left in it are present.
             (fs.existsSync as jest.Mock).mockReturnValue(true);
@@ -388,7 +413,12 @@ describe('app/scaffold', () => {
         it('writes and reports the project before asking about the feature', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
           (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-            { app_id: '1', name: 'Test App', client_id: 'cli-123' },
+            {
+              app_id: '1',
+              name: 'Test App',
+              client_id: 'cli-123',
+              redirect_uris: ['https://example.com/callback'],
+            },
           ]);
           mockPrompt
             .mockResolvedValueOnce({ useExisting: true })
@@ -571,6 +601,45 @@ describe('app/scaffold', () => {
 
         expect(fs.writeFileSync).not.toHaveBeenCalled();
       });
+
+      // An M2M app is create-only (BEX-488) — it has no local project to set up, so
+      // offering one here would only lead to the refusal `resolveBootstrapPlan`
+      // raises a moment later. The picker filters it out instead.
+      it('filters M2M apps out of the bootstrap app picker', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+          { app_id: 'm1', name: 'M2M App', client_id: 'cli-m2m', redirect_uris: [] },
+          {
+            app_id: '1',
+            name: 'Test App',
+            client_id: 'cli-123',
+            redirect_uris: ['https://example.com/callback'],
+          },
+        ]);
+        mockPrompt
+          .mockResolvedValueOnce({ useExisting: true })
+          .mockResolvedValueOnce({ selectedApp: '1' })
+          .mockResolvedValueOnce({ outputDir: tmpPath('picked-app') })
+          .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+
+        await scaffoldCommand({});
+
+        const pickerCall = mockPrompt.mock.calls[1][0][0];
+        const offeredIds = pickerCall.choices.map((c: { value: string }) => c.value);
+        expect(offeredIds).toEqual(['1']);
+      });
+
+      it('refuses when every app in the account is M2M', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+          { app_id: 'm1', name: 'M2M App', client_id: 'cli-m2m', redirect_uris: [] },
+        ]);
+        mockPrompt.mockResolvedValueOnce({ useExisting: true });
+
+        await expect(scaffoldCommand({})).rejects.toThrow(/M2M apps/);
+
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
     });
 
     // `readProjectConfig` reads cwd and deliberately does not walk up, so a directory
@@ -668,19 +737,56 @@ describe('app/scaffold', () => {
         expect(fs.writeFileSync).not.toHaveBeenCalled();
       });
 
-      // A half-configured OAuth app — client_id issued, callbacks not set yet — must
-      // still bootstrap. Only BOTH being empty means "no OAuth material at all".
-      it('still bootstraps an OAuth app that has a client_id but no callbacks', async () => {
+      // A record with a client_id and no redirect_uris is exactly the M2M shape
+      // (`isM2mApp`, BEX-488) — and it's the only realistic way to reach this state,
+      // since `app create` requires at least one `--redirect-uri` for every OAuth
+      // flow except `--m2m`. So this is claimed by the M2M refusal, not the OAuth
+      // bootstrap path: see the 'M2M app' describe block below.
+      it('still bootstraps an OAuth app that has a client_id and at least one callback', async () => {
         (readProjectConfig as jest.Mock).mockReturnValue(null);
         (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
           diffs: [],
-          app: { ...uiAppWithoutBlock, client_id: 'cli-789' },
+          app: {
+            ...uiAppWithoutBlock,
+            client_id: 'cli-789',
+            redirect_uris: ['http://localhost:3009/auth/callback'],
+          },
         });
 
         await scaffoldCommand({ appId: '7', json: true });
 
         const written = (fs.writeFileSync as jest.Mock).mock.calls.map((c: [string]) => c[0]);
         expect(written.some((p: string) => p.endsWith('app-config.json'))).toBe(true);
+      });
+    });
+
+    // An M2M app is create-only (BEX-488): no directory, no app-config.json, nothing
+    // for `app scaffold` to set up. Without this check an M2M record — a `client_id`
+    // with no `ui_app`/`brevo_function` block and no callbacks — reads as an
+    // ordinary (if callback-less) recoverable OAuth app, same shape as the
+    // "client_id but no callbacks" case just above.
+    describe('M2M app', () => {
+      const m2mApp = {
+        app_id: '9',
+        name: 'M2M App',
+        client_id: 'cli-m2m',
+        client_secret: 'secret-m2m',
+        redirect_uris: [],
+        distribution_type: 'private' as const,
+        logo_uri: '',
+        version: '',
+      };
+
+      it('refuses to bootstrap into an M2M app named by --app-id', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+          diffs: [],
+          app: m2mApp,
+        });
+
+        await expect(scaffoldCommand({ appId: '9', json: true })).rejects.toThrow(/M2M app/);
+
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
       });
     });
 
