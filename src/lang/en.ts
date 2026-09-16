@@ -470,6 +470,37 @@ const coreMessages = {
     'The server returned a token response the CLI does not recognize. Try again, or check for a CLI update.',
   APP_TOKEN_SUCCESS: (expiresIn: number) => `Minted an access token, valid for ${expiresIn}s.`,
 
+  // App secret rotate (BEX-484) — rotate an M2M app's client secret.
+  //
+  // ASSUMPTION pending the "brevo app secret rotate [Backend]" ticket (not yet built at
+  // the time this command was written): the endpoint contract this command sends is a
+  // reasonable guess, not a verified implementation — see the plan doc for BEX-484. A
+  // server error shape this command doesn't recognize is not swallowed: `mapRotateError`
+  // in `commands/app/secret-rotate.ts` only remaps the codes it knows and rethrows
+  // anything else unchanged, so the server's own message still reaches the partner.
+  //
+  // Unlike `app credentials`/`app create`, the rotated secret is printed in full
+  // immediately rather than hidden behind `--reveal-secret` — the whole point of this
+  // command is to hand back the new secret, including for CI-driven rotation, where the
+  // reveal-gate's TTY requirement would make the command unable to ever return the value
+  // it exists to produce. The confirmation prompt below still gates the destructive
+  // ACTION (the old secret stops working immediately); it is not a reveal-gate.
+  APP_SECRET_ROTATE_SELECT: 'Select an M2M app to rotate the secret for:',
+  APP_SECRET_ROTATE_NO_M2M_APPS:
+    'No M2M apps found in this account. A secret can only be rotated on an app created with `--m2m`.',
+  APP_SECRET_ROTATE_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app's secret can be rotated with this command.`,
+  APP_SECRET_ROTATE_UNAUTHORIZED: (appId: string) =>
+    `Not authorized to rotate the secret for app ${appId}. Run \`${CLI.LOGIN}\` again, or confirm this account can manage that app.`,
+  APP_SECRET_ROTATE_MALFORMED_RESPONSE:
+    'The server returned a secret-rotation response the CLI does not recognize. Try again, or check for a CLI update.',
+  APP_SECRET_ROTATE_CONFIRM: (appLabel: string, appId: string) =>
+    `This immediately invalidates the current secret for "${appLabel}" (${appId}) — any caller still using it will start failing. Continue?`,
+  APP_SECRET_ROTATE_CANCELLED: 'Cancelled — the secret was not rotated.',
+  APP_SECRET_ROTATE_SUCCESS: (appId: string) => `Rotated the client secret for app ${appId}.`,
+  APP_SECRET_ROTATE_STORE_HINT:
+    'Store this secret in a secret manager now — it will not be shown again by this command.',
+
   // App install / uninstall — per-account availability for UI apps (BEX-290).
   // Moved here from `preview-messages.ts` at UI-apps GA.
   APP_INSTALL_SELECT: 'Select an app to install:',

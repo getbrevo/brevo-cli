@@ -158,6 +158,46 @@ function normalizeAppToken(raw: RawAppTokenPayload): AppToken | null {
   };
 }
 
+/** The result of rotating an M2M app's client secret (BEX-484), normalized from the wire response. */
+export interface RotatedSecret {
+  clientId: string;
+  clientSecret: string;
+  // Present only if the backend supports dual-secret rotation and the old secret keeps
+  // working until this instant — absent means a hard swap (the old secret stops working
+  // immediately), which is the v1 assumption this command is built against.
+  graceUntil?: string;
+}
+
+/**
+ * The rotate-secret response exactly as it might come off the wire.
+ *
+ * ASSUMPTION pending the "brevo app secret rotate [Backend]" ticket (not yet built): this
+ * is a reasonable guess, not a verified contract — `grace_until` in particular is a guessed
+ * field name for the dual-secret grace window the Jira ticket describes as a maybe.
+ */
+interface RawRotateSecretPayload {
+  client_id?: unknown;
+  client_secret?: unknown;
+  grace_until?: unknown;
+}
+
+/**
+ * Validates and normalizes a rotate-secret response, returning `null` for a shape this CLI
+ * doesn't recognize rather than trusting it blindly — same reasoning as
+ * {@link normalizeAppToken}. `client_id` falls back to the `appId` the caller already knows
+ * (the id being rotated does not change) rather than failing validation on it, in case the
+ * response omits it.
+ */
+function normalizeRotatedSecret(raw: RawRotateSecretPayload, appId: string): RotatedSecret | null {
+  if (typeof raw.client_secret !== 'string' || !raw.client_secret) return null;
+  return {
+    clientId: typeof raw.client_id === 'string' && raw.client_id ? raw.client_id : appId,
+    clientSecret: raw.client_secret,
+    graceUntil:
+      typeof raw.grace_until === 'string' && raw.grace_until ? raw.grace_until : undefined,
+  };
+}
+
 /**
  * An account identifier as a number, or `undefined` when it is not one.
  *
@@ -588,6 +628,25 @@ export function createAppService(client: ApiClient) {
         const token = normalizeAppToken(raw);
         if (!token) throw new CliError(messages.APP_TOKEN_MALFORMED_RESPONSE);
         return token;
+      } catch (err) {
+        rethrowNotFound(err, appId);
+      }
+    },
+
+    /**
+     * Rotate an M2M app's client secret (BEX-484). ASSUMPTION pending the "brevo app
+     * secret rotate [Backend]" ticket (not yet built at the time this was written): the
+     * endpoint path and response shape are a reasonable guess, not a verified
+     * implementation.
+     */
+    async rotateAppSecret(appId: string): Promise<RotatedSecret> {
+      try {
+        const raw = await client.post<RawRotateSecretPayload>(
+          ENDPOINTS.APP_STORE_APP_SECRET_ROTATE(appId),
+        );
+        const rotated = normalizeRotatedSecret(raw, appId);
+        if (!rotated) throw new CliError(messages.APP_SECRET_ROTATE_MALFORMED_RESPONSE);
+        return rotated;
       } catch (err) {
         rethrowNotFound(err, appId);
       }

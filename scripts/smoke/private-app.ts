@@ -426,7 +426,8 @@ function stepM2mCredentials(state: State): string {
 // on its own — but a route that doesn't exist yet is the far likelier read here than the
 // app vanishing between the credentials step and this one — so it's included alongside the
 // other "route not there" shapes a gateway or origin might answer with.
-const SCOPES_UPDATE_ENDPOINT_NOT_READY = /not found\.|not implemented|method not allowed|\b404\b|\b405\b|\b501\b/i;
+const SCOPES_UPDATE_ENDPOINT_NOT_READY =
+  /not found\.|not implemented|method not allowed|\b404\b|\b405\b|\b501\b/i;
 
 // `brevo app scopes update` (BEX-486). Unlike every other M2M step, this one can be
 // unavailable in TWO independent ways, and only the first is what `requireFeature` checks
@@ -577,6 +578,71 @@ async function stepM2mAppToken(state: State): Promise<string> {
   return `m2m app ${app.appId} minted a ${String(token.tokenType)} token, expires in ${String(token.expiresIn)}s`;
 }
 
+// `brevo app secret rotate` (BEX-484). Same two-way-unavailable shape as
+// `stepM2mAppToken` above: the CLI build may predate the command (`m2m-flag`'s reason,
+// checked by `requireFeature` below via `m2m-secret-rotate`), OR the build may have it but
+// the backend it depends on ("brevo app secret rotate [Backend]") may not have shipped in
+// this environment yet — discovered here and downgraded with `markFeatureUnavailable`
+// rather than treated as a hard smoke failure.
+async function stepM2mSecretRotate(state: State): Promise<string> {
+  requireFeature(state, 'm2m-flag');
+  requireFeature(state, 'm2m-secret-rotate');
+  const app = requireApp(state.m2mApp, 'm2m');
+  const workRoot = ensureWorkRoot(state);
+
+  const before = parseJson<Record<string, unknown>>(
+    execOrThrow(
+      brevoCmd(state),
+      ['app', 'credentials', '--app-id', app.appId, '--reveal-secret', '--json'],
+      state,
+      { cwd: workRoot },
+    ).stdout,
+  );
+  const oldSecret = before.clientSecret;
+
+  let raw: string;
+  try {
+    raw = execOrThrow(
+      brevoCmd(state),
+      ['app', 'secret', 'rotate', '--app-id', app.appId, '--yes', '--json'],
+      state,
+      { cwd: workRoot },
+    ).stdout;
+  } catch (err) {
+    const message = errMsg(err);
+    markFeatureUnavailable(state, 'm2m-secret-rotate', firstLine(message));
+    skip(`secret rotate backend not available in this environment: ${firstLine(message)}`);
+  }
+
+  const rotated = parseJson<Record<string, unknown>>(raw);
+  must(
+    typeof rotated.clientSecret === 'string' && rotated.clientSecret.length > 0,
+    `secret rotate returned no clientSecret (${JSON.stringify(rotated.clientSecret)})`,
+  );
+  must(
+    rotated.clientSecret !== oldSecret,
+    'secret rotate returned the same clientSecret the app had before rotation',
+  );
+
+  // The command's own --json output only proves it echoed a new secret, not that the
+  // server actually stored it — read the app back through a wholly separate command to
+  // confirm the rotated secret is really the one in effect.
+  const after = parseJson<Record<string, unknown>>(
+    execOrThrow(
+      brevoCmd(state),
+      ['app', 'credentials', '--app-id', app.appId, '--reveal-secret', '--json'],
+      state,
+      { cwd: workRoot },
+    ).stdout,
+  );
+  must(
+    after.clientSecret === rotated.clientSecret,
+    `app credentials after rotation returned ${JSON.stringify(after.clientSecret)}, expected the rotated secret`,
+  );
+
+  return `m2m app ${app.appId} client secret rotated, verified via a fresh credentials read`;
+}
+
 // Every refusal `assertM2mFlags` owns, driven through the real binary. They must all fail
 // before the app is created, so a leaked app here would itself be the finding.
 function stepM2mNegativeFlags(state: State): string {
@@ -714,6 +780,7 @@ export const privateAppSuite: Suite = {
     ['M2M scopes update', stepM2mScopesUpdate],
     ['M2M scopes update (no-op)', stepM2mScopesUpdateNoop],
     ['M2M app token', stepM2mAppToken],
+    ['M2M secret rotate', stepM2mSecretRotate],
     ['Negative: M2M flag combinations', stepM2mNegativeFlags],
     ['Delete M2M app', stepM2mDelete],
   ],
