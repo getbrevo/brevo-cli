@@ -131,6 +131,11 @@ const coreEndpoints = {
   // list — the app's new scopes are exactly what's in the request — never a partial
   // add/remove delta, so the server can apply it as a straight replace.
   APP_STORE_APP_SCOPES: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/scopes`,
+  // BEX-482 / backend "brevo app token [Backend]" (not yet built at the time this was
+  // written) — mints a short-lived M2M access token for an app. ASSUMPTION pending that
+  // ticket: path and body shape (`{ scopes? }`) are a reasonable guess, not a verified
+  // implementation — see the plan for BEX-482.
+  APP_STORE_APP_TOKEN: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/token`,
   // Per-account availability for UI apps (BEX-290). Until an in-product
   // enable/disable surface ships, this endpoint *is* the install mechanism for
   // an action link: POST to install into an account, DELETE to remove.
@@ -230,6 +235,9 @@ const coreCli = {
     appId
       ? `brevo app scopes update --app-id ${appId} --scopes <a,b,c>`
       : 'brevo app scopes update --app-id <id> --scopes <a,b,c>',
+  // Mints a short-lived M2M access token for an app (BEX-482).
+  APP_TOKEN: (appId?: string) =>
+    appId ? `brevo app token --app-id ${appId}` : 'brevo app token --app-id <id>',
   FUNCTION_LIST: 'brevo function list',
   FUNCTION_GET: 'brevo function get --id <id>',
   FUNCTION_ACTIVATE: 'brevo function activate --id <id>',

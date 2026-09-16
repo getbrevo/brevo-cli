@@ -760,6 +760,87 @@ describe('services/app', () => {
     });
   });
 
+  // BEX-482. ASSUMPTION pending the "brevo app token [Backend]" ticket (not yet built): the
+  // endpoint contract this exercises is a reasonable guess, not a verified implementation.
+  describe('mintAppToken', () => {
+    it('POSTs the token endpoint with no body when no scopes are requested', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        access_token: 'token-abc',
+        token_type: 'Bearer',
+        expires_in: 3600,
+      });
+
+      const result = await service.mintAppToken('42');
+
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps/42/token', undefined);
+      expect(result).toEqual({
+        accessToken: 'token-abc',
+        tokenType: 'Bearer',
+        expiresIn: 3600,
+        scope: undefined,
+      });
+    });
+
+    it('sends the requested scopes in the body when provided', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        access_token: 'token-abc',
+        token_type: 'Bearer',
+        expires_in: 3600,
+        scope: 'contacts:read',
+      });
+
+      const result = await service.mintAppToken('42', ['contacts:read']);
+
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps/42/token', {
+        scopes: ['contacts:read'],
+      });
+      expect(result.scope).toBe('contacts:read');
+    });
+
+    it('defaults token_type to Bearer when the server omits it', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        access_token: 'token-abc',
+        expires_in: 3600,
+      });
+
+      const result = await service.mintAppToken('42');
+
+      expect(result.tokenType).toBe('Bearer');
+    });
+
+    it('rejects a malformed response missing access_token', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({ expires_in: 3600 });
+
+      await expect(service.mintAppToken('42')).rejects.toThrow(
+        'The server returned a token response the CLI does not recognize.',
+      );
+    });
+
+    it('rejects a malformed response with a non-finite expires_in', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        access_token: 'token-abc',
+        expires_in: 'soon',
+      });
+
+      await expect(service.mintAppToken('42')).rejects.toThrow(
+        'The server returned a token response the CLI does not recognize.',
+      );
+    });
+
+    it('converts a 404 into a friendly not-found CliError', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('Not found', 404));
+
+      await expect(service.mintAppToken('999')).rejects.toThrow('App 999 not found.');
+    });
+
+    it('propagates every other error unchanged', async () => {
+      const err = new ApiError('forbidden', 403, undefined, 'scope_not_granted');
+      (mockClient.post as jest.Mock).mockRejectedValue(err);
+
+      await expect(service.mintAppToken('42', ['crm:write'])).rejects.toBe(err);
+    });
+  });
+
   describe('installApp / uninstallApp', () => {
     beforeEach(() => {
       (getOrganizationId as jest.Mock).mockReturnValue('12345');

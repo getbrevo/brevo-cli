@@ -113,6 +113,51 @@ export function isM2mApp(app: OAuthApp): boolean {
   return Boolean(app.client_id) && !app.ui_app && !app.brevo_function && !app.redirect_uris?.length;
 }
 
+/** A minted M2M access token (BEX-482), normalized from the wire response. */
+export interface AppToken {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  scope?: string;
+}
+
+/**
+ * The token-mint response exactly as it might come off the wire.
+ *
+ * ASSUMPTION pending the "brevo app token [Backend]" ticket (not yet built): this is a
+ * reasonable guess at a standard OAuth token response shape, not a verified contract.
+ */
+interface RawAppTokenPayload {
+  access_token?: unknown;
+  token_type?: unknown;
+  expires_in?: unknown;
+  scope?: unknown;
+}
+
+/**
+ * Validates and normalizes a token-mint response, returning `null` for a shape this CLI
+ * doesn't recognize rather than trusting it blindly — the backend contract is unverified
+ * (see `RawAppTokenPayload`). `token_type` defaults to `'Bearer'` when absent rather than
+ * failing validation on it: the ticket only guarantees a Bearer `access_token`, and OAuth
+ * token responses commonly omit or vary this field.
+ */
+function normalizeAppToken(raw: RawAppTokenPayload): AppToken | null {
+  if (typeof raw.access_token !== 'string' || !raw.access_token) return null;
+  if (
+    typeof raw.expires_in !== 'number' ||
+    !Number.isFinite(raw.expires_in) ||
+    raw.expires_in <= 0
+  ) {
+    return null;
+  }
+  return {
+    accessToken: raw.access_token,
+    tokenType: typeof raw.token_type === 'string' && raw.token_type ? raw.token_type : 'Bearer',
+    expiresIn: raw.expires_in,
+    scope: typeof raw.scope === 'string' ? raw.scope : undefined,
+  };
+}
+
 /**
  * An account identifier as a number, or `undefined` when it is not one.
  *
@@ -518,6 +563,31 @@ export function createAppService(client: ApiClient) {
           scopes,
         });
         return { ...raw, app_id: appId } as OAuthApp;
+      } catch (err) {
+        rethrowNotFound(err, appId);
+      }
+    },
+
+    /**
+     * Mint a short-lived M2M access token for an app (BEX-482). ASSUMPTION pending the
+     * "brevo app token [Backend]" ticket (not yet built at the time this was written): the
+     * endpoint path and body/response shape are a reasonable guess, not a verified
+     * implementation.
+     *
+     * `scopes` omitted (or empty) sends no `scopes` key at all, rather than `scopes: []` —
+     * keeping "request the app's full granted set" unambiguous from "explicitly request
+     * zero scopes".
+     */
+    async mintAppToken(appId: string, scopes?: string[]): Promise<AppToken> {
+      try {
+        const body = scopes && scopes.length > 0 ? { scopes } : undefined;
+        const raw = await client.post<RawAppTokenPayload>(
+          ENDPOINTS.APP_STORE_APP_TOKEN(appId),
+          body,
+        );
+        const token = normalizeAppToken(raw);
+        if (!token) throw new CliError(messages.APP_TOKEN_MALFORMED_RESPONSE);
+        return token;
       } catch (err) {
         rethrowNotFound(err, appId);
       }

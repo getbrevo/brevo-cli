@@ -449,6 +449,27 @@ const coreMessages = {
   APP_SCOPES_UPDATE_SUCCESS: (appId: string, scopes: readonly string[]) =>
     `Updated app ${appId}. Scopes: ${scopes.length ? scopes.join(', ') : '(none)'}`,
 
+  // App token (BEX-482) — mint a short-lived M2M access token for an app.
+  //
+  // ASSUMPTION pending the "brevo app token [Backend]" ticket (not yet built at the time
+  // this command was written): the endpoint contract this command sends is a reasonable
+  // guess, not a verified implementation — see the plan doc for BEX-482. A server error
+  // shape this command doesn't recognize is not swallowed: `mapTokenError` in
+  // `commands/app/token.ts` only remaps the codes it knows and rethrows anything else
+  // unchanged, so the server's own message still reaches the partner.
+  APP_TOKEN_SELECT: 'Select an M2M app to mint a token for:',
+  APP_TOKEN_NO_M2M_APPS:
+    'No M2M apps found in this account. A token can only be minted for an app created with `--m2m`.',
+  APP_TOKEN_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app can mint an access token with this command.`,
+  APP_TOKEN_UNAUTHORIZED: (appId: string) =>
+    `Not authorized to mint a token for app ${appId}. Run \`${CLI.LOGIN}\` again, or confirm this account can manage that app.`,
+  APP_TOKEN_SCOPE_NOT_GRANTED: (appId: string) =>
+    `One or more requested scopes are not granted to app ${appId}. Check granted scopes with \`${CLI.APP_CREDENTIALS(appId)}\`, or omit \`--scope\` to request the app's full granted set.`,
+  APP_TOKEN_MALFORMED_RESPONSE:
+    'The server returned a token response the CLI does not recognize. Try again, or check for a CLI update.',
+  APP_TOKEN_SUCCESS: (expiresIn: number) => `Minted an access token, valid for ${expiresIn}s.`,
+
   // App install / uninstall — per-account availability for UI apps (BEX-290).
   // Moved here from `preview-messages.ts` at UI-apps GA.
   APP_INSTALL_SELECT: 'Select an app to install:',

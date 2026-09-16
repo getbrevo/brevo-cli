@@ -538,6 +538,45 @@ function stepM2mScopesUpdateNoop(state: State): string {
   return `resubmitting the app's current scopes is a no-op (changed=false), no confirmation needed`;
 }
 
+// `brevo app token` (BEX-482). Same two-way-unavailable shape as `stepM2mScopesUpdate`
+// above: the CLI build may predate the command (`m2m-flag`'s reason, checked by
+// `requireFeature` below via `m2m-app-token`), OR the build may have it but the backend
+// it depends on ("brevo app token [Backend]") may not have shipped in this environment
+// yet — discovered here and downgraded with `markFeatureUnavailable` rather than treated
+// as a hard smoke failure.
+async function stepM2mAppToken(state: State): Promise<string> {
+  requireFeature(state, 'm2m-flag');
+  requireFeature(state, 'm2m-app-token');
+  const app = requireApp(state.m2mApp, 'm2m');
+
+  let raw: string;
+  try {
+    raw = execOrThrow(brevoCmd(state), ['app', 'token', '--app-id', app.appId, '--json'], state, {
+      cwd: ensureWorkRoot(state),
+    }).stdout;
+  } catch (err) {
+    const message = errMsg(err);
+    markFeatureUnavailable(state, 'm2m-app-token', firstLine(message));
+    skip(`app token backend not available in this environment: ${firstLine(message)}`);
+  }
+
+  const token = parseJson<Record<string, unknown>>(raw);
+  must(
+    typeof token.accessToken === 'string' && token.accessToken.length > 0,
+    `app token returned no accessToken (${JSON.stringify(token.accessToken)})`,
+  );
+  must(
+    typeof token.expiresIn === 'number' && token.expiresIn > 0,
+    `app token returned a non-positive expiresIn (${JSON.stringify(token.expiresIn)})`,
+  );
+  must(
+    typeof token.tokenType === 'string' && token.tokenType.length > 0,
+    `app token returned no tokenType (${JSON.stringify(token.tokenType)})`,
+  );
+
+  return `m2m app ${app.appId} minted a ${String(token.tokenType)} token, expires in ${String(token.expiresIn)}s`;
+}
+
 // Every refusal `assertM2mFlags` owns, driven through the real binary. They must all fail
 // before the app is created, so a leaked app here would itself be the finding.
 function stepM2mNegativeFlags(state: State): string {
@@ -674,6 +713,7 @@ export const privateAppSuite: Suite = {
     ['M2M credentials', stepM2mCredentials],
     ['M2M scopes update', stepM2mScopesUpdate],
     ['M2M scopes update (no-op)', stepM2mScopesUpdateNoop],
+    ['M2M app token', stepM2mAppToken],
     ['Negative: M2M flag combinations', stepM2mNegativeFlags],
     ['Delete M2M app', stepM2mDelete],
   ],
