@@ -257,7 +257,6 @@ describe('app/create', () => {
     });
 
     answerPrompts({
-      logoUrl: '', // logo
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback', // redirect URL
       another: false, // no more URLs
@@ -305,7 +304,6 @@ describe('app/create', () => {
     (appService.createApp as jest.Mock).mockResolvedValue(created);
 
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth',
       redirectUrl: 'http://localhost:3009/auth/callback',
       another: false,
@@ -317,15 +315,13 @@ describe('app/create', () => {
     expect(fetchAppContext).toHaveBeenCalledWith(1, false, undefined, created);
   });
 
-  // The whole opening of the flow, pinned in one place: name, logo and distribution all
+  // The whole opening of the flow, pinned in one place: name and distribution both
   // describe the app record and are asked of every app, then "What type of app are you
   // building?" — the branch point — then whatever that branch asks for.
   //
-  // The logo's position is the part that has drifted: it used to sit *behind* the type
-  // branch, so an OAuth app answered it after its callback URLs and a UI app after its
-  // placements. Answered by question *name*, so the assertion is about the order the
-  // prompts fire in and not about the order this test queues its answers.
-  it('asks name → logo → distribution → app type, before any type-specific prompt', async () => {
+  // Answered by question *name*, so the assertion is about the order the prompts fire
+  // in and not about the order this test queues its answers.
+  it('asks name → distribution → app type, before any type-specific prompt', async () => {
     (appService.createApp as jest.Mock).mockResolvedValue({
       app_id: 2,
       name: 'Order App',
@@ -335,7 +331,6 @@ describe('app/create', () => {
     });
     const answers: Record<string, unknown> = {
       name: 'Order App',
-      logoUrl: '',
       appType: 'oauth',
       distribution: 'private',
       redirectUrl: 'http://localhost:3009/auth/callback',
@@ -352,8 +347,8 @@ describe('app/create', () => {
     // No flags at all — every one of these questions has to actually be asked.
     await createCommand({});
 
-    expect(asked.slice(0, 4)).toEqual(['name', 'logoUrl', 'distribution', 'appType']);
-    // …and the branch's own prompts come after all four, not interleaved with them.
+    expect(asked.slice(0, 3)).toEqual(['name', 'distribution', 'appType']);
+    // …and the branch's own prompts come after all three, not interleaved with them.
     expect(asked.indexOf('redirectUrl')).toBeGreaterThan(asked.indexOf('appType'));
   });
 
@@ -371,7 +366,6 @@ describe('app/create', () => {
     });
     mockPrompt.mockResolvedValue({
       name: 'Preview App',
-      logoUrl: '',
       distribution: 'private',
       appType: 'oauth',
       redirectUrl: 'http://localhost:3009/auth/callback',
@@ -400,7 +394,6 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
@@ -436,7 +429,6 @@ describe('app/create', () => {
         version: '0.0.1',
       });
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
@@ -466,7 +458,6 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
@@ -610,7 +601,6 @@ describe('app/create', () => {
         };
       });
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
@@ -660,7 +650,6 @@ describe('app/create', () => {
         order.push('apply');
       });
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
@@ -681,7 +670,6 @@ describe('app/create', () => {
       });
       (appService.createApp as jest.Mock).mockRejectedValue(new Error('quota exceeded'));
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
@@ -711,7 +699,6 @@ describe('app/create', () => {
         redirect_uris: ['http://localhost:3009/auth/callback'],
       });
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
@@ -768,7 +755,6 @@ describe('app/create', () => {
         return 'oauth';
       });
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
@@ -815,7 +801,6 @@ describe('app/create', () => {
     });
 
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback',
       another: false,
@@ -881,7 +866,6 @@ describe('app/create', () => {
     });
 
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback',
       another: false,
@@ -926,7 +910,6 @@ describe('app/create', () => {
     });
 
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth',
       scaffoldRaw: 'y',
     });
@@ -948,7 +931,6 @@ describe('app/create', () => {
     );
 
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback',
       another: false,
@@ -976,7 +958,6 @@ describe('app/create', () => {
       (appService.createApp as jest.Mock).mockRejectedValue(rejection());
 
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'https://example.com/cb',
         another: false,
@@ -999,7 +980,6 @@ describe('app/create', () => {
       (appService.createApp as jest.Mock).mockRejectedValue(rejection());
 
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'https://example.com/cb',
         another: false,
@@ -1025,7 +1005,6 @@ describe('app/create', () => {
       });
 
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'https://example.com/cb',
         another: false,
@@ -1044,18 +1023,17 @@ describe('app/create', () => {
     it('leaves an unrelated 400 on a public create alone', async () => {
       jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
       (appService.createApp as jest.Mock).mockRejectedValue(
-        new ApiError('logo_uri must be a valid https URL', 400, undefined, 'invalid_parameter'),
+        new ApiError('redirect_uris must be valid https URLs', 400, undefined, 'invalid_parameter'),
       );
 
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'https://example.com/cb',
         another: false,
       });
 
       await expect(createCommand({ name: 'Test', distribution: 'public' })).rejects.toThrow(
-        'logo_uri must be a valid https URL',
+        'redirect_uris must be valid https URLs',
       );
     });
   });
@@ -1072,7 +1050,6 @@ describe('app/create', () => {
       });
 
     answerPrompts({
-      logoUrl: '', // skip logo prompt
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback', // redirect URL
       another: false, // no more URLs
@@ -1140,7 +1117,6 @@ describe('app/create', () => {
     /** The five answers a plain OAuth create asks for before it calls the API. */
     function answerCreatePrompts(): void {
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         redirectUrl: 'http://localhost:3009/auth/callback',
         another: false,
@@ -1219,7 +1195,6 @@ describe('app/create', () => {
   it('should prompt for name when not provided', async () => {
     answerPrompts({
       name: 'Prompted App', // name prompt
-      logoUrl: '', // logo prompt
       distribution: 'private', // distribution prompt
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback', // redirect URL
@@ -1267,7 +1242,6 @@ describe('app/create', () => {
     });
 
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback',
       another: false,
@@ -1316,7 +1290,6 @@ describe('app/create', () => {
     });
 
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback',
       another: false,
@@ -1347,7 +1320,6 @@ describe('app/create', () => {
 
     // The one question asked twice with different answers, hence `inOrder`.
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback', // first URL
       anotherRaw: inOrder('y', 'n'), // add another, then stop
@@ -1380,7 +1352,6 @@ describe('app/create', () => {
     const asked: string[] = [];
     answerPrompts(
       {
-        logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'consent',
         scaffoldRaw: 'y',
@@ -1439,99 +1410,6 @@ describe('app/create', () => {
     expect(mockPrompt).not.toHaveBeenCalled();
   });
 
-  it('should forward --logo-uri to the create payload', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 9,
-      name: 'Logo App',
-      client_id: 'cli-logo',
-      client_secret: 'secret',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      logo_uri: 'https://example.com/logo.png',
-    });
-
-    await createCommand({
-      name: 'Logo App',
-      distribution: 'private',
-      redirectUri: ['http://localhost:3009/auth/callback'],
-      logoUri: 'https://example.com/logo.png',
-      json: true,
-    });
-
-    expect(appService.createApp).toHaveBeenCalledWith(
-      expect.objectContaining({ logo_uri: 'https://example.com/logo.png' }),
-    );
-  });
-
-  it('should omit logo_uri from the create payload when --logo-uri is not provided', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 10,
-      name: 'No Logo App',
-      client_id: 'cli-no-logo',
-      client_secret: 'secret',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-    });
-
-    await createCommand({
-      name: 'No Logo App',
-      distribution: 'private',
-      redirectUri: ['http://localhost:3009/auth/callback'],
-      json: true,
-    });
-
-    const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
-    expect(payload).not.toHaveProperty('logo_uri');
-  });
-
-  it('should prompt for a logo URL interactively and forward it to the payload', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 12,
-      name: 'Prompted Logo App',
-      client_id: 'cli-prompt-logo',
-      client_secret: 'secret',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      logo_uri: 'https://example.com/prompted.png',
-    });
-
-    answerPrompts({
-      logoUrl: 'https://example.com/prompted.png',
-      appType: 'oauth', // app type
-      redirectUrl: 'http://localhost:3009/auth/callback',
-      another: false,
-      scaffoldRaw: 'y',
-    });
-
-    await createCommand({ name: 'Prompted Logo App', distribution: 'private' });
-
-    expect(appService.createApp).toHaveBeenCalledWith(
-      expect.objectContaining({ logo_uri: 'https://example.com/prompted.png' }),
-    );
-  });
-
-  it('should include logoUri in JSON output when --logo-uri is set', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 11,
-      name: 'Logo JSON App',
-      client_id: 'cli-logo-json',
-      client_secret: 'secret',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      logo_uri: 'https://example.com/logo.png',
-    });
-
-    await createCommand({
-      name: 'Logo JSON App',
-      distribution: 'private',
-      redirectUri: ['http://localhost:3009/auth/callback'],
-      logoUri: 'https://example.com/logo.png',
-      json: true,
-    });
-
-    const jsonCall = stdoutSpy.mock.calls.find(
-      ([chunk]) => typeof chunk === 'string' && chunk.includes('"logoUri"'),
-    );
-    expect(jsonCall).toBeDefined();
-    expect(jsonCall![0]).toContain('"logoUri":"https://example.com/logo.png"');
-  });
-
   it('sends DEFAULT_SCOPES on create (not the legacy "all")', async () => {
     (appService.createApp as jest.Mock).mockResolvedValue({
       app_id: 1,
@@ -1541,7 +1419,6 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback',
       anotherRaw: 'n',
@@ -1568,7 +1445,6 @@ describe('app/create', () => {
       redirect_uris: ['http://localhost:3009/auth/callback'],
     });
     answerPrompts({
-      logoUrl: '',
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback',
       anotherRaw: 'n',
@@ -1652,7 +1528,6 @@ describe('app/create', () => {
         label: 'View in CRM',
         more_info: '',
         url: 'https://example.com/brevo',
-        logoUrl: '',
         // Only reached when a test forces the OAuth path (non-TTY / --json), but
         // kept here so those tests don't need their own mock wiring.
         redirectUrl: 'http://localhost:3009/auth/callback',
@@ -2368,22 +2243,6 @@ describe('app/create', () => {
       }
     });
 
-    // The other half of the OAuth-path assertion up top: the opening questions are the
-    // same for both app types, so a UI app answers the logo before it is asked what it
-    // is building — and long before it is asked where the thing renders.
-    it('asks for the logo before the app type and the placement prompts', async () => {
-      await createCommand(CLI_OPTIONS);
-
-      const names = askedQuestions.map((question) => String(question.name));
-      const logoIdx = names.indexOf('logoUrl');
-      const typeIdx = names.indexOf('appType');
-      const placementIdx = names.findIndex((name) => name.startsWith('placement:'));
-      expect(logoIdx).toBeGreaterThanOrEqual(0);
-      expect(placementIdx).toBeGreaterThanOrEqual(0);
-      expect(logoIdx).toBeLessThan(typeIdx);
-      expect(typeIdx).toBeLessThan(placementIdx);
-    });
-
     // The per-field flags are gone, so these prompt `validate` callbacks are now
     // the only thing standing between a typo and a silently unrenderable action
     // link. Assert they're still wired up.
@@ -2746,7 +2605,7 @@ describe('app/create', () => {
     // published build offers all three app types — the choices no longer differ between
     // builds; only the distribution question below still withholds its gated value.
     it('asks for the app type, offering OAuth, UI app, and Brevo Function', async () => {
-      mockPrompt.mockResolvedValue({ appType: 'oauth', redirectUrl: '', logoUrl: '' });
+      mockPrompt.mockResolvedValue({ appType: 'oauth', redirectUrl: '' });
 
       await createCommand({ name: 'Test App', distribution: 'private' });
 
@@ -2778,7 +2637,6 @@ describe('app/create', () => {
         appType: 'oauth',
         distribution: 'private',
         redirectUrl: '',
-        logoUrl: '',
       });
 
       await createCommand({ name: 'Test App' });
@@ -2866,7 +2724,6 @@ describe('app/create', () => {
       answerPrompts(
         {
           name: 'Ledger Sync',
-          logoUrl: '',
           distribution: 'private',
           appType: 'oauth',
           oauthFlow: 'm2m',
@@ -2877,13 +2734,7 @@ describe('app/create', () => {
 
       await createCommand({});
 
-      expect(asked.slice(0, 5)).toEqual([
-        'name',
-        'logoUrl',
-        'distribution',
-        'appType',
-        'oauthFlow',
-      ]);
+      expect(asked.slice(0, 4)).toEqual(['name', 'distribution', 'appType', 'oauthFlow']);
       // The whole point of asking it here: choosing M2M means the callback question is
       // never reached at all, rather than asked and discarded.
       expect(asked).not.toContain('redirectUrl');
@@ -2892,7 +2743,6 @@ describe('app/create', () => {
 
     it('offers both flow choices for a private OAuth app', async () => {
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'consent',
         redirectUrl: 'http://localhost:3009/auth/callback',
@@ -2920,7 +2770,6 @@ describe('app/create', () => {
 
     it('sends auth.type m2m with the chosen scopes and no redirect_uris', async () => {
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'm2m',
         scopes: ['contacts:read', 'crm:read'],
@@ -2944,7 +2793,6 @@ describe('app/create', () => {
       const asked: string[] = [];
       answerPrompts(
         {
-          logoUrl: '',
           appType: 'oauth',
           oauthFlow: 'm2m',
           scopes: ['contacts:read', 'events:write'],
@@ -2976,7 +2824,6 @@ describe('app/create', () => {
       const asked: string[] = [];
       answerPrompts(
         {
-          logoUrl: '',
           appType: 'oauth',
           oauthFlow: 'm2m',
           scopesRaw: 'contacts:read, crm:read',
@@ -2999,7 +2846,6 @@ describe('app/create', () => {
     it('never reads the catalog when --scopes named the list', async () => {
       // Fully non-interactive: `--m2m --scopes` is the whole answer, so neither the picker
       // nor the round trip behind it has anything to add.
-      answerPrompts({ logoUrl: '' });
 
       await createCommand({
         name: 'Ledger Sync',
@@ -3018,7 +2864,6 @@ describe('app/create', () => {
 
     it('writes nothing to disk — no directory, no app-config.json, no scaffold', async () => {
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'm2m',
         scopes: ['contacts:read'],
@@ -3037,7 +2882,6 @@ describe('app/create', () => {
 
     it('still caches the credentials, the only local trace an M2M app leaves', async () => {
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'm2m',
         scopes: ['contacts:read'],
@@ -3054,7 +2898,6 @@ describe('app/create', () => {
 
     it('prints the scopes and no redirect URL row in the created-app box', async () => {
       answerPrompts({
-        logoUrl: '',
         appType: 'oauth',
         oauthFlow: 'm2m',
         scopes: ['contacts:read', 'crm:read'],
@@ -3201,7 +3044,6 @@ describe('app/create', () => {
       const asked: string[] = [];
       answerPrompts(
         {
-          logoUrl: '',
           appType: 'ui',
         },
         asked,
@@ -3253,7 +3095,7 @@ describe('app/create', () => {
   // app's create payload had no assertion anywhere before this.
   describe('wire app_type', () => {
     it('sends brevo_function for a Brevo Function app', async () => {
-      answerPrompts({ logoUrl: '', appType: 'function', scaffoldRaw: 'n' });
+      answerPrompts({ appType: 'function', scaffoldRaw: 'n' });
       (appService.createApp as jest.Mock).mockResolvedValue({
         app_id: 'fn-1',
         name: 'Nightly Sync',
@@ -3270,8 +3112,6 @@ describe('app/create', () => {
     });
 
     it('names the M2M flow at the top level, not just inside auth', async () => {
-      answerPrompts({ logoUrl: '' });
-
       await createCommand({
         name: 'Ledger Sync',
         distribution: 'private',

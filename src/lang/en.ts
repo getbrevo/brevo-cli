@@ -172,15 +172,6 @@ const coreMessages = {
   APP_CREATE_REDIRECT_ANOTHER: 'Add another redirect URL?',
   APP_CREATE_REDIRECT_EMPTY: 'Redirect URL cannot be empty',
   APP_CREATE_REDIRECT_INVALID: 'Invalid format. Must start with http:// or https://',
-  // Kept under 80 columns *including* inquirer's `? ` prefix. The example URL this used
-  // to carry pushed it to 83, and inquirer wraps a prompt without indenting the
-  // continuation, so `skip):` landed alone and flush-left on any 80-column terminal —
-  // which is the standard default, and this is now the second question in the flow.
-  // The example lives in `APP_CREATE_LOGO_INVALID` instead, which is exactly when a
-  // user needs to be shown the format.
-  APP_CREATE_LOGO_PROMPT: 'App logo URL (optional — leave blank to skip):',
-  APP_CREATE_LOGO_INVALID:
-    'Invalid format. Must be a valid https:// URL (e.g. https://example.com/logo.png).',
   APP_CREATE_PORT_IN_USE: (port: number, available: number) =>
     `Port ${port} is in use. Defaulting to port ${available}.`,
   APP_CREATE_PORT_SCAN_FAILED: (port: number) =>
@@ -935,16 +926,13 @@ const coreMessages = {
   // off this list in the first place; this is what fires when filtering empties it.
   APP_SCAFFOLD_NO_BOOTSTRAPPABLE_APPS:
     "All of this account's apps are M2M apps, which have no local project to set up. " +
-    `M2M apps support only ${CLI.APP_CREATE}, ${CLI.APP_DELETE}, ${CLI.APP_LIST}, ` +
-    '`app scopes update`, `app secret rotate`, `app token` and `app credentials`.',
+    `Run \`${CLI.HELP}\` to see the commands available for an M2M app.`,
   // The authoritative backstop behind the filter above — reached when `--app-id`
   // names an M2M app directly, bypassing the picker.
   APP_SCAFFOLD_BOOTSTRAP_M2M: (appId: string) =>
     `App ${appId} is an M2M app, which has no local project to set up — ` +
-    `\`${CLI.APP_SCAFFOLD}\` does not apply to it.\n\n` +
-    `  M2M apps support only \`${CLI.APP_CREATE}\`, ${CLI.APP_DELETE_APP_ID(appId)}, ` +
-    `${CLI.APP_LIST}, ${CLI.APP_SCOPES_UPDATE(appId)}, ${CLI.APP_SECRET_ROTATE(appId)}, ` +
-    `${CLI.APP_TOKEN(appId)} and ${CLI.APP_CREDENTIALS(appId)}.`,
+    `\`${CLI.APP_SCAFFOLD}\` does not apply to it. Run \`${CLI.HELP}\` to see the ` +
+    'commands available for an M2M app.',
   // Refuses rather than bootstrapping a nested project. `readProjectConfig` reads cwd and
   // does not walk up, so this is the only thing standing between a mistyped `cd` and a
   // second app-config.json inside an existing project — after which `app upload` from that
