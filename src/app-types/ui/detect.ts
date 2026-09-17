@@ -19,7 +19,9 @@ import type { ProjectConfig } from '../../lib/config';
 import type { OAuthApp } from '../../types';
 
 /** The app-record fields detection needs. Partial: a server record may omit any of them. */
-export type AppRecordLike = Partial<Pick<OAuthApp, 'ui_app' | 'client_id' | 'redirect_uris'>>;
+export type AppRecordLike = Partial<
+  Pick<OAuthApp, 'ui_app' | 'client_id' | 'redirect_uris' | 'brevo_function'>
+>;
 
 /** The config fields detection needs. */
 export type AppConfigLike = Pick<ProjectConfig, 'ui_app'>;
@@ -27,8 +29,8 @@ export type AppConfigLike = Pick<ProjectConfig, 'ui_app'>;
 /**
  * Whether a project config describes a UI app rather than an OAuth app.
  *
- * The presence of the `ui_app` block is the discriminator — there is no separate `appType`
- * key, matching the wire contract. Every branch that needs to distinguish the app types goes
+ * The presence of the `ui_app` block is the discriminator, matching the wire contract; the
+ * `app_type` key is informational only and never consulted. Every branch that needs to distinguish the app types goes
  * through here (or the registry that wraps it), so the discriminator can change in one place
  * if the backend later requires an explicit type field.
  */

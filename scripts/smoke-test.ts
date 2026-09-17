@@ -52,18 +52,19 @@ import { privateAppSuite } from './smoke/private-app';
 import { publicAppSuite } from './smoke/public-app';
 import { uiAppSuite } from './smoke/ui-app';
 import { initWizardSuite } from './smoke/init-wizard';
+import { functionSuite } from './smoke/function';
 
-// Suite registry. `--suite=<name[,name]>` picks from these; the ui suite and
-// the init wizard are opt-in because they drive interactive prompts (ui through
-// a pty, init through scripted stdin).
+// Suite registry. `--suite=<name[,name]>` picks from these; the init wizard is
+// opt-in because it drives interactive prompts through scripted stdin.
 const SUITES: Record<string, Suite> = {
   private: privateAppSuite,
   public: publicAppSuite,
   ui: uiAppSuite,
   init: initWizardSuite,
+  function: functionSuite,
 };
 
-const DEFAULT_SUITES = ['private', 'public'];
+const DEFAULT_SUITES = ['private', 'public', 'function'];
 
 // Minimum spacing between `brevo` invocations. Chosen to cost ~40s across a full
 // ~40-call run — cheap next to the 126s a single rate-limited delete burned before
@@ -197,8 +198,9 @@ Flags:
                                ui       UI-app lifecycle (interactive create via a
                                         pty; opt-in)
                                init     'brevo app init' wizard (interactive, opt-in)
+                               function Brevo Function list/get/activate/deactivate/deploy/delete/init
                                all      every suite
-                               Default: private,public
+                               Default: private,public,function
   --with-init                  Append the init suite (same as adding 'init').
   --with-ui                    Append the ui suite.
   --with-public                Append the public suite.

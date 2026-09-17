@@ -38,7 +38,7 @@ function toTone(state: string): StatusTone {
 async function resolveAppId(flagAppId?: string): Promise<string> {
   if (flagAppId) return flagAppId;
   const config = readProjectConfig();
-  if (config?.appId) return config.appId;
+  if (config?.app_id) return config.app_id;
   return appService.pickApp(messages.APP_STATUS_SELECT);
 }
 

@@ -154,6 +154,15 @@ const coreEndpoints = {
   APP_STATE: (appId: string): string => `/v3/app-store/apps/${encodeURIComponent(appId)}/state`,
   APP_STORE_APP_WITHDRAW: (appId: string): string =>
     `/v3/app-store/apps/${encodeURIComponent(appId)}/withdraw`,
+  DP_FUNCTIONS: '/v3/dp-functions/functions',
+  DP_FUNCTION: (id: string) => `/v3/dp-functions/functions/${encodeURIComponent(id)}`,
+  DP_FUNCTION_GENERATE_STREAM: '/v3/dp-functions/generate/stream',
+  DP_FUNCTION_CREATE: '/v3/dp-functions/functions',
+  DP_FUNCTION_TEMPLATES: '/v3/dp-functions/functions/templates',
+  DP_FUNCTION_CONTACTS: '/v3/dp-functions/live-data/contacts',
+  DP_FUNCTION_EXECUTE: '/v3/dp-functions/execute',
+  DP_FUNCTION_CREATE_FROM_TEMPLATE: '/v3/dp-functions/functions/from-template',
+  APP_STORE_APP_FUNCTIONS: '/v3/app-store/app-functions',
   OAUTH_AUTHORIZE: '/oauth/authorize',
   OAUTH_TOKEN: '/oauth/token',
 } as const;
@@ -222,6 +231,13 @@ export const CLI = {
     appId ? `brevo app submit --app-id ${appId}` : 'brevo app submit --app-id <id>',
   APP_WITHDRAW: (appId?: string): string =>
     appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
+  FUNCTION_LIST: 'brevo function list',
+  FUNCTION_GET: 'brevo function get --id <id>',
+  FUNCTION_ACTIVATE: 'brevo function activate --id <id>',
+  FUNCTION_DEACTIVATE: 'brevo function deactivate --id <id>',
+  FUNCTION_DELETE: 'brevo function delete --id <id>',
+  FUNCTION_INIT: 'brevo function init',
+  FUNCTION_DEPLOY: 'brevo function deploy --id <draft-id>',
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;

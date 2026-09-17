@@ -42,6 +42,10 @@ const apiCodeMessages: Record<string, string> = {
   // guards both `app create` and `app upload`, so it is mapped here rather than in
   // either command — the code is stable, unlike the copy.
   ui_app_not_enabled: messages.ERR_UI_APP_NOT_ENABLED,
+  // dp-functions' FeatureGateMiddleware answers 403 `feature_not_enabled` when
+  // the account lacks the dp-functions entitlement. Guards every /v3/dp-functions
+  // endpoint, so it is mapped centrally rather than per command.
+  feature_not_enabled: messages.ERR_FEATURE_NOT_ENABLED,
 };
 
 function resolveErrorMessage(apiCode: string | undefined, fallback: string): string {
@@ -171,6 +175,12 @@ export class ApiClient {
    */
   setEnsureFresh(handler: EnsureFreshHandler): void {
     this.ensureFresh = handler;
+  }
+
+  /** Run the ensureFresh handler if one is registered. Exposed for SSE streams
+   *  that bypass `request()` but still need the same token-refresh guarantee. */
+  async runEnsureFresh(): Promise<void> {
+    if (this.ensureFresh) await this.ensureFresh();
   }
 
   get<T>(path: string): Promise<T> {

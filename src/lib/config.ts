@@ -400,18 +400,25 @@ export function deleteAppName(appId: string): void {
 // ──────────────── Local project config (app-config.json) ────────────────
 // Written inside the scaffolded project folder by the scaffold template.
 // Read by the CLI when run from within a project directory.
+//
+// Every key in the file is snake_case, matching the wire (`app_id`, `logo_uri`,
+// `redirect_uris`, `distribution_type`, `ui_app`, `brevo_function`). The interface
+// below IS the file shape: `writeProjectConfig` serializes it as-is, so a field
+// renamed here is renamed on disk. Configs written by CLI releases before this
+// rename carried camelCase spellings (`appId`, `appName`, `logoUri`, `appType`,
+// `auth.redirectUris`); the read path folds those into the snake_case fields —
+// see `LEGACY_KEY_ALIASES` / `LEGACY_AUTH_KEY_ALIASES` — and drops the old
+// spellings, so any command that writes the config back migrates the file.
 
 export interface ProjectConfig {
-  appId: string;
-  appName: string;
+  app_id: string;
+  app_name: string;
   version?: string;
-  logoUri?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  logo_uri?: string;
   /** Distribution type of the app: 'private' or 'public' */
   distribution_type: 'private' | 'public';
   /**
-   * OAuth apps carry `{ scopes, redirectUris }`. UI apps carry exactly the
+   * OAuth apps carry `{ scopes, redirect_uris }`. UI apps carry exactly the
    * empty object `{}` — no scopes, no redirect URIs, no jwtSecret (nothing is
    * issued for them today). Enforced in `app upload` (see validateAuthShape),
    * not here, so unrelated commands that merely read config keep working on a
@@ -427,33 +434,131 @@ export interface ProjectConfig {
     scopes?: string[];
     // Absent for UI apps: an action link has no OAuth callback to register.
     // OAuth apps still require at least one (enforced in `app upload`).
-    redirectUris?: string[];
+    redirect_uris?: string[];
   };
   /**
+   * Informational app type: 'oauth', 'ui', or 'function'. Written by `app create` and
+   * `app scaffold` so the file says in one word what it is, instead of a reader having to
+   * infer it from which blocks are present (BEX-468).
+   *
+   * **Not the discriminator.** The presence of `ui_app` / `brevo_function` is
+   * (see {@link isUiAppConfig}), and nothing branches on this field. `app upload` does
+   * *read* it — but only to check it still agrees with the blocks and to refuse a
+   * contradiction (`assertAppTypeAgrees`); a config that omits it is uploaded unchanged,
+   * which is how every pre-BEX-468 file keeps working.
+   *
+   * **File-only, by construction.** It is never sent to the server: `UploadAppPayload` and
+   * the create body in `src/types.ts` are closed structs that `upload.ts` / `create.ts`
+   * build key by key, so there is no spread that could carry this one onto the wire, and
+   * `upload.test.ts` pins the payload's key set. That is the whole mechanism — no explicit
+   * strip step to keep in sync, and no bo-be change needed to accept the field, because it
+   * never arrives. Keep both payloads closed if either is refactored.
+   */
+  app_type?: 'oauth' | 'ui' | 'function';
+  /**
    * Present only for UI apps (BEX-290). Its presence is the discriminator
-   * between the two app types — there is no separate `appType` key, matching
-   * the UIApp Support Spec's config examples. Use {@link isUiAppConfig}
-   * rather than testing for the key directly.
+   * between the app types, matching the UIApp Support Spec's config examples.
+   * Use {@link isUiAppConfig} rather than testing for the key directly.
    */
   ui_app?: UiApp;
+  /**
+   * Present only for Brevo Function apps: a static `{}` marker, not authored content.
+   * Its presence is the discriminator for that type (see `isFunctionAppConfig`).
+   */
+  brevo_function?: Record<string, unknown>;
 }
 
 const PROJECT_CONFIG_FILE = 'app-config.json';
+
+/**
+ * Top-level keys that were camelCase in configs written before the snake_case rename,
+ * mapped to their current spelling. Read on the legacy key only when the current one is
+ * absent; the legacy key is always dropped from the returned config so the next write
+ * migrates the file.
+ */
+const LEGACY_KEY_ALIASES: ReadonlyArray<readonly [current: string, legacy: string]> = [
+  ['app_id', 'appId'],
+  ['app_name', 'appName'],
+  ['logo_uri', 'logoUri'],
+  ['app_type', 'appType'],
+];
+
+/**
+ * Same for keys inside `auth`. `redirectUrls` predates `redirectUris` (BEX-355/366), so
+ * the chain is three deep: `redirect_uris` → `redirectUris` → `redirectUrls`.
+ */
+const LEGACY_AUTH_KEY_ALIASES: ReadonlyArray<readonly [current: string, legacy: string]> = [
+  ['redirect_uris', 'redirectUris'],
+  ['redirect_uris', 'redirectUrls'],
+];
+
+/**
+ * Files already warned about in this process. A config is read several times per
+ * command (the auth guard, the command, a write-back), and one notice is enough.
+ */
+const mixedKeyWarnings = new Set<string>();
+
+/**
+ * Tell the user a file carries BOTH spellings of a key — `appId` and `app_id`, say — and
+ * that the snake_case one wins. Written to stderr on purpose: `--json` promises a single
+ * parseable document on stdout, and this module has no way to know which mode it is in.
+ * Only fires when the two values differ; identical values are a harmless leftover that
+ * the next write cleans up silently.
+ */
+function warnMixedKeys(filePath: string, keys: string[]): void {
+  if (keys.length === 0 || mixedKeyWarnings.has(filePath)) return;
+  mixedKeyWarnings.add(filePath);
+  process.stderr.write(
+    `  ⚠ app-config.json carries both spellings of ${keys.join(', ')} with different values; ` +
+      `using the snake_case key. The camelCase copy is dropped on the next write.\n`,
+  );
+}
+
+/**
+ * Fold legacy (camelCase) keys into their current (snake_case) names on one object.
+ * Returns a fresh object with every legacy key removed and, when the current key was
+ * absent, its value moved over. Collects the names of keys present under both spellings
+ * with differing values so the caller can warn once.
+ */
+function foldLegacyKeys(
+  record: Record<string, unknown>,
+  aliases: ReadonlyArray<readonly [current: string, legacy: string]>,
+  conflicts: string[],
+): Record<string, unknown> {
+  const out = { ...record };
+  for (const [current, legacy] of aliases) {
+    if (!(legacy in out)) continue;
+    const legacyValue = out[legacy];
+    delete out[legacy];
+    if (out[current] === undefined) {
+      out[current] = legacyValue;
+    } else if (
+      legacyValue !== undefined &&
+      JSON.stringify(out[current]) !== JSON.stringify(legacyValue)
+    ) {
+      conflicts.push(`${legacy}/${current}`);
+    }
+  }
+  return out;
+}
 
 export function readProjectConfig(): ProjectConfig | null {
   return readProjectConfigAt(process.cwd());
 }
 
 /**
- * Normalize appId at the boundary: accept strings (trimmed) and finite numeric IDs from
- * legacy configs, reject anything else. Downstream callers can treat `config.appId` as a
+ * Normalize app_id at the boundary: accept strings (trimmed) and finite numeric IDs from
+ * legacy configs, reject anything else. Downstream callers can treat `config.app_id` as a
  * guaranteed non-empty string.
+ *
+ * Reads the already-folded record, so a legacy `appId` has been moved onto `app_id` by
+ * the time this runs (see `foldLegacyKeys`).
  *
  * Returning `undefined` is what makes "has a file called app-config.json" and "is a
  * project" different questions — see {@link readProjectConfigAt}.
  */
 function readNormalizedAppId(raw: Record<string, unknown>): string | undefined {
-  const rawAppId = raw.appId;
+  const rawAppId = raw.app_id;
   if (typeof rawAppId === 'string') {
     return rawAppId.trim() || undefined;
   }
@@ -468,7 +573,10 @@ function readNormalizedAppId(raw: Record<string, unknown>): string | undefined {
  *
  * Three migrations, applied in order to one copy of the block.
  */
-function buildAuthOverride(rawAuth: unknown): Record<string, unknown> | undefined {
+function buildAuthOverride(
+  rawAuth: unknown,
+  conflicts: string[],
+): Record<string, unknown> | undefined {
   if (!rawAuth || typeof rawAuth !== 'object') return undefined;
   const auth = rawAuth as Record<string, unknown>;
   let override: Record<string, unknown> | undefined;
@@ -487,25 +595,23 @@ function buildAuthOverride(rawAuth: unknown): Record<string, unknown> | undefine
     override = { ...auth, scopes: splitScopes(scopes as string | string[]) };
   }
 
-  // Redirect URLs were renamed auth.redirectUrls → auth.redirectUris to track the wire key
-  // (redirect_uris, BEX-355/366). Read the legacy key when the new one is absent and drop
-  // it from the returned config, so callers that write the object back to disk (upload.ts,
-  // start.ts) migrate old projects on their next write.
+  // Redirect URLs have been renamed twice: auth.redirectUrls → auth.redirectUris (to track
+  // the wire key, BEX-355/366), then auth.redirectUris → auth.redirect_uris (the snake_case
+  // rename of the whole file). Read the legacy keys when the current one is absent and drop
+  // them from the returned config, so callers that write the object back to disk (upload.ts,
+  // start.ts) migrate old projects on their next write. `LEGACY_AUTH_KEY_ALIASES` lists the
+  // chain in preference order.
   //
-  // Downgrade caveat, and it is NOT a loud one: releases up to 2.0.2 read only the legacy
+  // Downgrade caveat, and it is NOT a loud one: releases up to 2.0.2 read only the oldest
   // key, so a migrated file reads there as an app with no redirect URLs at all. `app start
   // oauth` then offers to register `http://localhost:<port>/auth/callback` (confirm prompt,
   // default yes) and PATCHes `redirect_uris` with just that one URL — the old write path
   // replaces the list rather than merging it, so the app's real redirect URLs are dropped
   // server-side with no error. Only reachable when a new and an old CLI share one project
   // directory (a teammate or CI left behind); a downgrade caveat, not a same-machine one.
-  if ('redirectUrls' in auth) {
-    override = override ?? { ...auth };
-    const legacyRedirects = auth.redirectUrls;
-    if (!Array.isArray(override.redirectUris) && Array.isArray(legacyRedirects)) {
-      override.redirectUris = legacyRedirects;
-    }
-    delete override.redirectUrls;
+  // The same holds one step later for releases that read only `redirectUris`.
+  if (LEGACY_AUTH_KEY_ALIASES.some(([, legacy]) => legacy in auth)) {
+    override = foldLegacyKeys(override ?? auth, LEGACY_AUTH_KEY_ALIASES, conflicts);
   }
 
   // Legacy auth.type is always dropped: the interim distribution carrier
@@ -568,9 +674,15 @@ function readDistributionType(
  */
 export function readProjectConfigAt(dir: string): ProjectConfig | null {
   try {
-    const raw = JSON.parse(fs.readFileSync(path.resolve(dir, PROJECT_CONFIG_FILE), 'utf-8'));
+    const filePath = path.resolve(dir, PROJECT_CONFIG_FILE);
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     if (!raw || typeof raw !== 'object') return null;
-    const rawRecord = raw as Record<string, unknown>;
+
+    // Fold the pre-rename camelCase keys into their snake_case names FIRST, so every
+    // step below reads one spelling. `conflicts` collects keys present under both
+    // spellings with different values; they are reported once, after the read succeeds.
+    const conflicts: string[] = [];
+    const rawRecord = foldLegacyKeys(raw as Record<string, unknown>, LEGACY_KEY_ALIASES, conflicts);
 
     const appId = readNormalizedAppId(rawRecord);
     if (!appId) return null;
@@ -579,8 +691,9 @@ export function readProjectConfigAt(dir: string): ProjectConfig | null {
     // reads the RAW auth block, never the normalized one, so neither can see the other's
     // work and the order between them does not matter.
     const rawAuth = rawRecord.auth;
-    const authOverride = buildAuthOverride(rawAuth);
+    const authOverride = buildAuthOverride(rawAuth, conflicts);
     const distributionType = readDistributionType(rawRecord, rawAuth);
+    warnMixedKeys(filePath, conflicts);
 
     // Drop the legacy top-level `distribution` key from the returned config —
     // it's already folded into distribution_type above. `permittedUrls` and
@@ -588,7 +701,8 @@ export function readProjectConfigAt(dir: string): ProjectConfig | null {
     // they're dropped the same way. Callers that write this object back to
     // disk (upload.ts, start.ts) then naturally migrate old projects to the
     // new shape on their next write, instead of round-tripping stray keys
-    // forever.
+    // forever. (The camelCase `appType` a few interim builds wrote is handled with the
+    // other camelCase keys by `foldLegacyKeys` above, not here.)
     const {
       distribution: _legacyDistribution,
       permittedUrls: _permittedUrls,
@@ -607,7 +721,7 @@ export function readProjectConfigAt(dir: string): ProjectConfig | null {
     }
     return {
       ...rawWithoutLegacyDistribution,
-      appId,
+      app_id: appId,
       distribution_type: distributionType,
       ...(authOverride ? { auth: authOverride } : {}),
     } as ProjectConfig;
@@ -618,7 +732,7 @@ export function readProjectConfigAt(dir: string): ProjectConfig | null {
 
 export function hasLocalApp(): boolean {
   const cfg = readProjectConfig();
-  return cfg?.appId != null && cfg.appId !== '';
+  return cfg?.app_id != null && cfg.app_id !== '';
 }
 
 /**
@@ -682,6 +796,63 @@ export function writeProjectConfig(config: ProjectConfig): void {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 }
 
+/** Top-level keys the read path folds or drops, in every historical shape. */
+const LEGACY_TOP_LEVEL_KEYS: readonly string[] = [
+  ...LEGACY_KEY_ALIASES.map(([, legacy]) => legacy),
+  'distribution',
+  'permittedUrls',
+  'support',
+];
+
+/** Keys inside `auth` the read path folds or drops. */
+const LEGACY_AUTH_KEYS: readonly string[] = [
+  ...LEGACY_AUTH_KEY_ALIASES.map(([, legacy]) => legacy),
+  'type',
+];
+
+/**
+ * Whether the `app-config.json` in `dir` still carries a key the read path only tolerates —
+ * a pre-rename camelCase spelling (`appId`, `auth.redirectUris`, …) or one of the older
+ * dropped keys (`distribution`, `auth.type`, `permittedUrls`, `support`).
+ *
+ * Answers from the RAW file, not from `readProjectConfig`, because the normalized object
+ * has already had every one of those folded away — which is the point of asking. `false`
+ * for a missing or unparseable file: there is nothing there to migrate.
+ */
+export function hasLegacyProjectConfigKeys(dir: string = process.cwd()): boolean {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(path.resolve(dir, PROJECT_CONFIG_FILE), 'utf-8'));
+  } catch {
+    return false;
+  }
+  if (!raw || typeof raw !== 'object') return false;
+  const record = raw as Record<string, unknown>;
+  if (LEGACY_TOP_LEVEL_KEYS.some((key) => key in record)) return true;
+  const auth = record.auth;
+  if (!auth || typeof auth !== 'object') return false;
+  return LEGACY_AUTH_KEYS.some((key) => key in (auth as Record<string, unknown>));
+}
+
+/**
+ * Rewrite cwd's `app-config.json` in the current shape when — and only when — it still
+ * carries a legacy key. A pure key migration: the file is read through the normal read
+ * path and written straight back, so no value changes, only spellings.
+ *
+ * Exists for the commands whose normal write is conditional. `app upload` writes the
+ * server's echo back only after a push, and `app scaffold` rewrites the base only when the
+ * server disagrees with the file — so a legacy-cased config that is already in sync with
+ * the server would never be migrated by either. Both call this on their "nothing to do"
+ * paths instead. Returns whether a write happened, so the caller can say so.
+ */
+export function migrateProjectConfigKeys(): boolean {
+  if (!hasLegacyProjectConfigKeys()) return false;
+  const config = readProjectConfig();
+  if (!config) return false;
+  writeProjectConfig(config);
+  return true;
+}
+
 function isNonEmptyString(value: unknown): boolean {
   return typeof value === 'string' && value.trim() !== '';
 }
@@ -716,7 +887,7 @@ export function backfillProjectConfigFromServer(
   if (!raw || typeof raw !== 'object') return [];
 
   const normalized = readProjectConfig();
-  if (normalized?.appId !== appId) return [];
+  if (normalized?.app_id !== appId) return [];
 
   const rawRecord = raw as Record<string, unknown>;
   const backfilled: string[] = [];

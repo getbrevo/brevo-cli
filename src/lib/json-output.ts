@@ -4,12 +4,82 @@ import { EXIT_CODES } from './exit-codes';
 let emitted = false;
 
 /**
+ * camelCase output keys whose snake_case twin is NOT the mechanical conversion, because
+ * the snake_case name has to match the wire field the value came from.
+ *
+ * `redirectUri` on `app create --json` and `redirectUris` on `app credentials --json` both
+ * carry the app's `redirect_uris` array, so both alias to that one wire name rather than to
+ * `redirect_uri` / `redirect_uris` respectively.
+ */
+const SNAKE_CASE_OVERRIDES: Readonly<Record<string, string>> = {
+  redirectUri: 'redirect_uris',
+  redirectUris: 'redirect_uris',
+};
+
+function camelToSnake(key: string): string {
+  return key.replaceAll(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Add a snake_case twin next to every camelCase key of one object, keeping insertion order
+ * (the camelCase key first, its twin right after). A twin is never written over a key the
+ * object already has, so an object that already carries both spellings is left alone.
+ */
+function aliasKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    out[key] = value;
+    const alias = SNAKE_CASE_OVERRIDES[key] ?? camelToSnake(key);
+    if (alias !== key && !(alias in obj) && !(alias in out)) {
+      out[alias] = value;
+    }
+  }
+  return out;
+}
+
+/**
+ * The transition shape of every `--json` document: each camelCase key is accompanied by
+ * its snake_case twin.
+ *
+ * The CLI's machine-readable output grew two conventions. Commands that pass a platform
+ * record through (`app list`, `app submit`, `function *`) emit the wire's snake_case
+ * (`app_id`, `redirect_uris`); commands that build their own object emit camelCase
+ * (`appId`, `clientId`, `exitCode`). `app-config.json` settled on snake_case (BEX-470), and
+ * scripts should be able to read one spelling everywhere. Renaming outright would break
+ * every `jq .appId` in a pipeline with nothing the CLI could migrate for the user, so this
+ * is the deprecation step: both spellings for now, camelCase removed in the next major.
+ *
+ * Deliberately SHALLOW. Only the top level of the document is aliased (per element for an
+ * array document), plus the `error` envelope `buildJsonError` produces, because those are
+ * the keys the CLI itself names. Anything nested — a `ui_app` block, a `current` / `next`
+ * diff, a Function record, contact data — is either already wire-shaped or is the user's
+ * own data, and rewriting keys inside it would change what it means.
+ */
+export function withSnakeCaseAliases<T>(data: T): T {
+  if (Array.isArray(data)) {
+    return data.map((item) => (isPlainObject(item) ? aliasKeys(item) : item)) as T;
+  }
+  if (!isPlainObject(data)) return data;
+  const aliased = aliasKeys(data);
+  if (isPlainObject(aliased.error)) {
+    aliased.error = aliasKeys(aliased.error);
+  }
+  return aliased as T;
+}
+
+/**
  * Write JSON data to stdout (for --json flag output).
- * Centralizes the JSON serialization pattern used by all commands.
+ * Centralizes the JSON serialization pattern used by all commands — including the
+ * camelCase → snake_case key aliasing every document carries during the transition (see
+ * {@link withSnakeCaseAliases}).
  */
 export function jsonOutput(data: unknown): void {
   emitted = true;
-  process.stdout.write(JSON.stringify(data) + '\n');
+  process.stdout.write(JSON.stringify(withSnakeCaseAliases(data)) + '\n');
 }
 
 /**
