@@ -114,6 +114,25 @@ const matchingLocalConfig = {
   auth: { scopes: ['contacts:read'], redirect_uris: ['http://localhost:3009/auth/callback'] },
 };
 
+// A bootstrap-picker list entry — just enough shape (`redirect_uris` non-empty) to
+// read as a recoverable OAuth app rather than the M2M shape `isM2mApp` filters out.
+const pickerApp = (overrides: Partial<Record<string, unknown>> = {}) => ({
+  app_id: '1',
+  name: 'Test App',
+  client_id: 'cli-123',
+  redirect_uris: ['https://example.com/callback'],
+  ...overrides,
+});
+
+// The M2M shape (`isM2mApp`, BEX-488): a `client_id` with no `redirect_uris` at all.
+const m2mPickerApp = (overrides: Partial<Record<string, unknown>> = {}) => ({
+  app_id: 'm1',
+  name: 'M2M App',
+  client_id: 'cli-m2m',
+  redirect_uris: [],
+  ...overrides,
+});
+
 describe('app/scaffold', () => {
   let stdoutSpy: jest.SpyInstance;
   let chdirSpy: jest.SpyInstance;
@@ -194,12 +213,7 @@ describe('app/scaffold', () => {
         it('offers to set the directory up for an existing app, then bootstraps the picked one', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
           (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-            {
-              app_id: '1',
-              name: 'Test App',
-              client_id: 'cli-123',
-              redirect_uris: ['https://example.com/callback'],
-            },
+            pickerApp(),
             {
               app_id: '2',
               name: 'Other App',
@@ -229,14 +243,7 @@ describe('app/scaffold', () => {
         // `app create` asks, with the same default: the app's name as a slug.
         it('offers a directory named after the app and creates it', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
-          (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-            {
-              app_id: '1',
-              name: 'Test App',
-              client_id: 'cli-123',
-              redirect_uris: ['https://example.com/callback'],
-            },
-          ]);
+          (appService.fetchAppsList as jest.Mock).mockResolvedValue([pickerApp()]);
           mockPrompt
             .mockResolvedValueOnce({ useExisting: true })
             .mockResolvedValueOnce({ selectedApp: '1' })
@@ -264,14 +271,7 @@ describe('app/scaffold', () => {
         // `cd` step must not appear then: it would send them somewhere else.
         it('stays in the current directory when the user answers `.`, with no cd step', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
-          (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-            {
-              app_id: '1',
-              name: 'Test App',
-              client_id: 'cli-123',
-              redirect_uris: ['https://example.com/callback'],
-            },
-          ]);
+          (appService.fetchAppsList as jest.Mock).mockResolvedValue([pickerApp()]);
           // Only cwd exists: the directory prompt hits its overwrite/merge branch
           // (as it always does for `.`), while the feature files still look fresh.
           (fs.existsSync as jest.Mock).mockImplementation((p: string) => p === process.cwd());
@@ -309,14 +309,7 @@ describe('app/scaffold', () => {
           };
 
           beforeEach(() => {
-            (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-              {
-                app_id: '1',
-                name: 'Test App',
-                client_id: 'cli-123',
-                redirect_uris: ['https://example.com/callback'],
-              },
-            ]);
+            (appService.fetchAppsList as jest.Mock).mockResolvedValue([pickerApp()]);
             // The directory and every file a previous scaffold left in it are present.
             (fs.existsSync as jest.Mock).mockReturnValue(true);
           });
@@ -412,14 +405,7 @@ describe('app/scaffold', () => {
         // leaves a usable project rather than an empty directory.
         it('writes and reports the project before asking about the feature', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
-          (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-            {
-              app_id: '1',
-              name: 'Test App',
-              client_id: 'cli-123',
-              redirect_uris: ['https://example.com/callback'],
-            },
-          ]);
+          (appService.fetchAppsList as jest.Mock).mockResolvedValue([pickerApp()]);
           mockPrompt
             .mockResolvedValueOnce({ useExisting: true })
             .mockResolvedValueOnce({ selectedApp: '1' })
@@ -607,15 +593,7 @@ describe('app/scaffold', () => {
       // raises a moment later. The picker filters it out instead.
       it('filters M2M apps out of the bootstrap app picker', async () => {
         (readProjectConfig as jest.Mock).mockReturnValue(null);
-        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-          { app_id: 'm1', name: 'M2M App', client_id: 'cli-m2m', redirect_uris: [] },
-          {
-            app_id: '1',
-            name: 'Test App',
-            client_id: 'cli-123',
-            redirect_uris: ['https://example.com/callback'],
-          },
-        ]);
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([m2mPickerApp(), pickerApp()]);
         mockPrompt
           .mockResolvedValueOnce({ useExisting: true })
           .mockResolvedValueOnce({ selectedApp: '1' })
@@ -631,9 +609,7 @@ describe('app/scaffold', () => {
 
       it('refuses when every app in the account is M2M', async () => {
         (readProjectConfig as jest.Mock).mockReturnValue(null);
-        (appService.fetchAppsList as jest.Mock).mockResolvedValue([
-          { app_id: 'm1', name: 'M2M App', client_id: 'cli-m2m', redirect_uris: [] },
-        ]);
+        (appService.fetchAppsList as jest.Mock).mockResolvedValue([m2mPickerApp()]);
         mockPrompt.mockResolvedValueOnce({ useExisting: true });
 
         await expect(scaffoldCommand({})).rejects.toThrow(/M2M apps/);
