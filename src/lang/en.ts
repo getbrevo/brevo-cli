@@ -600,6 +600,15 @@ const coreMessages = {
   // Not "Your OAuth apps" — the listing can contain UI apps too (BEX-290), and
   // each row names its own type.
   APP_LIST_HEADER: 'Your apps:',
+  // Under `--type`, the flag is echoed verbatim rather than translated to an
+  // `APP_TYPE_*` label: those read "Your OAuth app apps:", and there is no
+  // label for `m2m` at all (it is an auth flow, not an app type).
+  APP_LIST_HEADER_FILTERED: (type: string) => `Your apps (--type ${type}):`,
+  // Not APP_LIST_EMPTY: under a filter the account usually *does* have apps,
+  // just none of that type, so "Create one with ..." would be both false and
+  // the wrong next step. Name the filter as the cause and the way out.
+  APP_LIST_EMPTY_FILTERED: (type: string) =>
+    `No apps match --type ${type}. \`${CLI.APP_LIST}\` shows every app.`,
 
   // App type, as named on a rendered row. `app_type` exists in the config but is
   // informational; the discriminator is `ui_app` / `brevo_function` presence.
