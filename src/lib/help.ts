@@ -71,6 +71,20 @@ function formatRootHelp(description: string): string {
     `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
     `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,
     ``,
+    // Brevo Functions shipped, so this renders in every build — like every other
+    // section here since the pre-GA gate was torn down (BEX-405). There is one build
+    // and nothing is withheld from it.
+    `Function commands (alias: brevo fn):`,
+    `  brevo function list              [--draft] [--json]   List all Brevo Functions in your account`,
+    `  brevo function get               [--id <id>] [--json] Show details of a Brevo Function`,
+    `  brevo function activate          [--id <id>] [--json] Activate a Brevo Function`,
+    `  brevo function deactivate        [--id <id>] [--json] Deactivate a Brevo Function`,
+    `  brevo function delete            [--id <id>] [--force] [--json]`,
+    `                                                        Delete a Brevo Function`,
+    `  brevo function init                                   Create a new Brevo Function (interactive)`,
+    `  brevo function deploy            [--id <id>] [--app-id <id>] [--json]`,
+    `                                                        Deploy a draft Brevo Function`,
+    ``,
     `Scope commands:`,
     `  brevo app available-scopes  [--web] [--json]          List OAuth scopes supported by the IdP`,
     `                                                        (--web opens the catalog in a browser)`,

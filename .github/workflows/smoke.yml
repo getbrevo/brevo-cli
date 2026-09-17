@@ -33,9 +33,10 @@ name: Smoke
 # change what a release gate verifies. Widen a gate by editing that lane.
 #
 # The manual default is the LIVE surface, which since public-apps GA (BEX-405)
-# is every non-interactive suite: private + ui + public. Nothing is gated any
-# more, so there is no longer a preview-only suite to refuse — the step that used
-# to reject a public-containing suite against a published package is gone with it.
+# is every non-interactive suite: private + ui + public + function. Nothing is
+# gated any more, so there is no longer a preview-only suite to refuse — the step
+# that used to reject a public-containing suite against a published package is
+# gone with it.
 # The release lanes remain pinned at their own narrower sets on purpose; widening
 # one is a deliberate edit there, and needs the suite proven headless first.
 on:
@@ -49,7 +50,7 @@ on:
         description: 'Comma-separated suites for --suite (blank = the live surface)'
         required: false
         type: string
-        default: 'private,ui,public'
+        default: 'private,ui,public,function'
       account:
         description: 'Which test-account secret to authenticate with'
         required: false
@@ -84,26 +85,32 @@ on:
         # The values ARE the `--suite` argument, so what the dropdown shows is
         # what the runner receives — no label-to-flag mapping to keep in sync.
         #
-        # `private,ui,public` is the LIVE surface and the default: all three app
-        # types are GA and all three are in the published build. `public` joined
-        # at public-apps GA (BEX-405) — before that it was the preview surface,
-        # meaningful only against=local where the runner built PREVIEW=1, and a
+        # `private,ui,public,function` is the LIVE surface and the default: every
+        # app type is GA and every one of them is in the published build. `public`
+        # joined at public-apps GA (BEX-405) and `function` at the Brevo Functions
+        # release. Before BEX-405, `public` was the preview surface — meaningful
+        # only against=local where the runner built PREVIEW=1, and a
         # public-containing suite against a published package was refused outright
         # rather than reported as a pass with holes in it. Both the preview build
-        # and that refusal are gone; a public suite now runs anywhere.
+        # and that refusal are gone; every suite now runs anywhere.
+        #
+        # `function` runs against a dedicated test account — select `account:
+        # function` with it, or its steps authenticate as the wrong account.
         #
         # `init` drives the wizard through scripted stdin; `ui` drives create
         # through a pty. Both work headless, so both can run here.
         description: 'Which app types to smoke (--suite)'
         type: choice
         required: true
-        default: private,ui,public
+        default: private,ui,public,function
         options:
+          - private,ui,public,function
           - private,ui,public
           - private,ui
           - private
           - ui
           - public
+          - function
           - init
           - all
       account:
@@ -123,6 +130,7 @@ on:
         options:
           - default
           - alt
+          - function
       environment:
         # 'staging' points BREVO_API_URL / BREVO_OAUTH_PROXY_URL / BREVO_OAUTH_BASE_URL
         # at repo secrets (BREVO_STAGING_*) rather than the CLI's production defaults —
@@ -267,15 +275,17 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           KEY_DEFAULT: ${{ secrets.BREVO_TEST_API_KEY }}
           KEY_ALT: ${{ secrets.BREVO_TEST_API_KEY_ALT }}
+          KEY_FUNCTION: ${{ secrets.BREVO_TEST_API_KEY_FUNCTION }}
           KEY_STAGING_DEFAULT: ${{ secrets.BREVO_TEST_API_KEY_STAGING }}
           KEY_STAGING_ALT: ${{ secrets.BREVO_TEST_API_KEY_STAGING_ALT }}
         run: |
           set -eu
           case "${ENVIRONMENT:-production}:${ACCOUNT:-default}" in
-            production:default) key="$KEY_DEFAULT";        name='BREVO_TEST_API_KEY' ;;
-            production:alt)     key="$KEY_ALT";             name='BREVO_TEST_API_KEY_ALT' ;;
-            staging:default)    key="$KEY_STAGING_DEFAULT"; name='BREVO_TEST_API_KEY_STAGING' ;;
-            staging:alt)        key="$KEY_STAGING_ALT";     name='BREVO_TEST_API_KEY_STAGING_ALT' ;;
+            production:default)  key="$KEY_DEFAULT";        name='BREVO_TEST_API_KEY' ;;
+            production:alt)      key="$KEY_ALT";             name='BREVO_TEST_API_KEY_ALT' ;;
+            production:function) key="$KEY_FUNCTION";        name='BREVO_TEST_API_KEY_FUNCTION' ;;
+            staging:default)     key="$KEY_STAGING_DEFAULT"; name='BREVO_TEST_API_KEY_STAGING' ;;
+            staging:alt)         key="$KEY_STAGING_ALT";     name='BREVO_TEST_API_KEY_STAGING_ALT' ;;
             *)
               echo "::error::unknown environment:account '${ENVIRONMENT:-production}:${ACCOUNT:-default}' — add a case for it in this step"
               exit 1
@@ -289,7 +299,7 @@ jobs:
           echo "key=$key" >> "$GITHUB_OUTPUT"
           echo "authenticating as account '${ACCOUNT:-default}' on '${ENVIRONMENT:-production}' (secret ${name})"
 
-      - name: Run smoke test (${{ inputs.suite || 'private,ui' }})
+      - name: Run smoke test (${{ inputs.suite || 'private,ui,function' }})
         # Non-blocking only where the caller asks for it (the pre-merge release
         # PR). Absent on workflow_dispatch, where `inputs.non_blocking` is null.
         continue-on-error: ${{ inputs.non_blocking == true }}
@@ -307,4 +317,4 @@ jobs:
           BREVO_OAUTH_BASE_URL: ${{ steps.environment.outputs.oauth_base_url }}
         # `${SUITE:-…}` covers unset AND empty — an empty --suite= is a runner
         # error ("needs at least one suite name"), so it must not reach it.
-        run: yarn smoke --ci --against="$AGAINST" --suite="${SUITE:-private,ui}" --report=smoke-report.json
+        run: yarn smoke --ci --against="$AGAINST" --suite="${SUITE:-private,ui,function}" --report=smoke-report.json

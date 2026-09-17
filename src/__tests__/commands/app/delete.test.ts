@@ -88,7 +88,8 @@ describe('app/delete', () => {
 
     const output = stdoutSpy.mock.calls[0][0];
     const parsed = JSON.parse(output);
-    expect(parsed).toEqual({ deleted: true, appId: '42' });
+    // Both spellings during the snake_case transition (camelCase deprecated).
+    expect(parsed).toEqual({ deleted: true, appId: '42', app_id: '42' });
   });
 
   it('warns about losing installs before the confirmation prompt', async () => {
@@ -189,7 +190,7 @@ describe('app/delete', () => {
   });
 
   it('should prompt to delete folder when app-config.json matches deleted app', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '42' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '42' });
     mockPrompt
       .mockResolvedValueOnce({ confirmed: true }) // delete confirmation
       .mockResolvedValueOnce({ deleteFolder: true }); // folder deletion confirmation
@@ -201,7 +202,7 @@ describe('app/delete', () => {
   });
 
   it('should not delete folder when user declines folder prompt', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '42' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '42' });
     mockPrompt
       .mockResolvedValueOnce({ confirmed: true })
       .mockResolvedValueOnce({ deleteFolder: false });
@@ -213,7 +214,7 @@ describe('app/delete', () => {
   });
 
   it('should not prompt for folder deletion when app-config.json does not match', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '99' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '99' });
     mockPrompt.mockResolvedValueOnce({ confirmed: true });
     (appService.deleteApp as jest.Mock).mockResolvedValue(undefined);
 
@@ -234,7 +235,7 @@ describe('app/delete', () => {
   });
 
   it('should skip folder deletion in --force mode', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '42' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '42' });
     (appService.deleteApp as jest.Mock).mockResolvedValue(undefined);
 
     await deleteCommand({ appId: '42', force: true });
@@ -244,7 +245,7 @@ describe('app/delete', () => {
   });
 
   it('should warn when folder deletion fails', async () => {
-    mockReadProjectConfig.mockReturnValue({ appId: '42' });
+    mockReadProjectConfig.mockReturnValue({ app_id: '42' });
     mockPrompt
       .mockResolvedValueOnce({ confirmed: true })
       .mockResolvedValueOnce({ deleteFolder: true });

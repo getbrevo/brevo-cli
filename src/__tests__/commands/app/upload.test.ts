@@ -15,6 +15,8 @@ jest.mock('../../../lib/config', () => ({
   readProjectConfig: jest.fn(),
   writeProjectConfig: jest.fn(),
   saveAppName: jest.fn(),
+  migrateProjectConfigKeys: jest.fn().mockReturnValue(false),
+  hasLegacyProjectConfigKeys: jest.fn().mockReturnValue(false),
   // Pure predicate over the config object — use the real logic rather than a
   // jest.fn() so every test doesn't have to stub the app-type branch.
   isUiAppConfig: (config: { ui_app?: unknown } | null | undefined) => !!config?.ui_app,
@@ -25,17 +27,23 @@ jest.mock('node:fs');
 import * as fs from 'node:fs';
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
-import { readProjectConfig, writeProjectConfig, saveAppName } from '../../../lib/config';
+import {
+  readProjectConfig,
+  writeProjectConfig,
+  saveAppName,
+  migrateProjectConfigKeys,
+  hasLegacyProjectConfigKeys,
+} from '../../../lib/config';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
 const BASE_CONFIG = {
-  appId: '1',
-  appName: 'Test App',
+  app_id: '1',
+  app_name: 'Test App',
   distribution_type: 'private' as const,
-  logoUri: '',
+  logo_uri: '',
   version: '1.0.0',
-  auth: { scopes: ['contacts:read'], redirectUris: ['http://localhost:3009/auth/callback'] },
+  auth: { scopes: ['contacts:read'], redirect_uris: ['http://localhost:3009/auth/callback'] },
 };
 
 const BASE_REMOTE = {
@@ -80,7 +88,7 @@ describe('app/upload', () => {
     });
     jest.clearAllMocks();
     (fs.existsSync as jest.Mock).mockReturnValue(true);
-    (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify({ appId: '1' }));
+    (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify({ app_id: '1' }));
     (readProjectConfig as jest.Mock).mockReturnValue(BASE_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(BASE_REMOTE);
   });
@@ -105,15 +113,15 @@ describe('app/upload', () => {
     await expect(uploadCommand({})).rejects.toThrow(/invalid JSON/i);
   });
 
-  it('hard-errors when appId is missing from the file', async () => {
+  it('hard-errors when app_id is missing from the file', async () => {
     (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify({}));
-    await expect(uploadCommand({})).rejects.toThrow(/missing "appId"/i);
+    await expect(uploadCommand({})).rejects.toThrow(/missing "app_id"/i);
   });
 
   it('always fetches remote state and shows the diff, even under --yes', async () => {
     const changedConfig = {
       ...BASE_CONFIG,
-      auth: { ...BASE_CONFIG.auth, redirectUris: ['http://localhost:9999/auth/callback'] },
+      auth: { ...BASE_CONFIG.auth, redirect_uris: ['http://localhost:9999/auth/callback'] },
     };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -137,8 +145,89 @@ describe('app/upload', () => {
     expect(output).toMatch(/already up to date/i);
   });
 
+  // ──────────────── legacy key migration ────────────────
+  // The write-back after a push already emits snake_case keys. The "up to date" path
+  // writes nothing, so a legacy camelCase file that is in sync with the server would never
+  // be migrated by this command — it calls `migrateProjectConfigKeys` there instead.
+  describe('legacy camelCase keys', () => {
+    it('accepts a raw file whose id is still spelled appId', async () => {
+      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify({ appId: '1' }));
+      await uploadCommand({ yes: true });
+      expect(appService.fetchApp).toHaveBeenCalledWith('1');
+    });
+
+    it('migrates the file and says so when the config is already up to date', async () => {
+      (migrateProjectConfigKeys as jest.Mock).mockReturnValueOnce(true);
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+      expect(migrateProjectConfigKeys).toHaveBeenCalledTimes(1);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toMatch(/already up to date/i);
+      expect(output).toContain('snake_case');
+    });
+
+    it('stays silent about the migration when nothing was migrated', async () => {
+      await uploadCommand({ yes: true });
+      expect(migrateProjectConfigKeys).toHaveBeenCalledTimes(1);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).not.toContain('snake_case');
+    });
+
+    it('migrates under --json without breaking the single JSON document', async () => {
+      (migrateProjectConfigKeys as jest.Mock).mockReturnValueOnce(true);
+      await uploadCommand({ json: true });
+
+      expect(migrateProjectConfigKeys).toHaveBeenCalledTimes(1);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      const parsed = JSON.parse(output);
+      expect(parsed.upToDate).toBe(true);
+    });
+
+    it('tells the user about the key migration after a push rewrote a legacy file', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...BASE_CONFIG, app_name: 'Renamed' });
+      (hasLegacyProjectConfigKeys as jest.Mock).mockReturnValueOnce(true);
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed',
+      });
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('snake_case');
+      expect(output).toContain('update them to the new key names');
+    });
+
+    it('says nothing about keys after a push when the file was already snake_case', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...BASE_CONFIG, app_name: 'Renamed' });
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed',
+      });
+      await uploadCommand({ yes: true });
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).not.toContain('snake_case');
+    });
+
+    it('does not run the no-op migration when there is something to push', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...BASE_CONFIG, app_name: 'Renamed' });
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed',
+      });
+      await uploadCommand({ yes: true });
+      expect(appService.uploadApp).toHaveBeenCalled();
+      // The write-back writes the normalized (snake_case) config, which is the migration.
+      expect(migrateProjectConfigKeys).not.toHaveBeenCalled();
+      expect(writeProjectConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ app_id: '1', app_name: 'Renamed' }),
+      );
+    });
+  });
+
   it('prompts for confirmation when something differs and --yes/--json are absent', async () => {
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     mockPrompt.mockResolvedValueOnce({ confirmed: true });
     (appService.uploadApp as jest.Mock).mockResolvedValue({
@@ -153,7 +242,7 @@ describe('app/upload', () => {
   });
 
   it('cancels without uploading when the user declines the confirmation', async () => {
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     mockPrompt.mockResolvedValueOnce({ confirmed: false });
 
@@ -168,7 +257,7 @@ describe('app/upload', () => {
       writable: true,
       value: false,
     });
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
 
     await expect(uploadCommand({})).rejects.toThrow(/non-interactive/i);
@@ -176,7 +265,7 @@ describe('app/upload', () => {
   });
 
   it('POSTs the correct wire shape — top-level distribution_type, version, redirect_uris under auth', async () => {
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       ...BASE_UPLOAD_RESPONSE,
@@ -198,6 +287,131 @@ describe('app/upload', () => {
     });
   });
 
+  it('never sends app_type to the server — it is local metadata only', async () => {
+    const configWithType = { ...BASE_CONFIG, app_name: 'With Type', app_type: 'oauth' as const };
+    (readProjectConfig as jest.Mock).mockReturnValue(configWithType);
+    (appService.uploadApp as jest.Mock).mockResolvedValue({
+      ...BASE_UPLOAD_RESPONSE,
+      name: 'With Type',
+    });
+
+    await uploadCommand({ yes: true });
+
+    const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+    expect(payload).not.toHaveProperty('app_type');
+    expect(payload).not.toHaveProperty('appType');
+  });
+
+  // ──────────────── app_type agreement (BEX-468) ────────────────
+  // `app_type` is a label, not the discriminator — but a label that contradicts the blocks
+  // is a half-landed hand-edit, and uploading it would push a config the file itself
+  // describes wrongly. Every case below refuses before any round trip.
+  describe('app_type agreement', () => {
+    // A minimal but valid UI block, so the refusal under test is the label check and not
+    // `validateUiApp` firing first on a malformed one.
+    const VALID_UI_APP = {
+      extension_type: 'actionLink' as const,
+      surface_point_list: [
+        {
+          surface_point_name: 'contactDetails.header.menu',
+          label: 'View in CRM',
+          redirect_link: 'https://example.com/brevo',
+        },
+      ],
+    };
+
+    it('uploads normally when app_type agrees with the blocks', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        app_name: 'Renamed App',
+        app_type: 'oauth' as const,
+      });
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed App',
+      });
+
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
+    });
+
+    // The backward-compatibility path, and the reason the guard is an early return rather
+    // than a default: every config written before BEX-468 omits the field entirely.
+    it('skips the check entirely when app_type is absent', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        app_name: 'Renamed App',
+        brevo_function: {},
+      });
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        name: 'Renamed App',
+      });
+
+      await uploadCommand({ yes: true });
+
+      expect(appService.uploadApp).toHaveBeenCalled();
+    });
+
+    it('refuses a ui_app config labelled "oauth" before any round trip', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        auth: {},
+        ui_app: VALID_UI_APP,
+        app_type: 'oauth' as const,
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/"app_type": "oauth"/);
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/describe a ui app/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('refuses a config labelled "ui" that carries no ui_app block', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        app_type: 'ui' as const,
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/describe a oauth app/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    it('refuses a brevo_function config labelled "oauth"', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        brevo_function: {},
+        app_type: 'oauth' as const,
+      });
+
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/describe a function app/i);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
+    // Ordering, pinned deliberately: the label is the least authoritative statement in the
+    // file, so a structural problem must be the error the partner sees first. Sending
+    // someone off to fix `app_type` when their `ui_app` block is also broken would just
+    // cost them a second upload to learn the real reason.
+    it('reports a malformed ui_app block rather than the stale label', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({
+        ...BASE_CONFIG,
+        auth: {},
+        app_type: 'oauth' as const,
+        ui_app: {
+          ...VALID_UI_APP,
+          surface_point_list: [{ ...VALID_UI_APP.surface_point_list[0], label: '' }],
+        },
+      });
+
+      // The block's own error, named for the offending entry — not the label mismatch,
+      // which is equally true of this config and reported only once this is fixed.
+      await expect(uploadCommand({ yes: true })).rejects.toThrow(/\.label:/);
+      const message = await uploadCommand({ yes: true }).catch((err: Error) => err.message);
+      expect(message).not.toMatch(/app_type/);
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+  });
+
   it('blocks the upload when local distribution_type differs from the app on Brevo', async () => {
     // distribution_type is immutable via upload. The server (BEX-355) rejects
     // drift with a 422, but the CLI fast-fails first against the remote state
@@ -216,7 +430,7 @@ describe('app/upload', () => {
   // guarantee now applies to OAuth apps only (BEX-290) — the UI-app half of the
   // contract is covered in the 'UI apps' block below.
   it('never sends a ui_app field for an OAuth app', async () => {
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       ...BASE_UPLOAD_RESPONSE,
@@ -230,7 +444,7 @@ describe('app/upload', () => {
   });
 
   it('writes the server-confirmed state back into app-config.json on success', async () => {
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       app_id: '1',
@@ -247,7 +461,7 @@ describe('app/upload', () => {
     await uploadCommand({ yes: true });
 
     expect(writeProjectConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ appName: 'Renamed App', version: '2.0.0' }),
+      expect.objectContaining({ app_name: 'Renamed App', version: '2.0.0' }),
     );
     expect(saveAppName).toHaveBeenCalledWith('1', 'Renamed App');
   });
@@ -257,7 +471,7 @@ describe('app/upload', () => {
     // upload response; the auth block only carries scopes + redirect_uris. The
     // write-back must pick up the server-confirmed value, not silently fall
     // back to whatever the local config already said.
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       app_id: '1',
@@ -283,7 +497,7 @@ describe('app/upload', () => {
     // null (not empty arrays, not absent) when the stored snapshot has no OAuth
     // block — e.g. UI-only apps. The write-back must fall back to what was sent
     // rather than persisting nulls or crashing.
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       app_id: '1',
@@ -300,7 +514,7 @@ describe('app/upload', () => {
       expect.objectContaining({
         auth: {
           scopes: ['contacts:read'],
-          redirectUris: ['http://localhost:3009/auth/callback'],
+          redirect_uris: ['http://localhost:3009/auth/callback'],
         },
       }),
     );
@@ -311,7 +525,7 @@ describe('app/upload', () => {
     // UploadAppResponse), but the CLI tolerates the request-side key
     // `app_version` too, so a server build that mirrors the request naming
     // never makes the CLI silently keep the old value.
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       app_id: '1',
@@ -329,7 +543,7 @@ describe('app/upload', () => {
     await uploadCommand({ yes: true });
 
     expect(writeProjectConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ appName: 'Renamed App', version: '2.0.0' }),
+      expect.objectContaining({ app_name: 'Renamed App', version: '2.0.0' }),
     );
     const printed = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(printed).toContain('2.0.0');
@@ -356,7 +570,7 @@ describe('app/upload', () => {
   it('throws when app-config.json has no redirect URLs', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...BASE_CONFIG,
-      auth: { ...BASE_CONFIG.auth, redirectUris: [] },
+      auth: { ...BASE_CONFIG.auth, redirect_uris: [] },
     });
 
     await expect(uploadCommand({ yes: true })).rejects.toThrow(/no redirect URLs/i);
@@ -365,14 +579,14 @@ describe('app/upload', () => {
   it('rejects an invalid redirect URL protocol', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...BASE_CONFIG,
-      auth: { ...BASE_CONFIG.auth, redirectUris: ['ftp://bad'] },
+      auth: { ...BASE_CONFIG.auth, redirect_uris: ['ftp://bad'] },
     });
 
     await expect(uploadCommand({ yes: true })).rejects.toThrow(/http:\/\/ or https:\/\//);
   });
 
   it('outputs structured JSON including the diff under --json, with no prompt', async () => {
-    const changedConfig = { ...BASE_CONFIG, appName: 'Renamed App' };
+    const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
     (appService.uploadApp as jest.Mock).mockResolvedValue({
       ...BASE_UPLOAD_RESPONSE,
@@ -455,13 +669,13 @@ describe('app/upload', () => {
     const UI_APP_PAYLOAD = withLinkTargets(UI_APP);
 
     // A UI app carries no OAuth block at all — `auth` is exactly the empty
-    // object `{}`, and that absence of scopes/redirectUris is the point of the
+    // object `{}`, and that absence of scopes/redirect_uris is the point of the
     // OAuth-only checks (and enforced by validateAuthShape).
     const UI_CONFIG = {
-      appId: '1',
-      appName: 'Invoice Manager',
+      app_id: '1',
+      app_name: 'Invoice Manager',
       distribution_type: 'private' as const,
-      logoUri: '',
+      logo_uri: '',
       version: '1.0.0',
       auth: {},
       ui_app: UI_APP,
@@ -1127,7 +1341,7 @@ describe('app/upload', () => {
     });
 
     it('renders the ui_app fields in the diff, without a Redirect URLs row', async () => {
-      (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, appName: 'Renamed' });
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, app_name: 'Renamed' });
       (appService.uploadApp as jest.Mock).mockResolvedValue({
         ...BASE_UPLOAD_RESPONSE,
         name: 'Renamed',
@@ -1333,12 +1547,12 @@ describe('app/upload', () => {
 
       it('does not warn for an OAuth app, which has nothing installed', async () => {
         (readProjectConfig as jest.Mock).mockReturnValue({
-          appId: '1',
-          appName: 'Renamed OAuth App',
+          app_id: '1',
+          app_name: 'Renamed OAuth App',
           distribution_type: 'private' as const,
-          logoUri: '',
+          logo_uri: '',
           version: '1.0.0',
-          auth: { scopes: ['contacts:read'], redirectUris: ['https://example.com/callback'] },
+          auth: { scopes: ['contacts:read'], redirect_uris: ['https://example.com/callback'] },
         });
         (appService.fetchApp as jest.Mock).mockResolvedValue(UI_REMOTE);
         mockPrompt.mockResolvedValueOnce({ confirmed: true });

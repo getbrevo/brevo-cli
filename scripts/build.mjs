@@ -109,6 +109,9 @@ const GA_MARKERS = [
   'submitCommand', // commands/app/submit.ts — GA at BEX-405
   'statusCommand', // commands/app/status.ts — GA at BEX-405
   'withdrawCommand', // commands/app/withdraw.ts — GA at BEX-405
+  'listFunctionCommand', // commands/function/list.ts — GA at Brevo Functions release
+  'initFunctionCommand', // commands/function/init.ts — GA at Brevo Functions release
+  'deployFunctionCommand', // commands/function/deploy.ts — GA at Brevo Functions release
 ];
 
 const bundle = fs.readFileSync(outfile, 'utf-8');

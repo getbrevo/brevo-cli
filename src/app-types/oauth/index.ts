@@ -2,21 +2,25 @@
  * The OAuth integration app type — the CLI's original and default app type.
  *
  * Detection is by ELIMINATION rather than by a positive marker: `app-config.json` has no
- * `appType` key, and an OAuth app is simply one with no `ui_app` block. That asymmetry is
- * deliberate (it is the wire's own discriminator, see `CLAUDE.md`), which is why both
- * predicates here are the negation of the UI module's.
+ * positive marker of its own (`app_type` is informational only), and an OAuth app is simply
+ * one with no `ui_app` or `brevo_function` block.
+ * `resolveFromConfig` / `resolveFromRecord` try the positively-detected types first
+ * (function, then ui) and fall through to this one, so these predicates are mostly used
+ * by direct callers and tests rather than the resolution path.
  */
 import { messages } from '../../lang/en';
 import type { AppTypeModule } from '../contract';
 import { isUiAppConfigShape, isUiAppRecordShape } from '../ui/detect';
+import { isFunctionAppConfig } from '../function';
 
 export const oauthAppType: AppTypeModule = {
   id: 'oauth',
   label: messages.APP_TYPE_OAUTH,
   availability: 'ga',
 
-  detectConfig: (config) => !isUiAppConfigShape(config),
-  detectRecord: (app) => !isUiAppRecordShape(app),
+  detectConfig: (config) =>
+    !isUiAppConfigShape(config) && !isFunctionAppConfig(config as { brevo_function?: unknown }),
+  detectRecord: (app) => !isUiAppRecordShape(app) && !!app && !!app.client_id,
 
   // Always recoverable: an OAuth app's entire configuration lives on the app record itself
   // (callbacks and scopes come back on the read), not in an upload snapshot. A record with

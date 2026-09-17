@@ -135,6 +135,7 @@ describe('app-config.json template branching', () => {
     '{{APP_VERSION}}': '1.0.0',
     '{{LOGO_URI}}': '',
     '{{DISTRIBUTION}}': 'private',
+    '{{APP_TYPE}}': 'oauth',
     '{{SCOPES_JSON}}': '["contacts:read","contacts:write"]',
     '{{REDIRECT_URLS_JSON}}': '["http://localhost:3009/auth/callback"]',
   };
@@ -145,18 +146,18 @@ describe('app-config.json template branching', () => {
       ...extraVars,
     });
 
-  it('renders valid JSON with redirectUris and no ui_app for an OAuth app', () => {
+  it('renders valid JSON with redirect_uris and no ui_app for an OAuth app', () => {
     const out = renderConfig(
       { '{{UI_APP_JSON}}': '' },
       new Set<TemplateFlag>(['private', 'oauth']),
     );
     const parsed = JSON.parse(out);
 
-    expect(parsed.auth.redirectUris).toEqual(['http://localhost:3009/auth/callback']);
+    expect(parsed.auth.redirect_uris).toEqual(['http://localhost:3009/auth/callback']);
     expect(parsed).not.toHaveProperty('ui_app');
   });
 
-  it('renders valid JSON with ui_app and no redirectUris for a UI app', () => {
+  it('renders valid JSON with ui_app and no redirect_uris for a UI app', () => {
     // The platform's app-snapshot shape — nested one level deep, which is
     // what the template's indent handling has to survive.
     const uiApp = {
@@ -170,7 +171,10 @@ describe('app-config.json template branching', () => {
       redirect_link: 'https://example.com/brevo',
     };
     const out = renderConfig(
-      { '{{UI_APP_JSON}}': JSON.stringify(uiApp, null, 2).split('\n').join('\n  ') },
+      {
+        '{{UI_APP_JSON}}': JSON.stringify(uiApp, null, 2).split('\n').join('\n  '),
+        '{{APP_TYPE}}': 'ui',
+      },
       new Set<TemplateFlag>(['private', 'ui_app']),
     );
     const parsed = JSON.parse(out);
@@ -178,6 +182,42 @@ describe('app-config.json template branching', () => {
     expect(parsed.ui_app).toEqual(uiApp);
     // A UI app has no OAuth block: auth is exactly the empty object.
     expect(parsed.auth).toEqual({});
+  });
+
+  it('renders valid JSON with brevo_function and app_type: "function" for a Function app', () => {
+    const out = renderConfig(
+      {
+        '{{APP_TYPE}}': 'function',
+        '{{BREVO_FUNCTION_JSON}}': '{}',
+      },
+      new Set<TemplateFlag>(['private', 'brevo_function']),
+    );
+    const parsed = JSON.parse(out);
+
+    expect(parsed.app_type).toBe('function');
+    expect(parsed.brevo_function).toEqual({});
+    expect(parsed).not.toHaveProperty('ui_app');
+    // A function app has no auth block at all.
+    expect(parsed).not.toHaveProperty('auth');
+  });
+
+  it('sets app_type to the value of {{APP_TYPE}} for each app type', () => {
+    for (const [appType, flag] of [
+      ['oauth', 'oauth'],
+      ['ui', 'ui_app'],
+      ['function', 'brevo_function'],
+    ] as const) {
+      const out = renderConfig(
+        {
+          '{{APP_TYPE}}': appType,
+          '{{UI_APP_JSON}}': appType === 'ui' ? '{}' : '',
+          '{{BREVO_FUNCTION_JSON}}': appType === 'function' ? '{}' : '',
+        },
+        new Set<TemplateFlag>(['private', flag]),
+      );
+      const parsed = JSON.parse(out);
+      expect(parsed.app_type).toBe(appType);
+    }
   });
 
   // Dropped from the scaffolded config (nothing ever read them) — their

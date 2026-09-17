@@ -143,7 +143,7 @@ describe('initCommand', () => {
     const callOrder: string[] = [];
     (isAuthenticated as jest.Mock).mockReturnValueOnce(true).mockReturnValueOnce(true);
     (accountService.getAccount as jest.Mock).mockRejectedValue(new AuthExpiredError());
-    (readProjectConfig as jest.Mock).mockReturnValue({ appId: '42', appName: 'My App' });
+    (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '42', app_name: 'My App' });
     (appService.fetchApp as jest.Mock).mockImplementation(() => {
       callOrder.push('fetchApp');
       return Promise.resolve({ app_id: '42', name: 'My App' });
@@ -187,7 +187,7 @@ describe('initCommand', () => {
 
   it('should scaffold existing app when user chooses scaffold', async () => {
     (isAuthenticated as jest.Mock).mockReturnValue(true);
-    (readProjectConfig as jest.Mock).mockReturnValue({ appId: '42', appName: 'My App' });
+    (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '42', app_name: 'My App' });
     (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: '42', name: 'My App' });
     mockPrompt.mockResolvedValueOnce({ action: 'scaffold' });
     (scaffoldCommand as jest.Mock).mockResolvedValue(undefined);
@@ -202,7 +202,7 @@ describe('initCommand', () => {
 
   it('should skip when user chooses skip', async () => {
     (isAuthenticated as jest.Mock).mockReturnValue(true);
-    (readProjectConfig as jest.Mock).mockReturnValue({ appId: '42', appName: 'My App' });
+    (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '42', app_name: 'My App' });
     (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: '42', name: 'My App' });
     mockPrompt.mockResolvedValueOnce({ action: 'skip' });
 
@@ -214,7 +214,7 @@ describe('initCommand', () => {
 
   it('should create new app when user chooses create despite existing config', async () => {
     (isAuthenticated as jest.Mock).mockReturnValue(true);
-    (readProjectConfig as jest.Mock).mockReturnValue({ appId: '42', appName: 'My App' });
+    (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '42', app_name: 'My App' });
     (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: '42', name: 'My App' });
     mockPrompt.mockResolvedValueOnce({ action: 'create' });
     (createCommand as jest.Mock).mockResolvedValue(undefined);
@@ -226,7 +226,7 @@ describe('initCommand', () => {
 
   it('should fall through to create when app no longer exists on server', async () => {
     (isAuthenticated as jest.Mock).mockReturnValue(true);
-    (readProjectConfig as jest.Mock).mockReturnValue({ appId: '42', appName: 'Deleted App' });
+    (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '42', app_name: 'Deleted App' });
     (appService.fetchApp as jest.Mock).mockResolvedValue(null);
     (createCommand as jest.Mock).mockResolvedValue(undefined);
 
@@ -237,7 +237,7 @@ describe('initCommand', () => {
 
   it('should fall through to create when app ID is empty', async () => {
     (isAuthenticated as jest.Mock).mockReturnValue(true);
-    (readProjectConfig as jest.Mock).mockReturnValue({ appId: '', appName: 'Bad' });
+    (readProjectConfig as jest.Mock).mockReturnValue({ app_id: '', app_name: 'Bad' });
     (createCommand as jest.Mock).mockResolvedValue(undefined);
 
     await initCommand({});
@@ -248,7 +248,7 @@ describe('initCommand', () => {
   it('should accept a UUID app ID from config and verify it on the server', async () => {
     const uuid = '550e8400-e29b-41d4-a716-446655440000';
     (isAuthenticated as jest.Mock).mockReturnValue(true);
-    (readProjectConfig as jest.Mock).mockReturnValue({ appId: uuid, appName: 'My App' });
+    (readProjectConfig as jest.Mock).mockReturnValue({ app_id: uuid, app_name: 'My App' });
     (appService.fetchApp as jest.Mock).mockResolvedValue({ app_id: uuid, name: 'My App' });
     mockPrompt.mockResolvedValueOnce({ action: 'scaffold' });
     (scaffoldCommand as jest.Mock).mockResolvedValue(undefined);
