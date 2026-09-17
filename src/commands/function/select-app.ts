@@ -1,6 +1,7 @@
 import inquirer from 'inquirer';
 import { appService, functionService } from '../../container';
 import { CliError } from '../../lib/errors';
+import { LIST_FILTER_APP_TYPE } from '../../lib/constants';
 import { logDebug, logInfo, color } from '../../lib/logger';
 import { createSpinner, indentChoices } from '../../lib/ui';
 import { messages } from '../../lang/en';
@@ -13,7 +14,7 @@ export async function selectFunctionApp(
   const spinner = createSpinner('Fetching apps...');
   let apps;
   try {
-    apps = await appService.fetchAppsList({ type: 'brevo_function' });
+    apps = await appService.fetchAppsList({ type: LIST_FILTER_APP_TYPE.function });
   } finally {
     spinner.stop();
   }

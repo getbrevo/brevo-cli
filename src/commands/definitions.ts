@@ -1,6 +1,10 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import { parseAppId, parsePositiveInt, collectUrls } from '../lib/validators';
-import { EXAMPLE_APP_ID } from '../lib/constants';
+import { parseAppId, parsePositiveInt, collectUrls, parseAppListType } from '../lib/validators';
+import {
+  EXAMPLE_APP_ID,
+  LIST_FILTER_APP_TYPE_VALUES,
+  type ListFilterAppType,
+} from '../lib/constants';
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
 // The gated subcommands are referenced only through this binding, and only from behind
@@ -166,9 +170,23 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     {
       name: 'list',
       description: 'List all apps in your account',
-      examples: ['brevo app list', 'brevo app list --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => listCommand({ json: Boolean(opts.json) }),
+      examples: ['brevo app list', 'brevo app list --type function', 'brevo app list --json'],
+      options: [
+        {
+          flags: '--type <type>',
+          description: `Show only apps of one type (${LIST_FILTER_APP_TYPE_VALUES.join('|')})`,
+          // Parsed rather than checked in the handler: unlike `--scopes` below,
+          // there is no pre-flight whose error this could mask, and a parser is
+          // what puts the refusal ahead of the network call.
+          parser: (v) => parseAppListType(v),
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        listCommand({
+          json: Boolean(opts.json),
+          type: opts.type as ListFilterAppType | undefined,
+        }),
     },
     {
       name: 'credentials',

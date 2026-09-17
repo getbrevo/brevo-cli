@@ -51,6 +51,18 @@ describe('services/app', () => {
       const result = await service.fetchAppsList();
       expect(result).toEqual([]);
     });
+
+    it('requests the bare endpoint when no type is given', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue([]);
+      await service.fetchAppsList();
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/apps');
+    });
+
+    it('appends the type as a query parameter', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue([]);
+      await service.fetchAppsList({ type: 'brevo_function' });
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/apps?type=brevo_function');
+    });
   });
 
   describe('fetchSurfacePoints', () => {

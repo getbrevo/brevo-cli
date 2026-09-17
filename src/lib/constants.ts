@@ -338,6 +338,39 @@ export const WIRE_APP_TYPE = {
   OAUTH_M2M: 'oauth.m2m',
 } as const;
 
+/**
+ * The `?type=` values `GET /v3/app-store/apps` filters on, keyed by the token
+ * `brevo app list --type` accepts.
+ *
+ * **A third vocabulary — do not unify it with either of the other two.** Only
+ * `brevo_function` coincides with `WIRE_APP_TYPE` above: `app create` sends
+ * `oauth.consent` / `oauth.m2m` / `ui_app.<extension_type>`, while this filter
+ * takes a bare `oauth` / `ui_app` / `m2m`. `app-config.json`'s local `app_type`
+ * label is a third spelling again. Same reasoning as the `app_type` pair: a
+ * shared name is not a shared vocabulary.
+ *
+ * The **keys** are the user-facing side, and they follow the CLI's own words
+ * rather than the wire's — `appType` in `--json` output is `oauth` / `ui` /
+ * `function` and `authType` is `m2m`, so a user who read one output can type
+ * the other. The wire spellings are deliberately *not* accepted as input.
+ *
+ * Kept here rather than in `src/app-types/` because `m2m` is an auth flow, not
+ * an app type: adding it to `AppTypeId` would break every exhaustive branch the
+ * registry relies on, which is exactly what that type exists to do — and a
+ * filter token must not be what triggers it.
+ */
+export const LIST_FILTER_APP_TYPE = {
+  oauth: 'oauth',
+  ui: 'ui_app',
+  function: 'brevo_function',
+  m2m: 'm2m',
+} as const;
+
+export type ListFilterAppType = keyof typeof LIST_FILTER_APP_TYPE;
+
+/** The accepted `--type` tokens, in help/error order. One source for both. */
+export const LIST_FILTER_APP_TYPE_VALUES = Object.keys(LIST_FILTER_APP_TYPE) as ListFilterAppType[];
+
 export const DEFAULT_SCOPES: readonly string[] = [
   'contacts:read',
   'contacts:write',

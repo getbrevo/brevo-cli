@@ -3,7 +3,9 @@ import {
   LEGACY_ALL_SCOPE,
   EXTENSION_TYPE_ACTION_LINK,
   EXTENSION_TYPE_IFRAME,
+  LIST_FILTER_APP_TYPE_VALUES,
   UPLOADABLE_LINK_TARGETS,
+  type ListFilterAppType,
 } from './constants';
 
 const APP_NAME_MAX_LENGTH = 48;
@@ -54,6 +56,28 @@ export function validateEnum(
   if (value && !allowed.includes(value)) {
     throw new CliError(`Invalid ${flagName} "${value}". Must be one of: ${allowed.join(', ')}.`);
   }
+}
+
+/**
+ * Commander parser for `brevo app list --type`.
+ *
+ * Returns the **CLI token** (`ui`), never the wire value (`ui_app`): the command
+ * echoes it back in its header and empty message, and mapping here would leak
+ * the wire spelling into user-facing prose. The caller maps via
+ * `LIST_FILTER_APP_TYPE` at the point it builds the request.
+ *
+ * Validating in a parser rather than in the handler is deliberate, and does not
+ * contradict the note on `app create --scopes` (which avoids one so its charset
+ * error cannot mask the real combination error): `app list` has no pre-flight
+ * and no interacting flag, so there is no better message to mask. It is also
+ * what makes the refusal structurally precede the network call — the throw
+ * happens inside `parseAsync`, ahead of the auth guard and the handler.
+ *
+ * Exact-match, so `--type OAUTH` is refused; same as `--distribution`.
+ */
+export function parseAppListType(value: string): ListFilterAppType {
+  validateEnum(value, LIST_FILTER_APP_TYPE_VALUES, '--type');
+  return value as ListFilterAppType;
 }
 
 /**
