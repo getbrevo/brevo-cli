@@ -102,14 +102,6 @@ describe('messages (lang/en)', () => {
     expect(messages.APP_UPLOAD_INVALID_REDIRECT_PROTOCOL('ftp://bad')).toContain('ftp://bad');
   });
 
-  // The prompt used to carry the example URL too, which pushed it past 80 columns —
-  // where inquirer wraps it and leaves `skip):` alone and flush-left. The format is
-  // advertised by the validation error instead, which is when a user needs it.
-  it('should advertise https for the logo URL, in the error rather than the prompt', () => {
-    expect(messages.APP_CREATE_LOGO_INVALID).toContain('https://');
-    expect(messages.APP_CREATE_LOGO_INVALID).toContain('example.com/logo.png');
-  });
-
   // Every interactive prompt has to fit an 80-column terminal once inquirer's own `? `
   // prefix is counted, because inquirer wraps a prompt without indenting the
   // continuation — the tail lands flush-left and reads as a separate line.
@@ -123,7 +115,6 @@ describe('messages (lang/en)', () => {
     const PREFIX = 2; // '? '
     const prompts: Array<[string, string]> = [
       ['APP_CREATE_NAME_PROMPT', messages.APP_CREATE_NAME_PROMPT],
-      ['APP_CREATE_LOGO_PROMPT', messages.APP_CREATE_LOGO_PROMPT],
       ['APP_CREATE_TYPE_PROMPT', messages.APP_CREATE_TYPE_PROMPT],
       ['APP_CREATE_APP_TYPE_PROMPT', messages.APP_CREATE_APP_TYPE_PROMPT],
       ['APP_CREATE_OAUTH_FLOW_PROMPT', messages.APP_CREATE_OAUTH_FLOW_PROMPT],
@@ -300,7 +291,6 @@ describe('messages (lang/en)', () => {
 describe('smoke-suite prompt patterns', () => {
   it('every UI-app create pattern still matches the copy it waits for', () => {
     const pairs: ReadonlyArray<[keyof typeof UI_CREATE_EXPECT, string]> = [
-      ['logo', messages.APP_CREATE_LOGO_PROMPT],
       ['appTypeOAuth', messages.APP_CREATE_APP_TYPE_OAUTH],
       ['appTypeUi', messages.APP_CREATE_APP_TYPE_UI],
       ['integration', messages.APP_CREATE_UI_INTEGRATION_PROMPT],
@@ -323,7 +313,6 @@ describe('smoke-suite prompt patterns', () => {
   // FALLBACK copy would strand the run just as surely as a reword of the picker's.
   it('every M2M create pattern still matches the copy it waits for', () => {
     const pairs: ReadonlyArray<[keyof typeof M2M_CREATE_EXPECT, string]> = [
-      ['logo', messages.APP_CREATE_LOGO_PROMPT],
       ['appTypeOAuth', messages.APP_CREATE_APP_TYPE_OAUTH],
       ['flowConsent', messages.APP_CREATE_OAUTH_FLOW_CONSENT],
       ['flowM2m', messages.APP_CREATE_OAUTH_FLOW_M2M],
@@ -344,7 +333,7 @@ describe('smoke-suite prompt patterns', () => {
   // dash is brittle against a reword, and a long one can wrap in the pty
   // transcript — so they are kept short and punctuation-free on purpose.
   it('keeps the patterns free of typographic punctuation', () => {
-    // Iterated per map rather than spread into one: the two share keys (`logo`,
+    // Iterated per map rather than spread into one: the two share keys (e.g.
     // `appTypeOAuth`), and a spread would check one and silently drop the other.
     const maps: ReadonlyArray<[string, Record<string, RegExp>]> = [
       ['ui', UI_CREATE_EXPECT],

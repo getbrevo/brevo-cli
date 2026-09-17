@@ -110,7 +110,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an app — a consent-based OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`, `--logo-uri`), a **machine-to-machine** OAuth app (`--m2m --scopes "…"`, private only — creates the app and stops, writing no project files), a UI app (`--ui-app …` / `--ui-config <file>`), or a Brevo Function (interactive prompt only). There is no `--type` flag; a run with none of those flags creates a consent-based OAuth app |
+| `brevo app create` | Create an app — a consent-based OAuth app (`--name`, `--distribution private`, repeatable `--redirect-uri`), a **machine-to-machine** OAuth app (`--m2m --scopes "…"`, private only — creates the app and stops, writing no project files), a UI app (`--ui-app …` / `--ui-config <file>`), or a Brevo Function (interactive prompt only). There is no `--type` flag; a run with none of those flags creates a consent-based OAuth app |
 | `brevo app list` | List apps in your account (each row names its type) |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff — field by field, including every `ui_app` placement (`--yes`) |
