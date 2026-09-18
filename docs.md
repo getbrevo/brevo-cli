@@ -51,34 +51,33 @@ tell an agent to read that line and not retry.
       `source "cli"` policy needs to allow public creates from the CLI, or expose a
       per-account allowance the CLI can be granted. Until then, GA is CLI-side only.
 
-## Gate machinery — teardown deferred, deliberately
+## Gate machinery — kept permanently, decision closed
 
 Every `FEATURE_STAGE` row in `src/lib/preview.ts` is `'ga'`, so the pre-GA gate now holds
 nothing back. The three modules that carried gated surface — `commands/preview-definitions.ts`,
 `lang/preview-messages.ts`, `lib/preview-constants.ts` — emptied and were deleted at GA.
-The machinery around them was **kept on purpose**, to keep the GA change reviewable and
-because it is the shape the next unreleased feature should arrive in.
+The machinery around them **stays**, and this is no longer an open question.
 
-- [ ] **Decide whether to tear it down.** If yes, in one pass: `src/lib/preview.ts`,
-      `src/globals.d.ts`, `jest.setup.js` + its `setupFiles` entry in `jest.config.js`,
-      the esbuild `define` block and both `LEAK_MARKERS` / `LEAK_STRINGS` checks in
-      `scripts/build.mjs` (plus `orphanedPreviewMessageKeys`), the `build:preview` script,
-      the `previewFeatureOf` / `assertFeatureAvailable` wiring in
-      `src/lib/command-registry.ts`, the two `isFeatureAvailable` calls in
-      `src/commands/app/create.ts`, the `gatedSection` / `distributionValues` /
-      `createDescription` helpers in `src/lib/help.ts`, and
-      `messages.PREVIEW_FEATURE_UNAVAILABLE`. Also `src/__tests__/lib/preview.test.ts` and
-      `preview-gate.test.ts`, which currently assert the mechanism against a simulated
-      gated row.
-      **Keep esbuild.** The bundler was adopted for the gate but is now the build
-      (`scripts/build.mjs`); reverting to `tsc` would change the published layout again —
-      `dist/bin/files`, the single-file entry, `sideEffects: false`. Only `define` and the
-      marker checks are gate-specific.
-      Against teardown: the next gated feature has to rediscover both traps (a gated
-      command's definition must be referenced only from behind `__BREVO_PREVIEW__`, and
-      that flag outranks `FEATURE_STAGE` for help text and prompt branches), and both cost
-      a release each to learn the first time. They are written down in `preview.ts`'s
-      header; deleting the file deletes the note.
+- [x] **Decided: do not tear it down.** It was torn down once in `4d4b986` and reverted;
+      `CLAUDE.md` → *`build:preview` is not removable* now carries it as a hard rule.
+      The reasoning that produced the teardown was that `PREVIEW=1 yarn build` and
+      `yarn build` emit the same bytes — but that is the expected result whenever every
+      row is `'ga'`, because the flag has nothing to withhold. It is the mechanism
+      working, not the mechanism being unused. Do not re-open this on that argument.
+
+      Kept as one piece: `src/lib/preview.ts`, `src/globals.d.ts`, `jest.setup.js` + its
+      `setupFiles` entry, the esbuild `define` block and the `LEAK_MARKERS` /
+      `LEAK_STRINGS` checks in `scripts/build.mjs`, the `build:preview` script, the
+      `previewFeatureOf` / `assertFeatureAvailable` wiring in `src/lib/command-registry.ts`,
+      the `isFeatureAvailable` calls in `src/commands/app/create.ts`, the `gatedSection` /
+      `distributionValues` / `createDescription` helpers in `src/lib/help.ts`,
+      `messages.PREVIEW_FEATURE_UNAVAILABLE`, and the `preview.test.ts` /
+      `preview-gate.test.ts` suites.
+
+      The two traps it preserves — a gated command's definition must be referenced only
+      from behind `__BREVO_PREVIEW__`, and that flag outranks `FEATURE_STAGE` for help
+      text and prompt branches — cost a release each to learn. They are written down in
+      `preview.ts`'s header; deleting the file deletes the note.
 
 ## Release gates
 
