@@ -146,8 +146,8 @@ const coreEndpoints = {
   // record-page prompt and then narrows the row read with `?location=<csv>`, rather than
   // pulling the whole registry to derive the same handful of strings client-side.
   APP_STORE_SURFACE_POINT_LOCATIONS: '/v3/app-store/surface-points/locations',
-  // The public-app review lifecycle (BEX-405). `APP_STATE` is the canonical review-state
-  // read, shared by
+  // The public-app review lifecycle (BEX-405). Moved here from `preview-constants.ts` at
+  // public-apps GA. `APP_STATE` is the canonical review-state read, shared by
   // `app status` and `app submit`'s preflight; the withdraw route answers 404 for both
   // "no such app" and "no such submission" — see `uninstallApp`/`withdrawApp` in
   // `services/app.ts` for why neither can be told apart by status code.
@@ -185,7 +185,7 @@ export const ENDPOINTS = {
  */
 export const EXAMPLE_APP_ID = '3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93';
 
-export const CLI = {
+const coreCli = {
   LOGIN: 'brevo login',
   INIT: 'brevo app init',
   HELP: 'brevo --help',
@@ -223,7 +223,8 @@ export const CLI = {
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
-  // The public-app review lifecycle (BEX-405). `APP_STATUS` takes no app ID because every message quoting it is
+  // The public-app review lifecycle (BEX-405). Moved here from `preview-constants.ts` at
+  // public-apps GA. `APP_STATUS` takes no app ID because every message quoting it is
   // already about a resolved app; the other two take an optional one so an error can name
   // the exact app to re-run against, falling back to a `<id>` placeholder.
   APP_STATUS: 'brevo app status',
@@ -241,6 +242,16 @@ export const CLI = {
   SKILL_INSTALL: 'brevo skill:cli install',
   SKILL_UNINSTALL: 'brevo skill:cli uninstall',
 } as const;
+
+// Nothing is gated any more, so there is no second object to spread in. Kept as a wrapper
+// around `coreCli` rather than collapsed into one export: `CLI` is what every call site
+// imports, and this is where a future gated-constants module would spread back in.
+// `lib/preview.ts` explains why such a module is needed at all — esbuild cannot prune a
+// property from an object literal, so gated `CLI.*` names shipped as readable strings in
+// the published binary until they were split out.
+export const CLI = {
+  ...coreCli,
+};
 
 export const DEFAULT_APP_FOLDER = 'my-app';
 export const DEFAULT_PORT = 3009;
