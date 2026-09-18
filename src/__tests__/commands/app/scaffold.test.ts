@@ -181,14 +181,28 @@ describe('app/scaffold', () => {
         // Jest runs with no TTY, so the prompt path is unreachable unless it is
         // faked — the two tests that assert the *non*-interactive behaviour set it
         // back to falsy themselves.
-        let originalIsTTY: boolean | undefined;
+        //
+        // Written with `Object.defineProperty` rather than a plain `stdin.isTTY = …`
+        // (the same shape this file uses further down) because most other suites define
+        // the property with `{ value, configurable: true }` and NO `writable`, which
+        // defaults it to non-writable. Jest reuses a worker across files, so once one of
+        // those has run, an assignment here throws `Cannot assign to read only property`
+        // — a failure that depends only on which files share a worker, and so appears and
+        // disappears as unrelated edits reshuffle the schedule. Don't simplify it back.
+        const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
         beforeEach(() => {
-          const stdin = process.stdin as unknown as { isTTY?: boolean };
-          originalIsTTY = stdin.isTTY;
-          stdin.isTTY = true;
+          Object.defineProperty(process.stdin, 'isTTY', {
+            configurable: true,
+            writable: true,
+            value: true,
+          });
         });
         afterEach(() => {
-          (process.stdin as unknown as { isTTY?: boolean }).isTTY = originalIsTTY;
+          if (originalIsTTYDescriptor) {
+            Object.defineProperty(process.stdin, 'isTTY', originalIsTTYDescriptor);
+          } else {
+            Reflect.deleteProperty(process.stdin, 'isTTY');
+          }
         });
 
         it('offers to set the directory up for an existing app, then bootstraps the picked one', async () => {
@@ -442,14 +456,22 @@ describe('app/scaffold', () => {
 
         it('errors instead of prompting when stdin is not a TTY', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
-          const stdin = process.stdin as unknown as { isTTY?: boolean };
-          const original = stdin.isTTY;
-          stdin.isTTY = false;
+          // Descriptor, not assignment — see the note on the enclosing describe's beforeEach.
+          const original = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+          Object.defineProperty(process.stdin, 'isTTY', {
+            configurable: true,
+            writable: true,
+            value: false,
+          });
           try {
             await expect(scaffoldCommand({})).rejects.toThrow(/app-config\.json/i);
             expect(mockPrompt).not.toHaveBeenCalled();
           } finally {
-            stdin.isTTY = original;
+            if (original) {
+              Object.defineProperty(process.stdin, 'isTTY', original);
+            } else {
+              Reflect.deleteProperty(process.stdin, 'isTTY');
+            }
           }
         });
 
