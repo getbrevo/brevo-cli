@@ -14,16 +14,23 @@
  * order this flow calls them.
  */
 import inquirer from 'inquirer';
-import { EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
+import {
+  DEFAULT_MODAL_SIZE,
+  EXTENSION_TYPE_ACTION_LINK,
+  EXTENSION_TYPE_IFRAME,
+} from '../../lib/constants';
 import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import {
   validateUiApp,
+  validateUiAppCardHeight,
   validateUiAppLabel,
   validateUiAppMoreInfo,
+  validateUiAppSizeAxis,
   validateUiAppUrl,
 } from '../../lib/validators';
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
+import { isFeatureAvailable } from '../../lib/preview';
 import { appService } from '../../container';
 import { CreateAppResponse, SurfacePointEntry, SurfacePointRow, UiApp } from '../../types';
 import { formatPlacementLines } from './fields';
@@ -40,9 +47,24 @@ import { formatPlacementLines } from './fields';
 //       3. placement        → single-select of real registry rows on that page.
 //       4. label            → menu entry text / card CTA, for THAT placement.
 //       5. more_info        → optional supporting line, for THAT placement.
-//       6. redirect link    → the destination, for THAT placement.
+//       6. destination URL  → for THAT placement: `redirect_link` for a Link,
+//                             `iframe_href` for an Iframe — the type picked at
+//                             step 1 decides which single URL question this is.
 //
-//     Five questions, one optional, and two registry reads that ask for different things:
+//     An Iframe is then asked how it PRESENTS, which a Link never is — each of the three
+//     questions on a narrower set of placements than the one before it:
+//
+//       7. layout           → widget slots only: inline in the card, or a modal off its
+//                             CTA. An action slot's menu entry opens a modal by
+//                             definition, so there would be one honest answer.
+//       8. modal size       → every entry that actually opens a modal, which includes that
+//                             menu entry and excludes an `inline` card.
+//       9. card height      → `inline` only: the card IS the embedded page there, so its
+//                             height is the partner's call rather than the slot's.
+//                             Pre-filled from the row's `default_size`.
+//
+//     Five questions for a Link, one optional, and two registry reads that ask for
+//     different things:
 //     `surface-points/locations` for the pages, then `surface-points?location=<csv>` for
 //     the placements on the page that was picked. The pages are never derived from a full
 //     row read — the registry answers that question directly.
@@ -66,10 +88,11 @@ import { formatPlacementLines } from './fields';
 //
 //     Placement choices are read from the platform's extension-point registry (BEX-361),
 //     fetch-only with NO local-mirror fallback, so a partner can never author a slot the
-//     platform doesn't have. Only `actionLink` is offered at the integration-type
-//     prompt: the `iframeExtension` choice (previously shown disabled as "coming soon")
-//     was removed 2026-08-19 until iframe authoring is ready, though the upload endpoint
-//     still accepts a hand-edited block — see validateUiApp.
+//     platform doesn't have. Both uploadable types are offered at the integration-type
+//     prompt since the iframe-extension launch — Iframe only on a PRIVATE app, because
+//     iframe extensions are private-only in v1 (the same rule `validateConfig` and the
+//     platform enforce; the choice is hidden rather than shown disabled, so the prompt
+//     never advertises a combination every layer refuses).
 //
 //     The collected block is the app snapshot the platform stores, verbatim, so there is
 //     no vocabulary translation between what a partner authors and what the platform
@@ -338,13 +361,15 @@ async function promptSurfacePoint(
 }
 
 /**
- * Ask what the app integrates as. Only Link (`actionLink`) is offered — the Iframe
- * choice (previously a disabled "coming soon" entry) was removed 2026-08-19 until
- * iframe authoring is ready. The question is still asked with one choice, same as the
- * gated app-type and distribution prompts: the user is told what they are getting
- * rather than having it applied silently.
+ * Ask what the app integrates as: a Link (`actionLink`) always, an Iframe
+ * (`iframeExtension`) only on a private app in a build that has the feature — iframe
+ * extensions are private-only in v1, and the choice is HIDDEN rather than shown disabled:
+ * a disabled entry would advertise a combination the CLI validator and the platform both
+ * refuse, which is a roadmap hint about a rule, not a feature. On a public app the
+ * question is still asked with its one choice, same as the gated app-type and distribution
+ * prompts: the user is told what they are getting rather than having it applied silently.
  */
-async function promptIntegrationType(): Promise<UiApp['extension_type']> {
+async function promptIntegrationType(offerIframe: boolean): Promise<UiApp['extension_type']> {
   const { integrationType } = await inquirer.prompt([
     {
       type: 'list',
@@ -355,6 +380,20 @@ async function promptIntegrationType(): Promise<UiApp['extension_type']> {
           name: messages.APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK,
           value: EXTENSION_TYPE_ACTION_LINK,
         },
+        // ELIMINATION SITE — the raw global rather than `isFeatureAvailable` alone, so
+        // esbuild folds the whole branch away on a published build and the choice's label
+        // (which lives in `preview-messages.ts` for exactly this reason) leaves the bundle
+        // with it. `isFeatureAvailable` stays alongside it so `FEATURE_STAGE` remains the
+        // one place the feature's readiness is stated — same pairing as the gated
+        // `--distribution public` choice in `app create`.
+        ...(__BREVO_PREVIEW__ && isFeatureAvailable('ui-iframe-type') && offerIframe
+          ? [
+              {
+                name: messages.APP_CREATE_UI_INTEGRATION_MODAL_IFRAME,
+                value: EXTENSION_TYPE_IFRAME,
+              },
+            ]
+          : []),
       ]),
     },
   ]);
@@ -367,11 +406,14 @@ async function promptIntegrationType(): Promise<UiApp['extension_type']> {
  * field is asked for, with no flag or default fallback path. (That also means
  * the fetch spinner never needs a `silent` option: the UI path is unreachable
  * under `--json`.)
+ *
+ * `distribution` is the answer the create flow already collected; it gates the Iframe
+ * choice (private-only in v1) rather than being re-asked or inferred here.
  */
-export async function resolveUiApp(): Promise<UiApp> {
+export async function resolveUiApp(distribution: string): Promise<UiApp> {
   // Integration type first: it is the decision a partner arrives with, and it decides
   // which registry rows can host the app at all.
-  const extensionType = await promptIntegrationType();
+  const extensionType = await promptIntegrationType(distribution === 'private');
   const locations = await fetchRecordPageLocations(extensionType);
   const selectedRows = await promptSurfacePoint(locations, extensionType);
 
@@ -393,14 +435,41 @@ export async function resolveUiApp(): Promise<UiApp> {
     },
   ]);
 
+  // ONE URL question either way — the integration type decides which field it answers.
+  // A Link's destination opens in a new tab (`redirect_link`); an Iframe's page is
+  // embedded in a modal inside Brevo (`iframe_href`). Same validator: both fields
+  // carry the same https contract, judged again server-side at upload.
+  const isIframe = extensionType === EXTENSION_TYPE_IFRAME;
   const { url } = await inquirer.prompt([
     {
       type: 'input',
       name: 'url',
-      message: messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
+      message: isIframe
+        ? messages.APP_CREATE_UI_IFRAME_HREF_PROMPT
+        : messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
       validate: validateUiAppUrl,
     },
   ]);
+
+  // Inline vs modal — asked only for an Iframe on a WIDGET slot: an action slot's menu
+  // entry must open something, so it is a modal by definition and the question would have
+  // one honest answer. Both answers are written to the entry, the default included: an
+  // authored `layout: "modal"` says in the file what an absent key only implies.
+  const layout = await promptIframeLayout(isIframe, selectedRows);
+
+  // How big that modal is — asked whenever one actually opens, which is a DIFFERENT set of
+  // entries from the layout question above. Layout is widget-only; a modal opens on an
+  // action slot (always) and on a widget slot unless the answer above was `inline`, which
+  // embeds the page in the card and opens nothing. Written for every answer, `large`
+  // included, same contract as the layout above.
+  const modalSize = await promptModalSize(isIframe, layout);
+
+  // How tall the card is — asked for the one presentation where the card IS the embedded
+  // page. An `inline` answer above means the iframe renders in the card body, so its
+  // height is the partner's decision and the slot's default is only a starting point;
+  // everything else keeps the silent seed (a modal sizes itself from `modal_size`, an
+  // action slot renders no card, a Link's card shows a CTA rather than a page).
+  const cardHeight = await promptInlineCardHeight(isIframe, layout, selectedRows);
 
   const uiApp: UiApp = {
     extension_type: extensionType,
@@ -418,12 +487,20 @@ export async function resolveUiApp(): Promise<UiApp> {
       contextFor: (row) => row.default_context_field ?? [],
       // The slot's default card size (BEX-461) seeds the entry's `size` the same way the
       // row's `default_context_field` seeds `context`: written explicitly into the file,
-      // where the partner can see and edit it. Not prompted (D2) — the registry default
-      // is the platform's answer to the question the flow deliberately doesn't ask.
-      sizeFor: (row) => row.default_size ?? undefined,
+      // where the partner can see and edit it. The registry is the only source of that
+      // seed — the CLI keeps no card-size constant to fall back to, for the same reason
+      // it keeps no copy of the slot names.
+      //
+      // An answered inline card height overrides the seed's height ONLY: a `width` the
+      // slot declared is the column geometry the partner was never asked about, so it
+      // survives the override untouched.
+      sizeFor: (row) => withCardHeight(row.default_size ?? undefined, cardHeight),
       label: String(label ?? '').trim(),
       more_info: String(more_info ?? '').trim(),
-      redirect_link: String(url ?? '').trim(),
+      urlField: isIframe ? 'iframe_href' : 'redirect_link',
+      url: String(url ?? '').trim(),
+      layout,
+      modal_size: modalSize,
     }),
     // No link_target: `brevo app upload` injects `_blank`. See the field's note in
     // types.ts — the server refuses `_self`, so a field in the file would only
@@ -456,10 +533,12 @@ export interface UiAppNonInteractiveInput {
  * of prompts. Reachable from `--ui-config`/`--ui-app` regardless of TTY/`--json`/piped
  * stdin (see `create.ts`'s interception point ahead of `resolveAppType`).
  *
- * Scoped to `actionLink` only, same as the interactive flow (see the module comment
- * above on why iframe authoring isn't offered) — checked first, before any network
- * call, so an iframe/legacy request fails immediately rather than after two registry
- * round trips.
+ * Scoped to `actionLink` only — checked first, before any network call, so an
+ * iframe/legacy request fails immediately rather than after two registry round trips.
+ * NOT the same as the interactive flow any more: that one does offer `iframeExtension`
+ * (on a private app). This route stays `actionLink`-only deliberately — a scriptable
+ * iframe surface would invite pipelines to pin to a shape that can still change, the
+ * same reasoning that keeps `--type` off `app create` altogether.
  */
 export async function resolveUiAppNonInteractive(input: UiAppNonInteractiveInput): Promise<UiApp> {
   if (input.extensionType !== EXTENSION_TYPE_ACTION_LINK) {
@@ -493,12 +572,157 @@ export async function resolveUiAppNonInteractive(input: UiAppNonInteractiveInput
       sizeFor: (row) => row.default_size ?? undefined,
       label: input.label.trim(),
       more_info: input.moreInfo.trim(),
-      redirect_link: input.url.trim(),
+      // The non-interactive routes are actionLink-only by design, so the destination is
+      // always redirect_link here — the iframe branch exists on the interactive flow only.
+      urlField: 'redirect_link',
+      url: input.url.trim(),
     }),
   };
 
   validateUiApp(uiApp);
   return uiApp;
+}
+
+/**
+ * Ask how an Iframe presents on a widget slot: the card CTA opening a modal (default), or the
+ * page embedded directly in the card body. BOTH answers reach the file — the entry says in
+ * writing how it presents, rather than leaving a reader of `app-config.json` to know that an
+ * absent `layout` means modal.
+ *
+ * `undefined` therefore means one thing only: the field does not APPLY to this entry — a Link,
+ * or an action slot, whose menu entry is a modal by definition and which the platform refuses
+ * a `layout` on outright. It no longer doubles as "answered modal"; `promptModalSize` below
+ * depends on that, and so does `buildSurfacePointList`'s widget-only refusal.
+ */
+async function promptIframeLayout(
+  isIframe: boolean,
+  rows: UsableSurfacePoint[],
+): Promise<'inline' | 'modal' | undefined> {
+  const onWidget = rows.some((row) => row.component_type === 'widget');
+  if (!isIframe || !onWidget) return undefined;
+  const { layout } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'layout',
+      message: messages.APP_CREATE_UI_LAYOUT_PROMPT,
+      choices: indentChoices([
+        { name: messages.APP_CREATE_UI_LAYOUT_MODAL, value: 'modal' },
+        { name: messages.APP_CREATE_UI_LAYOUT_INLINE, value: 'inline' },
+      ]),
+    },
+  ]);
+  return layout === 'inline' ? 'inline' : 'modal';
+}
+
+/**
+ * Ask how big the modal an Iframe opens should be. Every answer reaches the file, the default
+ * included, for the same reason `layout` writes its default: the size a modal opens at is
+ * visible in the config rather than implied by an absent key.
+ *
+ * `undefined` means the field does not APPLY: a Link, or an entry whose layout answer was
+ * `inline` — it embeds the page in the card body and opens no modal at all, so a size here
+ * would size nothing.
+ *
+ * The gating is deliberately NOT `promptIframeLayout`'s. That question is widget-only,
+ * because an action slot's menu entry has exactly one presentation; this one applies to
+ * every iframe entry that opens a modal, which includes that menu entry. `layout` is
+ * `undefined` on an action slot and `'modal'` on a widget slot that answered so — both of
+ * those DO open a modal — so `layout === 'inline'` is the whole exclusion.
+ */
+async function promptModalSize(
+  isIframe: boolean,
+  layout: 'inline' | 'modal' | undefined,
+): Promise<'small' | 'medium' | 'large' | undefined> {
+  if (!isIframe || layout === 'inline') return undefined;
+  const { modalSize } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'modalSize',
+      message: messages.APP_CREATE_UI_MODAL_SIZE_PROMPT,
+      // The default is pre-selected rather than listed first, so the choices stay in size
+      // order and a bare Enter still lands on the platform's own default.
+      default: DEFAULT_MODAL_SIZE,
+      choices: indentChoices([
+        { name: messages.APP_CREATE_UI_MODAL_SIZE_SMALL, value: 'small' },
+        { name: messages.APP_CREATE_UI_MODAL_SIZE_MEDIUM, value: 'medium' },
+        { name: messages.APP_CREATE_UI_MODAL_SIZE_LARGE, value: DEFAULT_MODAL_SIZE },
+      ]),
+    },
+  ]);
+  return modalSize === 'small' || modalSize === 'medium' ? modalSize : DEFAULT_MODAL_SIZE;
+}
+
+/**
+ * Ask how tall an inline iframe card should be, pre-filled with the slot's own default.
+ *
+ * Asked for `layout === 'inline'` and nothing else, which is the narrowest gate of the
+ * three presentation questions and deliberately so: an inline card IS the embedded page,
+ * so its height is the one piece of card geometry the slot cannot decide on the partner's
+ * behalf. A modal is sized by `modal_size`, an action slot renders no card at all, and a
+ * Link's card shows a CTA rather than a page — in every one of those the registry's
+ * `default_size` is the whole answer, and asking would be a question with no better one.
+ *
+ * `undefined` means "no answer to apply", from a skipped question or a blank one, and the
+ * entry then carries the registry seed exactly as it did before this question existed.
+ * That is why blank is valid rather than re-prompted: the seed is a real answer — the
+ * platform's — so an Enter through this question is not an omission.
+ */
+async function promptInlineCardHeight(
+  isIframe: boolean,
+  layout: 'inline' | 'modal' | undefined,
+  rows: UsableSurfacePoint[],
+): Promise<string | undefined> {
+  if (!isIframe || layout !== 'inline') return undefined;
+  const { cardHeight } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'cardHeight',
+      message: messages.APP_CREATE_UI_CARD_HEIGHT_PROMPT,
+      // Pre-filled from the registry rather than from a constant here: the slot owns its
+      // default, and a local one could only lag it. A row that declares none shows no
+      // pre-fill — the prompt's own example carries the grammar in that case.
+      default: seededCardHeight(rows),
+      validate: validateUiAppCardHeight,
+    },
+  ]);
+  return String(cardHeight ?? '').trim() || undefined;
+}
+
+/**
+ * The card height to pre-fill: the first selected row's registry default, when it is one
+ * this flow's own validator accepts.
+ *
+ * Checked rather than trusted, for the reason `sanitizeSeededSize` exists further down —
+ * a server predating the field, or echoing an unexpected shape, must degrade to "no
+ * pre-fill" rather than seat a value in the answer box that the prompt then refuses to
+ * accept, which is a dead end a partner can only escape by retyping the field.
+ *
+ * Reads the rows as a list although the flow selects exactly one placement: the prompt is
+ * asked once for the whole answer, so a future multi-placement flow would want the first
+ * usable default rather than an arbitrary row's.
+ */
+function seededCardHeight(rows: UsableSurfacePoint[]): string | undefined {
+  for (const row of rows) {
+    const height =
+      typeof row.default_size?.height === 'string' ? row.default_size.height.trim() : '';
+    if (height && validateUiAppCardHeight(height) === true) return height;
+  }
+  return undefined;
+}
+
+/**
+ * Apply an answered inline card height to a row's seeded size.
+ *
+ * Height only, and by merge rather than replacement: the question asked about one axis, so
+ * a `width` the registry declared for the slot is not the partner's to have silently
+ * dropped by answering a different question. No answer leaves the seed exactly as served.
+ */
+function withCardHeight(
+  seeded: { width?: string; height?: string } | undefined,
+  cardHeight: string | undefined,
+): { width?: string; height?: string } | undefined {
+  if (!cardHeight) return seeded;
+  return { ...seeded, height: cardHeight };
 }
 
 /**
@@ -529,52 +753,106 @@ export async function resolveUiAppNonInteractive(input: UiAppNonInteractiveInput
  * `sizeFor` seeds each entry's `size` from ITS row (the registry default, BEX-461), the
  * same per-row contract as `contextFor`; a row with no default writes no `size` key, so
  * the host's own fallback keeps applying, exactly as before the seed existed.
+ *
+ * `urlField` names which destination the answered URL is: `redirect_link` for a Link,
+ * `iframe_href` for an Iframe. One field, never both — the platform refuses the
+ * other type's URL on an entry, so writing both would author a block upload 400s on.
+ *
+ * `layout` and `modal_size` are written whenever they APPLY to the entry, default answers
+ * included — an authored `layout: "modal"` / `modal_size: "large"` states the presentation
+ * in the file instead of leaving a reader to know what an absent key means. `undefined` is
+ * reserved for "does not apply": no `layout` on a row that renders no card, no `modal_size`
+ * on an entry that opens no modal. A `layout` handed in for a row that renders no card is
+ * REFUSED here rather than stamped: see the check in the loop.
  */
+interface SurfacePointEntryFields {
+  contextFor: (row: UsableSurfacePoint) => string[];
+  sizeFor: (row: UsableSurfacePoint) => { width?: string; height?: string } | undefined;
+  label: string;
+  more_info: string;
+  urlField: 'redirect_link' | 'iframe_href';
+  url: string;
+  /** Written as answered. Absent only when the field does not apply: a Link, or a row that
+   * renders no card and therefore takes no layout at all. */
+  layout?: 'inline' | 'modal';
+  /** Written as answered, `'large'` included. Absent only when the field does not apply: a
+   * Link, or an entry whose `layout` is `'inline'` and so opens no modal to size. */
+  modal_size?: 'small' | 'medium' | 'large';
+}
+
 export function buildSurfacePointList(
   rows: UsableSurfacePoint[],
-  fields: {
-    contextFor: (row: UsableSurfacePoint) => string[];
-    sizeFor: (row: UsableSurfacePoint) => { width?: string; height?: string } | undefined;
-    label: string;
-    more_info: string;
-    redirect_link: string;
-  },
+  fields: SurfacePointEntryFields,
 ): SurfacePointEntry[] {
   const entries: SurfacePointEntry[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
     if (seen.has(row.surface_point_name)) continue;
     seen.add(row.surface_point_name);
-    const context = fields
-      .contextFor(row)
-      .map((field) => String(field).trim())
-      .filter(Boolean);
-    const size = sanitizeSeededSize(fields.sizeFor(row));
-    entries.push({
-      surface_point_name: row.surface_point_name,
-      ...(context.length ? { context } : {}),
-      ...(size ? { size } : {}),
-      label: fields.label,
-      ...(fields.more_info ? { more_info: fields.more_info } : {}),
-      redirect_link: fields.redirect_link,
-    });
+    // A layout only means something on a slot that renders a card. The prompt above never
+    // asks for one on any other slot, so this cannot fire from the interactive flow — but
+    // the builder is what actually stamps the field, and it stamps whatever row it is
+    // handed. Left unchecked, a caller that resolved its rows differently (the
+    // non-interactive routes, a future flow) would author a block the upload endpoint
+    // rejects, and the partner would meet the rule one round trip later, phrased by the
+    // server. Named per entry, in the same shape `validateUiApp` uses.
+    if (fields.layout && row.component_type !== 'widget') {
+      throw new CliError(messages.APP_CREATE_UI_LAYOUT_NOT_WIDGET(row.surface_point_name));
+    }
+    entries.push(toSurfacePointEntry(row, fields));
   }
   return entries;
 }
 
 /**
- * Reduce a registry-served default size to the axes worth writing: non-blank strings only,
- * and no `size` key at all when nothing survives. Belt and braces — the registry's own
- * CHECK pins the grammar at seed time — but a server predating the field, or one echoing
- * an unexpected shape, must degrade to "no seed" rather than write a key `validateUiApp`
- * then refuses in the very flow that authored it.
+ * One row's entry. Split out of the loop above so the loop reads as what it decides —
+ * which rows get an entry at all — while the omit-when-blank rules that decide the
+ * entry's SHAPE sit together in one place.
+ */
+function toSurfacePointEntry(
+  row: UsableSurfacePoint,
+  fields: SurfacePointEntryFields,
+): SurfacePointEntry {
+  const context = fields
+    .contextFor(row)
+    .map((field) => String(field).trim())
+    .filter(Boolean);
+  const size = sanitizeSeededSize(fields.sizeFor(row));
+  return {
+    surface_point_name: row.surface_point_name,
+    ...(context.length ? { context } : {}),
+    ...(size ? { size } : {}),
+    label: fields.label,
+    ...(fields.more_info ? { more_info: fields.more_info } : {}),
+    ...(fields.layout ? { layout: fields.layout } : {}),
+    ...(fields.modal_size ? { modal_size: fields.modal_size } : {}),
+    [fields.urlField]: fields.url,
+  };
+}
+
+/**
+ * Reduce a registry-served default size to the axes worth writing: the ones that are
+ * actually authorable, and no `size` key at all when nothing survives. Belt and braces —
+ * the registry's own CHECK pins the grammar at seed time — but a server predating the
+ * field, or one echoing an unexpected shape, must degrade to "no seed" rather than write a
+ * key `validateUiApp` then refuses in the very flow that authored it.
+ *
+ * Judged by the authored-size grammar itself (`validateUiAppSizeAxis`), not by
+ * non-blankness: a `"100"` with no unit is exactly the kind of near-miss a stale seed
+ * produces, and dropping only blanks let it through to the validator two lines later. An
+ * answered card height never reaches here needing this — the prompt refuses a bad one at
+ * the terminal — so this is the seed path's own guard.
  */
 function sanitizeSeededSize(
   raw: { width?: string; height?: string } | undefined,
 ): { width?: string; height?: string } | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
-  const width = typeof raw.width === 'string' ? raw.width.trim() : '';
-  const height = typeof raw.height === 'string' ? raw.height.trim() : '';
+  const axis = (name: 'width' | 'height'): string => {
+    const value = typeof raw[name] === 'string' ? raw[name].trim() : '';
+    return value && validateUiAppSizeAxis(name, value) === true ? value : '';
+  };
+  const width = axis('width');
+  const height = axis('height');
   if (!width && !height) return undefined;
   return { ...(width ? { width } : {}), ...(height ? { height } : {}) };
 }
@@ -608,18 +886,23 @@ function buildExampleContextUrl(redirectLink: string, context: readonly string[]
 /**
  * The example-URL lines for the created-app box, or none at all.
  *
- * Built from the FIRST placement that declares both a context and its own
- * `redirect_link` (the two live on the same entry since BEX-426): entries can differ,
- * but one example makes the point without turning the box into a list. Nothing is
- * printed when no placement declares a context — the entry's plain `redirect link` line
- * above already says everything there is to say in that case.
+ * Built from the FIRST placement that declares both a context and its own destination —
+ * `redirect_link` or `iframe_href`, whichever the entry's type carries (the two live
+ * on the same entry since BEX-426): entries can differ, but one example makes the point
+ * without turning the box into a list. Nothing is printed when no placement declares a
+ * context — the entry's plain destination line above already says everything there is to
+ * say in that case. Context reaches an iframe's URL the same way it reaches a redirect:
+ * as query parameters, appended by the kit's one URL builder.
  */
 function renderExampleContextUrlLines(uiApp: UiApp): string[] {
   const withContext = uiApp.surface_point_list.find(
-    (entry) => entry.context?.length && entry.redirect_link,
+    (entry) => entry.context?.length && (entry.redirect_link || entry.iframe_href),
   );
   if (!withContext) return [];
-  const example = buildExampleContextUrl(withContext.redirect_link!, withContext.context ?? []);
+  const example = buildExampleContextUrl(
+    (withContext.redirect_link ?? withContext.iframe_href)!,
+    withContext.context ?? [],
+  );
   if (!example) return [];
   return [
     '',

@@ -103,8 +103,53 @@ import {
   computeCdHint,
 } from '../../../commands/app/project-writer';
 import { promptFeatureType } from '../../../commands/app/scaffold-prompts';
+// The platform-owned key list `--ui-config` derives its second refusal from. Imported
+// so the test asserts the derivation rather than re-typing the four names.
+import { uiAppType } from '../../../app-types/ui';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
+
+/**
+ * Mocks a successful OAuth-app create response with the standard fixture fields —
+ * every field overridable, unset ones keep this default. Extracted because the same
+ * response shape, repeated with different literal values across many tests, is
+ * indistinguishable duplication to SonarCloud's copy-paste detector (it normalizes
+ * literals), which is what pushed this file's "duplication on new code" over budget.
+ */
+function mockOAuthCreateResponse(overrides: Record<string, unknown> = {}): void {
+  (appService.createApp as jest.Mock).mockResolvedValue({
+    app_id: 1,
+    name: 'Test App',
+    client_id: 'cli-123',
+    client_secret: 'secret-456',
+    redirect_uris: ['http://localhost:3009/auth/callback'],
+    ...overrides,
+  });
+}
+
+/**
+ * Queues the standard interactive OAuth-create prompt chain — logo, app type, one
+ * redirect URL, the "any more?" question, then scaffold-a-feature — so a test overrides
+ * only the answer it's actually testing. Same duplication rationale as
+ * `mockOAuthCreateResponse` above. `fourthAnswer` covers the two spellings this file
+ * uses for "any more redirect URLs?" (`{ another: false }` vs `{ anotherRaw: 'n' }`).
+ */
+function mockOAuthPromptChain(
+  overrides: {
+    redirectUrl?: string;
+    fourthAnswer?: Record<string, unknown>;
+    scaffoldRaw?: string;
+  } = {},
+): void {
+  mockPrompt
+    .mockResolvedValueOnce({ logoUrl: '' })
+    .mockResolvedValueOnce({ appType: 'oauth' })
+    .mockResolvedValueOnce({
+      redirectUrl: overrides.redirectUrl ?? 'http://localhost:3009/auth/callback',
+    })
+    .mockResolvedValueOnce(overrides.fourthAnswer ?? { another: false })
+    .mockResolvedValueOnce({ scaffoldRaw: overrides.scaffoldRaw ?? 'y' });
+}
 
 describe('app/create', () => {
   let stdoutSpy: jest.SpyInstance;
@@ -181,22 +226,8 @@ describe('app/create', () => {
   });
 
   it('should create an app, write base files, then scaffold the feature on consent', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 1,
-      name: 'Test App',
-      client_id: 'cli-123',
-      client_secret: 'secret-456',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-      created_at: '2026-01-01',
-      updated_at: '2026-01-01',
-    });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' }) // logo
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' }) // redirect URL
-      .mockResolvedValueOnce({ another: false }) // no more URLs
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' }); // scaffold a feature?
+    mockOAuthCreateResponse({ created_at: '2026-01-01', updated_at: '2026-01-01' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
@@ -324,19 +355,13 @@ describe('app/create', () => {
 
   describe('feature scaffolding', () => {
     it('prompts to scaffold a feature (default yes) and scaffolds oauth when accepted', async () => {
-      (appService.createApp as jest.Mock).mockResolvedValue({
+      mockOAuthCreateResponse({
         app_id: 8,
         name: 'Feature App',
         client_id: 'cli-feat',
         client_secret: 'secret-feat',
-        redirect_uris: ['http://localhost:3009/auth/callback'],
       });
-      mockPrompt
-        .mockResolvedValueOnce({ logoUrl: '' })
-        .mockResolvedValueOnce({ appType: 'oauth' })
-        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+      mockOAuthPromptChain();
 
       await createCommand({ name: 'Feature App', distribution: 'private' });
 
@@ -358,20 +383,14 @@ describe('app/create', () => {
     });
 
     it('renders the created-app box + base files before prompting to scaffold a feature', async () => {
-      (appService.createApp as jest.Mock).mockResolvedValue({
+      mockOAuthCreateResponse({
         app_id: 30,
         name: 'Order App',
         client_id: 'cli-order',
         client_secret: 'secret-order',
-        redirect_uris: ['http://localhost:3009/auth/callback'],
         version: '0.0.1',
       });
-      mockPrompt
-        .mockResolvedValueOnce({ logoUrl: '' })
-        .mockResolvedValueOnce({ appType: 'oauth' })
-        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+      mockOAuthPromptChain({ scaffoldRaw: 'n' });
 
       await createCommand({ name: 'Order App', distribution: 'private' });
 
@@ -388,19 +407,13 @@ describe('app/create', () => {
     });
 
     it('writes only base files when the user declines the feature prompt', async () => {
-      (appService.createApp as jest.Mock).mockResolvedValue({
+      mockOAuthCreateResponse({
         app_id: 8,
         name: 'Base Only App',
         client_id: 'cli-base',
         client_secret: 'secret-base',
-        redirect_uris: ['http://localhost:3009/auth/callback'],
       });
-      mockPrompt
-        .mockResolvedValueOnce({ logoUrl: '' })
-        .mockResolvedValueOnce({ appType: 'oauth' })
-        .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-        .mockResolvedValueOnce({ another: false })
-        .mockResolvedValueOnce({ scaffoldRaw: 'n' });
+      mockOAuthPromptChain({ scaffoldRaw: 'n' });
 
       await createCommand({ name: 'Base Only App', distribution: 'private' });
 
@@ -729,21 +742,14 @@ describe('app/create', () => {
   });
 
   it('should show the server-assigned version in the created-app box', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
+    mockOAuthCreateResponse({
       app_id: 3,
       name: 'Versioned App',
       client_id: 'cli-v',
       client_secret: 'secret-v',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
       version: '0.0.1',
     });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Versioned App', distribution: 'private' });
 
@@ -795,20 +801,13 @@ describe('app/create', () => {
   });
 
   it('should print the test-flow hint above the redirect prompt in interactive mode', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
+    mockOAuthCreateResponse({
       app_id: 4,
       name: 'Hint App',
       client_id: 'cli-hint',
       client_secret: 'secret-hint',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
     });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Hint App', distribution: 'private' });
 
@@ -1162,20 +1161,13 @@ describe('app/create', () => {
   });
 
   it('should create a public app when --distribution public is passed', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
+    mockOAuthCreateResponse({
       app_id: 7,
       name: 'Public App',
       client_id: 'cli-public',
       client_secret: 'secret-public',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
     });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Public App', distribution: 'public' });
 
@@ -1209,20 +1201,13 @@ describe('app/create', () => {
   });
 
   it('should accept app name with accented characters via --name flag', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
+    mockOAuthCreateResponse({
       app_id: 5,
       name: 'Café Résumé',
       client_id: 'cli-accent',
       client_secret: 'secret',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
     });
-
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ another: false })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthPromptChain();
 
     await createCommand({ name: 'Café Résumé', distribution: 'private' });
 
@@ -1419,19 +1404,8 @@ describe('app/create', () => {
   });
 
   it('sends DEFAULT_SCOPES on create (not the legacy "all")', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 1,
-      name: 'Test App',
-      client_id: 'cli-123',
-      client_secret: 'secret-456',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-    });
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ anotherRaw: 'n' })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthCreateResponse();
+    mockOAuthPromptChain({ fourthAnswer: { anotherRaw: 'n' } });
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
@@ -1445,19 +1419,8 @@ describe('app/create', () => {
   });
 
   it('prints the scope info line in text mode', async () => {
-    (appService.createApp as jest.Mock).mockResolvedValue({
-      app_id: 1,
-      name: 'Test App',
-      client_id: 'cli-123',
-      client_secret: 'secret-456',
-      redirect_uris: ['http://localhost:3009/auth/callback'],
-    });
-    mockPrompt
-      .mockResolvedValueOnce({ logoUrl: '' })
-      .mockResolvedValueOnce({ appType: 'oauth' }) // app type
-      .mockResolvedValueOnce({ redirectUrl: 'http://localhost:3009/auth/callback' })
-      .mockResolvedValueOnce({ anotherRaw: 'n' })
-      .mockResolvedValueOnce({ scaffoldRaw: 'y' });
+    mockOAuthCreateResponse();
+    mockOAuthPromptChain({ fourthAnswer: { anotherRaw: 'n' } });
 
     await createCommand({ name: 'Test App', distribution: 'private' });
 
@@ -1756,13 +1719,10 @@ describe('app/create', () => {
       expect(questionNamed(name)).toBeUndefined();
     });
 
-    // Decision 2026-08-19: only actionLink is authorable, and the Iframe choice is
-    // GONE from the prompt — it was shown as a disabled "coming soon" entry until
-    // iframe authoring stalled, and a roadmap hint that outlives its date misleads.
-    // The prompt is still asked with its one choice, so the user is told what they
-    // are getting. (The platform still accepts a hand-edited iframeExtension block
-    // at upload.)
-    it('offers the integration-type prompt with Link as the only choice', async () => {
+    // The iframe-extension launch: Iframe is back in the prompt (it was removed
+    // 2026-08-19 while authoring wasn't ready), enabled rather than shown as a disabled
+    // "coming soon" entry — on a PRIVATE app.
+    it('offers Link and Iframe, both enabled, on a private app', async () => {
       await createCommand(CLI_OPTIONS);
 
       const question = questionNamed('integrationType');
@@ -1772,8 +1732,372 @@ describe('app/create', () => {
       const iframe = choices.find((c) => c.value === 'iframeExtension');
       expect(link).toBeDefined();
       expect(link?.disabled).toBeUndefined();
-      expect(iframe).toBeUndefined();
+      expect(iframe).toBeDefined();
+      expect(iframe?.disabled).toBeUndefined();
       expect(collectedUiApp().extension_type).toBe('actionLink');
+    });
+
+    // Iframe extensions are private-only (v1). The choice is HIDDEN on a public app, not
+    // disabled: a disabled entry would advertise a combination the CLI validator and the
+    // platform both refuse. (Public distribution is itself preview-gated, which jest's
+    // setup enables — see jest.setup.js.)
+    it('hides the Iframe choice on a public app', async () => {
+      await createCommand({ name: 'Invoice Manager', distribution: 'public' });
+
+      const question = questionNamed('integrationType');
+      expect(question).toBeDefined();
+      const choices = (question?.choices ?? []) as Array<{ value?: string }>;
+      expect(choices.find((c) => c.value === 'actionLink')).toBeDefined();
+      expect(choices.find((c) => c.value === 'iframeExtension')).toBeUndefined();
+    });
+
+    // Iframe extensions are preview-gated (BEX-459) — the registry has no slot enabled
+    // for them and bo-be gates authoring per account, so a published build must not offer
+    // the choice at all. jest runs as a PREVIEW build (jest.setup.js), so this is the one
+    // place that flips the global to prove the published build hides it. The prompt is
+    // still asked, with Link alone: the user is told what they are getting, same as every
+    // other gated choice.
+    it('hides the Iframe choice on a published build, even on a private app', async () => {
+      globalThis.__BREVO_PREVIEW__ = false;
+      try {
+        await createCommand(CLI_OPTIONS);
+      } finally {
+        globalThis.__BREVO_PREVIEW__ = true;
+      }
+
+      const question = questionNamed('integrationType');
+      expect(question).toBeDefined();
+      const choices = (question?.choices ?? []) as Array<{ value?: string }>;
+      expect(choices.find((c) => c.value === 'actionLink')).toBeDefined();
+      expect(choices.find((c) => c.value === 'iframeExtension')).toBeUndefined();
+      expect(collectedUiApp().extension_type).toBe('actionLink');
+    });
+
+    // The Iframe branch: same five questions, but the URL answer lands in
+    // `iframe_href` — never `redirect_link`, which the platform refuses on an
+    // iframeExtension entry — and both registry reads narrow by the chosen type.
+    it('authors iframe_href, not redirect_link, when Iframe is chosen', async () => {
+      answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(appService.fetchSurfacePointLocations).toHaveBeenCalledWith('iframeExtension');
+      expect(appService.fetchSurfacePoints).toHaveBeenCalledWith(
+        ['contactDetails'],
+        'iframeExtension',
+      );
+      const uiApp = collectedUiApp();
+      expect(uiApp.extension_type).toBe('iframeExtension');
+      expect(uiApp.surface_point_list).toHaveLength(1);
+      const entry = uiApp.surface_point_list[0];
+      expect(entry.iframe_href).toBe('https://example.com/embed');
+      expect(entry).not.toHaveProperty('redirect_link');
+      expect(entry).not.toHaveProperty('link_target');
+    });
+
+    // Inline cards: the layout question is asked only for an Iframe on a WIDGET slot, and
+    // BOTH answers are written — the entry states how it presents rather than leaving a
+    // reader of app-config.json to know what an absent `layout` falls back to.
+    it('asks the layout question for an iframe widget placement and writes inline', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        placement: 'contact-details-overview-main',
+        url: 'https://example.com/embed',
+        layout: 'inline',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('layout')).toBeDefined();
+      expect(collectedUiApp().surface_point_list[0].layout).toBe('inline');
+    });
+
+    // An action slot's menu entry takes no layout AT ALL — the platform refuses the field
+    // there — so this is the one case that still writes nothing, and it is absence for a
+    // different reason than a default answer.
+    it('skips the layout question on an action slot, which takes no layout', async () => {
+      answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('layout')).toBeUndefined();
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('layout');
+    });
+
+    it('writes layout "modal" when the widget answer is modal (the default)', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        placement: 'contact-details-overview-main',
+        url: 'https://example.com/embed',
+        layout: 'modal',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list[0].layout).toBe('modal');
+    });
+
+    // Modal size is gated DIFFERENTLY from layout, and the difference is the point: layout
+    // is widget-only (an action slot's menu entry has one presentation), while a modal
+    // size applies to every iframe entry that actually opens a modal — which includes that
+    // menu entry, and excludes a widget card answered `inline`.
+    it('asks the modal size on an action slot, which opens a modal by definition', async () => {
+      answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('layout')).toBeUndefined();
+      expect(questionNamed('modalSize')).toBeDefined();
+    });
+
+    it('asks the modal size on a widget slot answered modal', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        placement: 'contact-details-overview-main',
+        url: 'https://example.com/embed',
+        layout: 'modal',
+        modalSize: 'small',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('modalSize')).toBeDefined();
+      expect(collectedUiApp().surface_point_list[0].modal_size).toBe('small');
+    });
+
+    // An inline card embeds the page and opens nothing, so a size here would size nothing.
+    it('skips the modal size when the widget layout answer is inline', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        placement: 'contact-details-overview-main',
+        url: 'https://example.com/embed',
+        layout: 'inline',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('modalSize')).toBeUndefined();
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('modal_size');
+    });
+
+    it('never asks the modal size for a Link', async () => {
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('modalSize')).toBeUndefined();
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('modal_size');
+    });
+
+    // Large is the default and IS written, the same contract the layout question has: the
+    // entry records the size it opens at rather than implying it by omission. The prompt
+    // pre-SELECTS it rather than listing it first, so a bare Enter still lands there.
+    it('writes the default modal size, which is pre-selected', async () => {
+      answerPrompts({
+        integrationType: 'iframeExtension',
+        url: 'https://example.com/embed',
+        modalSize: 'large',
+      });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('modalSize')?.default).toBe('large');
+      expect(collectedUiApp().surface_point_list[0].modal_size).toBe('large');
+    });
+
+    // ──────── The inline card height (BEX-461) ────────
+    // The narrowest of the three presentation questions: asked for an `inline` iframe and
+    // nothing else, because that is the one card that IS the embedded page. Its pre-fill
+    // comes from the registry row, never from a constant here — the slot owns its default
+    // card size the same way it owns its context allow-list.
+
+    const INLINE = {
+      integrationType: 'iframeExtension',
+      placement: 'contact-details-overview-main',
+      layout: 'inline',
+      url: 'https://example.com/embed',
+    } as const;
+
+    const WIDGET_ROW = (extra: Record<string, unknown> = {}) => [
+      REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', extra),
+    ];
+
+    it('asks for the card height on an inline iframe and writes the answer', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100px' } }));
+      answerPrompts({ ...INLINE, cardHeight: '300px' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('cardHeight')).toBeDefined();
+      expect(collectedUiApp().surface_point_list[0].size).toEqual({ height: '300px' });
+    });
+
+    // The pre-fill is the SLOT's answer, served by the surface-points read. A CLI-side
+    // default would be a second source of truth for a value the registry already declares
+    // per slot — the same mistake a local copy of the slot names would be.
+    it('pre-fills the height from the row default_size, not from a local constant', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100px' } }));
+      answerPrompts(INLINE);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('cardHeight')?.default).toBe('100px');
+    });
+
+    // Blank is a real answer, not an omission: the registry seed is the platform's own
+    // height, so an Enter through the question writes exactly what an unprompted flow
+    // would have written.
+    it('keeps the registry seed when the answer is blank', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100px' } }));
+      answerPrompts({ ...INLINE, cardHeight: '   ' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list[0].size).toEqual({ height: '100px' });
+    });
+
+    // One axis was asked about, so one axis is overridden. A width the slot declared is
+    // column geometry the partner never answered a question about.
+    it('overrides only the height, keeping a seeded width', async () => {
+      registryHas(WIDGET_ROW({ default_size: { width: '280px', height: '100px' } }));
+      answerPrompts({ ...INLINE, cardHeight: '300px' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list[0].size).toEqual({
+        width: '280px',
+        height: '300px',
+      });
+    });
+
+    // A slot with no declared default still gets the question — the prompt's own example
+    // carries the grammar — and an answer is the entry's whole size.
+    it('asks with no pre-fill when the row declares no default size', async () => {
+      registryHas(WIDGET_ROW());
+      answerPrompts({ ...INLINE, cardHeight: '300px' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('cardHeight')?.default).toBeUndefined();
+      expect(collectedUiApp().surface_point_list[0].size).toEqual({ height: '300px' });
+    });
+
+    // A server predating the field, or echoing an unexpected shape, must not seat a value
+    // in the answer box that this prompt's own validator then refuses — a dead end the
+    // partner can only escape by retyping the field.
+    it('does not pre-fill — or seed — a default_size the grammar refuses', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100' } }));
+      answerPrompts(INLINE);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('cardHeight')?.default).toBeUndefined();
+      // And it must not reach the entry either: a unit-less seed authored a block
+      // `validateUiApp` refuses one call later, in the flow that wrote it.
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('size');
+    });
+
+    // The prompt judges an answer with the validator `app upload` runs on the file, so an
+    // accepted answer is one the block it lands in survives.
+    it('validates the answer with the authored-size grammar', async () => {
+      registryHas(WIDGET_ROW());
+      answerPrompts(INLINE);
+
+      await createCommand(CLI_OPTIONS);
+
+      const validate = questionNamed('cardHeight')?.validate as (v: string) => true | string;
+      expect(validate('300px')).toBe(true);
+      expect(validate('50%')).toBe(true);
+      expect(validate('')).toBe(true);
+      expect(validate('300')).toMatch(/px or % unit/);
+      expect(validate('150%')).toMatch(/between 1% and 100%/);
+    });
+
+    // The three questions gate on three different sets, and this is the tightest: a modal
+    // is sized by `modal_size`, an action slot renders no card, and a Link's card shows a
+    // CTA rather than a page. Only the inline card is the page itself.
+    it('is not asked for a modal layout, an action slot or a Link', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100px' } }));
+      answerPrompts({ ...INLINE, layout: 'modal' });
+      await createCommand(CLI_OPTIONS);
+      expect(questionNamed('cardHeight')).toBeUndefined();
+
+      askedQuestions = [];
+      registryHas(FULL_REGISTRY);
+      answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+      await createCommand(CLI_OPTIONS);
+      expect(questionNamed('cardHeight')).toBeUndefined();
+
+      askedQuestions = [];
+      answerPrompts({ placement: 'contact-details-overview-main' });
+      await createCommand(CLI_OPTIONS);
+      expect(questionNamed('cardHeight')).toBeUndefined();
+    });
+
+    // One URL question either way, but the wording must say what actually happens to the
+    // page: a Link opens in a new tab, an Iframe is embedded in a modal inside Brevo.
+    it('asks the iframe-specific URL question on the Iframe branch', async () => {
+      answerPrompts({ integrationType: 'iframeExtension' });
+
+      await createCommand(CLI_OPTIONS);
+
+      const question = questionNamed('url');
+      expect(String(question?.message)).toContain('Iframe URL');
+    });
+
+    // The platform's per-account Unleash rollout gate on iframe-extension authoring
+    // (`app-store-bo-be-iframe-extension`). The prompt offers Iframe on every private
+    // app — it has no way to know the flag's state — so a client without it enabled
+    // only finds out here, from the server's own 400.
+    describe('iframe extensions disabled by the platform feature flag', () => {
+      const SERVER_MESSAGE =
+        'ui_app.extension_type "iframeExtension" is not enabled for this client (feature flag "app-store-bo-be-iframe-extension")';
+      const rejection = (): ApiError =>
+        new ApiError(SERVER_MESSAGE, 400, undefined, 'invalid_parameter');
+
+      it('explains the refusal and suggests Link or asking Brevo to enable it', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+        (appService.createApp as jest.Mock).mockRejectedValue(rejection());
+
+        const err: Error = await createCommand(CLI_OPTIONS).then(
+          () => {
+            throw new Error('expected the create to be refused');
+          },
+          (e: Error) => e,
+        );
+        expect(err.message).toMatch(/can't create iframe extensions yet/i);
+        expect(err.message).toMatch(/choose Link instead/i);
+      });
+
+      it("quotes the server's own sentence so a different 400 cannot hide behind it", async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+        (appService.createApp as jest.Mock).mockRejectedValue(rejection());
+
+        await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+          /app-store-bo-be-iframe-extension/,
+        );
+      });
+
+      // Guard against the CLI growing a local mirror of the flag — the same reasoning
+      // as the public-apps refusal test of the same name: the flag is per-account, so
+      // a local guard would be wrong rather than merely stale, and the create must
+      // always reach the server.
+      it('does not pre-empt the server — an Iframe create is still attempted', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(appService.createApp).toHaveBeenCalled();
+      });
+
+      it('leaves an unrelated 400 on an Iframe create alone', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+        (appService.createApp as jest.Mock).mockRejectedValue(
+          new ApiError('logo_uri must be a valid https URL', 400, undefined, 'invalid_parameter'),
+        );
+
+        await expect(createCommand(CLI_OPTIONS)).rejects.toThrow(
+          'logo_uri must be a valid https URL',
+        );
+      });
     });
 
     // ──────── The two registry reads ────────
@@ -2511,6 +2835,93 @@ describe('app/create', () => {
         ).rejects.toThrow(/only supports "actionLink"/);
         expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
         expect(appService.createApp).not.toHaveBeenCalled();
+      });
+
+      // Shared by both refusal classes below: a base actionLink --ui-config file with one
+      // extra key injected, asserted to reject before any registry read or create call —
+      // only the expected-message template differs between the two classes.
+      const expectUiConfigKeyRejected = async (
+        key: string,
+        value: string,
+        messageTemplate: string,
+      ) => {
+        (fs.readFileSync as jest.Mock).mockReturnValue(
+          JSON.stringify({
+            extension_type: 'actionLink',
+            record_page: 'contactDetails',
+            surface_point_name: 'contact-details-header-menu',
+            label: 'Open in Acme',
+            redirect_link: 'https://example.com/open',
+            [key]: value,
+          }),
+        );
+
+        await expect(
+          createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
+        ).rejects.toThrow(new RegExp(messageTemplate));
+        expect(appService.fetchSurfacePointLocations).not.toHaveBeenCalled();
+        expect(appService.createApp).not.toHaveBeenCalled();
+      };
+
+      // The file's key set is fixed and everything else is DROPPED, so an iframe-only
+      // field has to be refused by name: silently ignoring it would create an app that
+      // renders differently from the file that asked for it, with nothing said.
+      // `iframe_href` is the destination itself, so dropping it is the worst of the three
+      // — the app would be created pointing at the `redirect_link` the file may not even
+      // carry, on the wrong extension type.
+      it.each([
+        ['iframe_href', 'https://example.com/embed'],
+        ['layout', 'inline'],
+        ['modal_size', 'small'],
+        ['modal_height', '600px'],
+      ])('rejects an iframe-only %s key in --ui-config before any network call', (key, value) =>
+        expectUiConfigKeyRejected(
+          key,
+          value,
+          `"${key}" is not supported by --ui-config: it applies to "iframeExtension"`,
+        ),
+      );
+
+      // The second silent-drop class: keys the PLATFORM owns and stamps onto the stored
+      // snapshot. Not authorable anywhere, so the refusal says "remove it" rather than
+      // "put it in app-config.json" — and for `sandbox` this is the CLI's only local
+      // refusal at all (`validateUiApp` has no unknown-key sweep, so a `sandbox` in
+      // app-config.json reaches the wire and comes back a 400).
+      it.each([
+        ['link_target', '_blank'],
+        ['version', '3'],
+        ['extension_point_name', 'contactDetails.headerMenu.action'],
+        ['sandbox', 'allow-scripts'],
+      ])('rejects the server-owned %s key in --ui-config before any network call', (key, value) =>
+        expectUiConfigKeyRejected(
+          key,
+          value,
+          `"${key}" is not supported by --ui-config: the Brevo platform owns it`,
+        ),
+      );
+
+      // The server-owned refusal is DERIVED from `uiAppType.wireOnlyKeys`, so this asserts
+      // the derivation rather than a hand-copied list: a fifth platform-stamped key must
+      // become a `--ui-config` refusal without anyone editing create.ts. Fails loudly if
+      // someone re-lists the keys literally and the two then drift.
+      it('refuses every wire-only key the ui app type declares', async () => {
+        for (const key of uiAppType.wireOnlyKeys) {
+          (fs.readFileSync as jest.Mock).mockReturnValue(
+            JSON.stringify({
+              extension_type: 'actionLink',
+              record_page: 'contactDetails',
+              surface_point_name: 'contact-details-header-menu',
+              label: 'Open in Acme',
+              redirect_link: 'https://example.com/open',
+              [key]: 'anything',
+            }),
+          );
+
+          await expect(
+            createCommand({ ...CLI_OPTIONS, json: true, uiConfig: './ui-app.json' } as never),
+          ).rejects.toThrow(new RegExp(`"${key}" is not supported by --ui-config`));
+          expect(appService.createApp).not.toHaveBeenCalled();
+        }
       });
 
       it('rejects --ui-config and --ui-app together', async () => {

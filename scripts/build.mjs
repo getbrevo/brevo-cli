@@ -158,7 +158,17 @@ const LEAK_MARKERS = [
 // Substrings, matched verbatim against the bundle. Keep them specific enough not to
 // collide with GA copy: `brevo app status` must not match `brevo app start`, and a bare
 // path fragment like `/withdraw` would false-positive on unrelated text.
-const LEAK_STRINGS = ['brevo app submit', 'brevo app withdraw', 'brevo app status'];
+const LEAK_STRINGS = [
+  'brevo app submit',
+  'brevo app withdraw',
+  'brevo app status',
+  // The gated *Iframe* integration choice (BEX-459). Not a command name, so nothing in
+  // LEAK_MARKERS covers it: it is a prompt label, and the only thing a reader of the
+  // bundle could learn the feature from. Its definition lives in `preview-messages.ts`
+  // and its only read sits inside `promptIntegrationType`'s `__BREVO_PREVIEW__` branch,
+  // so a hit here means one of those two moved back into always-shipped code.
+  'Iframe (Embeds',
+];
 
 // Every file the tarball carries, because that is the scope this particular check has
 // always claimed: not "what did the bundler emit" but "what can someone read in an

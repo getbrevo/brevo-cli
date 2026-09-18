@@ -11,7 +11,13 @@ import {
 import { findAvailablePort } from '../../lib/port';
 import { logInfo, logError, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { ApiError, AuthExpiredError, CliError, ErrorCode } from '../../lib/errors';
+import {
+  ApiError,
+  AuthExpiredError,
+  CliError,
+  ErrorCode,
+  isIframeExtensionDisabledRefusal,
+} from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { validateEnum, validateAppName, validateYesNo } from '../../lib/validators';
@@ -54,6 +60,9 @@ import {
   renderCreatedUiApp,
   UiAppNonInteractiveInput,
 } from '../../app-types/ui/authoring';
+// The descriptor, for `wireOnlyKeys` alone — the platform-owned key list `--ui-config`
+// refuses below. Cheap: the module pulls in no prompts (that is `./authoring`'s job).
+import { uiAppType } from '../../app-types/ui';
 
 function validateHttpUrl(trimmed: string, invalidMessage: string): true | string {
   try {
@@ -131,6 +140,35 @@ function stringField(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+/**
+ * Keys a `--ui-config` file may not carry because they are `iframeExtension`-only, and
+ * this route authors `actionLink` alone — see the refusal in `parseUiConfigFile`. The
+ * same four fields `validateUiApp` refuses on an `actionLink` entry of a hand-authored
+ * `app-config.json`, refused here for the same reason and one layer earlier.
+ */
+const UI_CONFIG_IFRAME_ONLY_KEYS: readonly string[] = [
+  'iframe_href',
+  'layout',
+  'modal_size',
+  'modal_height',
+] as const;
+
+/**
+ * Keys a `--ui-config` file may not carry because nobody may: the platform owns them and
+ * stamps them onto the stored snapshot itself.
+ *
+ * DERIVED from `uiAppType.wireOnlyKeys` rather than re-listed, for the same reason
+ * `stripUiAppWireOnlyKeys` is the only stripper — a second copy of that list is a copy
+ * that lags it. When the platform stamps a fifth key, `--ui-config` refuses it for free.
+ *
+ * `sandbox` is refused on both authoring paths, and this is the earlier of the two:
+ * `validateUiApp` refuses one in a hand-authored `app-config.json` (`rejectAuthoredSandbox`),
+ * this refuses one in a `--ui-config` file before the block is even assembled. Both name it
+ * locally, ahead of any network call, rather than leaving a value the partner should never
+ * have written to come back as a bo-be 400.
+ */
+const UI_CONFIG_SERVER_OWNED_KEYS: readonly string[] = uiAppType.wireOnlyKeys;
+
 /** The `--ui-config <file>` half of `resolveUiAppNonInteractiveInput`. */
 function parseUiConfigFile(configPath: string): UiAppNonInteractiveInput {
   let raw: string;
@@ -155,6 +193,31 @@ function parseUiConfigFile(configPath: string): UiAppNonInteractiveInput {
       ),
     );
   }
+  // Refused by name, not dropped. Everything below reads a FIXED key set, so any other
+  // key in the file is silently discarded — which for a field that changes how the app
+  // renders means the created app disagrees with the file that asked for it and nothing
+  // says so.
+  //
+  // Two classes, two messages, because they are wrong for two different reasons and one
+  // sentence cannot honestly cover both. The first is `iframeExtension`-only and this
+  // entry point authors `actionLink` alone (checked again in
+  // `resolveUiAppNonInteractive`), so there is no reading of such a file the CLI could
+  // honour — but the field IS authorable, in an `app-config.json` for an iframe app, so
+  // the message says where to put it. The second is not authorable anywhere: the platform
+  // stamps it, so the message says to delete it.
+  //
+  // Both thrown here, before any registry read, like every other non-interactive guard.
+  for (const key of UI_CONFIG_IFRAME_ONLY_KEYS) {
+    if (parsed[key] !== undefined) {
+      throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_UNSUPPORTED_KEY(key));
+    }
+  }
+  for (const key of UI_CONFIG_SERVER_OWNED_KEYS) {
+    if (parsed[key] !== undefined) {
+      throw new CliError(messages.APP_CREATE_UI_NONINTERACTIVE_SERVER_OWNED_KEY(key));
+    }
+  }
+
   return {
     extensionType: stringField(parsed.extension_type),
     recordPage: stringField(parsed.record_page),
@@ -625,6 +688,34 @@ function isPublicDistributionRefusal(err: unknown, distribution: string): err is
   );
 }
 
+/**
+ * The create failures that end the command with a message of our own rather than a retry:
+ * the plan limit, and the two refusals whose server wording needs the CLI's own next step
+ * attached. Split out of `createAppWithRetry` so that function reads as what it is — the
+ * happy path plus the two RETRY branches — and each translation can be read on its own.
+ *
+ * Returns normally when `err` is none of them; the caller then decides between a retry and
+ * a rethrow.
+ */
+function rethrowTranslatedCreateFailure(
+  err: unknown,
+  inputs: CreateAppInputs,
+  jsonMode: boolean,
+): void {
+  if (err instanceof ApiError && err.errorCode === ErrorCode.APP_LIMIT_REACHED) {
+    if (jsonMode) {
+      jsonOutput({ error: 'APP_LIMIT_REACHED', message: messages.APP_CREATE_LIMIT_REACHED });
+    }
+    throw new CliError(messages.APP_CREATE_LIMIT_REACHED);
+  }
+  if (isPublicDistributionRefusal(err, inputs.distribution)) {
+    throw new CliError(messages.APP_CREATE_PUBLIC_REJECTED(err.message));
+  }
+  if (isIframeExtensionDisabledRefusal(err)) {
+    throw new CliError(messages.APP_CREATE_UI_IFRAME_DISABLED(err.message));
+  }
+}
+
 // 5. Create the app
 async function createAppWithRetry(
   inputs: CreateAppInputs,
@@ -638,15 +729,7 @@ async function createAppWithRetry(
     return { result, appName: inputs.appName };
   } catch (err) {
     spinner.stop();
-    if (err instanceof ApiError && err.errorCode === ErrorCode.APP_LIMIT_REACHED) {
-      if (jsonMode) {
-        jsonOutput({ error: 'APP_LIMIT_REACHED', message: messages.APP_CREATE_LIMIT_REACHED });
-      }
-      throw new CliError(messages.APP_CREATE_LIMIT_REACHED);
-    }
-    if (isPublicDistributionRefusal(err, inputs.distribution)) {
-      throw new CliError(messages.APP_CREATE_PUBLIC_REJECTED(err.message));
-    }
+    rethrowTranslatedCreateFailure(err, inputs, jsonMode);
     if (err instanceof ApiError && err.statusCode === 409) {
       return retryCreateWithNewName(inputs);
     }
@@ -658,12 +741,18 @@ async function createAppWithRetry(
 }
 
 /** The `appType === 'ui'` vs OAuth branch of `createCommand` — collects the one thing the
- * chosen type needs (a placement, or callback URLs) and nothing the other type would. */
+ * chosen type needs (a placement, or callback URLs) and nothing the other type would.
+ *
+ * `distribution` gates the interactive integration-type choices: Iframe is private-only
+ * (v1), so the prompt on a public app offers Link alone rather than a choice the
+ * validator and the platform would both refuse two questions later. The non-interactive
+ * path doesn't take it — that path authors actionLink only, by design. */
 async function resolveUiAppOrRedirectUris(
   appType: AppType,
   nonInteractiveUiAppInput: UiAppNonInteractiveInput | undefined,
   redirectUriFlag: string[] | undefined,
   jsonMode: boolean,
+  distribution: string,
 ): Promise<{ redirectUris: string[]; uiApp: UiApp | undefined }> {
   if (appType === 'function') {
     // Function apps have no OAuth flow and no placement — neither prompt path runs.
@@ -677,7 +766,7 @@ async function resolveUiAppOrRedirectUris(
   }
   const uiApp = nonInteractiveUiAppInput
     ? await resolveUiAppNonInteractive(nonInteractiveUiAppInput)
-    : await resolveUiApp();
+    : await resolveUiApp(distribution);
   return { redirectUris: [], uiApp };
 }
 
@@ -820,6 +909,7 @@ export const createCommand = withCommandHandler(
       nonInteractiveUiAppInput,
       options.redirectUri,
       jsonMode,
+      distribution,
     );
 
     const dir = await resolveCreateDirectory(appName, interactive);

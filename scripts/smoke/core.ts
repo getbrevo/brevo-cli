@@ -437,6 +437,33 @@ export interface PtyExchange {
   // step tells "this build doesn't offer the choice I need" (skip) apart from
   // "the flow broke" (fail).
   send: string | ((strippedTranscript: string) => string | null);
+  // A prompt that may not render at all — a question the flow asks only for some
+  // answers to earlier ones (an iframe's layout is asked on widget slots only), or one
+  // an older build under `--against=published` doesn't have yet. When the transcript
+  // reaches a LATER exchange's prompt without this one appearing, it is skipped rather
+  // than waited for. Distinct from the `send: () => null` abort, which says "the prompt
+  // rendered but not the choice I need" and skips the whole leg.
+  optional?: boolean;
+}
+
+/**
+ * How far the exchange cursor may jump when the exchange at `from` hasn't matched.
+ *
+ * An optional prompt that hasn't appeared is skipped only once something FURTHER ON has,
+ * which is the proof the flow moved past it rather than that it is merely slow. Scanning
+ * stops at the first required exchange — nothing beyond one that hasn't matched is
+ * reachable yet. Returns -1 for "don't skip: keep waiting", which is also the answer for a
+ * required exchange.
+ */
+function resolveOptionalSkip(exchanges: PtyExchange[], from: number, haystack: string): number {
+  if (!exchanges[from]?.optional) return -1;
+  for (let ahead = from + 1; ahead < exchanges.length; ahead++) {
+    const candidate = exchanges[ahead];
+    if (!candidate) return -1;
+    if (candidate.expect.exec(haystack)) return ahead;
+    if (!candidate.optional) return -1;
+  }
+  return -1;
 }
 
 // Drive a child that insists on a real terminal. `execScriptedStdin` gives the
@@ -554,6 +581,20 @@ export function execExpectPty(
       );
     };
 
+    // Small settle so inquirer has attached its keypress listener after
+    // rendering — same reasoning as execScriptedStdin's paced writes. After
+    // the LAST answer, stdin is ended so `cat` can exit (see shCmd above).
+    const scheduleSend = (line: string) => {
+      setTimeout(() => {
+        if (settled || !child.stdin || child.stdin.destroyed) return;
+        child.stdin.write(line + '\n');
+        logToFile(state, `pty> ${line || '(enter)'}`);
+        if (next >= opts.exchanges.length) {
+          setTimeout(() => child.stdin?.end(), 500);
+        }
+      }, 200);
+    };
+
     const tryMatch = () => {
       const stripped = stripAnsi(raw);
       cursor = Math.min(cursor, stripped.length);
@@ -561,7 +602,13 @@ export function execExpectPty(
         const ex = opts.exchanges[next];
         if (!ex) break;
         const m = ex.expect.exec(stripped.slice(cursor));
-        if (!m) break;
+        if (!m) {
+          const skipTo = resolveOptionalSkip(opts.exchanges, next, stripped.slice(cursor));
+          if (skipTo < 0) break;
+          logToFile(state, `pty: skipping optional prompt(s) ${next + 1}-${skipTo}`);
+          next = skipTo;
+          continue;
+        }
         cursor += m.index + m[0].length;
         next++;
         const line = typeof ex.send === 'function' ? ex.send(stripped) : ex.send;
@@ -571,17 +618,7 @@ export function execExpectPty(
           killTree('SIGTERM');
           break;
         }
-        // Small settle so inquirer has attached its keypress listener after
-        // rendering — same reasoning as execScriptedStdin's paced writes. After
-        // the LAST answer, stdin is ended so `cat` can exit (see shCmd above).
-        setTimeout(() => {
-          if (settled || !child.stdin || child.stdin.destroyed) return;
-          child.stdin.write(line + '\n');
-          logToFile(state, `pty> ${line || '(enter)'}`);
-          if (next >= opts.exchanges.length) {
-            setTimeout(() => child.stdin?.end(), 500);
-          }
-        }, 200);
+        scheduleSend(line);
       }
       armTimer();
     };
@@ -597,7 +634,10 @@ export function execExpectPty(
     child.stderr?.on('data', onData);
     child.on('error', fail);
     child.on('exit', (code) => {
-      if (!aborted && next < opts.exchanges.length) {
+      // Trailing exchanges that are all optional are not a broken flow — the prompts
+      // simply never rendered, which is what optional means.
+      const missedRequired = opts.exchanges.slice(next).some((ex) => !ex.optional);
+      if (!aborted && missedRequired) {
         fail(
           new Error(
             `child exited (${code ?? -1}) before prompt ${next + 1}/${opts.exchanges.length} appeared`,
