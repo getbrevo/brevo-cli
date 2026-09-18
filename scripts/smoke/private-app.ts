@@ -24,6 +24,7 @@ import {
   featureMissing,
   findAppByName,
   firstLine,
+  listItems,
   logToFile,
   markFeatureUnavailable,
   must,
@@ -412,11 +413,19 @@ function stepM2mCredentials(state: State): string {
     typeof creds.clientId === 'string' && creds.clientId.length > 0,
     'm2m credentials returned no clientId',
   );
+  // `--reveal-secret` is deliberately a no-op off a TTY: `resolveSecretReveal` in
+  // src/commands/app/credentials.ts returns the placeholder without prompting whenever
+  // `process.stdin.isTTY` is falsy, and the smoke runner is always non-interactive. So the
+  // step pins THAT contract rather than pretending to observe a secret it cannot reach —
+  // the previous assertion ("did not reveal a clientSecret") was satisfied by the
+  // placeholder itself and could never fail on the thing it named. If this ever starts
+  // failing because a real secret came back, the no-op gate has regressed and the docs in
+  // agent-context/ (which tell agents `[hidden]` is never a secret) need revisiting too.
   must(
-    typeof creds.clientSecret === 'string' && creds.clientSecret.length > 0,
-    'm2m credentials did not reveal a clientSecret',
+    creds.clientSecret === '[hidden]',
+    `m2m credentials returned ${JSON.stringify(creds.clientSecret)} for clientSecret; a non-interactive --reveal-secret must stay the '[hidden]' placeholder`,
   );
-  return `m2m app ${app.appId} credentials readable`;
+  return `m2m app ${app.appId} credentials readable (secret correctly withheld off a TTY)`;
 }
 
 // Brevo declining the scopes-update PATCH because the backend (BEX-481) hasn't shipped in
@@ -643,6 +652,79 @@ async function stepM2mSecretRotate(state: State): Promise<string> {
   return `m2m app ${app.appId} client secret rotated, verified via a fresh credentials read`;
 }
 
+// `brevo app list --type` (BEX-495), exercised against the one app in this suite whose
+// type is known for certain: the M2M app the create step just made. The filter is
+// server-side (`app list` sends it as a query parameter and never post-filters locally —
+// see the comment in src/commands/app/list.ts), so this is the only place the CLI's whole
+// `--type` path — token validation, the CLI-spelling→wire-value mapping in
+// `LIST_FILTER_APP_TYPE`, and the request — is driven end to end.
+//
+// Two positive assertions, because one alone would not distinguish a filter from a label:
+// the app must be IN `--type m2m` and must be OUT of `--type ui`. A filter that excluded
+// nothing would pass the first and fail the second.
+//
+// `--type oauth` is deliberately NOT asserted here even though it is documented as a
+// superset of `--type m2m`. The four tokens are the server's classification and explicitly
+// not a partition (an app may come back under two of them, or under none), so pinning a
+// cross-token relationship in a smoke run would fail on a server-side reclassification
+// that broke nothing in the CLI. The two assertions below are about THIS app under the
+// token that names its own flow.
+const LIST_TYPE_BACKOFF = [500, 1000, 2000, 4000];
+
+function listAppIdsOfType(state: State, type: string): string[] {
+  const r = execOrThrow(brevoCmd(state), ['app', 'list', '--type', type, '--json'], state, {
+    cwd: ensureWorkRoot(state),
+  });
+  return listItems(parseJson(r.stdout))
+    .map((item) => pickId(item))
+    .filter((id) => id.length > 0);
+}
+
+async function stepM2mListTypeFilter(state: State): Promise<string> {
+  requireFeature(state, 'm2m-flag');
+  requireFeature(state, 'list-type-filter');
+  const app = requireApp(state.m2mApp, 'm2m');
+
+  // The list endpoint is eventually consistent (see `findAppInList` and the rename
+  // verification above), and this step runs moments after the create — so poll for the
+  // app's appearance rather than reading "not there yet" as "the filter dropped it".
+  let m2mIds: string[] = [];
+  for (let i = 0; i < LIST_TYPE_BACKOFF.length; i++) {
+    m2mIds = listAppIdsOfType(state, 'm2m');
+    if (m2mIds.includes(app.appId)) break;
+    if (i < LIST_TYPE_BACKOFF.length - 1) await sleep(LIST_TYPE_BACKOFF[i] ?? 4000);
+  }
+  must(
+    m2mIds.includes(app.appId),
+    `app list --type m2m did not return the M2M app ${app.appId} after retries (${m2mIds.length} app(s) returned) — either the filter is not reaching the server, or the server no longer classifies an M2M app under "m2m"`,
+  );
+
+  // Absence is only meaningful now that presence above proved the listing has caught up
+  // with this app; checked first, it could not tell an exclusion from propagation lag.
+  const uiIds = listAppIdsOfType(state, 'ui');
+  must(
+    !uiIds.includes(app.appId),
+    `app list --type ui returned the M2M app ${app.appId} — --type is labelling the listing rather than filtering it`,
+  );
+
+  // Refused by the Commander parser (`parseAppListType`), so it never reaches the network.
+  // Smoke can only observe the exit and the message; that the refusal is ahead of the
+  // request is a placement guaranteed by the option's `parser` in definitions.ts and
+  // covered in src/__tests__/lib/validators.test.ts.
+  const refusal = assertMappedFailure(
+    exec(brevoCmd(state), ['app', 'list', '--type', 'bogus', '--json'], state, {
+      cwd: ensureWorkRoot(state),
+    }),
+    {
+      what: 'app list --type with an unaccepted value',
+      patterns: [/Invalid --type "bogus"\. Must be one of: oauth, ui, function, m2m\./],
+      exitCodes: [1],
+    },
+  );
+
+  return `--type m2m returned ${app.appId}, --type ui excluded it, ${refusal}`;
+}
+
 // Every refusal `assertM2mFlags` owns, driven through the real binary. They must all fail
 // before the app is created, so a leaked app here would itself be the finding.
 function stepM2mNegativeFlags(state: State): string {
@@ -776,6 +858,7 @@ export const privateAppSuite: Suite = {
     ['Negative: submit a private app', stepNegativeSubmitPrivate],
     ['Delete main test app', stepDeleteMainApp],
     ['M2M create', stepM2mCreate],
+    ['App list --type filter', stepM2mListTypeFilter],
     ['M2M credentials', stepM2mCredentials],
     ['M2M scopes update', stepM2mScopesUpdate],
     ['M2M scopes update (no-op)', stepM2mScopesUpdateNoop],

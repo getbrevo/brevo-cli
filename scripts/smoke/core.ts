@@ -859,6 +859,15 @@ export type GatedCommand = (typeof GATED_COMMANDS)[number];
  * not yet built as of this writing) has not shipped in this environment.
  * `stepM2mSecretRotate` in `private-app.ts` downgrades this capability with
  * `markFeatureUnavailable` on that second failure, exactly like `m2m-app-token` does.
+ *
+ * `list-type-filter` (BEX-495) is gated the ONE way `m2m-flag` is, and not the two the
+ * three rows above it are: `brevo app list --type` is a new flag on an old command, GA in
+ * every artefact this repo produces but newer than what npm may be serving, so an
+ * `--against=published` run answers `unknown option '--type'`. There is no second,
+ * environment-side gate to discover at runtime — the filter is a query parameter on the
+ * list endpoint the suite already calls on every run, so a build that offers the flag can
+ * reach it. Detected via `listTypeFilterOffered` rather than a command probe because the
+ * command (`app list`) has shipped since the first release; only the option is new.
  */
 export const GATED_FEATURES = [
   'public-distribution',
@@ -866,6 +875,7 @@ export const GATED_FEATURES = [
   'm2m-scopes-update',
   'm2m-app-token',
   'm2m-secret-rotate',
+  'list-type-filter',
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];
@@ -933,6 +943,31 @@ const M2M_OPTION_LINE = /^--m2m\b/;
 export function m2mFlagOffered(state: State): boolean {
   const r = exec(brevoCmd(state), ['app', 'create', '--help'], state);
   return (r.stdout + r.stderr).split('\n').some((line) => M2M_OPTION_LINE.test(line.trimStart()));
+}
+
+/** An option line for `--type`, tested against a help line whose indent is already off. */
+const LIST_TYPE_OPTION_LINE = /^--type\b/;
+
+/**
+ * Does this build's `app list` take `--type`? (BEX-495)
+ *
+ * `app list` itself has shipped since the first release, so `listedInHelp` /
+ * `respondsToOwnHelp` cannot answer this — only the OPTION is new, which makes it the same
+ * shape of probe as `m2mFlagOffered` rather than the command probes around it.
+ *
+ * Matched as an option LINE for the same reason `--m2m` is: `app list`'s own examples name
+ * the flag (`$ brevo app list --type function`), so a substring match would answer
+ * "present" off a build that only advertises it in prose. Those example lines start with
+ * `$` once trimmed, so an anchored per-line test cannot see them.
+ *
+ * Split-and-trim rather than `/^\s+--type\b/m`, for the super-linear-backtracking reason
+ * spelled out on `m2mFlagOffered` above (Sonar S8786).
+ */
+export function listTypeFilterOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'list', '--help'], state);
+  return (r.stdout + r.stderr)
+    .split('\n')
+    .some((line) => LIST_TYPE_OPTION_LINE.test(line.trimStart()));
 }
 
 /**
@@ -1015,6 +1050,7 @@ export function detectCapabilities(state: State): Record<string, boolean> {
   caps['m2m-scopes-update'] = scopesUpdateOffered(state);
   caps['m2m-app-token'] = appTokenOffered(state);
   caps['m2m-secret-rotate'] = secretRotateOffered(state);
+  caps['list-type-filter'] = listTypeFilterOffered(state);
   logToFile(state, `capabilities: ${JSON.stringify(caps)}`);
   state.caps = caps;
   return caps;
