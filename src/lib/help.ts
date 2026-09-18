@@ -63,7 +63,7 @@ function formatRootHelp(description: string): string {
     // stays and its value list narrows. Same for the app-type prompt: a locked run
     // is OAuth-only, so the description stops advertising a choice it won't offer.
     `  brevo app create            [--name] [--distribution ${distributionValues()}]`,
-    `                              [--redirect-uri <url>...] [--logo-uri <url>] [--json]`,
+    `                              [--redirect-uri <url>...] [--json]`,
     `                                                        ${createDescription()}`,
     `  brevo app list              [--json]                  List all apps in your account`,
     `  brevo app credentials       [--app-id <id>] [--reveal-secret] [--json]`,

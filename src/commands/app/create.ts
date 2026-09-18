@@ -82,12 +82,6 @@ const validateRedirectUrl = (input: string): true | string => {
   return validateHttpUrl(trimmed, messages.APP_CREATE_REDIRECT_INVALID);
 };
 
-const validateLogoUrl = (input: string): true | string => {
-  const trimmed = input.trim();
-  if (!trimmed) return true;
-  return validateHttpUrl(trimmed, messages.APP_CREATE_LOGO_INVALID);
-};
-
 // 0. Refuse outright if an app is already linked in this directory — no
 //    confirm, no override. The user must leave the directory or run
 //    `brevo app scaffold` here instead (which knows how to refresh a linked
@@ -223,7 +217,7 @@ function resolveUiAppNonInteractiveInput(
 }
 
 // 4. App type — OAuth integration vs UI app (BEX-290).
-//    Asked last of the four opening questions: name, logo and distribution all
+//    Asked last of the opening questions: name and distribution both
 //    describe the app record itself and are asked of every app, so they come first.
 //    The type is the branch point — it decides which of the two remaining prompt
 //    paths runs (OAuth callback URLs vs UI-app placement) — so it is the last thing
@@ -405,19 +399,19 @@ function assertM2mFlags(opts: M2mFlagOptions): void {
   if (opts.distribution === 'public') throw new CliError(messages.APP_CREATE_M2M_PUBLIC);
   if (opts.scopes === undefined) throw new CliError(messages.APP_CREATE_M2M_SCOPES_REQUIRED);
   // The VALUE, not just its presence — same validator `resolveM2mScopes` runs, called
-  // here as well because the logo prompt sits between this point and that one, and the
-  // house rule is that a flag the CLI is going to reject is rejected before the user is
-  // made to answer anything.
+  // here as well because the distribution/app-type prompts sit between this point and
+  // that one, and the house rule is that a flag the CLI is going to reject is rejected
+  // before the user is made to answer anything.
   const scopeCheck = validateM2mScopesInput(opts.scopes);
   if (scopeCheck !== true) throw new CliError(scopeCheck);
 }
 
 // 0b. Validate `--distribution` before anything is asked.
 //
-//     Hoisted out of `resolveDistribution` because that now runs *after* the logo
-//     prompt: a flag the CLI is going to reject must be rejected before the user is
-//     made to answer questions, otherwise `--distribution typo` costs a logo prompt
-//     first. Pure — no I/O, no prompts — so it is safe this early.
+//     Hoisted out of `resolveDistribution`: a flag the CLI is going to reject must be
+//     rejected before the user is made to answer questions, otherwise `--distribution
+//     typo` costs a name prompt first. Pure — no I/O, no prompts — so it is safe this
+//     early.
 //
 //     Public distribution is pre-GA (BEX-405). The flag keeps validating against the
 //     full set so `--distribution public` still fails as an *unreleased feature* rather
@@ -539,32 +533,6 @@ async function resolveRedirectUrls(
   return [DEFAULT_REDIRECT_URI];
 }
 
-// 2. Logo URL (optional) — prompt interactively when no --logo-uri flag.
-//    Skipped under --json since the field is optional and --json implies scripting.
-//
-//    Asked up front, right after the name, and asked identically for every app
-//    type: the logo belongs to the app record rather than to either prompt path,
-//    so it must not sit behind the type branch where an OAuth app answers it after
-//    its callback URLs and a UI app after its placements.
-async function resolveLogoUri(
-  logoUriFlag: string | undefined,
-  jsonMode: boolean,
-): Promise<string | undefined> {
-  if (logoUriFlag || !process.stdin.isTTY || jsonMode) {
-    return logoUriFlag;
-  }
-  const { logoUrl } = await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'logoUrl',
-      message: messages.APP_CREATE_LOGO_PROMPT,
-      validate: validateLogoUrl,
-    },
-  ]);
-  const trimmed = String(logoUrl ?? '').trim();
-  return trimmed || undefined;
-}
-
 type CreateDirectoryResult =
   | { targetDir: string; mergeOnly: boolean; skipped: false; existed: boolean }
   | { targetDir: string; skipped: true };
@@ -629,7 +597,6 @@ interface CreateAppInputs {
   appName: string;
   distribution: string;
   redirectUris: string[];
-  logoUri?: string;
   /** Present for UI apps only; drives scope defaults and omits redirect URIs. */
   uiApp?: UiApp;
   /**
@@ -719,7 +686,6 @@ function buildCreatePayload(inputs: CreateAppInputs) {
     // same key, sent early enough that the record is created with the right app
     // type.
     ...block,
-    ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
   };
 }
 
@@ -813,7 +779,7 @@ async function retryCreateAfterLogin(inputs: CreateAppInputs): Promise<CreatedAp
  * successfully, and never reaches this path.
  *
  * Narrowed to the rejection that names `distribution_type`, so an unrelated 400 on a
- * public create (a bad `logo_uri`, say) keeps the server's own text rather than being
+ * public create (a duplicate name, say) keeps the server's own text rather than being
  * relabelled as the pre-GA restriction. If the server ever rewords the sentence this
  * stops matching and the raw message surfaces again — the previous behaviour, not a
  * new failure mode.
@@ -911,7 +877,6 @@ function buildCreateJsonBase(
   finalAppName: string,
   appType: AppType,
   uiApp: UiApp | undefined,
-  logoUri: string | undefined,
 ): Record<string, unknown> {
   return {
     appId: result.app_id,
@@ -920,7 +885,6 @@ function buildCreateJsonBase(
     clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
     appType,
     ...(uiApp ? { uiApp } : { redirectUri: result.redirect_uris }),
-    ...(logoUri ? { logoUri } : {}),
     ...(result.version ? { version: result.version } : {}),
   };
 }
@@ -957,14 +921,13 @@ function buildFallbackOAuthApp(result: CreateAppResponse): OAuthApp {
   };
 }
 
-function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: string): void {
+function renderCreatedApp(result: CreateAppResponse, appName: string): void {
   const boxLines = [
     `App name:       ${appName}`,
     `App ID:         ${result.app_id}`,
     `Client ID:      ${result.client_id}`,
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
     ...(result.redirect_uris ?? []).map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
-    ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
     `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_SCOPES].join(', ')}`,
     '',
@@ -986,18 +949,12 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
  * other row in both boxes reaches it by literal padding, which silently breaks the moment a
  * label is reworded.
  */
-function renderCreatedM2mApp(
-  result: CreateAppResponse,
-  appName: string,
-  scopes: string[],
-  logoUri?: string,
-): void {
+function renderCreatedM2mApp(result: CreateAppResponse, appName: string, scopes: string[]): void {
   const boxLines = [
     `App name:       ${appName}`,
     `App ID:         ${result.app_id}`,
     `Client ID:      ${result.client_id}`,
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
-    ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
     `${messages.APP_CREATE_M2M_BOX_SCOPES_LABEL.padEnd(16)}${scopes.join(', ')}`,
   ];
@@ -1042,13 +999,12 @@ async function createM2mApp(
       appType: 'oauth',
       authType: M2M_AUTH_TYPE,
       scopes,
-      ...(inputs.logoUri ? { logoUri: inputs.logoUri } : {}),
       ...(result.version ? { version: result.version } : {}),
     });
     return;
   }
 
-  renderCreatedM2mApp(result, finalAppName, scopes, inputs.logoUri);
+  renderCreatedM2mApp(result, finalAppName, scopes);
   printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_M2M_NEXT(result.app_id));
 }
 
@@ -1057,7 +1013,6 @@ export const createCommand = withCommandHandler(
     name?: string;
     distribution?: string;
     redirectUri?: string[];
-    logoUri?: string;
     uiConfig?: string;
     uiApp?: boolean;
     recordPage?: string;
@@ -1076,23 +1031,22 @@ export const createCommand = withCommandHandler(
     assertDistributionFlag(options.distribution);
     // Same reasoning and the same placement as `resolveUiAppNonInteractiveInput` below:
     // every invalid `--m2m` combination is detectable without a network call or a prompt,
-    // so it must fail before the name/logo/distribution questions cost the caller
+    // so it must fail before the name/distribution questions cost the caller
     // anything.
     assertM2mFlags(options);
     // Resolved up front, before any prompt: its presence is what decides the app
     // type below without going through resolveAppType's TTY check, and every
     // invalid combination it can detect (both inputs, missing flags, an OAuth-only
-    // flag alongside either) must fail before the name/logo/distribution prompts
+    // flag alongside either) must fail before the name/distribution prompts
     // cost the caller anything.
     const nonInteractiveUiAppInput = resolveUiAppNonInteractiveInput(options);
 
     const interactive = !jsonMode && !!process.stdin.isTTY;
 
-    // The app record first — name, logo, distribution — then the app type. All three
+    // The app record first — name, distribution — then the app type. Both
     // identify the app and are asked of every app regardless of type; the type is the
     // branch point, and everything below it belongs to one path or the other.
     const appName = await resolveAppName(options.name);
-    const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
     const distribution = await resolveDistribution(options.distribution, interactive);
     // `--ui-config`/`--ui-app` decide the type outright — `resolveAppType` (and its TTY
     // check) never runs for them, which is what makes them reachable without a terminal.
@@ -1123,7 +1077,7 @@ export const createCommand = withCommandHandler(
     if (oauthFlow === 'm2m') {
       const m2mScopes = await resolveM2mScopes(options.scopes, jsonMode);
       await createM2mApp(
-        { appName, distribution, redirectUris: [], logoUri, m2mScopes, appType: 'oauth' },
+        { appName, distribution, redirectUris: [], m2mScopes, appType: 'oauth' },
         jsonMode,
         interactive,
       );
@@ -1145,7 +1099,6 @@ export const createCommand = withCommandHandler(
       appName,
       distribution,
       redirectUris,
-      logoUri,
       uiApp,
       appType,
     };
@@ -1165,12 +1118,12 @@ export const createCommand = withCommandHandler(
     // always `oauth` here today and the `uiApp` branch is unreachable. Both are
     // kept so the field stays meaningful to a consumer, and so this shape doesn't
     // have to be rediscovered if UI apps ever gain a non-interactive path.
-    const jsonBase = buildCreateJsonBase(result, finalAppName, appType, uiApp, logoUri);
+    const jsonBase = buildCreateJsonBase(result, finalAppName, appType, uiApp);
 
     const renderBox = (): void =>
       uiApp
-        ? renderCreatedUiApp(result, finalAppName, uiApp, logoUri)
-        : renderCreatedApp(result, finalAppName, logoUri);
+        ? renderCreatedUiApp(result, finalAppName, uiApp)
+        : renderCreatedApp(result, finalAppName);
 
     if (dir.skipped) {
       reportSkippedDirectory(jsonMode, jsonBase, dir, renderBox);

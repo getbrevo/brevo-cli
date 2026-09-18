@@ -70,7 +70,6 @@ import {
  * decided by the sender, not by waiting for one and timing out on the other.
  */
 export const M2M_CREATE_EXPECT = {
-  logo: /App logo URL \(optional/,
   appTypeOAuth: /OAuth app\s+\(Authorize against Brevo/,
   flowConsent: /Consent Based\s+\(A user authorizes/,
   flowM2m: /Machine to Machine\s+\(Your server calls/,
@@ -83,14 +82,13 @@ const FALLBACK_SCOPES = ['contacts:read', 'crm:read'];
 
 // The interactive sequence, with `--name` and `--distribution` passed as flags:
 //
-//   1. logo (input, optional) → Enter
-//   2. app type (list)        → Enter (OAuth app is the first choice)
-//   3. OAuth flow (list)      → '2' = Machine to Machine, or abort → skip. Same
+//   1. app type (list)        → Enter (OAuth app is the first choice)
+//   2. OAuth flow (list)      → '2' = Machine to Machine, or abort → skip. Same
 //                               shape as the UI suite's app-type exchange:
 //                               matched on the *Consent* line so the choices
 //                               have provably rendered before the transcript is
 //                               inspected for the M2M one.
-//   4. scopes                 → the picker: <space> ticks the highlighted first
+//   3. scopes                 → the picker: <space> ticks the highlighted first
 //                               row and Enter submits (a `send` string is
 //                               written with '\n' appended, so ' ' is exactly
 //                               that). The first row is a category heading,
@@ -102,7 +100,6 @@ const FALLBACK_SCOPES = ['contacts:read', 'crm:read'];
 // returns — no directory prompt, and no feature offer.
 function createExchanges(): PtyExchange[] {
   return [
-    { expect: M2M_CREATE_EXPECT.logo, send: '' },
     { expect: M2M_CREATE_EXPECT.appTypeOAuth, send: '' },
     {
       expect: M2M_CREATE_EXPECT.flowConsent,

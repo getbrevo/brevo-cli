@@ -557,7 +557,6 @@ export function createAppService(client: ApiClient) {
       // Sent for Brevo Function apps only. An empty object that tells the server
       // this app has no OAuth flow — the discriminator on the wire.
       brevo_function?: Record<string, never>;
-      logo_uri?: string;
     }): Promise<CreateAppResponse> {
       const raw = await client.post<RawCreateAppResponse>(ENDPOINTS.APP_STORE_APPS, payload);
       return flattenCreateAuth(normalizeAppId(raw));

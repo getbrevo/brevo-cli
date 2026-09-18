@@ -1,5 +1,5 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
+import { parseAppId, parsePositiveInt, collectUrls } from '../lib/validators';
 import { EXAMPLE_APP_ID } from '../lib/constants';
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
@@ -93,7 +93,6 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           : []),
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
-        'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
         'brevo app create --name "My App" --ui-app --record-page contactDetails --placement contactDetails.header.menu --label "Open in Acme" --url https://example.com/open --json',
         'brevo app create --name "My App" --ui-config ./ui-app.json --json',
         'brevo app create --name "My App" --distribution private --m2m --scopes "contacts:read,crm:read" --json',
@@ -113,14 +112,6 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           flags: '--redirect-uri <url>',
           description: 'Redirect URI (repeatable, OAuth apps only)',
           parser: collectUrls,
-        },
-        {
-          flags: '--logo-uri <url>',
-          description: 'App logo URL (http or https)',
-          parser: (v: string) => {
-            validateUrl(v, 'logo URL');
-            return v;
-          },
         },
         {
           flags: '--ui-config <file>',
@@ -156,7 +147,6 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           name: opts.name as string | undefined,
           distribution: opts.distribution as string | undefined,
           redirectUri: opts.redirectUri as string[] | undefined,
-          logoUri: opts.logoUri as string | undefined,
           uiConfig: opts.uiConfig as string | undefined,
           uiApp: Boolean(opts.uiApp),
           recordPage: opts.recordPage as string | undefined,

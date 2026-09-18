@@ -112,7 +112,6 @@ async function findUiAppByName(state: State, expectedName: string): Promise<stri
  * short anchor cannot be satisfied by earlier output.
  */
 export const UI_CREATE_EXPECT = {
-  logo: /App logo URL \(optional/,
   appTypeOAuth: /OAuth app\s+\(Authorize against Brevo/,
   appTypeUi: /UI app\s+\(Render inside Brevo/,
   integration: /What type of integration are you adding\?/,
@@ -126,7 +125,6 @@ export const UI_CREATE_EXPECT = {
 
 function createExchanges(): PtyExchange[] {
   return [
-    { expect: UI_CREATE_EXPECT.logo, send: '' },
     {
       expect: UI_CREATE_EXPECT.appTypeOAuth,
       send: (transcript) => (UI_CREATE_EXPECT.appTypeUi.test(transcript) ? '2' : null),
