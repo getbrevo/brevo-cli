@@ -234,29 +234,41 @@ if (missingGa.length > 0) {
 }
 
 if (!preview) {
-  const leaked = LEAK_MARKERS.filter((marker) => bundle.includes(marker));
-  if (leaked.length > 0) {
-    throw new Error(
-      `Gated surface leaked into a public build: ${leaked.join(', ')}.\n` +
-        'A gated module is reachable from live code. Check that it is referenced only ' +
-        'from behind `__BREVO_PREVIEW__` (not the imported PREVIEW_BUILD constant, which ' +
-        'esbuild cannot fold across modules) and that nothing else imports it.',
-    );
+  // The two scans below are guarded on their list being non-empty, and the guards are
+  // not defensive padding — they state in code what the comments on the lists state in
+  // prose: an empty list is the NORMAL state between features, not a dead check. Without
+  // them, every static analyser that can prove an empty literal is never pushed to reads
+  // `[].filter(...)` as unreachable and reports the mechanism as dead code (SonarCloud
+  // S4158 did exactly that on PR #120). That is the same inference that produced the
+  // teardown in `4d4b986`. Do not "simplify" these guards away, and do not delete the
+  // lists because a tool called them empty.
+  if (LEAK_MARKERS.length > 0) {
+    const leaked = LEAK_MARKERS.filter((marker) => bundle.includes(marker));
+    if (leaked.length > 0) {
+      throw new Error(
+        `Gated surface leaked into a public build: ${leaked.join(', ')}.\n` +
+          'A gated module is reachable from live code. Check that it is referenced only ' +
+          'from behind `__BREVO_PREVIEW__` (not the imported PREVIEW_BUILD constant, which ' +
+          'esbuild cannot fold across modules) and that nothing else imports it.',
+      );
+    }
   }
-  const leakedStrings = publishedFiles().flatMap((file) => {
-    const content = fs.readFileSync(file, 'utf-8');
-    return LEAK_STRINGS.filter((s) => content.includes(s)).map(
-      (s) => `${s} (${path.relative(root, file)})`,
-    );
-  });
-  if (leakedStrings.length > 0) {
-    throw new Error(
-      `Gated command strings are readable in a public build: ${leakedStrings.join(', ')}.\n` +
-        'No command is registered for them, but `strings` on the published files names ' +
-        'an unreleased feature. Move the string into `lib/preview-constants.ts` (or ' +
-        '`lang/preview-messages.ts` if it is user-facing copy) so the object carrying it ' +
-        'is eliminated, rather than deleting the check.',
-    );
+  if (LEAK_STRINGS.length > 0) {
+    const leakedStrings = publishedFiles().flatMap((file) => {
+      const content = fs.readFileSync(file, 'utf-8');
+      return LEAK_STRINGS.filter((str) => content.includes(str)).map(
+        (str) => `${str} (${path.relative(root, file)})`,
+      );
+    });
+    if (leakedStrings.length > 0) {
+      throw new Error(
+        `Gated command strings are readable in a public build: ${leakedStrings.join(', ')}.\n` +
+          'No command is registered for them, but `strings` on the published files names ' +
+          'an unreleased feature. Move the string into `lib/preview-constants.ts` (or ' +
+          '`lang/preview-messages.ts` if it is user-facing copy) so the object carrying it ' +
+          'is eliminated, rather than deleting the check.',
+      );
+    }
   }
   const orphaned = orphanedPreviewMessageKeys(bundle);
   if (orphaned.length > 0) {
@@ -267,10 +279,11 @@ if (!preview) {
         'code that reads it behind `__BREVO_PREVIEW__`.',
     );
   }
-} else {
+} else if (LEAK_MARKERS.length > 0 || LEAK_STRINGS.length > 0) {
   // Inverted on a preview build: a marker going missing here means the elimination is
   // firing when it shouldn't, which would silently ship a preview build with no preview
-  // surface — the failure that looks like everything working.
+  // surface — the failure that looks like everything working. Guarded for the same
+  // reason as the public branch above: with nothing gated there is nothing to miss.
   const missing = [
     ...LEAK_MARKERS.filter((marker) => !bundle.includes(marker)),
     ...LEAK_STRINGS.filter((s) => !bundle.includes(s)),
