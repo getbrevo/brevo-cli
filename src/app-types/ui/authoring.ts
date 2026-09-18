@@ -28,6 +28,7 @@ import {
   validateUiAppUrl,
 } from '../../lib/validators';
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
+import { isFeatureAvailable } from '../../lib/preview';
 import { appService } from '../../container';
 import { CreateAppResponse, SurfacePointEntry, SurfacePointRow, UiApp } from '../../types';
 import { formatPlacementLines } from './fields';
@@ -346,12 +347,12 @@ async function promptSurfacePoint(
 
 /**
  * Ask what the app integrates as: a Link (`actionLink`) always, an Iframe
- * (`iframeExtension`) only on a private app — iframe extensions are private-only in v1,
- * and the choice is HIDDEN rather than shown disabled: a disabled entry would advertise
- * a combination the CLI validator and the platform both refuse, which is a roadmap hint
- * about a rule, not a feature. On a public app the question is still asked with its one
- * choice, same as the gated app-type and distribution prompts: the user is told what
- * they are getting rather than having it applied silently.
+ * (`iframeExtension`) only on a private app in a build that has the feature — iframe
+ * extensions are private-only in v1, and the choice is HIDDEN rather than shown disabled:
+ * a disabled entry would advertise a combination the CLI validator and the platform both
+ * refuse, which is a roadmap hint about a rule, not a feature. On a public app the
+ * question is still asked with its one choice, same as the gated app-type and distribution
+ * prompts: the user is told what they are getting rather than having it applied silently.
  */
 async function promptIntegrationType(offerIframe: boolean): Promise<UiApp['extension_type']> {
   const { integrationType } = await inquirer.prompt([
@@ -364,7 +365,13 @@ async function promptIntegrationType(offerIframe: boolean): Promise<UiApp['exten
           name: messages.APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK,
           value: EXTENSION_TYPE_ACTION_LINK,
         },
-        ...(offerIframe
+        // ELIMINATION SITE — the raw global rather than `isFeatureAvailable` alone, so
+        // esbuild folds the whole branch away on a published build and the choice's label
+        // (which lives in `preview-messages.ts` for exactly this reason) leaves the bundle
+        // with it. `isFeatureAvailable` stays alongside it so `FEATURE_STAGE` remains the
+        // one place the feature's readiness is stated — same pairing as the gated
+        // `--distribution public` choice in `app create`.
+        ...(__BREVO_PREVIEW__ && isFeatureAvailable('ui-iframe-type') && offerIframe
           ? [
               {
                 name: messages.APP_CREATE_UI_INTEGRATION_MODAL_IFRAME,
@@ -649,20 +656,22 @@ async function promptModalSize(
  * in for a row that renders no card is REFUSED here rather than stamped: see the check in
  * the loop.
  */
+interface SurfacePointEntryFields {
+  contextFor: (row: UsableSurfacePoint) => string[];
+  sizeFor: (row: UsableSurfacePoint) => { width?: string; height?: string } | undefined;
+  label: string;
+  more_info: string;
+  urlField: 'redirect_link' | 'iframe_href';
+  url: string;
+  /** Written only when `'inline'` — absent means modal, and absent is the default. */
+  layout?: 'inline';
+  /** Written only when non-default — absent means `large`, and absent is the default. */
+  modal_size?: 'small' | 'medium';
+}
+
 export function buildSurfacePointList(
   rows: UsableSurfacePoint[],
-  fields: {
-    contextFor: (row: UsableSurfacePoint) => string[];
-    sizeFor: (row: UsableSurfacePoint) => { width?: string; height?: string } | undefined;
-    label: string;
-    more_info: string;
-    urlField: 'redirect_link' | 'iframe_href';
-    url: string;
-    /** Written only when `'inline'` — absent means modal, and absent is the default. */
-    layout?: 'inline';
-    /** Written only when non-default — absent means `large`, and absent is the default. */
-    modal_size?: 'small' | 'medium';
-  },
+  fields: SurfacePointEntryFields,
 ): SurfacePointEntry[] {
   const entries: SurfacePointEntry[] = [];
   const seen = new Set<string>();
@@ -679,23 +688,35 @@ export function buildSurfacePointList(
     if (fields.layout && row.component_type !== 'widget') {
       throw new CliError(messages.APP_CREATE_UI_LAYOUT_NOT_WIDGET(row.surface_point_name));
     }
-    const context = fields
-      .contextFor(row)
-      .map((field) => String(field).trim())
-      .filter(Boolean);
-    const size = sanitizeSeededSize(fields.sizeFor(row));
-    entries.push({
-      surface_point_name: row.surface_point_name,
-      ...(context.length ? { context } : {}),
-      ...(size ? { size } : {}),
-      label: fields.label,
-      ...(fields.more_info ? { more_info: fields.more_info } : {}),
-      ...(fields.layout ? { layout: fields.layout } : {}),
-      ...(fields.modal_size ? { modal_size: fields.modal_size } : {}),
-      [fields.urlField]: fields.url,
-    });
+    entries.push(toSurfacePointEntry(row, fields));
   }
   return entries;
+}
+
+/**
+ * One row's entry. Split out of the loop above so the loop reads as what it decides —
+ * which rows get an entry at all — while the omit-when-blank rules that decide the
+ * entry's SHAPE sit together in one place.
+ */
+function toSurfacePointEntry(
+  row: UsableSurfacePoint,
+  fields: SurfacePointEntryFields,
+): SurfacePointEntry {
+  const context = fields
+    .contextFor(row)
+    .map((field) => String(field).trim())
+    .filter(Boolean);
+  const size = sanitizeSeededSize(fields.sizeFor(row));
+  return {
+    surface_point_name: row.surface_point_name,
+    ...(context.length ? { context } : {}),
+    ...(size ? { size } : {}),
+    label: fields.label,
+    ...(fields.more_info ? { more_info: fields.more_info } : {}),
+    ...(fields.layout ? { layout: fields.layout } : {}),
+    ...(fields.modal_size ? { modal_size: fields.modal_size } : {}),
+    [fields.urlField]: fields.url,
+  };
 }
 
 /**

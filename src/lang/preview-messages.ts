@@ -21,6 +21,14 @@ import { CLI } from '../lib/constants';
  * empties. See `RELEASE-CHECKLIST.md`.
  */
 export const previewMessages = {
+  // The *Iframe* choice in `app create`'s UI-app integration-type prompt (BEX-459). Here
+  // rather than in `en.ts` for the same build reason everything else is: the only read
+  // sits inside `promptIntegrationType`'s `__BREVO_PREVIEW__` branch, so on a published
+  // build the branch is eliminated and this string is genuinely absent from the bundle
+  // rather than merely unreachable. The other iframe strings stay in `en.ts` — live code
+  // (`app upload`'s refusal translation, the renderers) reads them in every build.
+  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe (Embeds your page in a modal)',
+
   // App submit (BEX-221)
   APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
   APP_SUBMIT_FETCHING: 'Fetching app...',

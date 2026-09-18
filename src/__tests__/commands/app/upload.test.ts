@@ -1181,6 +1181,25 @@ describe('app/upload', () => {
       expect(appService.uploadApp).not.toHaveBeenCalled();
     });
 
+    // Iframe extensions are preview-gated (BEX-459). The create prompt cannot author one
+    // in a published build — the choice is eliminated from it — so the hand-edited config
+    // is the only way a block reaches upload there, and it is refused before the round
+    // trip the server would answer with an opaque 400. jest runs as a PREVIEW build
+    // (jest.setup.js), hence the flip.
+    it('rejects an iframeExtension on a published build, before any round trip', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: IFRAME_UI_APP });
+
+      globalThis.__BREVO_PREVIEW__ = false;
+      try {
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(
+          messages.PREVIEW_FEATURE_UNAVAILABLE,
+        );
+      } finally {
+        globalThis.__BREVO_PREVIEW__ = true;
+      }
+      expect(appService.uploadApp).not.toHaveBeenCalled();
+    });
+
     it('rejects an iframeExtension entry carrying a redirect_link', async () => {
       (readProjectConfig as jest.Mock).mockReturnValue({
         ...UI_CONFIG,

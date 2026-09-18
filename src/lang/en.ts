@@ -287,7 +287,6 @@ const coreMessages = {
   // `validateConfig` locally and by the platform at upload/create.
   APP_CREATE_UI_INTEGRATION_PROMPT: 'What type of integration are you adding?',
   APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link (Opens your URL in a new tab)',
-  APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe (Embeds your page in a modal)',
   // Each field renders in two places (`label` is the menu entry's text AND a card's CTA
   // button; `more_info` is the menu entry's second line AND a card's description) and
   // `redirect_link`'s query-param behaviour is easy to miss — all three explanations stay

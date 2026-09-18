@@ -14,6 +14,7 @@
 import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import { validateUiApp } from '../../lib/validators';
+import { assertFeatureAvailable } from '../../lib/preview';
 import type { AppTypeModule } from '../contract';
 import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
 
@@ -90,6 +91,16 @@ export const uiAppType: AppTypeModule = {
     // Shape only, and only ever about the FILE — a missing label, a bare-string placement, a
     // pre-BEX-290 field name. Whether a slot is registered is the upload endpoint's call; the
     // CLI holds no copy of that registry, on purpose.
+    // Iframe extensions are pre-GA (BEX-459): the platform's extension-point registry has
+    // no slot enabled for them and bo-be gates authoring per account, so a published build
+    // refuses a hand-authored block rather than pushing one the server answers with an
+    // opaque 400. First, ahead of the shape checks: "this isn't released yet" is the whole
+    // answer, and field-level advice about a block that cannot be uploaded only misleads.
+    // The create prompt cannot author the combination in such a build — the Iframe choice
+    // is eliminated from it — so this is the hand-edited config's path alone.
+    if (config.ui_app?.extension_type === 'iframeExtension') {
+      assertFeatureAvailable('ui-iframe-type');
+    }
     validateUiApp(config.ui_app);
     // The one cross-field rule, and it IS answerable from the file alone: iframe
     // extensions are private-only (v1). The create prompt never authors the combination

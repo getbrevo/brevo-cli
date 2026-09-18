@@ -612,17 +612,29 @@ function validateEntrySize(row: Record<string, unknown>, name: string): void {
   }
 }
 
+/** One entry's field path, so every message names the exact key the partner must edit. */
+type EntryFieldPath = (field: string) => string;
+
+// Rendered once, at module level, rather than inside the message template: the choice list
+// is the same for every entry, and interpolating a `.map()` of template literals into
+// another one is a nested template literal (Sonar S4624) for no gain.
+const MODAL_SIZE_CHOICES = UI_APP_MODAL_SIZES.map((size) => `"${size}"`).join(', ');
+
 /**
  * Validate one entry's CTA fields — its own label, supporting text and destination
  * (BEX-426). Runs per entry because the fields live per entry: an app on three slots
  * shows three labels and opens three URLs, and each violation must name its entry.
+ *
+ * Label and supporting text are common to both extension types; everything past them is
+ * the type's own contract, so each type gets its own function rather than one body with a
+ * branch running through it.
  */
 function validateEntryCtaFields(
   row: Record<string, unknown>,
   name: string,
   extensionType: string,
 ): void {
-  const at = (field: string) => `ui_app.surface_point_list["${name}"].${field}`;
+  const at: EntryFieldPath = (field) => `ui_app.surface_point_list["${name}"].${field}`;
 
   const labelCheck = validateUiAppLabel(asText(row.label));
   if (labelCheck !== true) throw new CliError(`${at('label')}: ${labelCheck}`);
@@ -631,68 +643,90 @@ function validateEntryCtaFields(
   if (moreInfoCheck !== true) throw new CliError(`${at('more_info')}: ${moreInfoCheck}`);
 
   if (extensionType === EXTENSION_TYPE_IFRAME) {
-    const urlCheck = validateUiAppUrl(asText(row.iframe_href));
-    if (urlCheck !== true) throw new CliError(`${at('iframe_href')}: ${urlCheck}`);
-
-    // layout is optional (absent = modal, the launch behavior) and pinned to the vocabulary;
-    // whether the slot actually renders a card for an 'inline' value needs the registry and
-    // is the upload endpoint's call, same as every other registry fact.
-    const layout = asText(row.layout);
-    if (layout && layout !== 'modal' && layout !== 'inline') {
-      throw new CliError(`${at('layout')} "${layout}" is not supported — use "modal" or "inline".`);
-    }
-
-    // modal_size is optional (absent = large, the default) and pinned the same way. Which
-    // entries it applies to is a slot fact — an inline card opens no modal — so that part
-    // is the upload endpoint's call, exactly like the layout vocabulary above.
-    const modalSize = asText(row.modal_size);
-    if (modalSize && !UI_APP_MODAL_SIZES.includes(modalSize)) {
-      throw new CliError(
-        `${at('modal_size')} "${modalSize}" is not supported — use ${UI_APP_MODAL_SIZES.map((size) => `"${size}"`).join(', ')}.`,
-      );
-    }
-
-    // modal_height is optional (absent = the dialog kit's own default) and, unlike
-    // modal_size, not a preset vocabulary — a CSS length the platform enforces the same
-    // grammar and bound on, so accepting more here would only defer the 400 to app upload.
-    const modalHeight = asText(row.modal_height);
-    if (modalHeight) {
-      const match = MODAL_HEIGHT_PATTERN.exec(modalHeight);
-      if (!match) {
-        throw new CliError(
-          `${at('modal_height')} "${modalHeight}" is invalid — use a positive integer with a px, vh or % unit, e.g. "600px", "80vh" or "50%".`,
-        );
-      }
-      const unit = match[2];
-      if ((unit === 'vh' || unit === '%') && Number(match[1]) > 100) {
-        throw new CliError(
-          `${at('modal_height')} "${modalHeight}" is out of range — a ${unit} value must be between 1${unit} and 100${unit}.`,
-        );
-      }
-    }
-
-    // A modal embeds its URL rather than navigating to it, so there is no link target to
-    // set. Refused rather than ignored: the server refuses it per entry as well, and a
-    // stored `_blank` on an iframe entry is a field the read path serves and nothing
-    // applies.
-    if (isPresentField(row.link_target)) {
-      throw new CliError(
-        `${at('link_target')} has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL rather than navigating to it. Remove it.`,
-      );
-    }
-
-    // Refused because the two delivery paths disagree about which URL wins: the
-    // widget-card path pairs strictly by extension_type and shows the iframe, while the
-    // header-menu path routes on redirect_link first and never opens it. The same entry
-    // would behave differently depending on the kind of slot it names.
-    if (isPresentField(row.redirect_link)) {
-      throw new CliError(
-        `${at('redirect_link')} cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the iframe, while a card would show the iframe. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
-      );
-    }
+    validateIframeEntryFields(row, at);
     return;
   }
+  validateActionLinkEntryFields(row, at);
+}
 
+/**
+ * The `iframeExtension` half of an entry: the embedded URL, the two presentation fields,
+ * the explicit height override, and the two fields an iframe entry must NOT carry.
+ */
+function validateIframeEntryFields(row: Record<string, unknown>, at: EntryFieldPath): void {
+  const urlCheck = validateUiAppUrl(asText(row.iframe_href));
+  if (urlCheck !== true) throw new CliError(`${at('iframe_href')}: ${urlCheck}`);
+
+  // layout is optional (absent = modal, the launch behavior) and pinned to the vocabulary;
+  // whether the slot actually renders a card for an 'inline' value needs the registry and
+  // is the upload endpoint's call, same as every other registry fact.
+  const layout = asText(row.layout);
+  if (layout && layout !== 'modal' && layout !== 'inline') {
+    throw new CliError(`${at('layout')} "${layout}" is not supported — use "modal" or "inline".`);
+  }
+
+  // modal_size is optional (absent = large, the default) and pinned the same way. Which
+  // entries it applies to is a slot fact — an inline card opens no modal — so that part
+  // is the upload endpoint's call, exactly like the layout vocabulary above.
+  const modalSize = asText(row.modal_size);
+  if (modalSize && !UI_APP_MODAL_SIZES.includes(modalSize)) {
+    throw new CliError(
+      `${at('modal_size')} "${modalSize}" is not supported — use ${MODAL_SIZE_CHOICES}.`,
+    );
+  }
+
+  validateEntryModalHeight(row, at);
+
+  // A modal embeds its URL rather than navigating to it, so there is no link target to
+  // set. Refused rather than ignored: the server refuses it per entry as well, and a
+  // stored `_blank` on an iframe entry is a field the read path serves and nothing
+  // applies.
+  if (isPresentField(row.link_target)) {
+    throw new CliError(
+      `${at('link_target')} has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL rather than navigating to it. Remove it.`,
+    );
+  }
+
+  // Refused because the two delivery paths disagree about which URL wins: the
+  // widget-card path pairs strictly by extension_type and shows the iframe, while the
+  // header-menu path routes on redirect_link first and never opens it. The same entry
+  // would behave differently depending on the kind of slot it names.
+  if (isPresentField(row.redirect_link)) {
+    throw new CliError(
+      `${at('redirect_link')} cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the iframe, while a card would show the iframe. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
+    );
+  }
+}
+
+/**
+ * Validate an iframe entry's `modal_height`. Optional (absent = the dialog kit's own
+ * default) and, unlike `modal_size`, not a preset vocabulary — a CSS length the platform
+ * enforces the same grammar and bound on, so accepting more here would only defer the 400
+ * to `app upload`.
+ */
+function validateEntryModalHeight(row: Record<string, unknown>, at: EntryFieldPath): void {
+  const modalHeight = asText(row.modal_height);
+  if (!modalHeight) return;
+
+  const match = MODAL_HEIGHT_PATTERN.exec(modalHeight);
+  if (!match) {
+    throw new CliError(
+      `${at('modal_height')} "${modalHeight}" is invalid — use a positive integer with a px, vh or % unit, e.g. "600px", "80vh" or "50%".`,
+    );
+  }
+  const unit = match[2];
+  if ((unit === 'vh' || unit === '%') && Number(match[1]) > 100) {
+    throw new CliError(
+      `${at('modal_height')} "${modalHeight}" is out of range — a ${unit} value must be between 1${unit} and 100${unit}.`,
+    );
+  }
+}
+
+/**
+ * The `actionLink` half of an entry: its destination, the pinned link target, and the four
+ * fields only an `iframeExtension` can carry.
+ */
+function validateActionLinkEntryFields(row: Record<string, unknown>, at: EntryFieldPath): void {
   const urlCheck = validateUiAppUrl(asText(row.redirect_link));
   if (urlCheck !== true) throw new CliError(`${at('redirect_link')}: ${urlCheck}`);
 
@@ -707,34 +741,31 @@ function validateEntryCtaFields(
     );
   }
 
-  // The UI kit keeps `iframe_href` only for an `iframeExtension` item, so one
-  // carried by an actionLink entry is dropped without a word. Reject rather than let a
-  // partner ship a URL that will never open.
-  if (isPresentField(row.iframe_href)) {
-    throw new CliError(
-      `${at('iframe_href')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
-    );
-  }
-  // layout picks between an iframe's two presentations; an actionLink has exactly one
-  // (the redirect), so the field is refused here for the same reason iframe_href is.
-  if (isPresentField(row.layout)) {
-    throw new CliError(
-      `${at('layout')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it.`,
-    );
-  }
-  // modal_size sizes the modal an iframe opens; an actionLink opens no modal at all, so
-  // the field is refused here for the same reason layout is.
-  if (isPresentField(row.modal_size)) {
-    throw new CliError(
-      `${at('modal_size')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it.`,
-    );
-  }
-  // modal_height sizes the same modal modal_size does; refused for the same reason.
-  if (isPresentField(row.modal_height)) {
-    throw new CliError(
-      `${at('modal_height')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it.`,
-    );
-  }
+  // The UI kit keeps each of these for an `iframeExtension` item only, so one carried by an
+  // actionLink entry is dropped without a word. Rejected rather than letting a partner ship
+  // a URL that will never open, a presentation that never applies, or a modal size for a
+  // modal that never opens.
+  rejectIframeOnlyField(row, at, 'iframe_href', ', or use redirect_link instead');
+  rejectIframeOnlyField(row, at, 'layout');
+  rejectIframeOnlyField(row, at, 'modal_size');
+  rejectIframeOnlyField(row, at, 'modal_height');
+}
+
+/**
+ * Refuse one `iframeExtension`-only field on an `actionLink` entry. One function for all
+ * four because the refusal is the same sentence each time — `extra` carries the only
+ * variation, `iframe_href`'s pointer at the field the partner probably meant.
+ */
+function rejectIframeOnlyField(
+  row: Record<string, unknown>,
+  at: EntryFieldPath,
+  field: 'iframe_href' | 'layout' | 'modal_size' | 'modal_height',
+  extra = '',
+): void {
+  if (!isPresentField(row[field])) return;
+  throw new CliError(
+    `${at(field)} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it${extra}.`,
+  );
 }
 
 /**

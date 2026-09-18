@@ -1751,6 +1751,28 @@ describe('app/create', () => {
       expect(choices.find((c) => c.value === 'iframeExtension')).toBeUndefined();
     });
 
+    // Iframe extensions are preview-gated (BEX-459) — the registry has no slot enabled
+    // for them and bo-be gates authoring per account, so a published build must not offer
+    // the choice at all. jest runs as a PREVIEW build (jest.setup.js), so this is the one
+    // place that flips the global to prove the published build hides it. The prompt is
+    // still asked, with Link alone: the user is told what they are getting, same as every
+    // other gated choice.
+    it('hides the Iframe choice on a published build, even on a private app', async () => {
+      globalThis.__BREVO_PREVIEW__ = false;
+      try {
+        await createCommand(CLI_OPTIONS);
+      } finally {
+        globalThis.__BREVO_PREVIEW__ = true;
+      }
+
+      const question = questionNamed('integrationType');
+      expect(question).toBeDefined();
+      const choices = (question?.choices ?? []) as Array<{ value?: string }>;
+      expect(choices.find((c) => c.value === 'actionLink')).toBeDefined();
+      expect(choices.find((c) => c.value === 'iframeExtension')).toBeUndefined();
+      expect(collectedUiApp().extension_type).toBe('actionLink');
+    });
+
     // The Iframe branch: same five questions, but the URL answer lands in
     // `iframe_href` — never `redirect_link`, which the platform refuses on an
     // iframeExtension entry — and both registry reads narrow by the chosen type.

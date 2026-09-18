@@ -688,6 +688,34 @@ function isPublicDistributionRefusal(err: unknown, distribution: string): err is
   );
 }
 
+/**
+ * The create failures that end the command with a message of our own rather than a retry:
+ * the plan limit, and the two refusals whose server wording needs the CLI's own next step
+ * attached. Split out of `createAppWithRetry` so that function reads as what it is — the
+ * happy path plus the two RETRY branches — and each translation can be read on its own.
+ *
+ * Returns normally when `err` is none of them; the caller then decides between a retry and
+ * a rethrow.
+ */
+function rethrowTranslatedCreateFailure(
+  err: unknown,
+  inputs: CreateAppInputs,
+  jsonMode: boolean,
+): void {
+  if (err instanceof ApiError && err.errorCode === ErrorCode.APP_LIMIT_REACHED) {
+    if (jsonMode) {
+      jsonOutput({ error: 'APP_LIMIT_REACHED', message: messages.APP_CREATE_LIMIT_REACHED });
+    }
+    throw new CliError(messages.APP_CREATE_LIMIT_REACHED);
+  }
+  if (isPublicDistributionRefusal(err, inputs.distribution)) {
+    throw new CliError(messages.APP_CREATE_PUBLIC_REJECTED(err.message));
+  }
+  if (isIframeExtensionDisabledRefusal(err)) {
+    throw new CliError(messages.APP_CREATE_UI_IFRAME_DISABLED(err.message));
+  }
+}
+
 // 5. Create the app
 async function createAppWithRetry(
   inputs: CreateAppInputs,
@@ -701,18 +729,7 @@ async function createAppWithRetry(
     return { result, appName: inputs.appName };
   } catch (err) {
     spinner.stop();
-    if (err instanceof ApiError && err.errorCode === ErrorCode.APP_LIMIT_REACHED) {
-      if (jsonMode) {
-        jsonOutput({ error: 'APP_LIMIT_REACHED', message: messages.APP_CREATE_LIMIT_REACHED });
-      }
-      throw new CliError(messages.APP_CREATE_LIMIT_REACHED);
-    }
-    if (isPublicDistributionRefusal(err, inputs.distribution)) {
-      throw new CliError(messages.APP_CREATE_PUBLIC_REJECTED(err.message));
-    }
-    if (isIframeExtensionDisabledRefusal(err)) {
-      throw new CliError(messages.APP_CREATE_UI_IFRAME_DISABLED(err.message));
-    }
+    rethrowTranslatedCreateFailure(err, inputs, jsonMode);
     if (err instanceof ApiError && err.statusCode === 409) {
       return retryCreateWithNewName(inputs);
     }

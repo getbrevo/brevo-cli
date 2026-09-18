@@ -51,6 +51,8 @@ export type PreviewFeature =
   | 'review-lifecycle'
   /** The *UI app* choice in `app create`'s app-type prompt. */
   | 'ui-app-type'
+  /** The *Iframe* choice in `app create`'s UI-app integration-type prompt. */
+  | 'ui-iframe-type'
   /** `app create --distribution public`. */
   | 'public-distribution'
   /** The *Brevo Function* choice in `app create` and the `brevo function` commands. */
@@ -70,6 +72,12 @@ export const FEATURE_STAGE: Readonly<Record<PreviewFeature, FeatureStage>> = {
   'account-install': 'ga',
   'review-lifecycle': 'preview',
   'ui-app-type': 'ga',
+  // Iframe extensions are not live on the platform: the extension-point registry has no
+  // slot enabled for `iframeExtension` yet, and bo-be gates authoring behind a per-account
+  // Unleash flag that is off by default. So the choice would dead-end for every partner —
+  // in `APP_CREATE_UI_POINTS_NONE_FOR_TYPE` on an un-flipped registry, or a `400` past it —
+  // which reads as a CLI bug. Gated until both land; the rest of UI apps stays GA.
+  'ui-iframe-type': 'preview',
   'public-distribution': 'preview',
   'brevo-function-type': 'ga',
 } as const;

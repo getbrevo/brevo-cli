@@ -24,14 +24,15 @@ function asBuild(previewBuild: boolean): void {
 describe('lib/preview', () => {
   describe('FEATURE_STAGE', () => {
     // Guards the intent of the current release state: UI apps (the create choice and
-    // install/uninstall) are GA, public distribution and its review lifecycle are not.
-    // When another feature ships, this is the assertion that fails and points at the
-    // GA checklist.
+    // install/uninstall) are GA, while public distribution, its review lifecycle and the
+    // iframe integration type are not. When another feature ships, this is the assertion
+    // that fails and points at the GA checklist.
     it('matches the released feature set', () => {
       expect(FEATURE_STAGE).toEqual({
         'account-install': 'ga',
         'review-lifecycle': 'preview',
         'ui-app-type': 'ga',
+        'ui-iframe-type': 'preview',
         'public-distribution': 'preview',
         'brevo-function-type': 'ga',
       });

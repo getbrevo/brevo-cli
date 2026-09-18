@@ -220,17 +220,16 @@ function requireUiEntry(cfg: Record<string, unknown>): {
   return { uiApp: uiApp as Record<string, unknown>, entry };
 }
 
-async function createUiSmokeApp(state: State, integration: UiIntegration): Promise<string> {
-  const tmp = trackTmpDir(state, 'brevo-smoke-ui-');
-  const name = stampedName(state, integration === 'iframe' ? 'ui-ifr' : 'ui');
-
-  const r = await execExpectPty(
-    brevoCmd(state),
-    ['app', 'create', '--name', name, '--distribution', 'private'],
-    state,
-    { cwd: tmp, exchanges: createExchanges(integration) },
-  );
-
+/**
+ * Turn a create run that did not produce an app into the right verdict: a SKIP when the
+ * build or the environment simply cannot run this leg, a failure otherwise. Split out of
+ * `createUiSmokeApp` so the step body reads as the assertions it exists for.
+ */
+function assertCreateSucceeded(
+  r: { aborted: boolean; exitCode: number; stdout: string },
+  integration: UiIntegration,
+  state: State,
+): void {
   // Aborted at a list prompt whose choices rendered without the one this path
   // selects: the installed build predates UI apps GA (app-type prompt) or the
   // iframe-extension launch (integration prompt). Nothing was created — create
@@ -242,31 +241,39 @@ async function createUiSmokeApp(state: State, integration: UiIntegration): Promi
         : `the installed build's app-type prompt offers no UI app (--against=${state.opts.against})`,
     );
   }
-  if (r.exitCode !== 0) {
-    // The iframe choice exists but the registry has no slot enabled for it yet —
-    // the environment predates the iframe-extension registry flip. An environment
-    // state, not a CLI defect, so the step skips and names the fix.
-    const transcript = stripAnsi(r.stdout);
-    if (
-      integration === 'iframe' &&
-      /(no available placements|None of the available placements)/i.test(transcript)
-    ) {
-      skip(
-        'the registry has no slot enabled for iframeExtension — apply the registry flip (app-store-bo-be specs/database.sql) in this environment first',
-      );
-    }
-    throw new Error(`brevo app create exited ${r.exitCode}: ${firstLine(transcript)}`);
-  }
+  if (r.exitCode === 0) return;
 
-  // Primary appId recovery: the created-app box. UUID format only, same as the
-  // init suite — the box prints no other UUID-shaped id for a UI app.
+  // The iframe choice exists but the registry has no slot enabled for it yet —
+  // the environment predates the iframe-extension registry flip. An environment
+  // state, not a CLI defect, so the step skips and names the fix.
   const transcript = stripAnsi(r.stdout);
+  if (
+    integration === 'iframe' &&
+    /(no available placements|None of the available placements)/i.test(transcript)
+  ) {
+    skip(
+      'the registry has no slot enabled for iframeExtension — apply the registry flip (app-store-bo-be specs/database.sql) in this environment first',
+    );
+  }
+  throw new Error(`brevo app create exited ${r.exitCode}: ${firstLine(transcript)}`);
+}
+
+/**
+ * Recover the created app's ID from, in order: the created-app box, the list endpoint by
+ * name, and the written config. Refuses to guess when all three come up empty — the same
+ * rule as the init suite, so a failed run never deletes an app it cannot identify.
+ */
+async function resolveCreatedAppId(
+  state: State,
+  transcript: string,
+  name: string,
+  configPath: string,
+): Promise<string> {
+  // Primary recovery: the created-app box. UUID format only, same as the init
+  // suite — the box prints no other UUID-shaped id for a UI app.
   const uuidPattern = /App ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
   let appId = uuidPattern.exec(transcript)?.[1] ?? null;
   if (!appId) appId = await findUiAppByName(state, name);
-
-  const projectDir = join(tmp, computeSlug(name));
-  const configPath = join(projectDir, 'app-config.json');
   if (!appId && existsSync(configPath)) {
     const rawId = configField(readJsonFile(configPath), 'app_id', 'appId');
     if (typeof rawId === 'string' || typeof rawId === 'number') appId = String(rawId);
@@ -279,6 +286,59 @@ async function createUiSmokeApp(state: State, integration: UiIntegration): Promi
       `could not identify the created UI app (expected name "${name}"); refusing to guess. See orphan warning above for manual cleanup.`,
     );
   }
+  return appId;
+}
+
+/**
+ * One destination field, per type — the platform refuses the other type's URL on an
+ * entry, so its presence here means the create authored a block its own upload 400s.
+ */
+function assertEntryDestination(entry: Record<string, unknown>, integration: UiIntegration): void {
+  if (integration !== 'iframe') {
+    must(
+      entry.redirect_link === UI_REDIRECT_LINK,
+      `entry redirect_link ${JSON.stringify(entry.redirect_link)} != ${UI_REDIRECT_LINK}`,
+    );
+    must(
+      !('iframe_href' in entry),
+      `link entry must carry no iframe_href: ${JSON.stringify(entry)}`,
+    );
+    return;
+  }
+  must(
+    entry.iframe_href === UI_IFRAME_URL,
+    `entry iframe_href ${JSON.stringify(entry.iframe_href)} != ${UI_IFRAME_URL}`,
+  );
+  must(
+    !('redirect_link' in entry),
+    `iframe entry must carry no redirect_link: ${JSON.stringify(entry)}`,
+  );
+  // Both conditional questions were answered with their DEFAULT (Enter): modal for the
+  // layout, Large for the modal size. Neither default is written, so an entry authored
+  // this way stays byte-identical to one from before the questions existed — the whole
+  // point of the omit-the-default contract, and the only part of it a real run can prove.
+  must(
+    !('layout' in entry) && !('modal_size' in entry),
+    `default layout/modal size answers must write nothing: ${JSON.stringify(entry)}`,
+  );
+}
+
+async function createUiSmokeApp(state: State, integration: UiIntegration): Promise<string> {
+  const tmp = trackTmpDir(state, 'brevo-smoke-ui-');
+  const name = stampedName(state, integration === 'iframe' ? 'ui-ifr' : 'ui');
+
+  const r = await execExpectPty(
+    brevoCmd(state),
+    ['app', 'create', '--name', name, '--distribution', 'private'],
+    state,
+    { cwd: tmp, exchanges: createExchanges(integration) },
+  );
+
+  assertCreateSucceeded(r, integration, state);
+
+  const projectDir = join(tmp, computeSlug(name));
+  const configPath = join(projectDir, 'app-config.json');
+  const appId = await resolveCreatedAppId(state, stripAnsi(r.stdout), name, configPath);
 
   // Register for cleanup before any assertion can throw. redirectUri is '' —
   // a UI app has no OAuth callback.
@@ -327,35 +387,7 @@ async function createUiSmokeApp(state: State, integration: UiIntegration): Promi
     entry.label === UI_LABEL,
     `entry label ${JSON.stringify(entry.label)} != ${JSON.stringify(UI_LABEL)}`,
   );
-  // One destination field, per type — the platform refuses the other type's URL on an
-  // entry, so its presence here means the create authored a block its own upload 400s.
-  if (integration === 'iframe') {
-    must(
-      entry.iframe_href === UI_IFRAME_URL,
-      `entry iframe_href ${JSON.stringify(entry.iframe_href)} != ${UI_IFRAME_URL}`,
-    );
-    must(
-      !('redirect_link' in entry),
-      `iframe entry must carry no redirect_link: ${JSON.stringify(entry)}`,
-    );
-    // Both conditional questions were answered with their DEFAULT (Enter): modal for the
-    // layout, Large for the modal size. Neither default is written, so an entry authored
-    // this way stays byte-identical to one from before the questions existed — the whole
-    // point of the omit-the-default contract, and the only part of it a real run can prove.
-    must(
-      !('layout' in entry) && !('modal_size' in entry),
-      `default layout/modal size answers must write nothing: ${JSON.stringify(entry)}`,
-    );
-  } else {
-    must(
-      entry.redirect_link === UI_REDIRECT_LINK,
-      `entry redirect_link ${JSON.stringify(entry.redirect_link)} != ${UI_REDIRECT_LINK}`,
-    );
-    must(
-      !('iframe_href' in entry),
-      `link entry must carry no iframe_href: ${JSON.stringify(entry)}`,
-    );
-  }
+  assertEntryDestination(entry, integration);
   must(
     !('more_info' in entry),
     'blank more_info must be omitted from the entry, not written empty',
