@@ -1796,7 +1796,8 @@ describe('app/create', () => {
     });
 
     // Inline cards: the layout question is asked only for an Iframe on a WIDGET slot, and
-    // only 'inline' is ever written — modal is the default and stays out of the file.
+    // BOTH answers are written — the entry states how it presents rather than leaving a
+    // reader of app-config.json to know what an absent `layout` falls back to.
     it('asks the layout question for an iframe widget placement and writes inline', async () => {
       answerPrompts({
         integrationType: 'iframeExtension',
@@ -1811,7 +1812,10 @@ describe('app/create', () => {
       expect(collectedUiApp().surface_point_list[0].layout).toBe('inline');
     });
 
-    it('skips the layout question on an action slot and writes none for modal', async () => {
+    // An action slot's menu entry takes no layout AT ALL — the platform refuses the field
+    // there — so this is the one case that still writes nothing, and it is absence for a
+    // different reason than a default answer.
+    it('skips the layout question on an action slot, which takes no layout', async () => {
       answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
 
       await createCommand(CLI_OPTIONS);
@@ -1820,7 +1824,7 @@ describe('app/create', () => {
       expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('layout');
     });
 
-    it('writes no layout when the widget answer is modal (the default)', async () => {
+    it('writes layout "modal" when the widget answer is modal (the default)', async () => {
       answerPrompts({
         integrationType: 'iframeExtension',
         placement: 'contact-details-overview-main',
@@ -1830,7 +1834,7 @@ describe('app/create', () => {
 
       await createCommand(CLI_OPTIONS);
 
-      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('layout');
+      expect(collectedUiApp().surface_point_list[0].layout).toBe('modal');
     });
 
     // Modal size is gated DIFFERENTLY from layout, and the difference is the point: layout
@@ -1883,11 +1887,10 @@ describe('app/create', () => {
       expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('modal_size');
     });
 
-    // Large is the default and writes nothing, the same contract the layout question has:
-    // a default answer leaves the entry byte-identical to one authored before the question
-    // existed. The prompt pre-SELECTS it rather than listing it first, so a bare Enter
-    // still lands there.
-    it('writes no modal size for the default answer, which is pre-selected', async () => {
+    // Large is the default and IS written, the same contract the layout question has: the
+    // entry records the size it opens at rather than implying it by omission. The prompt
+    // pre-SELECTS it rather than listing it first, so a bare Enter still lands there.
+    it('writes the default modal size, which is pre-selected', async () => {
       answerPrompts({
         integrationType: 'iframeExtension',
         url: 'https://example.com/embed',
@@ -1897,7 +1900,136 @@ describe('app/create', () => {
       await createCommand(CLI_OPTIONS);
 
       expect(questionNamed('modalSize')?.default).toBe('large');
-      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('modal_size');
+      expect(collectedUiApp().surface_point_list[0].modal_size).toBe('large');
+    });
+
+    // ──────── The inline card height (BEX-461) ────────
+    // The narrowest of the three presentation questions: asked for an `inline` iframe and
+    // nothing else, because that is the one card that IS the embedded page. Its pre-fill
+    // comes from the registry row, never from a constant here — the slot owns its default
+    // card size the same way it owns its context allow-list.
+
+    const INLINE = {
+      integrationType: 'iframeExtension',
+      placement: 'contact-details-overview-main',
+      layout: 'inline',
+      url: 'https://example.com/embed',
+    } as const;
+
+    const WIDGET_ROW = (extra: Record<string, unknown> = {}) => [
+      REGISTRY_ROW('contactDetails', 'overviewMain', 'widget', extra),
+    ];
+
+    it('asks for the card height on an inline iframe and writes the answer', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100px' } }));
+      answerPrompts({ ...INLINE, cardHeight: '300px' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('cardHeight')).toBeDefined();
+      expect(collectedUiApp().surface_point_list[0].size).toEqual({ height: '300px' });
+    });
+
+    // The pre-fill is the SLOT's answer, served by the surface-points read. A CLI-side
+    // default would be a second source of truth for a value the registry already declares
+    // per slot — the same mistake a local copy of the slot names would be.
+    it('pre-fills the height from the row default_size, not from a local constant', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100px' } }));
+      answerPrompts(INLINE);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('cardHeight')?.default).toBe('100px');
+    });
+
+    // Blank is a real answer, not an omission: the registry seed is the platform's own
+    // height, so an Enter through the question writes exactly what an unprompted flow
+    // would have written.
+    it('keeps the registry seed when the answer is blank', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100px' } }));
+      answerPrompts({ ...INLINE, cardHeight: '   ' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list[0].size).toEqual({ height: '100px' });
+    });
+
+    // One axis was asked about, so one axis is overridden. A width the slot declared is
+    // column geometry the partner never answered a question about.
+    it('overrides only the height, keeping a seeded width', async () => {
+      registryHas(WIDGET_ROW({ default_size: { width: '280px', height: '100px' } }));
+      answerPrompts({ ...INLINE, cardHeight: '300px' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(collectedUiApp().surface_point_list[0].size).toEqual({
+        width: '280px',
+        height: '300px',
+      });
+    });
+
+    // A slot with no declared default still gets the question — the prompt's own example
+    // carries the grammar — and an answer is the entry's whole size.
+    it('asks with no pre-fill when the row declares no default size', async () => {
+      registryHas(WIDGET_ROW());
+      answerPrompts({ ...INLINE, cardHeight: '300px' });
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('cardHeight')?.default).toBeUndefined();
+      expect(collectedUiApp().surface_point_list[0].size).toEqual({ height: '300px' });
+    });
+
+    // A server predating the field, or echoing an unexpected shape, must not seat a value
+    // in the answer box that this prompt's own validator then refuses — a dead end the
+    // partner can only escape by retyping the field.
+    it('does not pre-fill — or seed — a default_size the grammar refuses', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100' } }));
+      answerPrompts(INLINE);
+
+      await createCommand(CLI_OPTIONS);
+
+      expect(questionNamed('cardHeight')?.default).toBeUndefined();
+      // And it must not reach the entry either: a unit-less seed authored a block
+      // `validateUiApp` refuses one call later, in the flow that wrote it.
+      expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('size');
+    });
+
+    // The prompt judges an answer with the validator `app upload` runs on the file, so an
+    // accepted answer is one the block it lands in survives.
+    it('validates the answer with the authored-size grammar', async () => {
+      registryHas(WIDGET_ROW());
+      answerPrompts(INLINE);
+
+      await createCommand(CLI_OPTIONS);
+
+      const validate = questionNamed('cardHeight')?.validate as (v: string) => true | string;
+      expect(validate('300px')).toBe(true);
+      expect(validate('50%')).toBe(true);
+      expect(validate('')).toBe(true);
+      expect(validate('300')).toMatch(/px or % unit/);
+      expect(validate('150%')).toMatch(/between 1% and 100%/);
+    });
+
+    // The three questions gate on three different sets, and this is the tightest: a modal
+    // is sized by `modal_size`, an action slot renders no card, and a Link's card shows a
+    // CTA rather than a page. Only the inline card is the page itself.
+    it('is not asked for a modal layout, an action slot or a Link', async () => {
+      registryHas(WIDGET_ROW({ default_size: { height: '100px' } }));
+      answerPrompts({ ...INLINE, layout: 'modal' });
+      await createCommand(CLI_OPTIONS);
+      expect(questionNamed('cardHeight')).toBeUndefined();
+
+      askedQuestions = [];
+      registryHas(FULL_REGISTRY);
+      answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+      await createCommand(CLI_OPTIONS);
+      expect(questionNamed('cardHeight')).toBeUndefined();
+
+      askedQuestions = [];
+      answerPrompts({ placement: 'contact-details-overview-main' });
+      await createCommand(CLI_OPTIONS);
+      expect(questionNamed('cardHeight')).toBeUndefined();
     });
 
     // One URL question either way, but the wording must say what actually happens to the

@@ -23,8 +23,10 @@ import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import {
   validateUiApp,
+  validateUiAppCardHeight,
   validateUiAppLabel,
   validateUiAppMoreInfo,
+  validateUiAppSizeAxis,
   validateUiAppUrl,
 } from '../../lib/validators';
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
@@ -49,7 +51,20 @@ import { formatPlacementLines } from './fields';
 //                             `iframe_href` for an Iframe — the type picked at
 //                             step 1 decides which single URL question this is.
 //
-//     Five questions, one optional, and two registry reads that ask for different things:
+//     An Iframe is then asked how it PRESENTS, which a Link never is — each of the three
+//     questions on a narrower set of placements than the one before it:
+//
+//       7. layout           → widget slots only: inline in the card, or a modal off its
+//                             CTA. An action slot's menu entry opens a modal by
+//                             definition, so there would be one honest answer.
+//       8. modal size       → every entry that actually opens a modal, which includes that
+//                             menu entry and excludes an `inline` card.
+//       9. card height      → `inline` only: the card IS the embedded page there, so its
+//                             height is the partner's call rather than the slot's.
+//                             Pre-filled from the row's `default_size`.
+//
+//     Five questions for a Link, one optional, and two registry reads that ask for
+//     different things:
 //     `surface-points/locations` for the pages, then `surface-points?location=<csv>` for
 //     the placements on the page that was picked. The pages are never derived from a full
 //     row read — the registry answers that question directly.
@@ -438,16 +453,23 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
 
   // Inline vs modal — asked only for an Iframe on a WIDGET slot: an action slot's menu
   // entry must open something, so it is a modal by definition and the question would have
-  // one honest answer. Modal is the default and is NOT written to the entry (the platform
-  // treats absent as modal), so a modal answer leaves the config byte-identical to one
-  // authored before layouts existed.
+  // one honest answer. Both answers are written to the entry, the default included: an
+  // authored `layout: "modal"` says in the file what an absent key only implies.
   const layout = await promptIframeLayout(isIframe, selectedRows);
 
   // How big that modal is — asked whenever one actually opens, which is a DIFFERENT set of
   // entries from the layout question above. Layout is widget-only; a modal opens on an
   // action slot (always) and on a widget slot unless the answer above was `inline`, which
-  // embeds the page in the card and opens nothing. Large is the default and writes nothing.
+  // embeds the page in the card and opens nothing. Written for every answer, `large`
+  // included, same contract as the layout above.
   const modalSize = await promptModalSize(isIframe, layout);
+
+  // How tall the card is — asked for the one presentation where the card IS the embedded
+  // page. An `inline` answer above means the iframe renders in the card body, so its
+  // height is the partner's decision and the slot's default is only a starting point;
+  // everything else keeps the silent seed (a modal sizes itself from `modal_size`, an
+  // action slot renders no card, a Link's card shows a CTA rather than a page).
+  const cardHeight = await promptInlineCardHeight(isIframe, layout, selectedRows);
 
   const uiApp: UiApp = {
     extension_type: extensionType,
@@ -465,9 +487,14 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
       contextFor: (row) => row.default_context_field ?? [],
       // The slot's default card size (BEX-461) seeds the entry's `size` the same way the
       // row's `default_context_field` seeds `context`: written explicitly into the file,
-      // where the partner can see and edit it. Not prompted (D2) — the registry default
-      // is the platform's answer to the question the flow deliberately doesn't ask.
-      sizeFor: (row) => row.default_size ?? undefined,
+      // where the partner can see and edit it. The registry is the only source of that
+      // seed — the CLI keeps no card-size constant to fall back to, for the same reason
+      // it keeps no copy of the slot names.
+      //
+      // An answered inline card height overrides the seed's height ONLY: a `width` the
+      // slot declared is the column geometry the partner was never asked about, so it
+      // survives the override untouched.
+      sizeFor: (row) => withCardHeight(row.default_size ?? undefined, cardHeight),
       label: String(label ?? '').trim(),
       more_info: String(more_info ?? '').trim(),
       urlField: isIframe ? 'iframe_href' : 'redirect_link',
@@ -558,14 +585,19 @@ export async function resolveUiAppNonInteractive(input: UiAppNonInteractiveInput
 
 /**
  * Ask how an Iframe presents on a widget slot: the card CTA opening a modal (default), or the
- * page embedded directly in the card body. Returns undefined — write nothing — for a Link, for
- * an action slot (its menu entry is a modal by definition), and for the modal answer itself,
- * so only `inline` ever reaches the file.
+ * page embedded directly in the card body. BOTH answers reach the file — the entry says in
+ * writing how it presents, rather than leaving a reader of `app-config.json` to know that an
+ * absent `layout` means modal.
+ *
+ * `undefined` therefore means one thing only: the field does not APPLY to this entry — a Link,
+ * or an action slot, whose menu entry is a modal by definition and which the platform refuses
+ * a `layout` on outright. It no longer doubles as "answered modal"; `promptModalSize` below
+ * depends on that, and so does `buildSurfacePointList`'s widget-only refusal.
  */
 async function promptIframeLayout(
   isIframe: boolean,
   rows: UsableSurfacePoint[],
-): Promise<'inline' | undefined> {
+): Promise<'inline' | 'modal' | undefined> {
   const onWidget = rows.some((row) => row.component_type === 'widget');
   if (!isIframe || !onWidget) return undefined;
   const { layout } = await inquirer.prompt([
@@ -579,25 +611,28 @@ async function promptIframeLayout(
       ]),
     },
   ]);
-  return layout === 'inline' ? 'inline' : undefined;
+  return layout === 'inline' ? 'inline' : 'modal';
 }
 
 /**
- * Ask how big the modal an Iframe opens should be. Returns undefined — write nothing — for
- * a Link, for an entry whose layout answer was `inline` (it embeds the page in the card and
- * opens no modal at all), and for the default answer itself, so only a non-default size
- * ever reaches the file.
+ * Ask how big the modal an Iframe opens should be. Every answer reaches the file, the default
+ * included, for the same reason `layout` writes its default: the size a modal opens at is
+ * visible in the config rather than implied by an absent key.
+ *
+ * `undefined` means the field does not APPLY: a Link, or an entry whose layout answer was
+ * `inline` — it embeds the page in the card body and opens no modal at all, so a size here
+ * would size nothing.
  *
  * The gating is deliberately NOT `promptIframeLayout`'s. That question is widget-only,
  * because an action slot's menu entry has exactly one presentation; this one applies to
  * every iframe entry that opens a modal, which includes that menu entry. `layout` is
- * `undefined` for both "not a widget" and "answered modal" — and both of those DO open a
- * modal — so `layout === 'inline'` is the whole exclusion.
+ * `undefined` on an action slot and `'modal'` on a widget slot that answered so — both of
+ * those DO open a modal — so `layout === 'inline'` is the whole exclusion.
  */
 async function promptModalSize(
   isIframe: boolean,
-  layout: 'inline' | undefined,
-): Promise<'small' | 'medium' | undefined> {
+  layout: 'inline' | 'modal' | undefined,
+): Promise<'small' | 'medium' | 'large' | undefined> {
   if (!isIframe || layout === 'inline') return undefined;
   const { modalSize } = await inquirer.prompt([
     {
@@ -605,7 +640,7 @@ async function promptModalSize(
       name: 'modalSize',
       message: messages.APP_CREATE_UI_MODAL_SIZE_PROMPT,
       // The default is pre-selected rather than listed first, so the choices stay in size
-      // order and a bare Enter still lands on the value that writes nothing.
+      // order and a bare Enter still lands on the platform's own default.
       default: DEFAULT_MODAL_SIZE,
       choices: indentChoices([
         { name: messages.APP_CREATE_UI_MODAL_SIZE_SMALL, value: 'small' },
@@ -614,8 +649,80 @@ async function promptModalSize(
       ]),
     },
   ]);
-  if (modalSize === 'small' || modalSize === 'medium') return modalSize;
+  return modalSize === 'small' || modalSize === 'medium' ? modalSize : DEFAULT_MODAL_SIZE;
+}
+
+/**
+ * Ask how tall an inline iframe card should be, pre-filled with the slot's own default.
+ *
+ * Asked for `layout === 'inline'` and nothing else, which is the narrowest gate of the
+ * three presentation questions and deliberately so: an inline card IS the embedded page,
+ * so its height is the one piece of card geometry the slot cannot decide on the partner's
+ * behalf. A modal is sized by `modal_size`, an action slot renders no card at all, and a
+ * Link's card shows a CTA rather than a page — in every one of those the registry's
+ * `default_size` is the whole answer, and asking would be a question with no better one.
+ *
+ * `undefined` means "no answer to apply", from a skipped question or a blank one, and the
+ * entry then carries the registry seed exactly as it did before this question existed.
+ * That is why blank is valid rather than re-prompted: the seed is a real answer — the
+ * platform's — so an Enter through this question is not an omission.
+ */
+async function promptInlineCardHeight(
+  isIframe: boolean,
+  layout: 'inline' | 'modal' | undefined,
+  rows: UsableSurfacePoint[],
+): Promise<string | undefined> {
+  if (!isIframe || layout !== 'inline') return undefined;
+  const { cardHeight } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'cardHeight',
+      message: messages.APP_CREATE_UI_CARD_HEIGHT_PROMPT,
+      // Pre-filled from the registry rather than from a constant here: the slot owns its
+      // default, and a local one could only lag it. A row that declares none shows no
+      // pre-fill — the prompt's own example carries the grammar in that case.
+      default: seededCardHeight(rows),
+      validate: validateUiAppCardHeight,
+    },
+  ]);
+  return String(cardHeight ?? '').trim() || undefined;
+}
+
+/**
+ * The card height to pre-fill: the first selected row's registry default, when it is one
+ * this flow's own validator accepts.
+ *
+ * Checked rather than trusted, for the reason `sanitizeSeededSize` exists further down —
+ * a server predating the field, or echoing an unexpected shape, must degrade to "no
+ * pre-fill" rather than seat a value in the answer box that the prompt then refuses to
+ * accept, which is a dead end a partner can only escape by retyping the field.
+ *
+ * Reads the rows as a list although the flow selects exactly one placement: the prompt is
+ * asked once for the whole answer, so a future multi-placement flow would want the first
+ * usable default rather than an arbitrary row's.
+ */
+function seededCardHeight(rows: UsableSurfacePoint[]): string | undefined {
+  for (const row of rows) {
+    const height =
+      typeof row.default_size?.height === 'string' ? row.default_size.height.trim() : '';
+    if (height && validateUiAppCardHeight(height) === true) return height;
+  }
   return undefined;
+}
+
+/**
+ * Apply an answered inline card height to a row's seeded size.
+ *
+ * Height only, and by merge rather than replacement: the question asked about one axis, so
+ * a `width` the registry declared for the slot is not the partner's to have silently
+ * dropped by answering a different question. No answer leaves the seed exactly as served.
+ */
+function withCardHeight(
+  seeded: { width?: string; height?: string } | undefined,
+  cardHeight: string | undefined,
+): { width?: string; height?: string } | undefined {
+  if (!cardHeight) return seeded;
+  return { ...seeded, height: cardHeight };
 }
 
 /**
@@ -651,10 +758,12 @@ async function promptModalSize(
  * `iframe_href` for an Iframe. One field, never both — the platform refuses the
  * other type's URL on an entry, so writing both would author a block upload 400s on.
  *
- * `layout` and `modal_size` are written only when non-default, so a default answer leaves
- * the entry byte-identical to one authored before either field existed. A `layout` handed
- * in for a row that renders no card is REFUSED here rather than stamped: see the check in
- * the loop.
+ * `layout` and `modal_size` are written whenever they APPLY to the entry, default answers
+ * included — an authored `layout: "modal"` / `modal_size: "large"` states the presentation
+ * in the file instead of leaving a reader to know what an absent key means. `undefined` is
+ * reserved for "does not apply": no `layout` on a row that renders no card, no `modal_size`
+ * on an entry that opens no modal. A `layout` handed in for a row that renders no card is
+ * REFUSED here rather than stamped: see the check in the loop.
  */
 interface SurfacePointEntryFields {
   contextFor: (row: UsableSurfacePoint) => string[];
@@ -663,10 +772,12 @@ interface SurfacePointEntryFields {
   more_info: string;
   urlField: 'redirect_link' | 'iframe_href';
   url: string;
-  /** Written only when `'inline'` — absent means modal, and absent is the default. */
-  layout?: 'inline';
-  /** Written only when non-default — absent means `large`, and absent is the default. */
-  modal_size?: 'small' | 'medium';
+  /** Written as answered. Absent only when the field does not apply: a Link, or a row that
+   * renders no card and therefore takes no layout at all. */
+  layout?: 'inline' | 'modal';
+  /** Written as answered, `'large'` included. Absent only when the field does not apply: a
+   * Link, or an entry whose `layout` is `'inline'` and so opens no modal to size. */
+  modal_size?: 'small' | 'medium' | 'large';
 }
 
 export function buildSurfacePointList(
@@ -720,18 +831,28 @@ function toSurfacePointEntry(
 }
 
 /**
- * Reduce a registry-served default size to the axes worth writing: non-blank strings only,
- * and no `size` key at all when nothing survives. Belt and braces — the registry's own
- * CHECK pins the grammar at seed time — but a server predating the field, or one echoing
- * an unexpected shape, must degrade to "no seed" rather than write a key `validateUiApp`
- * then refuses in the very flow that authored it.
+ * Reduce a registry-served default size to the axes worth writing: the ones that are
+ * actually authorable, and no `size` key at all when nothing survives. Belt and braces —
+ * the registry's own CHECK pins the grammar at seed time — but a server predating the
+ * field, or one echoing an unexpected shape, must degrade to "no seed" rather than write a
+ * key `validateUiApp` then refuses in the very flow that authored it.
+ *
+ * Judged by the authored-size grammar itself (`validateUiAppSizeAxis`), not by
+ * non-blankness: a `"100"` with no unit is exactly the kind of near-miss a stale seed
+ * produces, and dropping only blanks let it through to the validator two lines later. An
+ * answered card height never reaches here needing this — the prompt refuses a bad one at
+ * the terminal — so this is the seed path's own guard.
  */
 function sanitizeSeededSize(
   raw: { width?: string; height?: string } | undefined,
 ): { width?: string; height?: string } | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
-  const width = typeof raw.width === 'string' ? raw.width.trim() : '';
-  const height = typeof raw.height === 'string' ? raw.height.trim() : '';
+  const axis = (name: 'width' | 'height'): string => {
+    const value = typeof raw[name] === 'string' ? raw[name].trim() : '';
+    return value && validateUiAppSizeAxis(name, value) === true ? value : '';
+  };
+  const width = axis('width');
+  const height = axis('height');
   if (!width && !height) return undefined;
   return { ...(width ? { width } : {}), ...(height ? { height } : {}) };
 }

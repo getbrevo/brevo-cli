@@ -8,8 +8,10 @@ import {
   containsLegacyAllScope,
   parseAccountId,
   validateUiApp,
+  validateUiAppCardHeight,
   validateUiAppLabel,
   validateUiAppMoreInfo,
+  validateUiAppSizeAxis,
   validateUiAppUrl,
   validateSurfacePoint,
 } from '../../lib/validators';
@@ -793,5 +795,48 @@ describe('validateUiApp — iframeExtension', () => {
     ['on the entry', withIframeEntry({ sandbox: 'allow-scripts allow-same-origin' })],
   ])('rejects an authored sandbox %s', (_label, block) => {
     expect(() => validateUiApp(block)).toThrow(/\.sandbox is not authored in app-config\.json/);
+  });
+});
+
+// The single-axis half of the `size` grammar, exported since BEX-461 so the three readers
+// of it — the authored-file check, `brevo app create`'s inline card-height prompt, and the
+// registry-seed sanitizer — cannot drift apart. A prompt that accepted what the file check
+// refuses would author a config in the very flow that then rejects it.
+describe('validateUiAppSizeAxis', () => {
+  it('accepts a px length and a percentage within range', () => {
+    expect(validateUiAppSizeAxis('height', '300px')).toBe(true);
+    expect(validateUiAppSizeAxis('width', '50%')).toBe(true);
+  });
+
+  it('refuses a unit-less number, a zero, and a non-string', () => {
+    expect(validateUiAppSizeAxis('height', '300')).toMatch(/px or % unit/);
+    expect(validateUiAppSizeAxis('height', '0px')).toMatch(/px or % unit/);
+    expect(validateUiAppSizeAxis('height', 300)).toMatch(/px or % unit/);
+  });
+
+  it('caps a percentage at 100, naming the axis it was given', () => {
+    expect(validateUiAppSizeAxis('height', '150%')).toBe(
+      'height "150%" is out of range — a % axis must be between 1% and 100%.',
+    );
+  });
+});
+
+// The prompt's own validator: the same grammar, plus one difference that is the whole
+// point of it existing separately — blank PASSES. A bare Enter through the card-height
+// question means "keep the slot's registry default", which is a real answer rather than an
+// omission, so re-prompting would be refusing the platform's own value.
+describe('validateUiAppCardHeight', () => {
+  it('accepts a blank answer, which keeps the registry seed', () => {
+    expect(validateUiAppCardHeight('')).toBe(true);
+    expect(validateUiAppCardHeight('   ')).toBe(true);
+  });
+
+  it('trims before judging, so a typed trailing space is not a refusal', () => {
+    expect(validateUiAppCardHeight(' 300px ')).toBe(true);
+  });
+
+  it('refuses what the authored-file check would refuse', () => {
+    expect(validateUiAppCardHeight('300')).toMatch(/px or % unit/);
+    expect(validateUiAppCardHeight('150%')).toMatch(/between 1% and 100%/);
   });
 });

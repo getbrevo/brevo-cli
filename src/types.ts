@@ -157,8 +157,12 @@ export interface SurfacePointEntry {
    * `iframeExtension` entries on widget slots only: how this entry presents its
    * `iframe_href` — `'inline'` embeds the page directly in the card body, `'modal'`
    * (or absent, the default) opens it from the card's CTA. The platform refuses the field
-   * on an `actionLink` entry and `'inline'` on a slot that renders no card; absent is never
-   * written, so layout-less configs stay byte-identical.
+   * on an `actionLink` entry and `'inline'` on a slot that renders no card.
+   *
+   * `brevo app create` writes BOTH answers, `'modal'` included: the entry states how it
+   * presents rather than leaving a reader to know what absent falls back to. Absent is
+   * still accepted everywhere it was — configs authored before the field was written, and
+   * the `actionLink` entries that must not carry one at all.
    */
   layout?: 'inline' | 'modal';
   /**
@@ -168,8 +172,10 @@ export interface SurfacePointEntry {
    * when its `layout` is `'modal'` or absent. An entry with `layout: 'inline'` embeds the
    * page in the card and opens nothing, so a size here would size nothing.
    *
-   * `'large'` is the default and is never written by `brevo app create`, so size-less
-   * configs stay byte-identical. Refused on an `actionLink` entry, same as `layout`.
+   * `'large'` is what absent means, and is also what `brevo app create` writes when the
+   * partner takes the default — same contract as `layout` above, and for the same reason.
+   * Absent stays valid for configs authored before it was written. Refused on an
+   * `actionLink` entry, same as `layout`.
    */
   modal_size?: 'small' | 'medium' | 'large';
   /**

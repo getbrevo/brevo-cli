@@ -552,6 +552,33 @@ const SIZE_AXIS_PATTERN = /^([1-9]\d*)(px|%)$/;
 const MODAL_HEIGHT_PATTERN = /^([1-9]\d*)(px|vh|%)$/;
 
 /**
+ * Validate ONE authored size axis — the whole grammar `size` has, in the one place every
+ * reader of it shares. Split out of `validateSurfacePointSize` below when `brevo app
+ * create` grew a card-height question (BEX-461): the prompt judges a single axis, the
+ * file check judges an object of them, and the registry-seed sanitizer judges what the
+ * platform served. None of the three may disagree about what a valid axis is — a prompt
+ * that accepted what upload refuses, or a seed that wrote one, authors a config in the
+ * very flow that then rejects it.
+ *
+ * Deliberately does NOT trim: an authored `" 100px "` in `app-config.json` is a refusal,
+ * exactly as before. The prompt trims its own answer before calling in, because a trailing
+ * space typed at a terminal is a slip rather than a statement.
+ */
+export function validateUiAppSizeAxis(axis: string, value: unknown): true | string {
+  const match = typeof value === 'string' ? SIZE_AXIS_PATTERN.exec(value) : null;
+  if (!match) {
+    return `${axis} must be a positive integer with a px or % unit, e.g. "280px" or "50%".`;
+  }
+  if (match[2] === '%' && Number(match[1]) > 100) {
+    // `match[0]` rather than `value`: the pattern is anchored, so the whole match IS
+    // the authored string — and it is typed `string`, so the message can never quote
+    // an `unknown`'s default stringification ("[object Object]").
+    return `${axis} "${match[0]}" is out of range — a % axis must be between 1% and 100%.`;
+  }
+  return true;
+}
+
+/**
  * Validate one entry's authored card size: an object with `width` and/or `height`, each a
  * CSS length string — "<positive integer>px" (absolute) or "<1-100>%" (relative to the host
  * slot's box). Both axes are optional: an omitted axis stays on the host slot's default, and
@@ -567,18 +594,28 @@ function validateSurfacePointSize(size: unknown): true | string {
   const { width, height } = size as Record<string, unknown>;
   for (const [axis, value] of Object.entries({ width, height })) {
     if (value === undefined) continue;
-    const match = typeof value === 'string' ? SIZE_AXIS_PATTERN.exec(value) : null;
-    if (!match) {
-      return `${axis} must be a positive integer with a px or % unit, e.g. "280px" or "50%".`;
-    }
-    if (match[2] === '%' && Number(match[1]) > 100) {
-      // `match[0]` rather than `value`: the pattern is anchored, so the whole match IS
-      // the authored string — and it is typed `string`, so the message can never quote
-      // an `unknown`'s default stringification ("[object Object]").
-      return `${axis} "${match[0]}" is out of range — a % axis must be between 1% and 100%.`;
-    }
+    const check = validateUiAppSizeAxis(axis, value);
+    if (check !== true) return check;
   }
   return true;
+}
+
+/**
+ * Validate the card-height answer `brevo app create` asks for an inline iframe — the one
+ * axis of `size` the flow prompts for, because an inline card IS the embedded page and its
+ * height is the only thing the slot cannot decide for the partner (BEX-461).
+ *
+ * Optional: blank passes, and means "keep the slot's registry default" rather than "no
+ * height" — the entry is seeded from the row's `default_size` either way, so a bare Enter
+ * writes exactly what an unprompted flow would have written.
+ *
+ * Judged by `validateSizeAxis`, the same check `app upload` runs on the authored file, so
+ * an answer this prompt accepts is one the block it lands in survives.
+ */
+export function validateUiAppCardHeight(value: string): true | string {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return true;
+  return validateUiAppSizeAxis('height', trimmed);
 }
 
 /**

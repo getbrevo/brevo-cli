@@ -305,8 +305,9 @@ const coreMessages = {
   APP_CREATE_UI_REDIRECT_LINK_PROMPT:
     'Redirect link — the destination URL (record context arrives as query params):',
   // Asked only for an Iframe on a WIDGET slot (an action slot's menu entry must open
-  // something, so it is always a modal). Inline is written to the entry; modal is the
-  // default and deliberately not written, so the config stays minimal.
+  // something, so it is always a modal). BOTH answers are written to the entry, the
+  // default included: an authored `layout: "modal"` says in the file what an absent key
+  // only implies, and a reader of app-config.json never has to know the fallback.
   APP_CREATE_UI_LAYOUT_PROMPT: 'How should it appear on the page?',
   APP_CREATE_UI_LAYOUT_MODAL: 'Opens in a modal (card button)',
   APP_CREATE_UI_LAYOUT_INLINE: 'Embedded directly on the page',
@@ -316,13 +317,26 @@ const coreMessages = {
   // gating is NOT the layout question's — that one is widget-only, this one is
   // "everything except inline".
   //
-  // Large is the default and is deliberately NOT written to the entry, the same contract
-  // as the layout question above: a default answer leaves app-config.json byte-identical
-  // to one authored before modal sizes existed.
+  // Large is the default and IS written to the entry, the same contract as the layout
+  // question above: the entry records the size it opens at rather than implying it by an
+  // absent key. The prompt pre-SELECTS it rather than listing it first, so a bare Enter
+  // still lands on the platform's own default.
   APP_CREATE_UI_MODAL_SIZE_PROMPT: 'How big should the modal be?',
   APP_CREATE_UI_MODAL_SIZE_SMALL: 'Small',
   APP_CREATE_UI_MODAL_SIZE_MEDIUM: 'Medium',
   APP_CREATE_UI_MODAL_SIZE_LARGE: 'Large (default)',
+  // Card height — asked for the one presentation where the card IS the embedded page:
+  // an Iframe whose layout answer was `inline`. A modal sizes itself from `modal_size`
+  // above, and every other placement keeps the silent seed, so this is the narrowest of
+  // the three presentation questions.
+  //
+  // Carries its own example because the answer is a CSS length rather than a choice from
+  // a list — the grammar (a positive integer with an explicit px or % unit) is not
+  // guessable from a bare prompt, and the validator that enforces it is the one
+  // `app upload` runs on the file. The slot's own `default_size.height` is pre-filled
+  // where the registry declares one, so the example teaches the shape while the
+  // pre-fill offers the platform's answer; a blank answer keeps that seed either way.
+  APP_CREATE_UI_CARD_HEIGHT_PROMPT: 'Card height — how tall the embedded page is (e.g. 300px):',
   // The iframe counterpart of the redirect-link question: same slot in the flow, different
   // field — the answer lands in `iframe_href`, and the page opens INSIDE Brevo rather than
   // in a new tab, which is what the wording has to make unmistakable.

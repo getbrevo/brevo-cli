@@ -358,9 +358,12 @@ export const UPLOADABLE_LINK_TARGETS: readonly string[] = [DEFAULT_LINK_TARGET] 
  * the UI kit knows how to size a modal to, fixed by the kit rather than seeded per slot,
  * so pinning them locally cannot lag the way a copy of the extension-point registry would.
  *
- * `DEFAULT_MODAL_SIZE` is what an absent value means. It is never written — `brevo app
- * create` returns nothing for it, so a default answer leaves the entry byte-identical to
- * one authored before modal sizes existed, the same contract `layout: "modal"` has.
+ * `DEFAULT_MODAL_SIZE` is what an absent value means, AND what `brevo app create` writes
+ * when the partner takes the default — the two are deliberately the same value rather than
+ * the field being omitted. An entry states its own presentation, so a reader of
+ * `app-config.json` never has to know what an absent key falls back to; the same contract
+ * `layout: "modal"` has. Absent stays valid on the wire and in `validateUiApp`, so configs
+ * authored before either field was written still upload unchanged.
  */
 export const UI_APP_MODAL_SIZES: readonly string[] = ['small', 'medium', 'large'] as const;
 export const DEFAULT_MODAL_SIZE = 'large';
