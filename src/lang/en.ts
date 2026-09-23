@@ -1,9 +1,4 @@
-import {
-  CLI,
-  BREVO_CLI_REFERENCE_URL,
-  BREVO_OAUTH_SCOPES_DOCS_URL,
-  OAUTH_TOKEN_URL,
-} from '../lib/constants';
+import { CLI, BREVO_CLI_REFERENCE_URL, BREVO_OAUTH_SCOPES_DOCS_URL } from '../lib/constants';
 import { previewMessages } from './preview-messages';
 
 /**
@@ -345,14 +340,20 @@ const coreMessages = {
   // and the continuation indent reads as a second step. That budget is also why the
   // command shown is `--app-id` alone with `--reveal-secret` named on the next line —
   // both flags plus a 36-character app UUID is 83 columns and cannot fit either way.
+  //
+  // Step 2 names `brevo app token` and nothing else. It used to spell out the raw
+  // `client_credentials` request against the IdP's token endpoint, which predates that
+  // command; now that the CLI mints the token itself, printing both would offer the
+  // harder route as an equal option on the one screen where the partner has just
+  // created the app and wants to see it work.
   APP_CREATE_M2M_NEXT: (appId: string): string[] => [
     '1. Read the credentials back at any time:',
     `   ${CLI.APP_CREDENTIALS(appId)}`,
     '   Add `--reveal-secret` to print the client secret.',
     '',
-    '2. Request an access token with `grant_type=client_credentials` from:',
-    `   ${OAUTH_TOKEN_URL}`,
-    '   Authenticate the request with the client ID and secret.',
+    '2. Mint a short-lived access token:',
+    `   ${CLI.APP_TOKEN(appId)}`,
+    '   Add `--scope "<a,b,c>"` to narrow it to some of the granted scopes.',
     '',
     `No project files were written: an M2M app has no app-config.json, so \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_SCAFFOLD}\` do not apply to it.`,
   ],
