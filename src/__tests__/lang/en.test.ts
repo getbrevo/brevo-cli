@@ -173,9 +173,12 @@ describe('messages (lang/en)', () => {
       expect(m2mCopy).not.toMatch(/edit .*app-config\.json/i);
     });
 
-    it('names the token grant and the app id in the next steps', () => {
+    it('names the token command and the app id in the next steps', () => {
       const next = messages.APP_CREATE_M2M_NEXT('app-1').join('\n');
-      expect(next).toContain('client_credentials');
+      // `brevo app token` is the whole of step 2 — the raw `client_credentials` request
+      // it replaced must not come back alongside it.
+      expect(next).toContain('brevo app token');
+      expect(next).not.toContain('client_credentials');
       expect(next).toContain('app-1');
       // The absence of a project is stated rather than left to be discovered.
       expect(next).toMatch(/no project files/i);
