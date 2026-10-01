@@ -82,7 +82,6 @@ describe('help formatting', () => {
       expect(out).toContain('--name');
       expect(out).toContain('--distribution');
       expect(out).toContain('--redirect-uri');
-      expect(out).toContain('--logo-uri');
       expect(out).toContain('--json');
 
       // None of the root screen's grouping headers may leak in.

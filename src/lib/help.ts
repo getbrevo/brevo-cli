@@ -63,9 +63,9 @@ function formatRootHelp(description: string): string {
     // stays and its value list narrows. Same for the app-type prompt: a locked run
     // is OAuth-only, so the description stops advertising a choice it won't offer.
     `  brevo app create            [--name] [--distribution ${distributionValues()}]`,
-    `                              [--redirect-uri <url>...] [--logo-uri <url>] [--json]`,
+    `                              [--redirect-uri <url>...] [--json]`,
     `                                                        ${createDescription()}`,
-    `  brevo app list              [--json]                  List all apps in your account`,
+    `  brevo app list              [--type <type>] [--json]  List all apps in your account`,
     `  brevo app credentials       [--app-id <id>] [--reveal-secret] [--json]`,
     `                                                        Show an app's client ID and secret`,
     `  brevo app scaffold          [--app-id <id>] [--json]  Add a feature (e.g. OAuth server) here`,
@@ -142,6 +142,8 @@ function formatRootHelp(description: string): string {
     `Scope commands:`,
     `  brevo app available-scopes  [--web] [--json]          List OAuth scopes supported by the IdP`,
     `                                                        (--web opens the catalog in a browser)`,
+    `  brevo app scopes update     [--app-id <id>] [--scopes <a,b,c>] [--yes] [--json]`,
+    `                                                        Change an M2M app's granted scopes`,
     ``,
     `Run \`brevo <command> --help\` for details on a specific command.`,
     ``,
@@ -150,6 +152,7 @@ function formatRootHelp(description: string): string {
     `  $ brevo app init                                # guided setup`,
     `  $ brevo app create --name "My App" --json       # create app, JSON output`,
     `  $ brevo app list --json                         # list apps as JSON`,
+    `  $ brevo app list --type function                # list only Function apps`,
     `  $ brevo app scaffold --app-id APPID             # generate starter code`,
     `  $ brevo app start oauth --port 3000             # start OAuth test server`,
     `  $ brevo app available-scopes --web              # browse OAuth scope catalog`,

@@ -92,6 +92,13 @@ on:
         #
         # `init` drives the wizard through scripted stdin; `ui` drives create
         # through a pty. Both work headless, so both can run here.
+        #
+        # `m2m` drives the interactive M2M create (the OAuth-flow prompt and the
+        # scope picker) through the same pty machinery as `ui`, so the mechanism
+        # is proven — the suite itself is not yet. It is offered here so a manual
+        # run can prove it, and is deliberately absent from the default and from
+        # every automated lane until one has; the non-interactive M2M steps ride
+        # along inside `private` in the meantime.
         description: 'Which app types to smoke (--suite). public/all = preview, local only'
         type: choice
         required: true
@@ -103,6 +110,8 @@ on:
           - ui
           - function
           - init
+          - m2m
+          - private,m2m
           - public
           - private,ui,function,public
           - all
