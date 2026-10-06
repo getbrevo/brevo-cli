@@ -61,7 +61,7 @@ export const tokenCommand = withCommandHandler(async (options: TokenOptions): Pr
     appId = selection.appId;
   }
 
-  const loadSpinner = createSpinner('Loading app...', { silent: options.json });
+  const loadSpinner = createSpinner(messages.APP_LOAD_SPINNER, { silent: options.json });
   let app;
   try {
     app = await appService.fetchApp(appId);
@@ -70,7 +70,7 @@ export const tokenCommand = withCommandHandler(async (options: TokenOptions): Pr
     // not leave the spinner redrawing "Loading app..." over the error message on a TTY.
     loadSpinner.stop();
   }
-  if (!app) throw new CliError(`App ${appId} not found.`);
+  if (!app) throw new CliError(messages.APP_NOT_FOUND(appId));
   if (!isM2mApp(app)) throw new CliError(messages.APP_TOKEN_NOT_M2M(appId));
 
   let scopes: string[] | undefined;
@@ -80,7 +80,7 @@ export const tokenCommand = withCommandHandler(async (options: TokenOptions): Pr
     if (check !== true) throw new CliError(check);
   }
 
-  const mintSpinner = createSpinner('Minting token...', { silent: options.json });
+  const mintSpinner = createSpinner(messages.APP_TOKEN_MINT_SPINNER, { silent: options.json });
   let token;
   try {
     token = await appService.mintAppToken(appId, scopes);

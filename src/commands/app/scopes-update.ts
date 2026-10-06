@@ -55,7 +55,7 @@ export const updateScopesCommand = withCommandHandler(
     // Read current app + validate M2M-only, regardless of whether app-id came from a flag
     // or the picker — the picker's filter narrows choices, but a directly-typed --app-id
     // still needs the same check.
-    const loadSpinner = createSpinner('Loading app...', { silent: options.json });
+    const loadSpinner = createSpinner(messages.APP_LOAD_SPINNER, { silent: options.json });
     let app;
     try {
       app = await appService.fetchApp(appId);
@@ -64,7 +64,7 @@ export const updateScopesCommand = withCommandHandler(
       // not leave the spinner redrawing "Loading app..." over the error message on a TTY.
       loadSpinner.stop();
     }
-    if (!app) throw new CliError(`App ${appId} not found.`);
+    if (!app) throw new CliError(messages.APP_NOT_FOUND(appId));
     if (!isM2mApp(app)) throw new CliError(messages.APP_SCOPES_UPDATE_NOT_M2M(appId));
     // Only set from the picker (`select-app.ts` names the app it just listed) — a
     // directly-typed `--app-id` has no label yet, and the app we just fetched has a
@@ -126,7 +126,9 @@ export const updateScopesCommand = withCommandHandler(
       }
     }
 
-    const updateSpinner = createSpinner('Updating scopes...', { silent: options.json });
+    const updateSpinner = createSpinner(messages.APP_SCOPES_UPDATE_SPINNER, {
+      silent: options.json,
+    });
     let updated;
     try {
       updated = await appService.updateAppScopes(appId, newScopes);

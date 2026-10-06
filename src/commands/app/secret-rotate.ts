@@ -62,7 +62,7 @@ export const secretRotateCommand = withCommandHandler(
       appLabel = selection.appLabel;
     }
 
-    const loadSpinner = createSpinner('Loading app...', { silent: options.json });
+    const loadSpinner = createSpinner(messages.APP_LOAD_SPINNER, { silent: options.json });
     let app;
     try {
       app = await appService.fetchApp(appId);
@@ -71,7 +71,7 @@ export const secretRotateCommand = withCommandHandler(
       // not leave the spinner redrawing "Loading app..." over the error message on a TTY.
       loadSpinner.stop();
     }
-    if (!app) throw new CliError(`App ${appId} not found.`);
+    if (!app) throw new CliError(messages.APP_NOT_FOUND(appId));
     if (!isM2mApp(app)) throw new CliError(messages.APP_SECRET_ROTATE_NOT_M2M(appId));
     appLabel = appLabel || app.name || '';
 
@@ -90,7 +90,9 @@ export const secretRotateCommand = withCommandHandler(
       }
     }
 
-    const rotateSpinner = createSpinner('Rotating secret...', { silent: options.json });
+    const rotateSpinner = createSpinner(messages.APP_SECRET_ROTATE_SPINNER, {
+      silent: options.json,
+    });
     let rotated;
     try {
       rotated = await appService.rotateAppSecret(appId);
@@ -115,8 +117,9 @@ export const secretRotateCommand = withCommandHandler(
     }
 
     logSuccess(messages.APP_SECRET_ROTATE_SUCCESS(appId));
-    logInfo(`  Client secret: ${rotated.clientSecret}`);
-    if (rotated.graceUntil) logInfo(`  Old secret valid until: ${rotated.graceUntil}`);
+    logInfo(`  ${messages.APP_SECRET_ROTATE_SECRET_LINE(rotated.clientSecret)}`);
+    if (rotated.graceUntil)
+      logInfo(`  ${messages.APP_SECRET_ROTATE_GRACE_LINE(rotated.graceUntil)}`);
     logInfo(`  ${messages.APP_SECRET_ROTATE_STORE_HINT}`);
     process.stdout.write('\n');
   },

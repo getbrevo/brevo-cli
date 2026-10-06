@@ -390,6 +390,7 @@ const coreMessages = {
   // separate delta to reconcile, and no ambiguity about whether an omitted scope should be
   // dropped, as long as the partner reads that reminder on the typed path.
   APP_SCOPES_UPDATE_SELECT: 'Select an M2M app to update:',
+  APP_SCOPES_UPDATE_SPINNER: 'Updating scopes...',
   APP_SCOPES_UPDATE_NO_M2M_APPS:
     'No M2M apps found in this account. Scopes can only be updated on an app created with `--m2m`.',
   APP_SCOPES_UPDATE_NOT_M2M: (appId: string) =>
@@ -450,6 +451,7 @@ const coreMessages = {
   // `commands/app/token.ts` only remaps the codes it knows and rethrows anything else
   // unchanged, so the server's own message still reaches the partner.
   APP_TOKEN_SELECT: 'Select an M2M app to mint a token for:',
+  APP_TOKEN_MINT_SPINNER: 'Minting token...',
   APP_TOKEN_NO_M2M_APPS:
     'No M2M apps found in this account. A token can only be minted for an app created with `--m2m`.',
   APP_TOKEN_NOT_M2M: (appId: string) =>
@@ -478,6 +480,7 @@ const coreMessages = {
   // it exists to produce. The confirmation prompt below still gates the destructive
   // ACTION (the old secret stops working immediately); it is not a reveal-gate.
   APP_SECRET_ROTATE_SELECT: 'Select an M2M app to rotate the secret for:',
+  APP_SECRET_ROTATE_SPINNER: 'Rotating secret...',
   APP_SECRET_ROTATE_NO_M2M_APPS:
     'No M2M apps found in this account. A secret can only be rotated on an app created with `--m2m`.',
   APP_SECRET_ROTATE_NOT_M2M: (appId: string) =>
@@ -490,6 +493,10 @@ const coreMessages = {
     `This immediately invalidates the current secret for "${appLabel}" (${appId}) — any caller still using it will start failing. Continue?`,
   APP_SECRET_ROTATE_CANCELLED: 'Cancelled — the secret was not rotated.',
   APP_SECRET_ROTATE_SUCCESS: (appId: string) => `Rotated the client secret for app ${appId}.`,
+  // The two value lines under the success message. Indentation stays at the call site
+  // (same pattern as APP_SECRET_ROTATE_STORE_HINT below).
+  APP_SECRET_ROTATE_SECRET_LINE: (secret: string) => `Client secret: ${secret}`,
+  APP_SECRET_ROTATE_GRACE_LINE: (until: string) => `Old secret valid until: ${until}`,
   APP_SECRET_ROTATE_STORE_HINT:
     'Store this secret in a secret manager now — it will not be shown again by this command.',
 
@@ -623,6 +630,12 @@ const coreMessages = {
   // with a raw ERR_USE_AFTER_CLOSE readline stack instead of anything readable.
   APP_SELECT_NON_INTERACTIVE: (command: string) =>
     `Cannot show the app picker in non-interactive mode. Name the app instead:\n\n      ${command}\n\n  \`${CLI.APP_LIST}\` shows the IDs.`,
+
+  // The one not-found line every app-addressing command (and the service layer's
+  // rethrowNotFound) throws. Scripts match on this text — keep it stable.
+  APP_NOT_FOUND: (appId: string) => `App ${appId} not found.`,
+  // Shared spinner label for the pre-flight app read the M2M commands perform.
+  APP_LOAD_SPINNER: 'Loading app...',
 
   // Function list
   FUNCTION_LIST_HEADER: 'Your Brevo Functions:',
