@@ -113,6 +113,19 @@ describe('app/secret-rotate', () => {
     });
   });
 
+  it("falls back to the fetched app's client_id when the rotate response omits one — never the app UUID", async () => {
+    mockRotateAppSecret.mockResolvedValue({ clientSecret: 'new-secret-abc' });
+
+    await secretRotateCommand({ appId: 'app-1', yes: true, json: true });
+
+    expect(mockSaveAppCredentials).toHaveBeenCalledWith('app-1', {
+      clientId: 'client-1', // M2M_APP.client_id, not 'app-1'
+      clientSecret: 'new-secret-abc',
+    });
+    const parsed = JSON.parse(String(stdoutSpy.mock.calls[0][0]));
+    expect(parsed.clientId).toBe('client-1');
+  });
+
   it('--yes skips the confirmation prompt', async () => {
     await secretRotateCommand({ appId: 'app-1', yes: true });
 

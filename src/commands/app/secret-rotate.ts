@@ -94,14 +94,24 @@ export const secretRotateCommand = withCommandHandler(
     }
     rotateSpinner.stop();
 
+    // The rotate response may omit `client_id`; the app fetched above carries the real
+    // one (isM2mApp guarantees it). Never substitute the app UUID — it is a different
+    // identifier, and caching or printing it as a client_id sends every later token
+    // request to the IdP with a value it rejects.
+    const clientId = rotated.clientId ?? app.client_id;
+
     // Keep the local cache in step with the secret that now actually works — the same
-    // cache `app credentials`/`app start`/scaffolded templates read from.
-    saveAppCredentials(appId, { clientId: rotated.clientId, clientSecret: rotated.clientSecret });
+    // cache `app credentials`/`app start`/scaffolded templates read from. With no
+    // client_id from either source there is nothing safe to write: skip the save and
+    // leave the cached entry alone rather than storing a credential pair missing its id.
+    if (clientId) {
+      saveAppCredentials(appId, { clientId, clientSecret: rotated.clientSecret });
+    }
 
     if (options.json) {
       jsonOutput({
         appId,
-        clientId: rotated.clientId,
+        clientId: clientId ?? null,
         clientSecret: rotated.clientSecret,
         graceUntil: rotated.graceUntil ?? null,
       });
