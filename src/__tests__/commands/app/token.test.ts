@@ -27,10 +27,17 @@ jest.mock('../../../container', () => ({
   client: {},
 }));
 
+jest.mock('../../../lib/ui', () => ({
+  ...jest.requireActual('../../../lib/ui'),
+  createSpinner: jest.fn(() => ({ update: jest.fn(), stop: jest.fn() })),
+}));
+
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
+import { createSpinner } from '../../../lib/ui';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
+const mockCreateSpinner = createSpinner as jest.Mock;
 const mockFetchApp = appService.fetchApp as jest.Mock;
 const mockMintAppToken = appService.mintAppToken as jest.Mock;
 const mockFetchAppsList = appService.fetchAppsList as jest.Mock;
@@ -135,6 +142,18 @@ describe('app/token', () => {
     );
 
     expect(mockMintAppToken).not.toHaveBeenCalled();
+  });
+
+  // Finding from PR #125 review: the load spinner was only stopped on the success path,
+  // so a failed fetch left "Loading app..." redrawing over the error on a TTY.
+  it('stops every spinner it started when the app read fails', async () => {
+    mockFetchApp.mockRejectedValue(new Error('network down'));
+
+    await expect(tokenCommand({ appId: 'app-1' })).rejects.toThrow('network down');
+
+    const spinners = mockCreateSpinner.mock.results.map((r) => r.value);
+    expect(spinners.length).toBeGreaterThan(0);
+    for (const spinner of spinners) expect(spinner.stop).toHaveBeenCalled();
   });
 
   it('propagates a not-found error from the app read', async () => {

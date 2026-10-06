@@ -56,8 +56,14 @@ export const updateScopesCommand = withCommandHandler(
     // or the picker — the picker's filter narrows choices, but a directly-typed --app-id
     // still needs the same check.
     const loadSpinner = createSpinner('Loading app...', { silent: options.json });
-    const app = await appService.fetchApp(appId);
-    loadSpinner.stop();
+    let app;
+    try {
+      app = await appService.fetchApp(appId);
+    } finally {
+      // Stop on failure too — a throw here (404 via rethrowNotFound, network error) must
+      // not leave the spinner redrawing "Loading app..." over the error message on a TTY.
+      loadSpinner.stop();
+    }
     if (!app) throw new CliError(`App ${appId} not found.`);
     if (!isM2mApp(app)) throw new CliError(messages.APP_SCOPES_UPDATE_NOT_M2M(appId));
     // Only set from the picker (`select-app.ts` names the app it just listed) — a
@@ -121,8 +127,14 @@ export const updateScopesCommand = withCommandHandler(
     }
 
     const updateSpinner = createSpinner('Updating scopes...', { silent: options.json });
-    const updated = await appService.updateAppScopes(appId, newScopes);
-    updateSpinner.stop();
+    let updated;
+    try {
+      updated = await appService.updateAppScopes(appId, newScopes);
+    } finally {
+      // Same reasoning as the load spinner above: a failed PATCH must not leave
+      // "Updating scopes..." redrawing over the error.
+      updateSpinner.stop();
+    }
 
     if (options.json) {
       jsonOutput({

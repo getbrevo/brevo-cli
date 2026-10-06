@@ -63,8 +63,14 @@ export const secretRotateCommand = withCommandHandler(
     }
 
     const loadSpinner = createSpinner('Loading app...', { silent: options.json });
-    const app = await appService.fetchApp(appId);
-    loadSpinner.stop();
+    let app;
+    try {
+      app = await appService.fetchApp(appId);
+    } finally {
+      // Stop on failure too — a throw here (404 via rethrowNotFound, network error) must
+      // not leave the spinner redrawing "Loading app..." over the error message on a TTY.
+      loadSpinner.stop();
+    }
     if (!app) throw new CliError(`App ${appId} not found.`);
     if (!isM2mApp(app)) throw new CliError(messages.APP_SECRET_ROTATE_NOT_M2M(appId));
     appLabel = appLabel || app.name || '';
