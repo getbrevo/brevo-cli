@@ -75,6 +75,9 @@ describe('app/secret-rotate', () => {
     jest.clearAllMocks();
     mockFetchApp.mockResolvedValue(M2M_APP);
     mockRotateAppSecret.mockResolvedValue(ROTATED);
+    // Jest runs without a TTY; the confirm-prompt paths need one, and the non-TTY
+    // refusal is asserted explicitly with withTTY(false).
+    withTTY(true);
   });
 
   afterEach(() => {
@@ -114,6 +117,27 @@ describe('app/secret-rotate', () => {
   });
 
   it('--yes skips the confirmation prompt', async () => {
+    await secretRotateCommand({ appId: 'app-1', yes: true });
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockRotateAppSecret).toHaveBeenCalledWith('app-1');
+  });
+
+  // Off a TTY the confirm prompt cannot be asked — inquirer used to die with a raw
+  // ERR_USE_AFTER_CLOSE readline stack. A piped run without --yes is refused with the
+  // same explicit-consent error as --json, before anything rotates.
+  it('a non-TTY run without --yes is refused instead of reaching the prompt', async () => {
+    withTTY(false);
+
+    await expect(secretRotateCommand({ appId: 'app-1' })).rejects.toThrow(/--yes/);
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockRotateAppSecret).not.toHaveBeenCalled();
+  });
+
+  it('a non-TTY run with --yes rotates without prompting', async () => {
+    withTTY(false);
+
     await secretRotateCommand({ appId: 'app-1', yes: true });
 
     expect(mockPrompt).not.toHaveBeenCalled();

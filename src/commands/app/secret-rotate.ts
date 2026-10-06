@@ -71,11 +71,16 @@ export const secretRotateCommand = withCommandHandler(
 
     // --json is a request for machine-readable output, not consent: it suppresses the
     // confirmation prompt (one parseable document, no questions), and rotating on it
-    // alone would make an information flag destructive. Require the consent flag
-    // explicitly instead of treating silence as a yes.
-    if (options.json && !options.yes) {
+    // alone would make an information flag destructive. Off a TTY the prompt cannot be
+    // asked at all — inquirer dies with a raw ERR_USE_AFTER_CLOSE readline stack, the
+    // failure assertAppSelectionAllowed exists to prevent on the picker. Both mean the
+    // same thing: no one can answer the question, so require the consent flag explicitly
+    // instead of treating silence as a yes.
+    if (!options.yes && (options.json || !process.stdin.isTTY)) {
       throw new CliError(
-        messages.APP_CONFIRM_NON_INTERACTIVE(`${CLI.APP_SECRET_ROTATE(appId)} --yes --json`),
+        messages.APP_CONFIRM_NON_INTERACTIVE(
+          `${CLI.APP_SECRET_ROTATE(appId)} --yes${options.json ? ' --json' : ''}`,
+        ),
       );
     }
 

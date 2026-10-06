@@ -106,11 +106,16 @@ export const updateScopesCommand = withCommandHandler(
 
     // --json is a request for machine-readable output, not consent: it suppresses the
     // confirmation prompt, and a full scope replacement (removals included) must not
-    // ride on it alone. Same gate as `app secret rotate`. Placed after the no-change
-    // early return so a no-op under --json keeps exiting 0 without consent theatre.
-    if (options.json && !options.yes) {
+    // ride on it alone. Off a TTY the prompt cannot be asked at all (inquirer dies with
+    // a raw ERR_USE_AFTER_CLOSE readline stack) — which `--scopes` without `--yes` in a
+    // pipe used to hit, since only the scope-picker branch above was guarded. Same gate
+    // as `app secret rotate`. Placed after the no-change early return so a no-op under
+    // --json keeps exiting 0 without consent theatre.
+    if (!options.yes && (options.json || !process.stdin.isTTY)) {
       throw new CliError(
-        messages.APP_CONFIRM_NON_INTERACTIVE(`${CLI.APP_SCOPES_UPDATE(appId)} --yes --json`),
+        messages.APP_CONFIRM_NON_INTERACTIVE(
+          `${CLI.APP_SCOPES_UPDATE(appId)} --yes${options.json ? ' --json' : ''}`,
+        ),
       );
     }
 
