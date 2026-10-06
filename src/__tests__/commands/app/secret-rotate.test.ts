@@ -24,17 +24,10 @@ jest.mock('../../../container', () => ({
     fetchApp: jest.fn(),
     rotateAppSecret: jest.fn(),
   },
-  accountService: {
-    validateApiKey: jest.fn(),
-    getAccount: jest.fn(),
-  },
-  client: {},
+  ...require('./m2m-command-mocks').baseContainerServices(),
 }));
 
-jest.mock('../../../lib/ui', () => ({
-  ...jest.requireActual('../../../lib/ui'),
-  createSpinner: jest.fn(() => ({ update: jest.fn(), stop: jest.fn() })),
-}));
+jest.mock('../../../lib/ui', () => require('./m2m-command-mocks').uiWithSpinnerSpy());
 
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
