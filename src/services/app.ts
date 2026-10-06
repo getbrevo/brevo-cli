@@ -94,7 +94,7 @@ function flattenCreateAuth(raw: RawCreateAppResponse): CreateAppResponse {
 
 function rethrowNotFound(err: unknown, appId: string): never {
   if (err instanceof ApiError && err.statusCode === 404) {
-    throw new CliError(`App ${appId} not found.`, err.exitCode);
+    throw new CliError(messages.APP_NOT_FOUND(appId), err.exitCode);
   }
   throw err;
 }
