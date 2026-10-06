@@ -624,6 +624,13 @@ const coreMessages = {
   APP_SELECT_NON_INTERACTIVE: (command: string) =>
     `Cannot show the app picker in non-interactive mode. Name the app instead:\n\n      ${command}\n\n  \`${CLI.APP_LIST}\` shows the IDs.`,
 
+  // Raised instead of the confirmation prompt when there is no way to ask it — under
+  // --json (one parseable document, no questions) or off a TTY. Silence must not be
+  // consent for a change that cannot be undone, so the caller is told to say yes
+  // explicitly rather than having it assumed.
+  APP_CONFIRM_NON_INTERACTIVE: (command: string) =>
+    `This change needs confirmation, and none can be asked in non-interactive mode. Re-run with \`--yes\` to confirm it explicitly:\n\n      ${command}`,
+
   // Function list
   FUNCTION_LIST_HEADER: 'Your Brevo Functions:',
   FUNCTION_LIST_EMPTY: 'No Brevo Functions found. You have not created any Brevo Functions yet.',

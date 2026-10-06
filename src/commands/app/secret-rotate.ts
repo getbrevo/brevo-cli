@@ -69,7 +69,17 @@ export const secretRotateCommand = withCommandHandler(
     if (!isM2mApp(app)) throw new CliError(messages.APP_SECRET_ROTATE_NOT_M2M(appId));
     appLabel = appLabel || app.name || '';
 
-    if (!options.json && !options.yes) {
+    // --json is a request for machine-readable output, not consent: it suppresses the
+    // confirmation prompt (one parseable document, no questions), and rotating on it
+    // alone would make an information flag destructive. Require the consent flag
+    // explicitly instead of treating silence as a yes.
+    if (options.json && !options.yes) {
+      throw new CliError(
+        messages.APP_CONFIRM_NON_INTERACTIVE(`${CLI.APP_SECRET_ROTATE(appId)} --yes --json`),
+      );
+    }
+
+    if (!options.yes) {
       const { confirmed } = await inquirer.prompt([
         {
           type: 'confirm',

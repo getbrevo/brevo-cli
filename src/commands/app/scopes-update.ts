@@ -104,7 +104,17 @@ export const updateScopesCommand = withCommandHandler(
       return;
     }
 
-    if (!options.json && !options.yes) {
+    // --json is a request for machine-readable output, not consent: it suppresses the
+    // confirmation prompt, and a full scope replacement (removals included) must not
+    // ride on it alone. Same gate as `app secret rotate`. Placed after the no-change
+    // early return so a no-op under --json keeps exiting 0 without consent theatre.
+    if (options.json && !options.yes) {
+      throw new CliError(
+        messages.APP_CONFIRM_NON_INTERACTIVE(`${CLI.APP_SCOPES_UPDATE(appId)} --yes --json`),
+      );
+    }
+
+    if (!options.yes) {
       logInfo(`\n  ${messages.APP_SCOPES_UPDATE_DIFF(currentScopes, newScopes, added, removed)}\n`);
       const { confirmed } = await inquirer.prompt([
         {

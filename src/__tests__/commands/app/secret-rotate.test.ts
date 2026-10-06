@@ -120,8 +120,17 @@ describe('app/secret-rotate', () => {
     expect(mockRotateAppSecret).toHaveBeenCalledWith('app-1');
   });
 
-  it('--json without --yes also skips confirmation, rotating directly', async () => {
-    await secretRotateCommand({ appId: 'app-1', json: true });
+  // --json suppresses the confirmation prompt, so it must not double as consent for a
+  // destructive change — the old secret stops working on rotation. Scripts say --yes.
+  it('--json without --yes is refused before anything rotates', async () => {
+    await expect(secretRotateCommand({ appId: 'app-1', json: true })).rejects.toThrow(/--yes/);
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockRotateAppSecret).not.toHaveBeenCalled();
+  });
+
+  it('--json with --yes rotates without prompting and emits one JSON document', async () => {
+    await secretRotateCommand({ appId: 'app-1', yes: true, json: true });
 
     expect(mockPrompt).not.toHaveBeenCalled();
     expect(mockRotateAppSecret).toHaveBeenCalledWith('app-1');
