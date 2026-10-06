@@ -75,6 +75,9 @@ describe('app/secret-rotate', () => {
     jest.clearAllMocks();
     mockFetchApp.mockResolvedValue(M2M_APP);
     mockRotateAppSecret.mockResolvedValue(ROTATED);
+    // Jest runs without a TTY; the confirm-prompt paths need one, and the non-TTY
+    // refusal is asserted explicitly with withTTY(false).
+    withTTY(true);
   });
 
   afterEach(() => {
@@ -133,8 +136,38 @@ describe('app/secret-rotate', () => {
     expect(mockRotateAppSecret).toHaveBeenCalledWith('app-1');
   });
 
-  it('--json without --yes also skips confirmation, rotating directly', async () => {
-    await secretRotateCommand({ appId: 'app-1', json: true });
+  // Off a TTY the confirm prompt cannot be asked — inquirer used to die with a raw
+  // ERR_USE_AFTER_CLOSE readline stack. A piped run without --yes is refused with the
+  // same explicit-consent error as --json, before anything rotates.
+  it('a non-TTY run without --yes is refused instead of reaching the prompt', async () => {
+    withTTY(false);
+
+    await expect(secretRotateCommand({ appId: 'app-1' })).rejects.toThrow(/--yes/);
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockRotateAppSecret).not.toHaveBeenCalled();
+  });
+
+  it('a non-TTY run with --yes rotates without prompting', async () => {
+    withTTY(false);
+
+    await secretRotateCommand({ appId: 'app-1', yes: true });
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockRotateAppSecret).toHaveBeenCalledWith('app-1');
+  });
+
+  // --json suppresses the confirmation prompt, so it must not double as consent for a
+  // destructive change — the old secret stops working on rotation. Scripts say --yes.
+  it('--json without --yes is refused before anything rotates', async () => {
+    await expect(secretRotateCommand({ appId: 'app-1', json: true })).rejects.toThrow(/--yes/);
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockRotateAppSecret).not.toHaveBeenCalled();
+  });
+
+  it('--json with --yes rotates without prompting and emits one JSON document', async () => {
+    await secretRotateCommand({ appId: 'app-1', yes: true, json: true });
 
     expect(mockPrompt).not.toHaveBeenCalled();
     expect(mockRotateAppSecret).toHaveBeenCalledWith('app-1');

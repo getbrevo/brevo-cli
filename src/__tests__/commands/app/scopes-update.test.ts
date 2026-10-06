@@ -72,6 +72,9 @@ describe('app/scopes-update', () => {
     jest.clearAllMocks();
     mockFetchApp.mockResolvedValue(M2M_APP);
     mockUpdateAppScopes.mockResolvedValue({ ...M2M_APP, scopes: ['contacts:read', 'crm:write'] });
+    // Jest runs without a TTY; the confirm-prompt paths need one, and the non-TTY
+    // refusal is asserted explicitly with withTTY(false).
+    withTTY(true);
   });
 
   afterEach(() => {
@@ -107,14 +110,46 @@ describe('app/scopes-update', () => {
     expect(mockUpdateAppScopes).toHaveBeenCalledWith('app-1', ['contacts:read', 'crm:write']);
   });
 
-  // Regression: `--json` without `--yes` used to still print the human diff and open an
-  // inquirer confirm — corrupting the "stdout is one JSON document" contract and dying with
-  // ERR_USE_AFTER_CLOSE off a TTY. `--json` alone must be enough to skip confirmation, same
-  // as `upload.ts`.
-  it('--json without --yes also skips confirmation, applying the update directly', async () => {
+  // Off a TTY the confirm cannot be asked: `--scopes` without `--yes` in a pipe used to
+  // reach inquirer and die with a raw ERR_USE_AFTER_CLOSE readline stack (only the
+  // scope-picker branch was guarded). Refused with the explicit-consent error instead.
+  it('a non-TTY run with --scopes but no --yes is refused instead of reaching the prompt', async () => {
+    withTTY(false);
+
+    await expect(
+      updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:write' }),
+    ).rejects.toThrow(/--yes/);
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockUpdateAppScopes).not.toHaveBeenCalled();
+  });
+
+  it('a non-TTY run with --scopes and --yes applies the update without prompting', async () => {
+    withTTY(false);
+
+    await updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:write', yes: true });
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockUpdateAppScopes).toHaveBeenCalledWith('app-1', ['contacts:read', 'crm:write']);
+  });
+
+  // --json suppresses the diff + confirm, so it must not double as consent for a full
+  // scope replacement (removals included). Scripts say --yes; the confirm prompt never
+  // opens either way, so the "stdout is one JSON document" contract holds on both paths.
+  it('--json without --yes is refused before anything is sent', async () => {
+    await expect(
+      updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:write', json: true }),
+    ).rejects.toThrow(/--yes/);
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockUpdateAppScopes).not.toHaveBeenCalled();
+  });
+
+  it('--json with --yes applies the update without prompting', async () => {
     await updateScopesCommand({
       appId: 'app-1',
       scopes: 'contacts:read,crm:write',
+      yes: true,
       json: true,
     });
 
