@@ -9,10 +9,6 @@
 import { Command } from 'commander';
 import { registerAll, SubcommandGroupDefinition } from '../../lib/command-registry';
 
-function noopHandler(): void {
-  /* no-op */
-}
-
 function buildSyntheticProgram(groups: SubcommandGroupDefinition[]): Command {
   const program = new Command();
   program.name('test-cli').exitOverride();
