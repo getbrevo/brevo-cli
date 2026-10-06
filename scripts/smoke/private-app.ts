@@ -593,49 +593,63 @@ async function stepM2mAppToken(state: State): Promise<string> {
 // the backend it depends on ("brevo app secret rotate [Backend]") may not have shipped in
 // this environment yet — discovered here and downgraded with `markFeatureUnavailable`
 // rather than treated as a hard smoke failure.
+//
+// Verification is bounded by the reveal gate: every other secret read in this run —
+// `app create --json` and `app credentials --reveal-secret --json` — answers `[hidden]`
+// off a TTY (see `stepM2mCredentials`), so there is no observable "before" secret and no
+// post-rotation read-back. `rotate` is the one command that prints the secret in full
+// non-interactively (that IS its contract — a rotation script must get the value back),
+// so the step asserts on what rotate itself returns: a real secret, not the placeholder,
+// and a different one on a second rotation, which proves the server mints fresh values
+// rather than echoing a constant. It then reads the app back once to prove rotation left
+// it readable and didn't loosen the reveal gate.
 async function stepM2mSecretRotate(state: State): Promise<string> {
   requireFeature(state, 'm2m-flag');
   requireFeature(state, 'm2m-secret-rotate');
   const app = requireApp(state.m2mApp, 'm2m');
   const workRoot = ensureWorkRoot(state);
 
-  const before = parseJson<Record<string, unknown>>(
-    execOrThrow(
-      brevoCmd(state),
-      ['app', 'credentials', '--app-id', app.appId, '--reveal-secret', '--json'],
-      state,
-      { cwd: workRoot },
-    ).stdout,
-  );
-  const oldSecret = before.clientSecret;
+  const rotateOnce = (): Record<string, unknown> =>
+    parseJson<Record<string, unknown>>(
+      execOrThrow(
+        brevoCmd(state),
+        ['app', 'secret', 'rotate', '--app-id', app.appId, '--yes', '--json'],
+        state,
+        { cwd: workRoot },
+      ).stdout,
+    );
 
-  let raw: string;
+  let first: Record<string, unknown>;
   try {
-    raw = execOrThrow(
-      brevoCmd(state),
-      ['app', 'secret', 'rotate', '--app-id', app.appId, '--yes', '--json'],
-      state,
-      { cwd: workRoot },
-    ).stdout;
+    first = rotateOnce();
   } catch (err) {
     const message = errMsg(err);
     markFeatureUnavailable(state, 'm2m-secret-rotate', firstLine(message));
     skip(`secret rotate backend not available in this environment: ${firstLine(message)}`);
   }
 
-  const rotated = parseJson<Record<string, unknown>>(raw);
+  const assertRealSecret = (rotated: Record<string, unknown>, which: string): string => {
+    const secret = rotated.clientSecret;
+    must(
+      typeof secret === 'string' && secret.length > 0,
+      `${which} secret rotate returned no clientSecret (${JSON.stringify(secret)})`,
+    );
+    must(
+      secret !== '[hidden]',
+      `${which} secret rotate returned the '[hidden]' placeholder — rotate must print the real secret even off a TTY, or a non-interactive rotation script can never recover the value`,
+    );
+    return secret as string;
+  };
+  const firstSecret = assertRealSecret(first, 'first');
+
+  // Only rotate itself can show a secret in this run, so rotating again is the one
+  // available proof that rotation changes the stored value: two calls, two secrets.
+  const secondSecret = assertRealSecret(rotateOnce(), 'second');
   must(
-    typeof rotated.clientSecret === 'string' && rotated.clientSecret.length > 0,
-    `secret rotate returned no clientSecret (${JSON.stringify(rotated.clientSecret)})`,
-  );
-  must(
-    rotated.clientSecret !== oldSecret,
-    'secret rotate returned the same clientSecret the app had before rotation',
+    secondSecret !== firstSecret,
+    'second secret rotate returned the same clientSecret as the first — rotation does not appear to mint a fresh secret',
   );
 
-  // The command's own --json output only proves it echoed a new secret, not that the
-  // server actually stored it — read the app back through a wholly separate command to
-  // confirm the rotated secret is really the one in effect.
   const after = parseJson<Record<string, unknown>>(
     execOrThrow(
       brevoCmd(state),
@@ -645,11 +659,15 @@ async function stepM2mSecretRotate(state: State): Promise<string> {
     ).stdout,
   );
   must(
-    after.clientSecret === rotated.clientSecret,
-    `app credentials after rotation returned ${JSON.stringify(after.clientSecret)}, expected the rotated secret`,
+    typeof after.clientId === 'string' && after.clientId.length > 0,
+    'app credentials after rotation returned no clientId',
+  );
+  must(
+    after.clientSecret === '[hidden]',
+    `app credentials after rotation returned ${JSON.stringify(after.clientSecret)} for clientSecret; the non-interactive reveal gate must survive a rotation`,
   );
 
-  return `m2m app ${app.appId} client secret rotated, verified via a fresh credentials read`;
+  return `m2m app ${app.appId} client secret rotated twice, fresh secret each time, reveal gate intact`;
 }
 
 // `brevo app list --type` (BEX-495), exercised against the one app in this suite whose

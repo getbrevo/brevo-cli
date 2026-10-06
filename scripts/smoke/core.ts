@@ -1307,7 +1307,6 @@ export const BASE_SCAFFOLD_FILES = [
 export interface CreateSmokeAppOptions {
   label: string;
   distribution: 'private' | 'public';
-  logoUri?: string;
 }
 
 // Shared create path for both lifecycles: runs `brevo app create --json` from
@@ -1328,7 +1327,6 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     opts.distribution,
     '--redirect-uri',
     redirectUri,
-    ...(opts.logoUri ? ['--logo-uri', opts.logoUri] : []),
     '--json',
   ];
   const created = parseJson<Record<string, unknown>>(
@@ -1353,13 +1351,6 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     asStringArray(created.redirectUri, 'create redirectUri').includes(redirectUri),
     `create response is missing redirect URI ${redirectUri}`,
   );
-  if (opts.logoUri) {
-    must(
-      created.logoUri === opts.logoUri,
-      `create returned logoUri ${JSON.stringify(created.logoUri)}`,
-    );
-  }
-
   // Default directory: `./<slug>` relative to the cwd create ran in. A build
   // from before BEX-255 doesn't create one — record that and let the steps that
   // need a project directory skip themselves (see requireProjectDir), instead of
@@ -1407,10 +1398,6 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     !('permittedUrls' in cfg) && !('support' in cfg),
     'app-config.json still carries the removed permittedUrls/support blocks',
   );
-  if (opts.logoUri) {
-    const cfgLogo = configField(cfg, 'logo_uri', 'logoUri');
-    must(cfgLogo === opts.logoUri, `app-config.json logo_uri ${JSON.stringify(cfgLogo)}`);
-  }
   const cfgUrls = asStringArray(configRedirectUris(cfg), 'app-config.json auth.redirect_uris');
   must(cfgUrls.includes(redirectUri), `app-config.json is missing redirect URL ${redirectUri}`);
 
