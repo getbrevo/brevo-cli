@@ -53,13 +53,35 @@ export const secretRotateCommand = withCommandHandler(
     let appLabel = '';
 
     if (!appId) {
-      assertAppSelectionAllowed(CLI.APP_SECRET_ROTATE(), options.json);
+      // The hint carries --yes (and --json when set): any non-interactive re-run also has
+      // to clear the consent gate below, so a hint without it would be refused again.
+      assertAppSelectionAllowed(
+        `${CLI.APP_SECRET_ROTATE()} --yes${options.json ? ' --json' : ''}`,
+        options.json,
+      );
       const selection = await promptAppSelection(messages.APP_SECRET_ROTATE_SELECT, {
         filter: isM2mApp,
         emptyMessage: messages.APP_SECRET_ROTATE_NO_M2M_APPS,
       });
       appId = selection.appId;
       appLabel = selection.appLabel;
+    }
+
+    // --json is a request for machine-readable output, not consent: it suppresses the
+    // confirmation prompt (one parseable document, no questions), and rotating on it
+    // alone would make an information flag destructive. Off a TTY the prompt cannot be
+    // asked at all — inquirer dies with a raw ERR_USE_AFTER_CLOSE readline stack, the
+    // failure assertAppSelectionAllowed exists to prevent on the picker. Both mean the
+    // same thing: no one can answer the question, so require the consent flag explicitly
+    // instead of treating silence as a yes. Checked BEFORE the app read: every input to
+    // the decision is known at entry, so refusing first keeps the promise that nothing —
+    // not even a GET — is spent on a run that was never going to proceed.
+    if (!options.yes && (options.json || !process.stdin.isTTY)) {
+      throw new CliError(
+        messages.APP_CONFIRM_NON_INTERACTIVE(
+          `${CLI.APP_SECRET_ROTATE(appId)} --yes${options.json ? ' --json' : ''}`,
+        ),
+      );
     }
 
     const loadSpinner = createSpinner(messages.APP_LOAD_SPINNER, { silent: options.json });
@@ -74,21 +96,6 @@ export const secretRotateCommand = withCommandHandler(
     if (!app) throw new CliError(messages.APP_NOT_FOUND(appId));
     if (!isM2mApp(app)) throw new CliError(messages.APP_SECRET_ROTATE_NOT_M2M(appId));
     appLabel = appLabel || app.name || '';
-
-    // --json is a request for machine-readable output, not consent: it suppresses the
-    // confirmation prompt (one parseable document, no questions), and rotating on it
-    // alone would make an information flag destructive. Off a TTY the prompt cannot be
-    // asked at all — inquirer dies with a raw ERR_USE_AFTER_CLOSE readline stack, the
-    // failure assertAppSelectionAllowed exists to prevent on the picker. Both mean the
-    // same thing: no one can answer the question, so require the consent flag explicitly
-    // instead of treating silence as a yes.
-    if (!options.yes && (options.json || !process.stdin.isTTY)) {
-      throw new CliError(
-        messages.APP_CONFIRM_NON_INTERACTIVE(
-          `${CLI.APP_SECRET_ROTATE(appId)} --yes${options.json ? ' --json' : ''}`,
-        ),
-      );
-    }
 
     if (!options.yes) {
       const { confirmed } = await inquirer.prompt([

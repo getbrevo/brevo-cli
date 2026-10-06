@@ -144,9 +144,12 @@ describe('app/scopes-update', () => {
   // scope replacement (removals included). Scripts say --yes; the confirm prompt never
   // opens either way, so the "stdout is one JSON document" contract holds on both paths.
   it('--json without --yes is refused before anything is sent', async () => {
+    // The hint must carry the caller's REAL scope list, never the `<a,b,c>` placeholder —
+    // a placeholder is a shell-redirection trap, and re-deriving the full set risks an
+    // incomplete answer that silently removes scopes.
     await expect(
       updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:write', json: true }),
-    ).rejects.toThrow(/--yes/);
+    ).rejects.toThrow(/--scopes "contacts:read,crm:write" --yes --json/);
 
     expect(mockPrompt).not.toHaveBeenCalled();
     expect(mockUpdateAppScopes).not.toHaveBeenCalled();

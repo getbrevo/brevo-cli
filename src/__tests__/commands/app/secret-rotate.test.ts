@@ -166,11 +166,14 @@ describe('app/secret-rotate', () => {
 
   // --json suppresses the confirmation prompt, so it must not double as consent for a
   // destructive change — the old secret stops working on rotation. Scripts say --yes.
-  it('--json without --yes is refused before anything rotates', async () => {
+  it('--json without --yes is refused before anything rotates — including the app read', async () => {
     await expect(secretRotateCommand({ appId: 'app-1', json: true })).rejects.toThrow(/--yes/);
 
     expect(mockPrompt).not.toHaveBeenCalled();
     expect(mockRotateAppSecret).not.toHaveBeenCalled();
+    // The gate uses only entry-time values, so it fires before the GET — a deterministic
+    // local refusal must not cost an authenticated round trip (CI retry loops).
+    expect(mockFetchApp).not.toHaveBeenCalled();
   });
 
   it('--json with --yes rotates without prompting and emits one JSON document', async () => {

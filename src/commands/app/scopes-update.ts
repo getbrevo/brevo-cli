@@ -43,7 +43,12 @@ export const updateScopesCommand = withCommandHandler(
     let appLabel = '';
 
     if (!appId) {
-      assertAppSelectionAllowed(CLI.APP_SCOPES_UPDATE(), options.json);
+      // The hint carries --yes (and --json when set): any non-interactive re-run also has
+      // to clear the consent gate below, so a hint without it would be refused again.
+      assertAppSelectionAllowed(
+        `${CLI.APP_SCOPES_UPDATE()} --yes${options.json ? ' --json' : ''}`,
+        options.json,
+      );
       const selection = await promptAppSelection(messages.APP_SCOPES_UPDATE_SELECT, {
         filter: isM2mApp,
         emptyMessage: messages.APP_SCOPES_UPDATE_NO_M2M_APPS,
@@ -88,8 +93,12 @@ export const updateScopesCommand = withCommandHandler(
       // with a different fix (`--scopes`, not `--app-id`). Reusing that helper's message
       // would blame the wrong flag.
       if (options.json || !process.stdin.isTTY) {
+        // Same reasoning as the picker hint above: a non-interactive re-run must also
+        // clear the consent gate, so the suggested command carries --yes.
         throw new CliError(
-          messages.APP_SCOPES_UPDATE_SCOPES_REQUIRED(CLI.APP_SCOPES_UPDATE(appId)),
+          messages.APP_SCOPES_UPDATE_SCOPES_REQUIRED(
+            `${CLI.APP_SCOPES_UPDATE(appId)} --yes${options.json ? ' --json' : ''}`,
+          ),
         );
       }
       const picked = await promptScopeSelection(false, currentScopes);
@@ -118,9 +127,13 @@ export const updateScopesCommand = withCommandHandler(
     // as `app secret rotate`. Placed after the no-change early return so a no-op under
     // --json keeps exiting 0 without consent theatre.
     if (!options.yes && (options.json || !process.stdin.isTTY)) {
+      // This branch is only reachable with --scopes in hand (the omitted-scopes
+      // non-interactive path threw SCOPES_REQUIRED above), so the hint carries the
+      // caller's real list — a placeholder would make the user re-derive a set where
+      // an incomplete answer silently removes scopes.
       throw new CliError(
         messages.APP_CONFIRM_NON_INTERACTIVE(
-          `${CLI.APP_SCOPES_UPDATE(appId)} --yes${options.json ? ' --json' : ''}`,
+          `${CLI.APP_SCOPES_UPDATE(appId, newScopes.join(','))} --yes${options.json ? ' --json' : ''}`,
         ),
       );
     }
