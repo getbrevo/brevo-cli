@@ -1,6 +1,10 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
-import { EXAMPLE_APP_ID } from '../lib/constants';
+import { parseAppId, parsePositiveInt, collectUrls, parseAppListType } from '../lib/validators';
+import {
+  EXAMPLE_APP_ID,
+  LIST_FILTER_APP_TYPE_VALUES,
+  type ListFilterAppType,
+} from '../lib/constants';
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
 // The gated subcommands are referenced only through this binding, and only from behind
@@ -16,10 +20,13 @@ import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
+import { tokenCommand } from './app/token';
+import { secretRotateCommand } from './app/secret-rotate';
 import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
+import { updateScopesCommand } from './app/scopes-update';
 import { startCommand } from './app/start';
 import { appInstallCommand } from './app/install';
 import { appUninstallCommand } from './app/uninstall';
@@ -90,9 +97,9 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           : []),
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
-        'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
         'brevo app create --name "My App" --ui-app --record-page contactDetails --placement contactDetails.header.menu --label "Open in Acme" --url https://example.com/open --json',
         'brevo app create --name "My App" --ui-config ./ui-app.json --json',
+        'brevo app create --name "My App" --distribution private --m2m --scopes "contacts:read,crm:read" --json',
       ],
       // A UI app is authored either through the interactive prompts (BEX-290), or
       // non-interactively via --ui-config or the --ui-app flag set — both build an
@@ -109,14 +116,6 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           flags: '--redirect-uri <url>',
           description: 'Redirect URI (repeatable, OAuth apps only)',
           parser: collectUrls,
-        },
-        {
-          flags: '--logo-uri <url>',
-          description: 'App logo URL (http or https)',
-          parser: (v: string) => {
-            validateUrl(v, 'logo URL');
-            return v;
-          },
         },
         {
           flags: '--ui-config <file>',
@@ -137,6 +136,14 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           description: 'UI app supporting text, max 255 chars, optional (with --ui-app)',
         },
         { flags: '--url <url>', description: 'UI app destination URL (with --ui-app)' },
+        {
+          flags: '--m2m',
+          description: 'Create a machine-to-machine OAuth app (private only; needs --scopes)',
+        },
+        {
+          flags: '--scopes <list>',
+          description: 'Comma-separated scopes for the M2M app (with --m2m)',
+        },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
@@ -144,7 +151,6 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           name: opts.name as string | undefined,
           distribution: opts.distribution as string | undefined,
           redirectUri: opts.redirectUri as string[] | undefined,
-          logoUri: opts.logoUri as string | undefined,
           uiConfig: opts.uiConfig as string | undefined,
           uiApp: Boolean(opts.uiApp),
           recordPage: opts.recordPage as string | undefined,
@@ -152,15 +158,35 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           label: opts.label as string | undefined,
           moreInfo: opts.moreInfo as string | undefined,
           url: opts.url as string | undefined,
+          m2m: Boolean(opts.m2m),
+          // Deliberately NOT parsed here. Commander parsers throw before the command's
+          // own pre-flight runs, so `--scopes` without `--m2m` would fail on the scope
+          // charset instead of naming the real problem. `resolveM2mScopes` splits and
+          // validates it, after `assertM2mFlags` has ruled out the combination errors.
+          scopes: opts.scopes as string | undefined,
           json: Boolean(opts.json),
         }),
     },
     {
       name: 'list',
       description: 'List all apps in your account',
-      examples: ['brevo app list', 'brevo app list --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => listCommand({ json: Boolean(opts.json) }),
+      examples: ['brevo app list', 'brevo app list --type function', 'brevo app list --json'],
+      options: [
+        {
+          flags: '--type <type>',
+          description: `Show only apps of one type (${LIST_FILTER_APP_TYPE_VALUES.join('|')})`,
+          // Parsed rather than checked in the handler: unlike `--scopes` below,
+          // there is no pre-flight whose error this could mask, and a parser is
+          // what puts the refusal ahead of the network call.
+          parser: (v) => parseAppListType(v),
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        listCommand({
+          json: Boolean(opts.json),
+          type: opts.type as ListFilterAppType | undefined,
+        }),
     },
     {
       name: 'credentials',
@@ -182,6 +208,33 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         credentialsCommand({
           appId: opts.appId as string | undefined,
           revealSecret: Boolean(opts.revealSecret),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'token',
+      description: 'Mint a short-lived M2M access token for an app',
+      examples: [
+        `brevo app token --app-id ${EXAMPLE_APP_ID}`,
+        `brevo app token --app-id ${EXAMPLE_APP_ID} --scope contacts:read,crm:read`,
+        `brevo app token --app-id ${EXAMPLE_APP_ID} --json`,
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID',
+          parser: (v) => parseAppId(v),
+        },
+        {
+          flags: '--scope <list>',
+          description: 'Comma-separated scopes to request (default: full granted set)',
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        tokenCommand({
+          appId: opts.appId as string | undefined,
+          scope: opts.scope as string | undefined,
           json: Boolean(opts.json),
         }),
     },
@@ -368,6 +421,69 @@ export const appCommandGroup: SubcommandGroupDefinition = {
     // `brevo app --help` is unaffected in a public build (there is nothing to order);
     // a preview build simply lists these three last.
     ...(__BREVO_PREVIEW__ ? previewAppCommands : []),
+  ],
+  // One level of nesting (`app scopes update`) — see `groups` on
+  // `SubcommandGroupDefinition` in command-registry.ts. GA immediately: M2M app creation
+  // and `available-scopes` are both already GA with no capability/preview gate, and this
+  // command is a natural extension of that already-GA M2M lifecycle surface.
+  groups: [
+    {
+      name: 'scopes',
+      description: 'Manage OAuth scopes on an existing M2M app',
+      commands: [
+        {
+          name: 'update',
+          description: "Update an M2M app's granted OAuth scopes",
+          examples: [
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read,crm:read`,
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --yes`,
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --json`,
+          ],
+          options: [
+            { flags: '--app-id <id>', description: 'App ID', parser: (v) => parseAppId(v) },
+            {
+              flags: '--scopes <list>',
+              description: 'Comma-separated scope list — the full desired set of scopes',
+            },
+            { flags: '--yes', description: 'Skip confirmation (for CI)' },
+            { flags: '--json', description: 'Output as JSON' },
+          ],
+          handler: (opts) =>
+            updateScopesCommand({
+              appId: opts.appId as string | undefined,
+              scopes: opts.scopes as string | undefined,
+              yes: Boolean(opts.yes),
+              json: Boolean(opts.json),
+            }),
+        },
+      ],
+    },
+    {
+      name: 'secret',
+      description: "Manage an M2M app's client secret",
+      commands: [
+        {
+          name: 'rotate',
+          description: "Rotate an M2M app's client secret",
+          examples: [
+            `brevo app secret rotate --app-id ${EXAMPLE_APP_ID}`,
+            `brevo app secret rotate --app-id ${EXAMPLE_APP_ID} --yes`,
+            `brevo app secret rotate --app-id ${EXAMPLE_APP_ID} --json`,
+          ],
+          options: [
+            { flags: '--app-id <id>', description: 'App ID', parser: (v) => parseAppId(v) },
+            { flags: '--yes', description: 'Skip confirmation (for CI)' },
+            { flags: '--json', description: 'Output as JSON' },
+          ],
+          handler: (opts) =>
+            secretRotateCommand({
+              appId: opts.appId as string | undefined,
+              yes: Boolean(opts.yes),
+              json: Boolean(opts.json),
+            }),
+        },
+      ],
+    },
   ],
 };
 

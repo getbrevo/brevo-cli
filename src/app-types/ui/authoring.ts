@@ -631,12 +631,7 @@ function renderExampleContextUrlLines(uiApp: UiApp): string[] {
 
 // UI apps get their own summary box: there is no OAuth callback to list, and the
 // placement/trigger fields are what the partner actually needs to verify.
-export function renderCreatedUiApp(
-  result: CreateAppResponse,
-  appName: string,
-  uiApp: UiApp,
-  logoUri?: string,
-): void {
+export function renderCreatedUiApp(result: CreateAppResponse, appName: string, uiApp: UiApp): void {
   const boxLines = [
     `App name:       ${appName}`,
     `App ID:         ${result.app_id}`,
@@ -653,7 +648,6 @@ export function renderCreatedUiApp(
     ...formatPlacementLines(uiApp).map(
       (line, i) => `${i === 0 ? 'Placement:      ' : '                '}${line}`,
     ),
-    ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
     // Record context reaches the partner's endpoint as query parameters and nothing
     // else — no path templating — so show the exact URL shape rather than leaving

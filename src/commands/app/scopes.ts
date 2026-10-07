@@ -2,7 +2,11 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { logDebug, logInfo } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { fetchSupportedScopes, ScopeEntry } from '../../services/oauth-metadata';
+import {
+  fetchSupportedScopes,
+  groupScopesByCategory,
+  ScopeEntry,
+} from '../../services/oauth-metadata';
 import { startScopesWebServer } from '../../services/scopes-web';
 import { openBrowser } from '../../lib/browser';
 
@@ -23,29 +27,19 @@ function waitForShutdownSignal(): Promise<void> {
   });
 }
 
-function groupByCategory(entries: ScopeEntry[]): Map<string, string[]> {
-  const byCategory = new Map<string, string[]>();
-  for (const entry of entries) {
-    const list = byCategory.get(entry.category);
-    if (list) {
-      list.push(entry.name);
-    } else {
-      byCategory.set(entry.category, [entry.name]);
-    }
-  }
-  return byCategory;
-}
-
 function printScopesByCategory(entries: ScopeEntry[]): void {
-  const byCategory = groupByCategory(entries);
+  // Headed by the raw category KEY, not the catalog's English label, and the names carry no
+  // blurb — this list is a stable, greppable inventory, and both are available in the
+  // richer surfaces (`--web`, and the `app create` scope picker).
+  const byCategory = groupScopesByCategory(entries);
 
   let first = true;
-  for (const [category, names] of byCategory) {
+  for (const [category, scopes] of byCategory) {
     if (!first) logInfo('');
     first = false;
     logInfo(`${category}:`);
-    for (const name of names) {
-      logInfo(`  ${name}`);
+    for (const scope of scopes) {
+      logInfo(`  ${scope.name}`);
     }
   }
 

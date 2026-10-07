@@ -1,5 +1,5 @@
 import { ApiClient } from '../../api/client';
-import { createAppService } from '../../services/app';
+import { createAppService, isM2mApp } from '../../services/app';
 import { ApiError } from '../../lib/errors';
 import { getAppCredentials, getOrganizationId, saveAppCredentials } from '../../lib/config';
 
@@ -50,6 +50,18 @@ describe('services/app', () => {
       (mockClient.get as jest.Mock).mockResolvedValue(null);
       const result = await service.fetchAppsList();
       expect(result).toEqual([]);
+    });
+
+    it('requests the bare endpoint when no type is given', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue([]);
+      await service.fetchAppsList();
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/apps');
+    });
+
+    it('appends the type as a query parameter', async () => {
+      (mockClient.get as jest.Mock).mockResolvedValue([]);
+      await service.fetchAppsList({ type: 'brevo_function' });
+      expect(mockClient.get).toHaveBeenCalledWith('/v3/app-store/apps?type=brevo_function');
     });
   });
 
@@ -323,11 +335,19 @@ describe('services/app', () => {
       };
       (mockClient.post as jest.Mock).mockResolvedValue(response);
 
-      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'Test App',
+        distribution_type: 'private',
+        app_type: 'oauth.consent',
+      });
 
+      // Exactly what the caller passed, `app_type` included and nothing added: the
+      // service must not synthesise or default that field — `create.ts` derives it from
+      // the request's own discriminator block, which is the only place that can.
       expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps', {
         name: 'Test App',
         distribution_type: 'private',
+        app_type: 'oauth.consent',
       });
       expect(result).toEqual({ ...response, app_id: '1' });
     });
@@ -352,7 +372,11 @@ describe('services/app', () => {
         updated_at: '2026-01-01',
       });
 
-      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'Test App',
+        distribution_type: 'private',
+        app_type: 'oauth.consent',
+      });
 
       expect(result.client_id).toBe('cli-123');
       expect(result.client_secret).toBe('secret');
@@ -372,7 +396,11 @@ describe('services/app', () => {
         updated_at: '2026-01-01',
       });
 
-      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'Test App',
+        distribution_type: 'private',
+        app_type: 'oauth.consent',
+      });
 
       expect(result.client_id).toBe('cli-123');
       expect(result.client_secret).toBe('secret');
@@ -397,7 +425,11 @@ describe('services/app', () => {
         updated_at: '2026-01-01',
       });
 
-      const result = await service.createApp({ name: 'Test App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'Test App',
+        distribution_type: 'private',
+        app_type: 'oauth.consent',
+      });
 
       expect(result.client_id).toBe('flat-wins');
       expect(result.redirect_uris).toEqual(['https://flat.example.com/cb']);
@@ -416,7 +448,11 @@ describe('services/app', () => {
         updated_at: '2026-01-01',
       });
 
-      const result = await service.createApp({ name: 'UI App', distribution_type: 'private' });
+      const result = await service.createApp({
+        name: 'UI App',
+        distribution_type: 'private',
+        app_type: 'ui_app.actionLink',
+      });
 
       expect(result.client_id).toBeUndefined();
       expect(result.client_secret).toBeUndefined();
@@ -427,7 +463,11 @@ describe('services/app', () => {
     it('should propagate API errors', async () => {
       (mockClient.post as jest.Mock).mockRejectedValue(new Error('API error'));
       await expect(
-        service.createApp({ name: 'Test', distribution_type: 'private' }),
+        service.createApp({
+          name: 'Test',
+          distribution_type: 'private',
+          app_type: 'oauth.consent',
+        }),
       ).rejects.toThrow('API error');
     });
   });
@@ -657,6 +697,224 @@ describe('services/app', () => {
     });
   });
 
+  // BEX-486 / ASSUMPTION pending BEX-481 — see the plan doc for this feature; the
+  // endpoint path and `{ scopes }` body shape are not yet confirmed against a real
+  // backend implementation. `scopes` is always the FULL desired list — the command
+  // pre-fills the picker/prompt with the app's current scopes so the server can treat
+  // this as a plain replace.
+  describe('updateAppScopes', () => {
+    it('PATCHes the scopes endpoint with the full scopes list', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue({
+        app_id: '42',
+        name: 'test',
+        client_id: 'client-1',
+        redirect_uris: null,
+        scopes: ['contacts:read', 'crm:write'],
+      });
+
+      const result = await service.updateAppScopes('42', ['contacts:read', 'crm:write']);
+
+      expect(mockClient.patch).toHaveBeenCalledWith('/v3/app-store/apps/42/scopes', {
+        scopes: ['contacts:read', 'crm:write'],
+      });
+      expect(result.scopes).toEqual(['contacts:read', 'crm:write']);
+    });
+
+    it('always returns the app_id it was called with, regardless of the response', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue({
+        app_id: 999, // deliberately NOT '42' — must not leak through
+        name: 'test',
+        client_id: 'client-1',
+        redirect_uris: null,
+        scopes: [],
+      });
+
+      const result = await service.updateAppScopes('42', []);
+
+      expect(result.app_id).toBe('42');
+    });
+
+    // Regression: this used to run the response through `normalizeAppId`, which throws on a
+    // missing/malformed `app_id`. The PATCH response shape is unverified (BEX-481) — a 204
+    // maps to `{}`, and even a real body might omit `app_id` since callers already know it —
+    // so a successful update must not fail just because the field the caller never reads
+    // (only `.scopes` is used, with its own fallback) came back missing.
+    it('does not throw when the response has no app_id at all', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue({ scopes: ['contacts:read'] });
+
+      const result = await service.updateAppScopes('42', ['contacts:read']);
+
+      expect(result.app_id).toBe('42');
+      expect(result.scopes).toEqual(['contacts:read']);
+    });
+
+    it('does not throw on a bare empty response (e.g. a 204 mapped to {})', async () => {
+      (mockClient.patch as jest.Mock).mockResolvedValue({});
+
+      await expect(service.updateAppScopes('42', ['contacts:read'])).resolves.toMatchObject({
+        app_id: '42',
+      });
+    });
+
+    it('converts a 404 into a friendly not-found CliError', async () => {
+      (mockClient.patch as jest.Mock).mockRejectedValue(new ApiError('Not found', 404));
+
+      await expect(service.updateAppScopes('999', ['crm:write'])).rejects.toThrow(
+        'App 999 not found.',
+      );
+    });
+
+    it('propagates every other error unchanged (e.g. 400 invalid scope)', async () => {
+      const err = new ApiError('Unknown scope: bogus:read', 400);
+      (mockClient.patch as jest.Mock).mockRejectedValue(err);
+
+      await expect(service.updateAppScopes('42', ['bogus:read'])).rejects.toBe(err);
+    });
+  });
+
+  // BEX-482. ASSUMPTION pending the "brevo app token [Backend]" ticket (not yet built): the
+  // endpoint contract this exercises is a reasonable guess, not a verified implementation.
+  describe('mintAppToken', () => {
+    it('POSTs the token endpoint with no body when no scopes are requested', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        access_token: 'token-abc',
+        token_type: 'Bearer',
+        expires_in: 3600,
+      });
+
+      const result = await service.mintAppToken('42');
+
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps/42/token', undefined);
+      expect(result).toEqual({
+        accessToken: 'token-abc',
+        tokenType: 'Bearer',
+        expiresIn: 3600,
+        scope: undefined,
+      });
+    });
+
+    it('sends the requested scopes in the body when provided', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        access_token: 'token-abc',
+        token_type: 'Bearer',
+        expires_in: 3600,
+        scope: 'contacts:read',
+      });
+
+      const result = await service.mintAppToken('42', ['contacts:read']);
+
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps/42/token', {
+        scopes: ['contacts:read'],
+      });
+      expect(result.scope).toBe('contacts:read');
+    });
+
+    it('defaults token_type to Bearer when the server omits it', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        access_token: 'token-abc',
+        expires_in: 3600,
+      });
+
+      const result = await service.mintAppToken('42');
+
+      expect(result.tokenType).toBe('Bearer');
+    });
+
+    it('rejects a malformed response missing access_token', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({ expires_in: 3600 });
+
+      await expect(service.mintAppToken('42')).rejects.toThrow(
+        'The server returned a token response the CLI does not recognize.',
+      );
+    });
+
+    it('rejects a malformed response with a non-finite expires_in', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        access_token: 'token-abc',
+        expires_in: 'soon',
+      });
+
+      await expect(service.mintAppToken('42')).rejects.toThrow(
+        'The server returned a token response the CLI does not recognize.',
+      );
+    });
+
+    it('converts a 404 into a friendly not-found CliError', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('Not found', 404));
+
+      await expect(service.mintAppToken('999')).rejects.toThrow('App 999 not found.');
+    });
+
+    it('propagates every other error unchanged', async () => {
+      const err = new ApiError('forbidden', 403, undefined, 'scope_not_granted');
+      (mockClient.post as jest.Mock).mockRejectedValue(err);
+
+      await expect(service.mintAppToken('42', ['crm:write'])).rejects.toBe(err);
+    });
+  });
+
+  describe('rotateAppSecret', () => {
+    it('POSTs the rotate endpoint and normalizes the response', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        client_id: 'client-42',
+        client_secret: 'new-secret',
+      });
+
+      const result = await service.rotateAppSecret('42');
+
+      expect(mockClient.post).toHaveBeenCalledWith('/v3/app-store/apps/42/secret/rotate');
+      expect(result).toEqual({
+        clientId: 'client-42',
+        clientSecret: 'new-secret',
+        graceUntil: undefined,
+      });
+    });
+
+    it('leaves clientId absent when client_id is omitted — never the app UUID', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({ client_secret: 'new-secret' });
+
+      const result = await service.rotateAppSecret('42');
+
+      // An app's UUID and its OAuth client_id are different identifiers; a fallback to
+      // the app ID here used to poison the credentials cache and the --json output.
+      expect(result.clientId).toBeUndefined();
+      expect(result.clientSecret).toBe('new-secret');
+    });
+
+    it('surfaces a grace window when the backend sends one', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({
+        client_id: 'client-42',
+        client_secret: 'new-secret',
+        grace_until: '2026-09-22T00:00:00Z',
+      });
+
+      const result = await service.rotateAppSecret('42');
+
+      expect(result.graceUntil).toBe('2026-09-22T00:00:00Z');
+    });
+
+    it('rejects a malformed response missing client_secret', async () => {
+      (mockClient.post as jest.Mock).mockResolvedValue({ client_id: 'client-42' });
+
+      await expect(service.rotateAppSecret('42')).rejects.toThrow(
+        'The server returned a secret-rotation response the CLI does not recognize.',
+      );
+    });
+
+    it('converts a 404 into a friendly not-found CliError', async () => {
+      (mockClient.post as jest.Mock).mockRejectedValue(new ApiError('Not found', 404));
+
+      await expect(service.rotateAppSecret('999')).rejects.toThrow('App 999 not found.');
+    });
+
+    it('propagates every other error unchanged', async () => {
+      const err = new ApiError('unauthorized', 401);
+      (mockClient.post as jest.Mock).mockRejectedValue(err);
+
+      await expect(service.rotateAppSecret('42')).rejects.toBe(err);
+    });
+  });
+
   describe('installApp / uninstallApp', () => {
     beforeEach(() => {
       (getOrganizationId as jest.Mock).mockReturnValue('12345');
@@ -816,5 +1074,68 @@ describe('services/app', () => {
 
       await expect(service.withdrawApp('42')).rejects.toMatchObject({ statusCode: 422 });
     });
+  });
+});
+
+// HEURISTIC pending BEX-481 — no server-sent discriminator distinguishes an M2M app from
+// a consent-based one yet; see the doc comment on `isM2mApp` itself.
+describe('isM2mApp', () => {
+  it('is true for an OAuth app with a client_id, no redirect_uris, no ui_app/brevo_function', () => {
+    expect(
+      isM2mApp({
+        app_id: '1',
+        name: 'm2m',
+        client_id: 'client-1',
+        redirect_uris: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('is false for a consent-based OAuth app (has redirect_uris)', () => {
+    expect(
+      isM2mApp({
+        app_id: '2',
+        name: 'consent',
+        client_id: 'client-2',
+        redirect_uris: ['https://example.com/callback'],
+      }),
+    ).toBe(false);
+  });
+
+  it('is false for a UI app (has ui_app, no client_id)', () => {
+    expect(
+      isM2mApp({
+        app_id: '3',
+        name: 'ui',
+        client_id: '',
+        redirect_uris: null,
+        ui_app: {} as never,
+      }),
+    ).toBe(false);
+  });
+
+  it('is false for a Function app (has brevo_function)', () => {
+    expect(
+      isM2mApp({
+        app_id: '4',
+        name: 'fn',
+        client_id: '',
+        redirect_uris: null,
+        brevo_function: {},
+      }),
+    ).toBe(false);
+  });
+
+  it('is false with an empty redirect_uris array (still counts as present)', () => {
+    // Structurally identical to "no callback" today, but kept a separate case since an
+    // empty array and `null` are different wire values `OAuthApp.redirect_uris` allows.
+    expect(
+      isM2mApp({
+        app_id: '5',
+        name: 'm2m-empty-array',
+        client_id: 'client-5',
+        redirect_uris: [],
+      }),
+    ).toBe(true);
   });
 });

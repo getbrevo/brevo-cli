@@ -1,0 +1,158 @@
+import inquirer from 'inquirer';
+import { CLI } from '../../lib/constants';
+import { logInfo, logSuccess } from '../../lib/logger';
+import { messages } from '../../lang/en';
+import { ApiError, CliError } from '../../lib/errors';
+import { withCommandHandler } from '../../lib/command-handler';
+import { jsonOutput } from '../../lib/json-output';
+import { createSpinner } from '../../lib/ui';
+import { appService } from '../../container';
+import { isM2mApp } from '../../services/app';
+import { saveAppCredentials } from '../../lib/config';
+import { assertAppSelectionAllowed, promptAppSelection } from './select-app';
+
+export interface SecretRotateOptions {
+  appId?: string;
+  yes?: boolean;
+  json?: boolean;
+}
+
+/**
+ * Remap a rotate failure to friendlier copy for the codes this command knows about;
+ * anything else is rethrown unchanged so the server's own message still reaches the
+ * partner. ASSUMPTION pending the "brevo app secret rotate [Backend]" ticket (not yet
+ * built): the status code matched here is a guess, not a verified contract — a wrong
+ * guess only loses the friendlier copy, it never hides the real error.
+ */
+function mapRotateError(err: unknown, appId: string): unknown {
+  if (err instanceof ApiError && err.statusCode === 401) {
+    return new CliError(messages.APP_SECRET_ROTATE_UNAUTHORIZED(appId), err.exitCode);
+  }
+  return err;
+}
+
+/**
+ * `brevo app secret rotate` (BEX-484) — rotate an M2M app's client secret.
+ *
+ * ASSUMPTION pending the "brevo app secret rotate [Backend]" ticket (not yet built at the
+ * time this was written): the endpoint contract `appService.rotateAppSecret` sends is a
+ * reasonable guess, not a verified implementation — see the plan doc for BEX-484.
+ *
+ * The new secret is printed in full, with no `--reveal-secret`-style gate — unlike
+ * `app credentials`/`app create`. That gate exists to keep a permanent, disk-cached
+ * secret off a screen unless someone deliberately asks; this command's entire purpose
+ * IS handing back a new secret, including from a non-interactive CI rotation script,
+ * where a TTY-gated reveal would make the command unable to ever return the value it
+ * exists to produce. Do not "fix" this into the reveal-gated pattern. The confirmation
+ * prompt below is a different gate: it confirms the destructive ACTION (the old secret
+ * stops working immediately), not permission to display the result.
+ */
+export const secretRotateCommand = withCommandHandler(
+  async (options: SecretRotateOptions): Promise<void> => {
+    let appId = options.appId;
+    let appLabel = '';
+
+    if (!appId) {
+      // The hint carries --yes (and --json when set): any non-interactive re-run also has
+      // to clear the consent gate below, so a hint without it would be refused again.
+      assertAppSelectionAllowed(
+        `${CLI.APP_SECRET_ROTATE()} --yes${options.json ? ' --json' : ''}`,
+        options.json,
+      );
+      const selection = await promptAppSelection(messages.APP_SECRET_ROTATE_SELECT, {
+        filter: isM2mApp,
+        emptyMessage: messages.APP_SECRET_ROTATE_NO_M2M_APPS,
+      });
+      appId = selection.appId;
+      appLabel = selection.appLabel;
+    }
+
+    // --json is a request for machine-readable output, not consent: it suppresses the
+    // confirmation prompt (one parseable document, no questions), and rotating on it
+    // alone would make an information flag destructive. Off a TTY the prompt cannot be
+    // asked at all — inquirer dies with a raw ERR_USE_AFTER_CLOSE readline stack, the
+    // failure assertAppSelectionAllowed exists to prevent on the picker. Both mean the
+    // same thing: no one can answer the question, so require the consent flag explicitly
+    // instead of treating silence as a yes. Checked BEFORE the app read: every input to
+    // the decision is known at entry, so refusing first keeps the promise that nothing —
+    // not even a GET — is spent on a run that was never going to proceed.
+    if (!options.yes && (options.json || !process.stdin.isTTY)) {
+      throw new CliError(
+        messages.APP_CONFIRM_NON_INTERACTIVE(
+          `${CLI.APP_SECRET_ROTATE(appId)} --yes${options.json ? ' --json' : ''}`,
+        ),
+      );
+    }
+
+    const loadSpinner = createSpinner(messages.APP_LOAD_SPINNER, { silent: options.json });
+    let app;
+    try {
+      app = await appService.fetchApp(appId);
+    } finally {
+      // Stop on failure too — a throw here (404 via rethrowNotFound, network error) must
+      // not leave the spinner redrawing "Loading app..." over the error message on a TTY.
+      loadSpinner.stop();
+    }
+    if (!app) throw new CliError(messages.APP_NOT_FOUND(appId));
+    if (!isM2mApp(app)) throw new CliError(messages.APP_SECRET_ROTATE_NOT_M2M(appId));
+    appLabel = appLabel || app.name || '';
+
+    if (!options.yes) {
+      const { confirmed } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'confirmed',
+          message: messages.APP_SECRET_ROTATE_CONFIRM(appLabel || appId, appId),
+          default: false,
+        },
+      ]);
+      if (!confirmed) {
+        logInfo(messages.APP_SECRET_ROTATE_CANCELLED);
+        return;
+      }
+    }
+
+    const rotateSpinner = createSpinner(messages.APP_SECRET_ROTATE_SPINNER, {
+      silent: options.json,
+    });
+    let rotated;
+    try {
+      rotated = await appService.rotateAppSecret(appId);
+    } catch (err) {
+      rotateSpinner.stop();
+      throw mapRotateError(err, appId);
+    }
+    rotateSpinner.stop();
+
+    // The rotate response may omit `client_id`; the app fetched above carries the real
+    // one (isM2mApp guarantees it). Never substitute the app UUID — it is a different
+    // identifier, and caching or printing it as a client_id sends every later token
+    // request to the IdP with a value it rejects.
+    const clientId = rotated.clientId ?? app.client_id;
+
+    // Keep the local cache in step with the secret that now actually works — the same
+    // cache `app credentials`/`app start`/scaffolded templates read from. With no
+    // client_id from either source there is nothing safe to write: skip the save and
+    // leave the cached entry alone rather than storing a credential pair missing its id.
+    if (clientId) {
+      saveAppCredentials(appId, { clientId, clientSecret: rotated.clientSecret });
+    }
+
+    if (options.json) {
+      jsonOutput({
+        appId,
+        clientId: clientId ?? null,
+        clientSecret: rotated.clientSecret,
+        graceUntil: rotated.graceUntil ?? null,
+      });
+      return;
+    }
+
+    logSuccess(messages.APP_SECRET_ROTATE_SUCCESS(appId));
+    logInfo(`  ${messages.APP_SECRET_ROTATE_SECRET_LINE(rotated.clientSecret)}`);
+    if (rotated.graceUntil)
+      logInfo(`  ${messages.APP_SECRET_ROTATE_GRACE_LINE(rotated.graceUntil)}`);
+    logInfo(`  ${messages.APP_SECRET_ROTATE_STORE_HINT}`);
+    process.stdout.write('\n');
+  },
+);

@@ -94,9 +94,113 @@ function flattenCreateAuth(raw: RawCreateAppResponse): CreateAppResponse {
 
 function rethrowNotFound(err: unknown, appId: string): never {
   if (err instanceof ApiError && err.statusCode === 404) {
-    throw new CliError(`App ${appId} not found.`, err.exitCode);
+    throw new CliError(messages.APP_NOT_FOUND(appId), err.exitCode);
   }
   throw err;
+}
+
+/**
+ * Whether an app is machine-to-machine (BEX-486).
+ *
+ * HEURISTIC, not a server-sent discriminator — `OAuthApp` carries no `type`/`app_type`
+ * field distinguishing an M2M app from a consent-based one (verified: neither exists on
+ * the type). This mirrors the structural signal `app create`'s own M2M detection relies
+ * on: an OAuth app (`client_id` present) with no redirect URIs and no `ui_app`/
+ * `brevo_function` block. Prefer a real discriminator over this heuristic the moment
+ * BEX-481 (or related backend work) exposes one on `GET /v3/app-store/apps/{id}`.
+ */
+export function isM2mApp(app: OAuthApp): boolean {
+  return Boolean(app.client_id) && !app.ui_app && !app.brevo_function && !app.redirect_uris?.length;
+}
+
+/** A minted M2M access token (BEX-482), normalized from the wire response. */
+export interface AppToken {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  scope?: string;
+}
+
+/**
+ * The token-mint response exactly as it might come off the wire.
+ *
+ * ASSUMPTION pending the "brevo app token [Backend]" ticket (not yet built): this is a
+ * reasonable guess at a standard OAuth token response shape, not a verified contract.
+ */
+interface RawAppTokenPayload {
+  access_token?: unknown;
+  token_type?: unknown;
+  expires_in?: unknown;
+  scope?: unknown;
+}
+
+/**
+ * Validates and normalizes a token-mint response, returning `null` for a shape this CLI
+ * doesn't recognize rather than trusting it blindly — the backend contract is unverified
+ * (see `RawAppTokenPayload`). `token_type` defaults to `'Bearer'` when absent rather than
+ * failing validation on it: the ticket only guarantees a Bearer `access_token`, and OAuth
+ * token responses commonly omit or vary this field.
+ */
+function normalizeAppToken(raw: RawAppTokenPayload): AppToken | null {
+  if (typeof raw.access_token !== 'string' || !raw.access_token) return null;
+  if (
+    typeof raw.expires_in !== 'number' ||
+    !Number.isFinite(raw.expires_in) ||
+    raw.expires_in <= 0
+  ) {
+    return null;
+  }
+  return {
+    accessToken: raw.access_token,
+    tokenType: typeof raw.token_type === 'string' && raw.token_type ? raw.token_type : 'Bearer',
+    expiresIn: raw.expires_in,
+    scope: typeof raw.scope === 'string' ? raw.scope : undefined,
+  };
+}
+
+/** The result of rotating an M2M app's client secret (BEX-484), normalized from the wire response. */
+export interface RotatedSecret {
+  // Absent when the response omits `client_id`. Deliberately NOT defaulted to the app ID:
+  // an app's UUID and its OAuth client_id are different identifiers, and a caller that
+  // caches or prints this field would be handing out a value the token endpoint rejects.
+  // The caller has the fetched app in hand and can fall back to its real client_id.
+  clientId?: string;
+  clientSecret: string;
+  // Present only if the backend supports dual-secret rotation and the old secret keeps
+  // working until this instant — absent means a hard swap (the old secret stops working
+  // immediately), which is the v1 assumption this command is built against.
+  graceUntil?: string;
+}
+
+/**
+ * The rotate-secret response exactly as it might come off the wire.
+ *
+ * ASSUMPTION pending the "brevo app secret rotate [Backend]" ticket (not yet built): this
+ * is a reasonable guess, not a verified contract — `grace_until` in particular is a guessed
+ * field name for the dual-secret grace window the Jira ticket describes as a maybe.
+ */
+interface RawRotateSecretPayload {
+  client_id?: unknown;
+  client_secret?: unknown;
+  grace_until?: unknown;
+}
+
+/**
+ * Validates and normalizes a rotate-secret response, returning `null` for a shape this CLI
+ * doesn't recognize rather than trusting it blindly — same reasoning as
+ * {@link normalizeAppToken}. A missing `client_id` stays missing rather than failing
+ * validation (the secret is the one field this command cannot proceed without) and rather
+ * than falling back to the app ID — a previous version did that, and an app UUID standing
+ * in for an OAuth client_id poisons everything downstream that treats the field as real.
+ */
+function normalizeRotatedSecret(raw: RawRotateSecretPayload): RotatedSecret | null {
+  if (typeof raw.client_secret !== 'string' || !raw.client_secret) return null;
+  return {
+    clientId: typeof raw.client_id === 'string' && raw.client_id ? raw.client_id : undefined,
+    clientSecret: raw.client_secret,
+    graceUntil:
+      typeof raw.grace_until === 'string' && raw.grace_until ? raw.grace_until : undefined,
+  };
 }
 
 /**
@@ -429,11 +533,25 @@ export function createAppService(client: ApiClient) {
     async createApp(payload: {
       name: string;
       distribution_type: 'public' | 'private';
+      /**
+       * What kind of app to create — `oauth.consent`, `oauth.m2m`, `ui_app.<extension_type>`
+       * or `brevo_function` (`WIRE_APP_TYPE`). Built by the caller from the discriminator
+       * block below and passed through untouched: this service must never synthesise or
+       * default it, or the label could describe an app the body does not.
+       */
+      app_type: string;
       // OAuth fields travel inside `auth`, the same block the upload endpoint
       // takes (unified payload structure). Omitted entirely for UI and Function apps.
+      //
+      // `type` marks a machine-to-machine app (`client_credentials`), and a
+      // consent-based app omits it rather than sending a counterpart value — so
+      // this block stays byte-identical to what pre-M2M versions sent. An M2M app
+      // sends no `redirect_uris` at all, which is why that key is optional here:
+      // it has no callback, and `[]` would register state the grant never reads.
       auth?: {
+        type?: string;
         scopes: string[];
-        redirect_uris: string[];
+        redirect_uris?: string[];
       };
       // Sent for UI apps only, under the same key the upload endpoint takes and
       // the same key the block carries in app-config.json. It is the app-type
@@ -444,7 +562,6 @@ export function createAppService(client: ApiClient) {
       // Sent for Brevo Function apps only. An empty object that tells the server
       // this app has no OAuth flow — the discriminator on the wire.
       brevo_function?: Record<string, never>;
-      logo_uri?: string;
     }): Promise<CreateAppResponse> {
       const raw = await client.post<RawCreateAppResponse>(ENDPOINTS.APP_STORE_APPS, payload);
       return flattenCreateAuth(normalizeAppId(raw));
@@ -460,6 +577,80 @@ export function createAppService(client: ApiClient) {
     async deleteApp(appId: string): Promise<void> {
       try {
         await client.delete(ENDPOINTS.APP_STORE_APP(appId));
+      } catch (err) {
+        rethrowNotFound(err, appId);
+      }
+    },
+
+    /**
+     * Set an M2M app's granted scopes (BEX-486). ASSUMPTION pending BEX-481: the exact
+     * endpoint path/body shape is not yet confirmed against a real backend
+     * implementation.
+     *
+     * `scopes` is always the FULL desired scope list — the command that calls this
+     * pre-fills the interactive picker/prompt with the app's current scopes so a partner
+     * edits a complete set rather than typing a delta, which is what lets this be a plain
+     * replace with no separate add/remove mode. The response reflects the scope set the
+     * server actually stored.
+     *
+     * Deliberately does NOT run the response through `normalizeAppId`: that throws on a
+     * missing/malformed `app_id`, and the unverified response shape could plausibly be a
+     * bare `{ scopes }` body or an empty one (a 204 maps to `{}`). The caller already knows
+     * `appId` — it's what it just PATCHed — and only ever reads `.scopes` off the result
+     * (with its own `?? newScopes` fallback), so trusting the response's own `app_id`
+     * buys nothing and risks turning a successful update into a reported failure over a
+     * field nobody reads back.
+     */
+    async updateAppScopes(appId: string, scopes: string[]): Promise<OAuthApp> {
+      try {
+        const raw = await client.patch<Partial<OAuthApp>>(ENDPOINTS.APP_STORE_APP_SCOPES(appId), {
+          scopes,
+        });
+        return { ...raw, app_id: appId } as OAuthApp;
+      } catch (err) {
+        rethrowNotFound(err, appId);
+      }
+    },
+
+    /**
+     * Mint a short-lived M2M access token for an app (BEX-482). ASSUMPTION pending the
+     * "brevo app token [Backend]" ticket (not yet built at the time this was written): the
+     * endpoint path and body/response shape are a reasonable guess, not a verified
+     * implementation.
+     *
+     * `scopes` omitted (or empty) sends no `scopes` key at all, rather than `scopes: []` —
+     * keeping "request the app's full granted set" unambiguous from "explicitly request
+     * zero scopes".
+     */
+    async mintAppToken(appId: string, scopes?: string[]): Promise<AppToken> {
+      try {
+        const body = scopes && scopes.length > 0 ? { scopes } : undefined;
+        const raw = await client.post<RawAppTokenPayload>(
+          ENDPOINTS.APP_STORE_APP_TOKEN(appId),
+          body,
+        );
+        const token = normalizeAppToken(raw);
+        if (!token) throw new CliError(messages.APP_TOKEN_MALFORMED_RESPONSE);
+        return token;
+      } catch (err) {
+        rethrowNotFound(err, appId);
+      }
+    },
+
+    /**
+     * Rotate an M2M app's client secret (BEX-484). ASSUMPTION pending the "brevo app
+     * secret rotate [Backend]" ticket (not yet built at the time this was written): the
+     * endpoint path and response shape are a reasonable guess, not a verified
+     * implementation.
+     */
+    async rotateAppSecret(appId: string): Promise<RotatedSecret> {
+      try {
+        const raw = await client.post<RawRotateSecretPayload>(
+          ENDPOINTS.APP_STORE_APP_SECRET_ROTATE(appId),
+        );
+        const rotated = normalizeRotatedSecret(raw);
+        if (!rotated) throw new CliError(messages.APP_SECRET_ROTATE_MALFORMED_RESPONSE);
+        return rotated;
       } catch (err) {
         rethrowNotFound(err, appId);
       }

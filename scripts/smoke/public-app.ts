@@ -45,8 +45,6 @@ const KNOWN_REVIEW_STATES = [
 
 const SUBMITTED_STATES = new Set(['submitted', 'in_review']);
 
-const SMOKE_LOGO_URI = 'https://example.com/logo.png';
-
 /**
  * The public app, or a skip.
  *
@@ -72,8 +70,9 @@ const SERVER_REFUSES_PUBLIC =
 
 async function stepPublicAppCreate(state: State): Promise<string> {
   // --distribution public is accepted since BEX-327; the old negative step that
-  // asserted the CLI rejected it has been removed. --logo-uri exercises the
-  // optional create field from BEX-255 in the same call.
+  // asserted the CLI rejected it has been removed. Create no longer takes a logo:
+  // BEX-489 removed --logo-uri, so a logo is set after creation via app-config.json
+  // + `app upload`.
   //
   // Gated since BEX-405: a published-surface build refuses the flag outright, so this is a
   // skip, not a failure. See GATED_FEATURES in core.ts.
@@ -83,7 +82,6 @@ async function stepPublicAppCreate(state: State): Promise<string> {
     app = await createSmokeApp(state, {
       label: 'public',
       distribution: 'public',
-      logoUri: SMOKE_LOGO_URI,
     });
   } catch (err) {
     // The second half of the gate, and the one capability detection cannot see: the
