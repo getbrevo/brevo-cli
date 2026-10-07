@@ -94,7 +94,7 @@ function flattenCreateAuth(raw: RawCreateAppResponse): CreateAppResponse {
 
 function rethrowNotFound(err: unknown, appId: string): never {
   if (err instanceof ApiError && err.statusCode === 404) {
-    throw new CliError(`App ${appId} not found.`, err.exitCode);
+    throw new CliError(messages.APP_NOT_FOUND(appId), err.exitCode);
   }
   throw err;
 }
@@ -160,7 +160,11 @@ function normalizeAppToken(raw: RawAppTokenPayload): AppToken | null {
 
 /** The result of rotating an M2M app's client secret (BEX-484), normalized from the wire response. */
 export interface RotatedSecret {
-  clientId: string;
+  // Absent when the response omits `client_id`. Deliberately NOT defaulted to the app ID:
+  // an app's UUID and its OAuth client_id are different identifiers, and a caller that
+  // caches or prints this field would be handing out a value the token endpoint rejects.
+  // The caller has the fetched app in hand and can fall back to its real client_id.
+  clientId?: string;
   clientSecret: string;
   // Present only if the backend supports dual-secret rotation and the old secret keeps
   // working until this instant — absent means a hard swap (the old secret stops working
@@ -184,14 +188,15 @@ interface RawRotateSecretPayload {
 /**
  * Validates and normalizes a rotate-secret response, returning `null` for a shape this CLI
  * doesn't recognize rather than trusting it blindly — same reasoning as
- * {@link normalizeAppToken}. `client_id` falls back to the `appId` the caller already knows
- * (the id being rotated does not change) rather than failing validation on it, in case the
- * response omits it.
+ * {@link normalizeAppToken}. A missing `client_id` stays missing rather than failing
+ * validation (the secret is the one field this command cannot proceed without) and rather
+ * than falling back to the app ID — a previous version did that, and an app UUID standing
+ * in for an OAuth client_id poisons everything downstream that treats the field as real.
  */
-function normalizeRotatedSecret(raw: RawRotateSecretPayload, appId: string): RotatedSecret | null {
+function normalizeRotatedSecret(raw: RawRotateSecretPayload): RotatedSecret | null {
   if (typeof raw.client_secret !== 'string' || !raw.client_secret) return null;
   return {
-    clientId: typeof raw.client_id === 'string' && raw.client_id ? raw.client_id : appId,
+    clientId: typeof raw.client_id === 'string' && raw.client_id ? raw.client_id : undefined,
     clientSecret: raw.client_secret,
     graceUntil:
       typeof raw.grace_until === 'string' && raw.grace_until ? raw.grace_until : undefined,
@@ -643,7 +648,7 @@ export function createAppService(client: ApiClient) {
         const raw = await client.post<RawRotateSecretPayload>(
           ENDPOINTS.APP_STORE_APP_SECRET_ROTATE(appId),
         );
-        const rotated = normalizeRotatedSecret(raw, appId);
+        const rotated = normalizeRotatedSecret(raw);
         if (!rotated) throw new CliError(messages.APP_SECRET_ROTATE_MALFORMED_RESPONSE);
         return rotated;
       } catch (err) {

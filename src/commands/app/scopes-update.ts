@@ -43,7 +43,12 @@ export const updateScopesCommand = withCommandHandler(
     let appLabel = '';
 
     if (!appId) {
-      assertAppSelectionAllowed(CLI.APP_SCOPES_UPDATE(), options.json);
+      // The hint carries --yes (and --json when set): any non-interactive re-run also has
+      // to clear the consent gate below, so a hint without it would be refused again.
+      assertAppSelectionAllowed(
+        `${CLI.APP_SCOPES_UPDATE()} --yes${options.json ? ' --json' : ''}`,
+        options.json,
+      );
       const selection = await promptAppSelection(messages.APP_SCOPES_UPDATE_SELECT, {
         filter: isM2mApp,
         emptyMessage: messages.APP_SCOPES_UPDATE_NO_M2M_APPS,
@@ -55,10 +60,16 @@ export const updateScopesCommand = withCommandHandler(
     // Read current app + validate M2M-only, regardless of whether app-id came from a flag
     // or the picker — the picker's filter narrows choices, but a directly-typed --app-id
     // still needs the same check.
-    const loadSpinner = createSpinner('Loading app...', { silent: options.json });
-    const app = await appService.fetchApp(appId);
-    loadSpinner.stop();
-    if (!app) throw new CliError(`App ${appId} not found.`);
+    const loadSpinner = createSpinner(messages.APP_LOAD_SPINNER, { silent: options.json });
+    let app;
+    try {
+      app = await appService.fetchApp(appId);
+    } finally {
+      // Stop on failure too — a throw here (404 via rethrowNotFound, network error) must
+      // not leave the spinner redrawing "Loading app..." over the error message on a TTY.
+      loadSpinner.stop();
+    }
+    if (!app) throw new CliError(messages.APP_NOT_FOUND(appId));
     if (!isM2mApp(app)) throw new CliError(messages.APP_SCOPES_UPDATE_NOT_M2M(appId));
     // Only set from the picker (`select-app.ts` names the app it just listed) — a
     // directly-typed `--app-id` has no label yet, and the app we just fetched has a
@@ -82,8 +93,12 @@ export const updateScopesCommand = withCommandHandler(
       // with a different fix (`--scopes`, not `--app-id`). Reusing that helper's message
       // would blame the wrong flag.
       if (options.json || !process.stdin.isTTY) {
+        // Same reasoning as the picker hint above: a non-interactive re-run must also
+        // clear the consent gate, so the suggested command carries --yes.
         throw new CliError(
-          messages.APP_SCOPES_UPDATE_SCOPES_REQUIRED(CLI.APP_SCOPES_UPDATE(appId)),
+          messages.APP_SCOPES_UPDATE_SCOPES_REQUIRED(
+            `${CLI.APP_SCOPES_UPDATE(appId)} --yes${options.json ? ' --json' : ''}`,
+          ),
         );
       }
       const picked = await promptScopeSelection(false, currentScopes);
@@ -104,7 +119,26 @@ export const updateScopesCommand = withCommandHandler(
       return;
     }
 
-    if (!options.json && !options.yes) {
+    // --json is a request for machine-readable output, not consent: it suppresses the
+    // confirmation prompt, and a full scope replacement (removals included) must not
+    // ride on it alone. Off a TTY the prompt cannot be asked at all (inquirer dies with
+    // a raw ERR_USE_AFTER_CLOSE readline stack) — which `--scopes` without `--yes` in a
+    // pipe used to hit, since only the scope-picker branch above was guarded. Same gate
+    // as `app secret rotate`. Placed after the no-change early return so a no-op under
+    // --json keeps exiting 0 without consent theatre.
+    if (!options.yes && (options.json || !process.stdin.isTTY)) {
+      // This branch is only reachable with --scopes in hand (the omitted-scopes
+      // non-interactive path threw SCOPES_REQUIRED above), so the hint carries the
+      // caller's real list — a placeholder would make the user re-derive a set where
+      // an incomplete answer silently removes scopes.
+      throw new CliError(
+        messages.APP_CONFIRM_NON_INTERACTIVE(
+          `${CLI.APP_SCOPES_UPDATE(appId, newScopes.join(','))} --yes${options.json ? ' --json' : ''}`,
+        ),
+      );
+    }
+
+    if (!options.yes) {
       logInfo(`\n  ${messages.APP_SCOPES_UPDATE_DIFF(currentScopes, newScopes, added, removed)}\n`);
       const { confirmed } = await inquirer.prompt([
         {
@@ -120,9 +154,17 @@ export const updateScopesCommand = withCommandHandler(
       }
     }
 
-    const updateSpinner = createSpinner('Updating scopes...', { silent: options.json });
-    const updated = await appService.updateAppScopes(appId, newScopes);
-    updateSpinner.stop();
+    const updateSpinner = createSpinner(messages.APP_SCOPES_UPDATE_SPINNER, {
+      silent: options.json,
+    });
+    let updated;
+    try {
+      updated = await appService.updateAppScopes(appId, newScopes);
+    } finally {
+      // Same reasoning as the load spinner above: a failed PATCH must not leave
+      // "Updating scopes..." redrawing over the error.
+      updateSpinner.stop();
+    }
 
     if (options.json) {
       jsonOutput({

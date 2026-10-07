@@ -33,11 +33,18 @@ jest.mock('../../../services/oauth-metadata', () => ({
   fetchSupportedScopes: jest.fn(),
 }));
 
+jest.mock('../../../lib/ui', () => ({
+  ...jest.requireActual('../../../lib/ui'),
+  createSpinner: jest.fn(() => ({ update: jest.fn(), stop: jest.fn() })),
+}));
+
 import inquirer from 'inquirer';
 import { appService } from '../../../container';
+import { createSpinner } from '../../../lib/ui';
 import { fetchSupportedScopes } from '../../../services/oauth-metadata';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
+const mockCreateSpinner = createSpinner as jest.Mock;
 const mockFetchApp = appService.fetchApp as jest.Mock;
 const mockUpdateAppScopes = appService.updateAppScopes as jest.Mock;
 const mockFetchAppsList = appService.fetchAppsList as jest.Mock;
@@ -72,6 +79,9 @@ describe('app/scopes-update', () => {
     jest.clearAllMocks();
     mockFetchApp.mockResolvedValue(M2M_APP);
     mockUpdateAppScopes.mockResolvedValue({ ...M2M_APP, scopes: ['contacts:read', 'crm:write'] });
+    // Jest runs without a TTY; the confirm-prompt paths need one, and the non-TTY
+    // refusal is asserted explicitly with withTTY(false).
+    withTTY(true);
   });
 
   afterEach(() => {
@@ -107,14 +117,49 @@ describe('app/scopes-update', () => {
     expect(mockUpdateAppScopes).toHaveBeenCalledWith('app-1', ['contacts:read', 'crm:write']);
   });
 
-  // Regression: `--json` without `--yes` used to still print the human diff and open an
-  // inquirer confirm — corrupting the "stdout is one JSON document" contract and dying with
-  // ERR_USE_AFTER_CLOSE off a TTY. `--json` alone must be enough to skip confirmation, same
-  // as `upload.ts`.
-  it('--json without --yes also skips confirmation, applying the update directly', async () => {
+  // Off a TTY the confirm cannot be asked: `--scopes` without `--yes` in a pipe used to
+  // reach inquirer and die with a raw ERR_USE_AFTER_CLOSE readline stack (only the
+  // scope-picker branch was guarded). Refused with the explicit-consent error instead.
+  it('a non-TTY run with --scopes but no --yes is refused instead of reaching the prompt', async () => {
+    withTTY(false);
+
+    await expect(
+      updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:write' }),
+    ).rejects.toThrow(/--yes/);
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockUpdateAppScopes).not.toHaveBeenCalled();
+  });
+
+  it('a non-TTY run with --scopes and --yes applies the update without prompting', async () => {
+    withTTY(false);
+
+    await updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:write', yes: true });
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockUpdateAppScopes).toHaveBeenCalledWith('app-1', ['contacts:read', 'crm:write']);
+  });
+
+  // --json suppresses the diff + confirm, so it must not double as consent for a full
+  // scope replacement (removals included). Scripts say --yes; the confirm prompt never
+  // opens either way, so the "stdout is one JSON document" contract holds on both paths.
+  it('--json without --yes is refused before anything is sent', async () => {
+    // The hint must carry the caller's REAL scope list, never the `<a,b,c>` placeholder —
+    // a placeholder is a shell-redirection trap, and re-deriving the full set risks an
+    // incomplete answer that silently removes scopes.
+    await expect(
+      updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:write', json: true }),
+    ).rejects.toThrow(/--scopes "contacts:read,crm:write" --yes --json/);
+
+    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockUpdateAppScopes).not.toHaveBeenCalled();
+  });
+
+  it('--json with --yes applies the update without prompting', async () => {
     await updateScopesCommand({
       appId: 'app-1',
       scopes: 'contacts:read,crm:write',
+      yes: true,
       json: true,
     });
 
@@ -264,6 +309,30 @@ describe('app/scopes-update', () => {
     expect(stdoutSpy).toHaveBeenCalledTimes(1);
     const parsed = JSON.parse(String(stdoutSpy.mock.calls[0][0]));
     expect(parsed.changed).toBe(false);
+  });
+
+  // Finding from PR #125 review: the load spinner was only stopped on the success path,
+  // so a failed fetch left "Loading app..." redrawing over the error on a TTY.
+  it('stops every spinner it started when the app read fails', async () => {
+    mockFetchApp.mockRejectedValue(new Error('network down'));
+
+    await expect(
+      updateScopesCommand({ appId: 'app-1', scopes: 'crm:write', yes: true }),
+    ).rejects.toThrow('network down');
+
+    const spinners = mockCreateSpinner.mock.results.map((r) => r.value);
+    expect(spinners.length).toBeGreaterThan(0);
+    for (const spinner of spinners) expect(spinner.stop).toHaveBeenCalled();
+  });
+  it('stops the update spinner when the PATCH fails', async () => {
+    mockUpdateAppScopes.mockRejectedValue(new Error('patch exploded'));
+
+    await expect(
+      updateScopesCommand({ appId: 'app-1', scopes: 'contacts:read,crm:write', yes: true }),
+    ).rejects.toThrow('patch exploded');
+
+    const spinners = mockCreateSpinner.mock.results.map((r) => r.value);
+    for (const spinner of spinners) expect(spinner.stop).toHaveBeenCalled();
   });
 
   it('propagates a not-found error from the app read', async () => {

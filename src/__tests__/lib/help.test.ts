@@ -62,6 +62,17 @@ describe('help formatting', () => {
       expect(out).toContain('Run `brevo <command> --help` for details on a specific command.');
     });
 
+    // The agent docs (SKILL.md/AGENTS.md) treat root help as the complete command
+    // surface, so every M2M lifecycle command must have a row here — `app token` and
+    // `app secret rotate` were missing while `app scopes update` had one (PR #125 review).
+    it('lists every M2M lifecycle command', () => {
+      const out = renderHelp(buildProgram());
+
+      expect(out).toContain('brevo app token');
+      expect(out).toContain('brevo app secret rotate');
+      expect(out).toContain('brevo app scopes update');
+    });
+
     it('shows the package description, not a subcommand description', () => {
       expect(renderHelp(buildProgram())).toContain(
         'Brevo Developer CLI — create, manage, and test OAuth integrations',

@@ -870,12 +870,15 @@ describe('services/app', () => {
       });
     });
 
-    it('falls back to the requested appId when client_id is omitted', async () => {
+    it('leaves clientId absent when client_id is omitted — never the app UUID', async () => {
       (mockClient.post as jest.Mock).mockResolvedValue({ client_secret: 'new-secret' });
 
       const result = await service.rotateAppSecret('42');
 
-      expect(result.clientId).toBe('42');
+      // An app's UUID and its OAuth client_id are different identifiers; a fallback to
+      // the app ID here used to poison the credentials cache and the --json output.
+      expect(result.clientId).toBeUndefined();
+      expect(result.clientSecret).toBe('new-secret');
     });
 
     it('surfaces a grace window when the backend sends one', async () => {

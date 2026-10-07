@@ -237,10 +237,13 @@ const coreCli = {
   APP_SCOPES: 'brevo app available-scopes',
   // Distinct from APP_SCOPES above (`available-scopes` lists the catalog; this updates an
   // existing M2M app's granted scopes).
-  APP_SCOPES_UPDATE: (appId?: string) =>
-    appId
-      ? `brevo app scopes update --app-id ${appId} --scopes <a,b,c>`
-      : 'brevo app scopes update --app-id <id> --scopes <a,b,c>',
+  // `scopes` fills the --scopes value with the caller's real list (quoted) — pass it
+  // whenever the list is in hand, so a hint is copy-pasteable rather than carrying the
+  // `<a,b,c>` placeholder, which a shell parses as two redirections.
+  APP_SCOPES_UPDATE: (appId?: string, scopes?: string) =>
+    `brevo app scopes update --app-id ${appId ?? '<id>'} --scopes ${
+      scopes ? `"${scopes}"` : '<a,b,c>'
+    }`,
   // Mints a short-lived M2M access token for an app (BEX-482).
   APP_TOKEN: (appId?: string) =>
     appId ? `brevo app token --app-id ${appId}` : 'brevo app token --app-id <id>',

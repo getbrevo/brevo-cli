@@ -27,7 +27,6 @@ export const previewMessages = {
   APP_SUBMIT_PICK_APP: 'Which app do you want to submit for review?',
   APP_SUBMIT_NO_APP_RESOLVED:
     'Cannot determine which app to submit. Provide --app-id or run from a directory with app-config.json.',
-  APP_SUBMIT_NOT_FOUND: (appId: string): string => `App ${appId} not found.`,
   APP_SUBMIT_OUT_OF_SYNC: (fields: string[], appId: string): string =>
     `Configuration mismatch detected — your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
