@@ -1,0 +1,181 @@
+import inquirer from 'inquirer';
+import { CLI } from '../../lib/constants';
+import { logInfo, logSuccess } from '../../lib/logger';
+import { messages } from '../../lang/en';
+import { CliError } from '../../lib/errors';
+import { withCommandHandler } from '../../lib/command-handler';
+import { jsonOutput } from '../../lib/json-output';
+import { createSpinner } from '../../lib/ui';
+import { appService } from '../../container';
+import { isM2mApp } from '../../services/app';
+import { splitScopes } from '../../lib/validators';
+import { assertAppSelectionAllowed, promptAppSelection } from './select-app';
+import { checkScopeList, promptScopeSelection, promptTypedScopeList } from './scope-prompts';
+
+export interface UpdateScopesOptions {
+  appId?: string;
+  scopes?: string;
+  yes?: boolean;
+  json?: boolean;
+}
+
+/**
+ * `brevo app scopes update` (BEX-486) — change an existing M2M app's granted OAuth
+ * scopes. ASSUMPTION pending BEX-481 (the backend scopes-update API): built against the
+ * contract BEX-481's own spec describes, not a live implementation — see the plan doc for
+ * this feature.
+ *
+ * There is deliberately no `--mode append|replace` flag. The current scopes read here
+ * (`appService.fetchApp`) are used to PRE-FILL the interactive picker/typed prompt when
+ * `--scopes` is omitted, so whatever comes back already IS the full desired scope list —
+ * that is what lets `appService.updateAppScopes` send a plain replace, with no separate
+ * merge for the server to reconcile. The two prompts keep that promise differently, though:
+ * the picker (`promptScopeSelection`) genuinely starts with the current scopes ticked, so
+ * ticking/unticking edits a complete set; the typed fallback (`promptTypedScopeList`) can
+ * only show the current scopes as a hint and default-on-empty-submit (inquirer 8 does not
+ * pre-populate an editable input line) — see that function's doc comment for how it warns
+ * a partner not to type a partial list there. `--scopes`, passed directly, is the same
+ * contract non-interactively: the full desired list, not a delta.
+ */
+export const updateScopesCommand = withCommandHandler(
+  async (options: UpdateScopesOptions): Promise<void> => {
+    let appId = options.appId;
+    let appLabel = '';
+
+    if (!appId) {
+      // The hint carries --yes (and --json when set): any non-interactive re-run also has
+      // to clear the consent gate below, so a hint without it would be refused again.
+      assertAppSelectionAllowed(
+        `${CLI.APP_SCOPES_UPDATE()} --yes${options.json ? ' --json' : ''}`,
+        options.json,
+      );
+      const selection = await promptAppSelection(messages.APP_SCOPES_UPDATE_SELECT, {
+        filter: isM2mApp,
+        emptyMessage: messages.APP_SCOPES_UPDATE_NO_M2M_APPS,
+      });
+      appId = selection.appId;
+      appLabel = selection.appLabel;
+    }
+
+    // Read current app + validate M2M-only, regardless of whether app-id came from a flag
+    // or the picker — the picker's filter narrows choices, but a directly-typed --app-id
+    // still needs the same check.
+    const loadSpinner = createSpinner(messages.APP_LOAD_SPINNER, { silent: options.json });
+    let app;
+    try {
+      app = await appService.fetchApp(appId);
+    } finally {
+      // Stop on failure too — a throw here (404 via rethrowNotFound, network error) must
+      // not leave the spinner redrawing "Loading app..." over the error message on a TTY.
+      loadSpinner.stop();
+    }
+    if (!app) throw new CliError(messages.APP_NOT_FOUND(appId));
+    if (!isM2mApp(app)) throw new CliError(messages.APP_SCOPES_UPDATE_NOT_M2M(appId));
+    // Only set from the picker (`select-app.ts` names the app it just listed) — a
+    // directly-typed `--app-id` has no label yet, and the app we just fetched has a
+    // `name` sitting right here, so fall back to it rather than leaving the confirm
+    // prompt to repeat the bare ID.
+    appLabel = appLabel || app.name || '';
+
+    const currentScopes = app.scopes ?? [];
+
+    // Resolve the new (full) scope list: --scopes flag, or the interactive
+    // picker/typed-fallback — both pre-filled with `currentScopes` so the result is always
+    // a complete set, never a delta.
+    let newScopes: string[];
+    if (options.scopes !== undefined) {
+      newScopes = splitScopes(options.scopes);
+      const check = checkScopeList(newScopes);
+      if (check !== true) throw new CliError(check);
+    } else {
+      // Not `assertAppSelectionAllowed` — the app was already named (by `--app-id` or the
+      // picker above); what can't be shown here is the SCOPE picker, a different prompt
+      // with a different fix (`--scopes`, not `--app-id`). Reusing that helper's message
+      // would blame the wrong flag.
+      if (options.json || !process.stdin.isTTY) {
+        // Same reasoning as the picker hint above: a non-interactive re-run must also
+        // clear the consent gate, so the suggested command carries --yes.
+        throw new CliError(
+          messages.APP_SCOPES_UPDATE_SCOPES_REQUIRED(
+            `${CLI.APP_SCOPES_UPDATE(appId)} --yes${options.json ? ' --json' : ''}`,
+          ),
+        );
+      }
+      const picked = await promptScopeSelection(false, currentScopes);
+      newScopes = picked ?? (await promptTypedScopeList(false, currentScopes));
+    }
+
+    // Diff for the CONFIRMATION PREVIEW — the request itself always sends `newScopes`
+    // verbatim as a plain replace.
+    const added = newScopes.filter((s) => !currentScopes.includes(s));
+    const removed = currentScopes.filter((s) => !newScopes.includes(s));
+
+    if (added.length === 0 && removed.length === 0) {
+      if (options.json) {
+        jsonOutput({ appId, scopes: currentScopes, changed: false });
+        return;
+      }
+      logInfo(messages.APP_SCOPES_UPDATE_NO_CHANGE(appId));
+      return;
+    }
+
+    // --json is a request for machine-readable output, not consent: it suppresses the
+    // confirmation prompt, and a full scope replacement (removals included) must not
+    // ride on it alone. Off a TTY the prompt cannot be asked at all (inquirer dies with
+    // a raw ERR_USE_AFTER_CLOSE readline stack) — which `--scopes` without `--yes` in a
+    // pipe used to hit, since only the scope-picker branch above was guarded. Same gate
+    // as `app secret rotate`. Placed after the no-change early return so a no-op under
+    // --json keeps exiting 0 without consent theatre.
+    if (!options.yes && (options.json || !process.stdin.isTTY)) {
+      // This branch is only reachable with --scopes in hand (the omitted-scopes
+      // non-interactive path threw SCOPES_REQUIRED above), so the hint carries the
+      // caller's real list — a placeholder would make the user re-derive a set where
+      // an incomplete answer silently removes scopes.
+      throw new CliError(
+        messages.APP_CONFIRM_NON_INTERACTIVE(
+          `${CLI.APP_SCOPES_UPDATE(appId, newScopes.join(','))} --yes${options.json ? ' --json' : ''}`,
+        ),
+      );
+    }
+
+    if (!options.yes) {
+      logInfo(`\n  ${messages.APP_SCOPES_UPDATE_DIFF(currentScopes, newScopes, added, removed)}\n`);
+      const { confirmed } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'confirmed',
+          message: messages.APP_SCOPES_UPDATE_CONFIRM(appLabel || appId, appId),
+          default: false,
+        },
+      ]);
+      if (!confirmed) {
+        logInfo(messages.APP_SCOPES_UPDATE_CANCELLED);
+        return;
+      }
+    }
+
+    const updateSpinner = createSpinner(messages.APP_SCOPES_UPDATE_SPINNER, {
+      silent: options.json,
+    });
+    let updated;
+    try {
+      updated = await appService.updateAppScopes(appId, newScopes);
+    } finally {
+      // Same reasoning as the load spinner above: a failed PATCH must not leave
+      // "Updating scopes..." redrawing over the error.
+      updateSpinner.stop();
+    }
+
+    if (options.json) {
+      jsonOutput({
+        appId,
+        scopes: updated.scopes ?? newScopes,
+        changed: true,
+        added,
+        removed,
+      });
+      return;
+    }
+    logSuccess(messages.APP_SCOPES_UPDATE_SUCCESS(appId, updated.scopes ?? newScopes));
+  },
+);

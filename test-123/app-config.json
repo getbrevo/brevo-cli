@@ -1,0 +1,18 @@
+{
+  "appId": "fa00b91e-6e53-4c06-8764-0aa7fc4574f1",
+  "appName": "test-123",
+  "version": "0.0.2",
+  "logoUri": "https://dev.w3.org/SVG/tools/svgweb/samples/svg-files/star.svg",
+  "distribution_type": "public",
+  "auth": {
+    "scopes": [
+      "contacts:read",
+      "contacts:write",
+      "crm:read",
+      "crm:write"
+    ],
+    "redirectUris": [
+      "http://localhost:3009/auth/callback"
+    ]
+  }
+}

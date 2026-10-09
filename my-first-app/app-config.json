@@ -1,0 +1,11 @@
+{
+  "appId": "2a5f0a0f-196f-4d20-8e4f-df933bbdb403",
+  "appName": "My-First-App-Rename",
+  "version": "0.0.1",
+  "logoUri": "https://dev.w3.org/SVG/tools/svgweb/samples/svg-files/star.svg",
+  "distribution_type": "public",
+  "auth": {
+    "scopes": ["contacts:read","contacts:write","crm:read","crm:write"],
+    "redirectUris": ["http://localhost:3009/auth/callback"]
+  }
+}

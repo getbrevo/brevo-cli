@@ -1,0 +1,9 @@
+{
+  "app_id": "c7b18b39-979d-4b52-82b0-07c6fcd03624",
+  "app_name": "test-event-fn",
+  "version": "0.0.1",
+  "logo_uri": "",
+  "distribution_type": "private",
+  "app_type": "function",
+  "brevo_function": {}
+}

@@ -7,6 +7,8 @@ import {
   DEFAULT_REDIRECT_URI,
   DEFAULT_SCOPES,
   EXTENSION_TYPE_ACTION_LINK,
+  M2M_AUTH_TYPE,
+  WIRE_APP_TYPE,
 } from '../../lib/constants';
 import { findAvailablePort } from '../../lib/port';
 import { logInfo, logError, logWarn } from '../../lib/logger';
@@ -14,7 +16,14 @@ import { messages } from '../../lang/en';
 import { ApiError, AuthExpiredError, CliError, ErrorCode } from '../../lib/errors';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { validateEnum, validateAppName, validateYesNo } from '../../lib/validators';
+import { validateEnum, validateAppName, validateYesNo, splitScopes } from '../../lib/validators';
+// Every M2M scope answer — flag, picker, or typed fallback — goes through this module.
+import {
+  checkScopeList,
+  promptScopeSelection,
+  promptTypedScopeList,
+  validateM2mScopesInput,
+} from './scope-prompts';
 import { assertFeatureAvailable, isFeatureAvailable } from '../../lib/preview';
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
 import {
@@ -71,12 +80,6 @@ const validateRedirectUrl = (input: string): true | string => {
   const trimmed = input.trim();
   if (!trimmed) return messages.APP_CREATE_REDIRECT_EMPTY;
   return validateHttpUrl(trimmed, messages.APP_CREATE_REDIRECT_INVALID);
-};
-
-const validateLogoUrl = (input: string): true | string => {
-  const trimmed = input.trim();
-  if (!trimmed) return true;
-  return validateHttpUrl(trimmed, messages.APP_CREATE_LOGO_INVALID);
 };
 
 // 0. Refuse outright if an app is already linked in this directory — no
@@ -214,7 +217,7 @@ function resolveUiAppNonInteractiveInput(
 }
 
 // 4. App type — OAuth integration vs UI app (BEX-290).
-//    Asked last of the four opening questions: name, logo and distribution all
+//    Asked last of the opening questions: name and distribution both
 //    describe the app record itself and are asked of every app, so they come first.
 //    The type is the branch point — it decides which of the two remaining prompt
 //    paths runs (OAuth callback URLs vs UI-app placement) — so it is the last thing
@@ -266,12 +269,148 @@ async function resolveAppType(interactive: boolean, distribution?: string): Prom
   return answer.appType as AppType;
 }
 
+// 4b. OAuth flow — Consent Based vs Machine to Machine (M2M), for a PRIVATE OAuth app.
+//
+//     An M2M app uses the `client_credentials` grant: the partner's own server holds the
+//     credentials and calls the API as itself. There is no Brevo user to redirect and no
+//     callback to register, which is why this question has to be answered before the
+//     redirect-URL prompt — it decides whether that prompt happens at all.
+//
+//     Reachable non-interactively through `--m2m`, unlike the app-type question above:
+//     an M2M app is create-only, so there is no shape on disk for a pipeline to pin to,
+//     which was the reason UI apps stayed prompt-only for so long.
+export type OAuthFlow = 'consent' | 'm2m';
+
+async function resolveOAuthFlow(
+  appType: AppType,
+  distribution: string,
+  interactive: boolean,
+  m2mFlag: boolean,
+): Promise<OAuthFlow> {
+  // A UI app has no OAuth block at all, so it has no flow to choose.
+  if (appType !== 'oauth') return 'consent';
+  // The flag decides outright, with no TTY involved — that is the whole point of it.
+  // `assertM2mFlags` has already refused every combination that would make this wrong.
+  if (m2mFlag) return 'm2m';
+  // M2M is private-only. Offering the choice on a public app would present an option the
+  // create endpoint refuses, and public distribution is itself still pre-GA.
+  if (distribution !== 'private') return 'consent';
+  // Non-interactive with no `--m2m` creates a consent-based app, exactly as every
+  // non-interactive run did before this feature existed. Same reasoning, and the same
+  // load-bearing early return, as `resolveAppType` above: asking here would hang CI on a
+  // question it cannot answer.
+  if (!interactive) return 'consent';
+
+  const answer = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'oauthFlow',
+      message: messages.APP_CREATE_OAUTH_FLOW_PROMPT,
+      choices: indentChoices([
+        { name: messages.APP_CREATE_OAUTH_FLOW_CONSENT, value: 'consent' },
+        { name: messages.APP_CREATE_OAUTH_FLOW_M2M, value: 'm2m' },
+      ]),
+    },
+  ]);
+  return answer.oauthFlow as OAuthFlow;
+}
+
+/**
+ * 4c. The M2M scope list, from `--scopes`, the catalog picker, or the typed fallback.
+ *
+ * One function for all three so they can never disagree: each ends at `checkScopeList`
+ * (`scope-prompts.ts`), which rejects an empty list, a malformed scope name and the legacy
+ * `all` scope alike. Only the failure mode differs — the flag throws, because there is
+ * nobody to re-ask, while a prompt hands the message back to inquirer and asks again.
+ *
+ * **The prompt is deliberately not pre-filled with `DEFAULT_SCOPES`.** A consent-based app
+ * can afford a default because a Brevo user reviews the scopes at the authorize screen; an
+ * M2M app has no such review step, so the grant is whatever was chosen here and nothing
+ * ever shows it to a human again. Making the partner name the scopes is the least-privilege
+ * default; the picker is what stops them guessing.
+ *
+ * The typed prompt survives as the fallback for an unreadable catalog, and keeps its
+ * `available-scopes` tip — advice that is only useful when the CLI could not show the list
+ * itself.
+ *
+ * `quiet` is defensive rather than exercised: the prompt branch is interactive by
+ * construction today (`--m2m` requires `--scopes`, and the flow can otherwise only be
+ * chosen from a TTY), so nothing reaches it with `jsonMode` set. It is threaded through
+ * anyway so that a future non-interactive route cannot start printing a hint into a
+ * document a script is parsing.
+ */
+async function resolveM2mScopes(scopesFlag: string | undefined, quiet: boolean): Promise<string[]> {
+  if (scopesFlag !== undefined) {
+    const check = validateM2mScopesInput(scopesFlag);
+    if (check !== true) throw new CliError(check);
+    return splitScopes(scopesFlag);
+  }
+
+  const picked = await promptScopeSelection(quiet);
+  if (picked !== null) {
+    // The picker's own `validate` has already refused an empty selection, so this is the
+    // belt to that braces: a list that got here empty means the prompt was bypassed, and
+    // creating an M2M app with no scopes at all would build a CONSENT body instead (see
+    // `CreateAppInputs.m2mScopes`).
+    const check = checkScopeList(picked);
+    if (check !== true) throw new CliError(check);
+    return picked;
+  }
+
+  return promptTypedScopeList(quiet);
+}
+
+/**
+ * Refuse every invalid `--m2m` combination, before the first prompt.
+ *
+ * Pure — no I/O, no prompts — and called from the same place as
+ * `resolveUiAppNonInteractiveInput`, for the same reason: a flag set the CLI is going to
+ * reject must be rejected before the caller is made to answer questions.
+ *
+ * The checks are ordered most-fundamental first, so the message names the real problem
+ * rather than a symptom of it: an app can't be two types at once, then an M2M app has no
+ * callback, then M2M is private-only, and only then is a missing `--scopes` the complaint.
+ */
+interface M2mFlagOptions {
+  m2m?: boolean;
+  scopes?: string;
+  distribution?: string;
+  redirectUri?: string[];
+  uiApp?: boolean;
+  uiConfig?: string;
+}
+
+function assertM2mFlags(opts: M2mFlagOptions): void {
+  if (!opts.m2m) {
+    // Refused rather than ignored: a consent-based create always sends the default scope
+    // set, so quietly dropping `--scopes` would leave the caller believing they had
+    // narrowed an app that in fact got the defaults.
+    if (opts.scopes !== undefined) {
+      throw new CliError(messages.APP_CREATE_M2M_SCOPES_WITHOUT_M2M);
+    }
+    return;
+  }
+  if (opts.uiConfig) throw new CliError(messages.APP_CREATE_M2M_UI_FLAG('--ui-config'));
+  if (opts.uiApp) throw new CliError(messages.APP_CREATE_M2M_UI_FLAG('--ui-app'));
+  if ((opts.redirectUri?.length ?? 0) > 0) {
+    throw new CliError(messages.APP_CREATE_M2M_REDIRECT_URI);
+  }
+  if (opts.distribution === 'public') throw new CliError(messages.APP_CREATE_M2M_PUBLIC);
+  if (opts.scopes === undefined) throw new CliError(messages.APP_CREATE_M2M_SCOPES_REQUIRED);
+  // The VALUE, not just its presence — same validator `resolveM2mScopes` runs, called
+  // here as well because the distribution/app-type prompts sit between this point and
+  // that one, and the house rule is that a flag the CLI is going to reject is rejected
+  // before the user is made to answer anything.
+  const scopeCheck = validateM2mScopesInput(opts.scopes);
+  if (scopeCheck !== true) throw new CliError(scopeCheck);
+}
+
 // 0b. Validate `--distribution` before anything is asked.
 //
-//     Hoisted out of `resolveDistribution` because that now runs *after* the logo
-//     prompt: a flag the CLI is going to reject must be rejected before the user is
-//     made to answer questions, otherwise `--distribution typo` costs a logo prompt
-//     first. Pure — no I/O, no prompts — so it is safe this early.
+//     Hoisted out of `resolveDistribution`: a flag the CLI is going to reject must be
+//     rejected before the user is made to answer questions, otherwise `--distribution
+//     typo` costs a name prompt first. Pure — no I/O, no prompts — so it is safe this
+//     early.
 //
 //     Public distribution is GA (BEX-405), so `assertFeatureAvailable` is now a no-op
 //     and both values are accepted. The check is kept rather than deleted: it is the one
@@ -398,32 +537,6 @@ async function resolveRedirectUrls(
   return [DEFAULT_REDIRECT_URI];
 }
 
-// 2. Logo URL (optional) — prompt interactively when no --logo-uri flag.
-//    Skipped under --json since the field is optional and --json implies scripting.
-//
-//    Asked up front, right after the name, and asked identically for every app
-//    type: the logo belongs to the app record rather than to either prompt path,
-//    so it must not sit behind the type branch where an OAuth app answers it after
-//    its callback URLs and a UI app after its placements.
-async function resolveLogoUri(
-  logoUriFlag: string | undefined,
-  jsonMode: boolean,
-): Promise<string | undefined> {
-  if (logoUriFlag || !process.stdin.isTTY || jsonMode) {
-    return logoUriFlag;
-  }
-  const { logoUrl } = await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'logoUrl',
-      message: messages.APP_CREATE_LOGO_PROMPT,
-      validate: validateLogoUrl,
-    },
-  ]);
-  const trimmed = String(logoUrl ?? '').trim();
-  return trimmed || undefined;
-}
-
 type CreateDirectoryResult =
   | { targetDir: string; mergeOnly: boolean; skipped: false; existed: boolean }
   | { targetDir: string; skipped: true };
@@ -488,9 +601,14 @@ interface CreateAppInputs {
   appName: string;
   distribution: string;
   redirectUris: string[];
-  logoUri?: string;
   /** Present for UI apps only; drives scope defaults and omits redirect URIs. */
   uiApp?: UiApp;
+  /**
+   * Present for M2M apps only, and always non-empty when present — its presence is what
+   * selects the M2M branch of the payload, so an empty array here would build a
+   * consent-based body instead. `resolveM2mScopes` refuses an empty list on both paths.
+   */
+  m2mScopes?: string[];
   /** The selected app type — drives the `brevo_function` discriminator on the wire. */
   appType: AppType;
 }
@@ -500,28 +618,78 @@ interface CreatedApp {
   appName: string;
 }
 
-function buildCreatePayload(inputs: CreateAppInputs) {
-  const isUiApp = !!inputs.uiApp;
-  const isFunction = inputs.appType === 'function';
-
-  // Each app type sends its own discriminator block on the wire:
-  // - OAuth: `auth` with scopes and redirect URIs
-  // - UI app: `ui_app` with placements and destination
-  // - Function: `brevo_function` as an empty object (no OAuth flow)
-  let typeBlock;
-  if (isUiApp) {
-    typeBlock = { ui_app: inputs.uiApp };
-  } else if (isFunction) {
-    typeBlock = { brevo_function: {} };
-  } else {
-    typeBlock = { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } };
+/**
+ * The one mutually-exclusive block that says which kind of app this is.
+ *
+ * A function rather than a ternary chain inside `buildCreatePayload` because there are
+ * four cases now and the reason for each is a paragraph, not a clause.
+ */
+function buildAuthOrUiBlock(inputs: CreateAppInputs): Record<string, unknown> {
+  if (inputs.uiApp) return { ui_app: inputs.uiApp };
+  // A Brevo Function has no OAuth flow either. The empty object is the discriminator —
+  // the key's presence is what tells create the absent `auth` block is deliberate, the
+  // same job `ui_app` does for a UI app.
+  if (inputs.appType === 'function') return { brevo_function: {} };
+  // An M2M app sends NO `redirect_uris` — not an empty array. It has no callback, and an
+  // empty array would register OAuth state the `client_credentials` grant never reads.
+  // Same reasoning that omits the whole block for a UI app.
+  if (inputs.m2mScopes) {
+    return { auth: { type: M2M_AUTH_TYPE, scopes: inputs.m2mScopes } };
   }
+  // Consent-based sends no `type` key at all — there is deliberately no `'consent'`
+  // counterpart value inside `auth`. The flow is named once, at the top level, by
+  // `app_type` (`wireAppTypeForBlock`).
+  return { auth: { scopes: [...DEFAULT_SCOPES], redirect_uris: inputs.redirectUris } };
+}
 
+/**
+ * The `app_type` the request states, read back off the block that was just built.
+ *
+ * Derived from the BLOCK rather than from `CreateAppInputs` on purpose: the block is the
+ * thing the platform branches on, so reading it is what makes the label and the shape
+ * structurally incapable of disagreeing. Re-deriving both from the inputs would give two
+ * expressions of one decision — exactly the drift `app upload`'s `assertAppTypeAgrees` has
+ * to *check* for on the config side, where the label is authored by hand.
+ *
+ * The UI value carries the block's own `extension_type`, so `iframeExtension` becoming
+ * authorable needs no change here.
+ *
+ * **Unrelated to `app-config.json`'s `app_type`**, which stays a local one-word label and
+ * still never travels (see `WIRE_APP_TYPE`).
+ */
+function wireAppTypeForBlock(block: Record<string, unknown>): string {
+  const uiApp = block.ui_app as UiApp | undefined;
+  if (uiApp) return `${WIRE_APP_TYPE.UI_PREFIX}.${uiApp.extension_type}`;
+  if (block.brevo_function) return WIRE_APP_TYPE.FUNCTION;
+  const auth = block.auth as { type?: string } | undefined;
+  return auth?.type === M2M_AUTH_TYPE ? WIRE_APP_TYPE.OAUTH_M2M : WIRE_APP_TYPE.OAUTH_CONSENT;
+}
+
+function buildCreatePayload(inputs: CreateAppInputs) {
+  const block = buildAuthOrUiBlock(inputs);
   return {
     name: inputs.appName,
     distribution_type: inputs.distribution as 'public' | 'private',
-    ...typeBlock,
-    ...(inputs.logoUri ? { logo_uri: inputs.logoUri } : {}),
+    // What kind of app this is, said out loud rather than inferred from which of the
+    // blocks below is present. The presence of `ui_app` / `brevo_function` / `auth.type`
+    // remains the discriminator — this is derived from it, never the other way round.
+    app_type: wireAppTypeForBlock(block),
+    // OAuth fields travel inside the `auth` block, same as the upload payload
+    // (unified structure). A UI app and a Function app have no OAuth block at
+    // all (`auth: {}` in a UI app's config) — the key is omitted entirely, not
+    // sent empty. Sending empty arrays (or worse, the default localhost URI)
+    // would register OAuth state the app type never uses.
+    //
+    // `ui_app` / `brevo_function` are what tell create the omission is
+    // deliberate. `ui_app` is the app-type discriminator on the wire exactly as
+    // it is in app-config.json (`isUiAppConfig`), so create can apply the same
+    // branch the CLI does: without it the endpoint reads a UI app as an OAuth
+    // app missing its callbacks and answers `redirect_uris is required and must
+    // not be empty`. `app upload` still sends the block and remains the
+    // platform's validation authority for it — this is the same block under the
+    // same key, sent early enough that the record is created with the right app
+    // type.
+    ...block,
   };
 }
 
@@ -615,7 +783,7 @@ async function retryCreateAfterLogin(inputs: CreateAppInputs): Promise<CreatedAp
  * successfully, and never reaches this path.
  *
  * Narrowed to the rejection that names `distribution_type`, so an unrelated 400 on a
- * public create (a bad `logo_uri`, say) keeps the server's own text rather than being
+ * public create (a duplicate name, say) keeps the server's own text rather than being
  * relabelled as the pre-GA restriction. If the server ever rewords the sentence this
  * stops matching and the raw message surfaces again — the previous behaviour, not a
  * new failure mode.
@@ -713,7 +881,6 @@ function buildCreateJsonBase(
   finalAppName: string,
   appType: AppType,
   uiApp: UiApp | undefined,
-  logoUri: string | undefined,
 ): Record<string, unknown> {
   return {
     appId: result.app_id,
@@ -722,7 +889,6 @@ function buildCreateJsonBase(
     clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
     appType,
     ...(uiApp ? { uiApp } : { redirectUri: result.redirect_uris }),
-    ...(logoUri ? { logoUri } : {}),
     ...(result.version ? { version: result.version } : {}),
   };
 }
@@ -759,14 +925,13 @@ function buildFallbackOAuthApp(result: CreateAppResponse): OAuthApp {
   };
 }
 
-function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: string): void {
+function renderCreatedApp(result: CreateAppResponse, appName: string): void {
   const boxLines = [
     `App name:       ${appName}`,
     `App ID:         ${result.app_id}`,
     `Client ID:      ${result.client_id}`,
     `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
     ...(result.redirect_uris ?? []).map((uri, i) => `Redirect URL ${i + 1}: ${uri}`),
-    ...(logoUri ? [`Logo URL:       ${logoUri}`] : []),
     ...(result.version ? [`App version:    ${result.version}`] : []),
     `${messages.APP_CREATE_BOX_SCOPES_LABEL} ${[...DEFAULT_SCOPES].join(', ')}`,
     '',
@@ -775,12 +940,83 @@ function renderCreatedApp(result: CreateAppResponse, appName: string, logoUri?: 
   printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
 }
 
+/**
+ * The created-app box for an M2M app.
+ *
+ * Same identity rows as `renderCreatedApp`, minus the two things an M2M app has no version
+ * of: the `Redirect URL n:` lines (it has no callbacks) and `APP_CREATE_BOX_SCOPE_HINT`,
+ * which tells the reader to edit `auth.scopes` in `app-config.json` — a file this flow
+ * never writes. The scopes shown are the ones that were just granted, not a default set,
+ * so they are labelled plainly rather than as "Default scopes".
+ *
+ * `padEnd` rather than hand-counted spaces after the label: the column is 16 wide and every
+ * other row in both boxes reaches it by literal padding, which silently breaks the moment a
+ * label is reworded.
+ */
+function renderCreatedM2mApp(result: CreateAppResponse, appName: string, scopes: string[]): void {
+  const boxLines = [
+    `App name:       ${appName}`,
+    `App ID:         ${result.app_id}`,
+    `Client ID:      ${result.client_id}`,
+    `Client secret:  ${messages.CLIENT_SECRET_HIDDEN_HUMAN}`,
+    ...(result.version ? [`App version:    ${result.version}`] : []),
+    `${messages.APP_CREATE_M2M_BOX_SCOPES_LABEL.padEnd(16)}${scopes.join(', ')}`,
+  ];
+  printBox(messages.APP_CREATE_BOX_TITLE, boxLines);
+}
+
+/**
+ * The whole M2M path after the questions: create, cache, report, done.
+ *
+ * **Create-only.** No directory is resolved, nothing is written, and `finishProject` is
+ * never reached — which is exactly why this is its own function rather than another branch
+ * threaded through `createCommand`'s tail. The M2M flow shares the create call and nothing
+ * that comes after it.
+ *
+ * `createAppWithRetry` is reused verbatim, so M2M inherits the 409 rename-and-retry, the
+ * mid-prompt re-login, and the app-limit message without restating any of them.
+ */
+async function createM2mApp(
+  inputs: CreateAppInputs,
+  jsonMode: boolean,
+  interactive: boolean,
+): Promise<void> {
+  const { result, appName: finalAppName } = await createAppWithRetry(inputs, jsonMode, interactive);
+
+  // Worth caching even with nothing on disk: `app credentials` reads this cache, and it is
+  // the only local trace an M2M app leaves.
+  cacheAppIdentity(result, finalAppName);
+
+  const scopes = inputs.m2mScopes ?? [];
+
+  if (jsonMode) {
+    // Written out rather than built from `buildCreateJsonBase`, and the difference is the
+    // point: that shape carries either `uiApp` or `redirectUri`, and an M2M app has
+    // neither. Emitting `redirectUri: []` would tell a consumer the app has no callbacks
+    // *yet*; omitting the key says it has none by construction. `authType` is what a
+    // consumer branches on, since `appType` is still `oauth`.
+    jsonOutput({
+      appId: result.app_id,
+      appName: finalAppName,
+      clientId: result.client_id,
+      clientSecret: messages.CLIENT_SECRET_HIDDEN_JSON,
+      appType: 'oauth',
+      authType: M2M_AUTH_TYPE,
+      scopes,
+      ...(result.version ? { version: result.version } : {}),
+    });
+    return;
+  }
+
+  renderCreatedM2mApp(result, finalAppName, scopes);
+  printBox(messages.APP_SCAFFOLD_NEXT_STEPS_TITLE, messages.APP_CREATE_M2M_NEXT(result.app_id));
+}
+
 export const createCommand = withCommandHandler(
   async (options: {
     name?: string;
     distribution?: string;
     redirectUri?: string[];
-    logoUri?: string;
     uiConfig?: string;
     uiApp?: boolean;
     recordPage?: string;
@@ -788,6 +1024,8 @@ export const createCommand = withCommandHandler(
     label?: string;
     moreInfo?: string;
     url?: string;
+    m2m?: boolean;
+    scopes?: string;
     json?: boolean;
   }): Promise<void> => {
     const jsonMode = !!options.json;
@@ -795,27 +1033,60 @@ export const createCommand = withCommandHandler(
 
     guardAgainstLinkedApp();
     assertDistributionFlag(options.distribution);
+    // Same reasoning and the same placement as `resolveUiAppNonInteractiveInput` below:
+    // every invalid `--m2m` combination is detectable without a network call or a prompt,
+    // so it must fail before the name/distribution questions cost the caller
+    // anything.
+    assertM2mFlags(options);
     // Resolved up front, before any prompt: its presence is what decides the app
     // type below without going through resolveAppType's TTY check, and every
     // invalid combination it can detect (both inputs, missing flags, an OAuth-only
-    // flag alongside either) must fail before the name/logo/distribution prompts
+    // flag alongside either) must fail before the name/distribution prompts
     // cost the caller anything.
     const nonInteractiveUiAppInput = resolveUiAppNonInteractiveInput(options);
 
     const interactive = !jsonMode && !!process.stdin.isTTY;
 
-    // The app record first — name, logo, distribution — then the app type. All three
+    // The app record first — name, distribution — then the app type. Both
     // identify the app and are asked of every app regardless of type; the type is the
     // branch point, and everything below it belongs to one path or the other.
     const appName = await resolveAppName(options.name);
-    const logoUri = await resolveLogoUri(options.logoUri, jsonMode);
     const distribution = await resolveDistribution(options.distribution, interactive);
-    // `--ui-config`/`--ui-app` decide the type outright — resolveAppType (and its
-    // TTY check) never runs for them, which is what makes them reachable without a
-    // terminal at all.
-    const appType: AppType = nonInteractiveUiAppInput
-      ? 'ui'
-      : await resolveAppType(interactive, distribution);
+    // `--ui-config`/`--ui-app` decide the type outright — `resolveAppType` (and its TTY
+    // check) never runs for them, which is what makes them reachable without a terminal.
+    // `--m2m` decides it just as outright: an M2M app is an OAuth app by definition, and
+    // `assertM2mFlags` has already refused it alongside a UI flag. Without this branch a
+    // TTY run would still ASK the app-type question, and picking "UI app" there would
+    // silently discard `--m2m` and create a UI app — the same silent-fallback footgun the
+    // non-interactive UI flags exist to remove.
+    let appType: AppType;
+    if (nonInteractiveUiAppInput) {
+      appType = 'ui';
+    } else if (options.m2m) {
+      appType = 'oauth';
+    } else {
+      appType = await resolveAppType(interactive, distribution);
+    }
+    // Asked after the app type and before any callback URL, because it decides whether a
+    // callback URL is asked for at all. Answers 'consent' for every non-OAuth app, every
+    // public app, and every non-interactive run without `--m2m` — so the question only
+    // reaches the one case it is about.
+    const oauthFlow = await resolveOAuthFlow(appType, distribution, interactive, !!options.m2m);
+
+    // M2M exits here, and this is the only early return in the flow that skips the
+    // filesystem entirely: an M2M app is create-only, so no directory is resolved, no
+    // `app-config.json` is written, and `finishProject` never runs. Everything below this
+    // line — callback URLs, the target directory, the scaffold, the feature offer —
+    // belongs to an app that has local code to run.
+    if (oauthFlow === 'm2m') {
+      const m2mScopes = await resolveM2mScopes(options.scopes, jsonMode);
+      await createM2mApp(
+        { appName, distribution, redirectUris: [], m2mScopes, appType: 'oauth' },
+        jsonMode,
+        interactive,
+      );
+      return;
+    }
 
     // The app types diverge here: OAuth apps collect callback URLs, UI apps collect
     // placement + destination, Function apps need neither. No path runs another's prompts.
@@ -832,7 +1103,6 @@ export const createCommand = withCommandHandler(
       appName,
       distribution,
       redirectUris,
-      logoUri,
       uiApp,
       appType,
     };
@@ -852,12 +1122,12 @@ export const createCommand = withCommandHandler(
     // always `oauth` here today and the `uiApp` branch is unreachable. Both are
     // kept so the field stays meaningful to a consumer, and so this shape doesn't
     // have to be rediscovered if UI apps ever gain a non-interactive path.
-    const jsonBase = buildCreateJsonBase(result, finalAppName, appType, uiApp, logoUri);
+    const jsonBase = buildCreateJsonBase(result, finalAppName, appType, uiApp);
 
     const renderBox = (): void =>
       uiApp
-        ? renderCreatedUiApp(result, finalAppName, uiApp, logoUri)
-        : renderCreatedApp(result, finalAppName, logoUri);
+        ? renderCreatedUiApp(result, finalAppName, uiApp)
+        : renderCreatedApp(result, finalAppName);
 
     if (dir.skipped) {
       reportSkippedDirectory(jsonMode, jsonBase, dir, renderBox);

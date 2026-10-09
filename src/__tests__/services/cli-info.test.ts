@@ -70,9 +70,20 @@ describe('fetchCliInfo', () => {
     await fetchCliInfo(QUERY, { baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch });
 
     const headers = fetchImpl.mock.calls[0]![1]!.headers as Record<string, string>;
-    expect(Object.keys(headers).map((k) => k.toLowerCase())).toEqual(['accept']);
+    expect(Object.keys(headers).map((k) => k.toLowerCase())).toEqual(['accept', 'user-agent']);
     expect(headers).not.toHaveProperty('api-key');
     expect(headers).not.toHaveProperty('Authorization');
+  });
+
+  // Every other CLI request identifies itself; without this the update check
+  // reached the service as Node's default `node` and was indistinguishable from
+  // any other Node client in the service's request logs and traces.
+  it('identifies itself with the CLI user agent, without an auth method', async () => {
+    const fetchImpl = jest.fn(async (_url: string, _init?: RequestInit) => jsonResponse({}));
+    await fetchCliInfo(QUERY, { baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const headers = fetchImpl.mock.calls[0]![1]!.headers as Record<string, string>;
+    expect(headers['User-Agent']).toMatch(/^brevo-cli\/\S+ \((macos|windows|linux|other)\)$/);
   });
 
   // It does not go through the v3 gateway, so it is unaffected by BREVO_API_URL

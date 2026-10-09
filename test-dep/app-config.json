@@ -1,0 +1,9 @@
+{
+  "app_id": "c4f3373b-eb87-44e4-9ffa-25cd97012de2",
+  "app_name": "test-dep",
+  "version": "0.0.1",
+  "logo_uri": "",
+  "distribution_type": "private",
+  "app_type": "function",
+  "brevo_function": {}
+}

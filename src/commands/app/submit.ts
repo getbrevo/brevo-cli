@@ -207,7 +207,7 @@ async function fetchExistingApp(appId: string, silent: boolean | undefined): Pro
     spinner.stop();
   }
   if (!app) {
-    throw new CliError(messages.APP_SUBMIT_NOT_FOUND(appId), EXIT_CODES.NOT_FOUND);
+    throw new CliError(messages.APP_NOT_FOUND(appId), EXIT_CODES.NOT_FOUND);
   }
   return app;
 }
