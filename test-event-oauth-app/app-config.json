@@ -1,0 +1,12 @@
+{
+  "app_id": "a6111366-5354-48cd-ad90-5ee0ef5da102",
+  "app_name": "test-event-oauth-app",
+  "version": "0.0.1",
+  "logo_uri": "",
+  "distribution_type": "private",
+  "app_type": "oauth",
+  "auth": {
+    "scopes": ["contacts:read","contacts:write","crm:read","crm:write"],
+    "redirect_uris": ["http://localhost:3009/auth/callback"]
+  }
+}

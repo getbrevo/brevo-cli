@@ -1,0 +1,27 @@
+{
+  "app_id": "7ad173cf-75f9-4f58-9a80-b859f94376fe",
+  "app_name": "test-event-ui-app",
+  "version": "0.0.1",
+  "logo_uri": "",
+  "distribution_type": "private",
+  "app_type": "ui",
+  "ui_app": {
+    "extension_type": "actionLink",
+    "surface_point_list": [
+      {
+        "surface_point_name": "companyDetails.header.menu",
+        "context": [
+          "recordId",
+          "recordType",
+          "userId",
+          "locale",
+          "clientId"
+        ],
+        "label": "test",
+        "more_info": "test",
+        "redirect_link": "https://brevo.com"
+      }
+    ]
+  },
+  "auth": {}
+}

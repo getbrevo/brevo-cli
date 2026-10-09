@@ -1,0 +1,11 @@
+{
+  "appId": "522aae78-61d2-469d-b96c-d2dc82834ae2",
+  "appName": "Sample-8",
+  "version": "0.0.1",
+  "logoUri": "https://dev.w3.org/SVG/tools/svgweb/samples/svg-files/star.svg",
+  "distribution_type": "public",
+  "auth": {
+    "scopes": ["contacts:read","contacts:write","crm:read","crm:write"],
+    "redirectUris": ["http://localhost:3009/auth/callback"]
+  }
+}

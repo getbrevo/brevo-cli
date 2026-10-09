@@ -125,6 +125,20 @@ const coreMessages = {
     'UI app          (Render inside Brevo \u2014 opens your app from a record)',
   APP_CREATE_APP_TYPE_FUNCTION:
     'Brevo Function  (Serverless function running on Brevo’s infrastructure)',
+  // The OAuth flow, asked only for a PRIVATE OAuth app — a sibling of the app-type
+  // question right above, and phrased as a full question for the same reason.
+  //
+  // "Consent Based" and "Machine to Machine" are the product's own names for the two
+  // flows, so they are used verbatim rather than being restated as the grant names
+  // (`authorization_code` / `client_credentials`). The parentheticals carry the
+  // distinction that actually decides the answer — whether a Brevo user is involved —
+  // because that is the thing a partner knows about their own integration before they
+  // know which grant it implies. Padded so the two parentheticals align with each
+  // other, the same way the app-type choices above are padded to align with theirs.
+  APP_CREATE_OAUTH_FLOW_PROMPT: 'Which OAuth flow does this app use?',
+  APP_CREATE_OAUTH_FLOW_CONSENT:
+    'Consent Based       (A user authorizes it; you act on their behalf)',
+  APP_CREATE_OAUTH_FLOW_M2M: 'Machine to Machine  (Your server calls the API as itself; no user)',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   // Shown only after every prompt has been answered — hence the reassurance:
@@ -152,15 +166,6 @@ const coreMessages = {
   APP_CREATE_REDIRECT_ANOTHER: 'Add another redirect URL?',
   APP_CREATE_REDIRECT_EMPTY: 'Redirect URL cannot be empty',
   APP_CREATE_REDIRECT_INVALID: 'Invalid format. Must start with http:// or https://',
-  // Kept under 80 columns *including* inquirer's `? ` prefix. The example URL this used
-  // to carry pushed it to 83, and inquirer wraps a prompt without indenting the
-  // continuation, so `skip):` landed alone and flush-left on any 80-column terminal —
-  // which is the standard default, and this is now the second question in the flow.
-  // The example lives in `APP_CREATE_LOGO_INVALID` instead, which is exactly when a
-  // user needs to be shown the format.
-  APP_CREATE_LOGO_PROMPT: 'App logo URL (optional — leave blank to skip):',
-  APP_CREATE_LOGO_INVALID:
-    'Invalid format. Must be a valid https:// URL (e.g. https://example.com/logo.png).',
   APP_CREATE_PORT_IN_USE: (port: number, available: number) =>
     `Port ${port} is in use. Defaulting to port ${available}.`,
   APP_CREATE_PORT_SCAN_FAILED: (port: number) =>
@@ -284,6 +289,216 @@ const coreMessages = {
   // hand-written `surface_point_list` entry carrying its own label and destination.
   APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
 
+  // App create — M2M (machine-to-machine) OAuth apps.
+  //
+  // An M2M app uses the `client_credentials` grant: the partner's own server holds the
+  // credentials and calls the API as itself, so there is no Brevo user to redirect and no
+  // callback to register. That is the whole reason this path exists as its own branch —
+  // every OAuth string above assumes a redirect URL.
+  //
+  // It is also CREATE-ONLY: nothing is written to disk, so none of the copy here may
+  // mention `app-config.json`, `cd`, `app upload` or `app scaffold` as a next step. The
+  // absence is stated once, in APP_CREATE_M2M_NEXT, rather than left for the partner to
+  // discover by running a command that has nothing to read.
+  //
+  // Scopes are collected two ways, and both are reachable: a multi-select over the IdP's
+  // live catalog (the normal path), and the free-text prompt below when that catalog
+  // cannot be read. The picker copy therefore may not be the only place a rule is
+  // stated — anything the partner must know about M2M scopes has to survive the
+  // fallback too, which is why the reminder to name every needed scope lives in
+  // APP_CREATE_M2M_SCOPES_FIXED and is printed on both paths.
+  //
+  // NOTE (BEX-486): scopes are no longer permanent — `brevo app scopes update` can
+  // change them after creation — so this copy, despite its constant name, must not
+  // claim otherwise. The name is kept (renaming touches every call site for no
+  // behavioural gain); only the wording changed.
+  APP_CREATE_M2M_SCOPES_FIXED: (updateCmd: string) =>
+    `Select every scope this app needs — you can add or remove scopes later with \`${updateCmd}\`.`,
+  APP_CREATE_M2M_SCOPES_PICKER_SPINNER: 'Loading available scopes...',
+  APP_CREATE_M2M_SCOPES_PICKER_PROMPT: 'Which scopes does this app need?',
+  // The trailing half of a selectable section heading — the category's own label from the
+  // IdP precedes it, and the two are styled differently, which is why this owns only the
+  // phrase. Says the count because that number IS the breadth being granted, and an M2M
+  // grant has no consent screen where anyone reads it back.
+  APP_CREATE_M2M_SCOPES_SECTION_ALL: (count: number) => `— all ${count} scopes`,
+  // Named for what the partner does next, not for what broke: the catalog read is a
+  // convenience, and typing the names is still a supported way to answer.
+  APP_CREATE_M2M_SCOPES_CATALOG_UNAVAILABLE: (cmd: string) =>
+    `Could not load the scope catalog, so scopes have to be typed. Run \`${cmd}\` once the connection is back to see every scope your account can grant.`,
+  APP_CREATE_M2M_SCOPES_PROMPT: 'Scopes (comma-separated):',
+  APP_CREATE_M2M_SCOPES_HINT: (cmd: string, updateCmd: string) =>
+    `Tip: Run \`${cmd}\` in another terminal to see every scope your account can grant. You can add or remove scopes later with \`${updateCmd}\`.`,
+  APP_CREATE_M2M_SCOPES_EMPTY: 'Enter at least one scope.',
+  APP_CREATE_M2M_BOX_SCOPES_LABEL: 'Scopes:',
+  // Deliberately NOT `APP_CREATE_BOX_SCOPE_HINT`, which tells the user to edit
+  // `auth.scopes` in app-config.json — a file an M2M app does not have.
+  //
+  // Every line is kept inside the box's content budget (terminal width minus chrome,
+  // so ~74 columns on a standard 80-column terminal) rather than written as prose and
+  // left to `printBox` to fold: a wrapped command or URL is no longer copy-pasteable,
+  // and the continuation indent reads as a second step. That budget is also why the
+  // command shown is `--app-id` alone with `--reveal-secret` named on the next line —
+  // both flags plus a 36-character app UUID is 83 columns and cannot fit either way.
+  //
+  // Step 2 names `brevo app token` and nothing else. It used to spell out the raw
+  // `client_credentials` request against the IdP's token endpoint, which predates that
+  // command; now that the CLI mints the token itself, printing both would offer the
+  // harder route as an equal option on the one screen where the partner has just
+  // created the app and wants to see it work.
+  APP_CREATE_M2M_NEXT: (appId: string): string[] => [
+    '1. Read the credentials back at any time:',
+    `   ${CLI.APP_CREDENTIALS(appId)}`,
+    '   Add `--reveal-secret` to print the client secret.',
+    '',
+    '2. Mint a short-lived access token:',
+    `   ${CLI.APP_TOKEN(appId)}`,
+    '   Add `--scope "<a,b,c>"` to narrow it to some of the granted scopes.',
+    '',
+    `No project files were written: an M2M app has no app-config.json, so \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_SCAFFOLD}\` do not apply to it.`,
+  ],
+
+  // App create — M2M flag combinations. Every one of these is checked before the first
+  // prompt, so a bad invocation costs the caller nothing; see `assertM2mFlags`.
+  APP_CREATE_M2M_SCOPES_REQUIRED: `\`--m2m\` needs \`--scopes\` at creation time — there is no app-config.json to seed them from later, though scopes can still be changed afterwards with \`${CLI.APP_SCOPES_UPDATE()}\`. Example: \`--m2m --scopes "contacts:read,crm:read"\`.`,
+  // Refused rather than ignored: a consent-based create always sends the default scope
+  // set, so silently dropping `--scopes` would leave the caller believing they had
+  // narrowed an app that in fact got the defaults.
+  APP_CREATE_M2M_SCOPES_WITHOUT_M2M: `\`--scopes\` only applies to an M2M app — pass \`--m2m\` as well. A consent-based OAuth app is created with the default scopes; change them by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_M2M_REDIRECT_URI: `\`--m2m\` can't be combined with \`--redirect-uri\` — an M2M app calls the API as itself, so there is no user to redirect and no callback to register.`,
+  APP_CREATE_M2M_UI_FLAG: (flag: string) =>
+    `\`--m2m\` can't be combined with \`${flag}\` — an app is either an OAuth app or a UI app, not both.`,
+  APP_CREATE_M2M_PUBLIC: `\`--m2m\` requires \`--distribution private\` — the machine-to-machine flow is only available for private apps.`,
+
+  // App scopes update (BEX-486) — change an existing M2M app's granted scopes.
+  //
+  // ASSUMPTION pending BEX-481 (the backend scopes-update API, "Ready for dev" as of this
+  // writing): the endpoint contract this command sends is built from BEX-481's own spec,
+  // not a live implementation — see the plan doc for BEX-486.
+  //
+  // Design note: there is deliberately no `--mode append|replace` flag. The interactive
+  // picker is genuinely pre-selected with the app's CURRENT scopes (`promptScopeSelection`'s
+  // `preselected` in `scope-prompts.ts` pre-checks each box), so what a partner ticks/unticks
+  // there already IS the complete desired set. The TYPED fallback (catalog unreadable) is
+  // weaker: inquirer 8's `input` prompt does not write `default` into an editable line — it
+  // only shows it as a dim hint and substitutes it if the line is submitted EMPTY — so
+  // `promptTypedScopeList`'s `prefill` cannot make someone's partial edit start from the
+  // full list. `APP_SCOPES_UPDATE_TYPED_INTRO` below exists to close that gap in words
+  // instead: it tells the partner the current scopes and that Enter alone keeps them, so
+  // typing anything is understood as typing the COMPLETE new list, not an addition to it.
+  // Either way the server can always treat the request as a plain replace — there is no
+  // separate delta to reconcile, and no ambiguity about whether an omitted scope should be
+  // dropped, as long as the partner reads that reminder on the typed path.
+  APP_SCOPES_UPDATE_SELECT: 'Select an M2M app to update:',
+  APP_SCOPES_UPDATE_SPINNER: 'Updating scopes...',
+  APP_SCOPES_UPDATE_NO_M2M_APPS:
+    'No M2M apps found in this account. Scopes can only be updated on an app created with `--m2m`.',
+  APP_SCOPES_UPDATE_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app's scopes can be changed with this command.`,
+  // Refuses BEFORE the scope prompt when there's no terminal to show it on. Distinct from
+  // `APP_SELECT_NON_INTERACTIVE` (the app picker's own refusal): by the time this fires the
+  // app has already been named (via `--app-id` or that picker) — what can't be shown here is
+  // the SCOPE picker, a different prompt with a different fix (`--scopes`, not `--app-id`).
+  APP_SCOPES_UPDATE_SCOPES_REQUIRED: (cmd: string) =>
+    `\`--scopes\` is required when scripting — there is no terminal to prompt for scopes on. Example: \`${cmd}\`.`,
+  // Printed instead of `APP_CREATE_M2M_SCOPES_FIXED` when the picker opens with existing
+  // scopes already ticked — that message's "select every scope this app needs" reads oddly
+  // once the boxes already reflect a grant, and would say nothing about editing them.
+  APP_SCOPES_UPDATE_PICKER_INTRO:
+    "Already-granted scopes are pre-selected below — untick to remove, tick more to add. What you submit becomes the app's complete set of scopes.",
+  // Printed instead of `APP_CREATE_M2M_SCOPES_HINT` on the typed-fallback path when there
+  // ARE current scopes to show (i.e. always, for `app scopes update` — `app create` has
+  // none and keeps the plain hint). Says explicitly that Enter-with-no-input keeps the
+  // list shown, because inquirer does NOT pre-populate the editable line — see the design
+  // note above. Without this a partner could reasonably type just the scope they meant to
+  // ADD and silently lose the rest.
+  APP_SCOPES_UPDATE_TYPED_INTRO: (current: readonly string[]) =>
+    `Current scopes: ${current.length ? current.join(', ') : '(none)'} — press Enter to keep them as-is, or type the complete new list (not just what's being added).`,
+  APP_SCOPES_UPDATE_NO_CHANGE: (appId: string) =>
+    `No change: app ${appId} already has exactly these scopes.`,
+  // The one message that must foreground a REMOVAL: a scope the app currently has, but
+  // that isn't in the submitted list, silently disappears unless this line calls it out —
+  // easy to miss on the typed-fallback path, where the field starts pre-filled but nothing
+  // stops someone deleting more than they meant to.
+  APP_SCOPES_UPDATE_DIFF: (
+    current: readonly string[],
+    next: readonly string[],
+    added: readonly string[],
+    removed: readonly string[],
+  ): string => {
+    const lines = [
+      `Current scopes: ${current.length ? current.join(', ') : '(none)'}`,
+      `New scopes:     ${next.length ? next.join(', ') : '(none)'}`,
+    ];
+    if (added.length) lines.push(`  + ${added.join(', ')}`);
+    if (removed.length) {
+      lines.push(`  ⚠ this will REMOVE: ${removed.join(', ')}`);
+    }
+    return lines.join('\n  ');
+  },
+  APP_SCOPES_UPDATE_CONFIRM: (appLabel: string, appId: string) =>
+    `Set the scopes on "${appLabel}" (${appId}) to this list?`,
+  APP_SCOPES_UPDATE_CANCELLED: 'Cancelled — no scopes were changed.',
+  APP_SCOPES_UPDATE_SUCCESS: (appId: string, scopes: readonly string[]) =>
+    `Updated app ${appId}. Scopes: ${scopes.length ? scopes.join(', ') : '(none)'}`,
+
+  // App token (BEX-482) — mint a short-lived M2M access token for an app.
+  //
+  // ASSUMPTION pending the "brevo app token [Backend]" ticket (not yet built at the time
+  // this command was written): the endpoint contract this command sends is a reasonable
+  // guess, not a verified implementation — see the plan doc for BEX-482. A server error
+  // shape this command doesn't recognize is not swallowed: `mapTokenError` in
+  // `commands/app/token.ts` only remaps the codes it knows and rethrows anything else
+  // unchanged, so the server's own message still reaches the partner.
+  APP_TOKEN_SELECT: 'Select an M2M app to mint a token for:',
+  APP_TOKEN_MINT_SPINNER: 'Minting token...',
+  APP_TOKEN_NO_M2M_APPS:
+    'No M2M apps found in this account. A token can only be minted for an app created with `--m2m`.',
+  APP_TOKEN_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app can mint an access token with this command.`,
+  APP_TOKEN_UNAUTHORIZED: (appId: string) =>
+    `Not authorized to mint a token for app ${appId}. Run \`${CLI.LOGIN}\` again, or confirm this account can manage that app.`,
+  APP_TOKEN_SCOPE_NOT_GRANTED: (appId: string) =>
+    `One or more requested scopes are not granted to app ${appId}. Check granted scopes with \`${CLI.APP_CREDENTIALS(appId)}\`, or omit \`--scope\` to request the app's full granted set.`,
+  APP_TOKEN_MALFORMED_RESPONSE:
+    'The server returned a token response the CLI does not recognize. Try again, or check for a CLI update.',
+  APP_TOKEN_SUCCESS: (expiresIn: number) => `Minted an access token, valid for ${expiresIn}s.`,
+
+  // App secret rotate (BEX-484) — rotate an M2M app's client secret.
+  //
+  // ASSUMPTION pending the "brevo app secret rotate [Backend]" ticket (not yet built at
+  // the time this command was written): the endpoint contract this command sends is a
+  // reasonable guess, not a verified implementation — see the plan doc for BEX-484. A
+  // server error shape this command doesn't recognize is not swallowed: `mapRotateError`
+  // in `commands/app/secret-rotate.ts` only remaps the codes it knows and rethrows
+  // anything else unchanged, so the server's own message still reaches the partner.
+  //
+  // Unlike `app credentials`/`app create`, the rotated secret is printed in full
+  // immediately rather than hidden behind `--reveal-secret` — the whole point of this
+  // command is to hand back the new secret, including for CI-driven rotation, where the
+  // reveal-gate's TTY requirement would make the command unable to ever return the value
+  // it exists to produce. The confirmation prompt below still gates the destructive
+  // ACTION (the old secret stops working immediately); it is not a reveal-gate.
+  APP_SECRET_ROTATE_SELECT: 'Select an M2M app to rotate the secret for:',
+  APP_SECRET_ROTATE_SPINNER: 'Rotating secret...',
+  APP_SECRET_ROTATE_NO_M2M_APPS:
+    'No M2M apps found in this account. A secret can only be rotated on an app created with `--m2m`.',
+  APP_SECRET_ROTATE_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app's secret can be rotated with this command.`,
+  APP_SECRET_ROTATE_UNAUTHORIZED: (appId: string) =>
+    `Not authorized to rotate the secret for app ${appId}. Run \`${CLI.LOGIN}\` again, or confirm this account can manage that app.`,
+  APP_SECRET_ROTATE_MALFORMED_RESPONSE:
+    'The server returned a secret-rotation response the CLI does not recognize. Try again, or check for a CLI update.',
+  APP_SECRET_ROTATE_CONFIRM: (appLabel: string, appId: string) =>
+    `This immediately invalidates the current secret for "${appLabel}" (${appId}) — any caller still using it will start failing. Continue?`,
+  APP_SECRET_ROTATE_CANCELLED: 'Cancelled — the secret was not rotated.',
+  APP_SECRET_ROTATE_SUCCESS: (appId: string) => `Rotated the client secret for app ${appId}.`,
+  // The two value lines under the success message. Indentation stays at the call site
+  // (same pattern as APP_SECRET_ROTATE_STORE_HINT below).
+  APP_SECRET_ROTATE_SECRET_LINE: (secret: string) => `Client secret: ${secret}`,
+  APP_SECRET_ROTATE_GRACE_LINE: (until: string) => `Old secret valid until: ${until}`,
+  APP_SECRET_ROTATE_STORE_HINT:
+    'Store this secret in a secret manager now — it will not be shown again by this command.',
+
   // App install / uninstall — per-account availability for UI apps (BEX-290).
   // Moved here from `preview-messages.ts` at UI-apps GA.
   APP_INSTALL_SELECT: 'Select an app to install:',
@@ -392,6 +607,15 @@ const coreMessages = {
   // Not "Your OAuth apps" — the listing can contain UI apps too (BEX-290), and
   // each row names its own type.
   APP_LIST_HEADER: 'Your apps:',
+  // Under `--type`, the flag is echoed verbatim rather than translated to an
+  // `APP_TYPE_*` label: those read "Your OAuth app apps:", and there is no
+  // label for `m2m` at all (it is an auth flow, not an app type).
+  APP_LIST_HEADER_FILTERED: (type: string) => `Your apps (--type ${type}):`,
+  // Not APP_LIST_EMPTY: under a filter the account usually *does* have apps,
+  // just none of that type, so "Create one with ..." would be both false and
+  // the wrong next step. Name the filter as the cause and the way out.
+  APP_LIST_EMPTY_FILTERED: (type: string) =>
+    `No apps match --type ${type}. \`${CLI.APP_LIST}\` shows every app.`,
 
   // App type, as named on a rendered row. `app_type` exists in the config but is
   // informational; the discriminator is `ui_app` / `brevo_function` presence.
@@ -405,6 +629,19 @@ const coreMessages = {
   // with a raw ERR_USE_AFTER_CLOSE readline stack instead of anything readable.
   APP_SELECT_NON_INTERACTIVE: (command: string) =>
     `Cannot show the app picker in non-interactive mode. Name the app instead:\n\n      ${command}\n\n  \`${CLI.APP_LIST}\` shows the IDs.`,
+
+  // Raised instead of the confirmation prompt when there is no way to ask it — under
+  // --json (one parseable document, no questions) or off a TTY. Silence must not be
+  // consent for a change that cannot be undone, so the caller is told to say yes
+  // explicitly rather than having it assumed.
+  APP_CONFIRM_NON_INTERACTIVE: (command: string) =>
+    `This change needs confirmation, and none can be asked in non-interactive mode. Re-run with \`--yes\` to confirm it explicitly:\n\n      ${command}`,
+
+  // The one not-found line every app-addressing command (and the service layer's
+  // rethrowNotFound) throws. Scripts match on this text — keep it stable.
+  APP_NOT_FOUND: (appId: string) => `App ${appId} not found.`,
+  // Shared spinner label for the pre-flight app read the M2M commands perform.
+  APP_LOAD_SPINNER: 'Loading app...',
 
   // Function list
   FUNCTION_LIST_HEADER: 'Your Brevo Functions:',
@@ -713,6 +950,18 @@ const coreMessages = {
   // directory, so the two remaining routes go on screen instead of exiting silently.
   APP_SCAFFOLD_BOOTSTRAP_DECLINED: `Nothing to do here yet.\n\n  - run \`${CLI.APP_CREATE}\` to create a new app in this directory, or\n  - cd into an existing project folder and run \`${CLI.APP_SCAFFOLD}\` there.`,
   APP_SCAFFOLD_SELECT: 'Which app do you want to set a project up for?',
+  // An M2M app is create-only (BEX-488) — no directory, no app-config.json, nothing
+  // for `app scaffold` to set up. Named after the picker filter that keeps M2M apps
+  // off this list in the first place; this is what fires when filtering empties it.
+  APP_SCAFFOLD_NO_BOOTSTRAPPABLE_APPS:
+    "All of this account's apps are M2M apps, which have no local project to set up. " +
+    `Run \`${CLI.HELP}\` to see the commands available for an M2M app.`,
+  // The authoritative backstop behind the filter above — reached when `--app-id`
+  // names an M2M app directly, bypassing the picker.
+  APP_SCAFFOLD_BOOTSTRAP_M2M: (appId: string) =>
+    `App ${appId} is an M2M app, which has no local project to set up — ` +
+    `\`${CLI.APP_SCAFFOLD}\` does not apply to it. Run \`${CLI.HELP}\` to see the ` +
+    'commands available for an M2M app.',
   // Refuses rather than bootstrapping a nested project. `readProjectConfig` reads cwd and
   // does not walk up, so this is the only thing standing between a mistyped `cd` and a
   // second app-config.json inside an existing project — after which `app upload` from that
@@ -917,7 +1166,6 @@ const coreMessages = {
   APP_SUBMIT_PICK_APP: 'Which app do you want to submit for review?',
   APP_SUBMIT_NO_APP_RESOLVED:
     'Cannot determine which app to submit. Provide --app-id or run from a directory with app-config.json.',
-  APP_SUBMIT_NOT_FOUND: (appId: string): string => `App ${appId} not found.`,
   APP_SUBMIT_OUT_OF_SYNC: (fields: string[], appId: string): string =>
     `Configuration mismatch detected — your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>

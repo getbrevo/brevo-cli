@@ -12,6 +12,7 @@ import {
   validateUiAppMoreInfo,
   validateUiAppUrl,
   validateSurfacePoint,
+  parseAppListType,
 } from '../../lib/validators';
 import { CliError } from '../../lib/errors';
 
@@ -662,6 +663,29 @@ describe('validateUiApp — iframeExtension', () => {
   it('names the entry carrying it', () => {
     expect(() => validateUiApp(withIframeEntry({ link_target: '_blank' }))).toThrow(
       new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.link_target`),
+    );
+  });
+});
+
+describe('parseAppListType', () => {
+  it.each(['oauth', 'ui', 'function', 'm2m'])('accepts the CLI token %s unchanged', (token) => {
+    expect(parseAppListType(token)).toBe(token);
+  });
+
+  // The wire spellings are deliberately NOT accepted as input: `--type` speaks the
+  // CLI's vocabulary (what `--json` prints), and accepting both would make the two
+  // vocabularies look interchangeable. This test is what catches that "simplification".
+  it.each(['ui_app', 'brevo_function', 'oauth.m2m'])('refuses the wire spelling %s', (wire) => {
+    expect(() => parseAppListType(wire)).toThrow(CliError);
+  });
+
+  it('is case-sensitive', () => {
+    expect(() => parseAppListType('OAUTH')).toThrow(CliError);
+  });
+
+  it('names every valid value in the error', () => {
+    expect(() => parseAppListType('uiapp')).toThrow(
+      'Invalid --type "uiapp". Must be one of: oauth, ui, function, m2m.',
     );
   });
 });

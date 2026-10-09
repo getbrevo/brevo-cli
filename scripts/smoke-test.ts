@@ -6,12 +6,18 @@
  * uninstall) always run. In between it runs whichever suites `--suite` selects:
  *
  *   scripts/smoke/private-app.ts  create → credentials → upload → verify rename
- *                                 → scaffold → start → delete, + guardrail probes
+ *                                 → scaffold → start → delete, + guardrail probes,
+ *                                 then the M2M (client_credentials) create-only flow:
+ *                                 create → credentials → scopes update → scopes update
+ *                                 (no-op) → flag refusals → delete
  *   scripts/smoke/public-app.ts   create → upload → status → submit → submit again
  *                                 → status → withdraw → status → delete
  *   scripts/smoke/ui-app.ts       UI-app lifecycle: interactive create (pty) → upload
  *                                 no-op → per-entry edit upload → install → uninstall
  *                                 → delete (opt-in)
+ *   scripts/smoke/m2m.ts          interactive M2M create (pty): OAuth-flow prompt →
+ *                                 scope-catalog picker → delete (opt-in; the
+ *                                 non-interactive M2M steps are in private-app.ts)
  *   scripts/smoke/init-wizard.ts  the `brevo app init` wizard (opt-in)
  *
  * Shared plumbing lives in scripts/smoke/core.ts.
@@ -51,6 +57,7 @@ import {
 import { privateAppSuite } from './smoke/private-app';
 import { publicAppSuite } from './smoke/public-app';
 import { uiAppSuite } from './smoke/ui-app';
+import { m2mSuite } from './smoke/m2m';
 import { initWizardSuite } from './smoke/init-wizard';
 import { functionSuite } from './smoke/function';
 
@@ -60,6 +67,7 @@ const SUITES: Record<string, Suite> = {
   private: privateAppSuite,
   public: publicAppSuite,
   ui: uiAppSuite,
+  m2m: m2mSuite,
   init: initWizardSuite,
   function: functionSuite,
 };
@@ -194,9 +202,13 @@ Flags:
                                --gap=0 disables it.
   --suite=<names>              Which suites to run, comma-separated, in order.
                                private  private-app lifecycle + client guardrails
+                                        + the M2M create-only flow
                                public   public-app submission/review lifecycle
                                ui       UI-app lifecycle (interactive create via a
                                         pty; opt-in)
+                               m2m      interactive M2M create — OAuth-flow prompt
+                                        and scope picker (pty; opt-in). The
+                                        non-interactive M2M steps run in 'private'.
                                init     'brevo app init' wizard (interactive, opt-in)
                                function Brevo Function list/get/activate/deactivate/deploy/delete/init
                                all      every suite
@@ -217,20 +229,22 @@ uninstall) always run, whichever suites are selected. Examples:
 Steps that need a command the installed CLI doesn't have (notably
 --against=published, where the npm 'latest' tag may predate a command this
 branch adds) are auto-detected and reported as skipped rather than failed. The
-same detection covers gated *features* that come with no command of their own.
+same detection covers gated *features* that come with no command of their own —
+'--distribution public' and 'app create --m2m', both GA in every build here but
+possibly newer than the version npm serves.
 
 --against=local always builds the PUBLISHED surface — i.e. what npm actually
 ships — because nothing is gated any more: public apps and the review lifecycle
-went GA at BEX-405, UI apps at BEX-290, so every suite's commands are in every
-build. This used to fork on the selected suites, building PREVIEW=1 whenever
-'public' was picked, and that fork is gone rather than merely unused: leaving it
-would mean the one suite exercising the review lifecycle never ran against the
-artifact users install.
+went GA at BEX-405, UI apps at BEX-290, and M2M ships in every build, so every
+suite's commands are in every build. This used to fork on the selected suites,
+building PREVIEW=1 whenever 'public' was picked, and that fork is gone rather
+than merely unused: leaving it would mean the one suite exercising the review
+lifecycle never ran against the artifact users install.
 
-The ui and init suites are opt-in for a different reason, unrelated to any gate:
-they drive interactive prompts. 'brevo app create' only offers the UI app type
-on a real terminal, so the ui suite drives it through script(1) and init through
-scripted stdin.
+The ui, m2m and init suites are opt-in for a different reason, unrelated to any
+gate: they drive interactive prompts. 'brevo app create' only offers the UI app
+type, and only asks which OAuth flow, on a real terminal — so the ui and m2m
+suites drive the prompts through script(1) and init through scripted stdin.
 `);
 }
 
@@ -369,6 +383,9 @@ function hasLeftoverState(state: State): boolean {
     state.mainApp ||
     state.publicApp ||
     state.uiApp ||
+    // Gates the post-run safety net, so an M2M app left behind by a failed delete step
+    // has to be named here or it is never deleted AND never reported as a leak.
+    state.m2mApp ||
     state.initAppId ||
     state.tmpDirs.length > 0 ||
     state.linked ||
@@ -397,6 +414,7 @@ async function main(): Promise<void> {
     mainApp: null,
     publicApp: null,
     uiApp: null,
+    m2mApp: null,
     initAppId: null,
     linked: false,
     caps: null,

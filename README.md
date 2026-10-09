@@ -110,10 +110,10 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an app — an OAuth app (`--name`, `--distribution private\|public`, repeatable `--redirect-uri`, `--logo-uri`), or a UI app or Brevo Function via the interactive prompts (there is no `--type` flag; non-interactive runs always create an OAuth app). `distribution_type` is immutable after create. |
-| `brevo app list` | List apps in your account (each row names its type) |
+| `brevo app create` | Create an app — a consent-based OAuth app (`--name`, `--distribution private\|public`, repeatable `--redirect-uri`), a **machine-to-machine** OAuth app (`--m2m --scopes "…"`, private only — creates the app and stops, writing no project files), a UI app (`--ui-app …` / `--ui-config <file>`), or a Brevo Function (interactive prompt only). There is no `--type` flag on this command (`brevo app list --type` is a filter, not a creator); a run with none of those flags creates a consent-based OAuth app. `distribution_type` is immutable after create. **There is no logo input at creation time** — set `logo_uri` in `app-config.json` and run `brevo app upload` afterward |
+| `brevo app list` | List apps in your account (each row names its type). `--type <oauth\|ui\|function\|m2m>` shows one kind only — `oauth` covers both OAuth flows, so use `m2m` to isolate machine-to-machine apps |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
-| `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff — field by field, including every `ui_app` placement (`--yes`) |
+| `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff — field by field, including every `ui_app` placement (`--yes`). This is how an app's name, redirect URLs, scopes and `logo_uri` are changed after creation: edit the field, then upload |
 | `brevo app delete` | Delete an app (`--app-id`, `--force`) |
 | `brevo app scaffold` | Add a feature to the app in the current directory, or set an empty directory up for an app you already have — picked interactively, or named with `--app-id` (`--overwrite`, `--json`) |
 | `brevo app start` | Run a scaffolded feature locally (e.g. `brevo app start oauth --port 3000`) |
@@ -135,12 +135,31 @@ Most commands require a successful `brevo login` first, except authentication/he
 
 The table above is the complete command surface of a published release, and `brevo --help` always lists everything the binary can do — there is nothing hidden behind a flag, an environment variable, or an account setting. (Public app distribution and the review lifecycle were once built but withheld from published packages; they ship in every build now.) If a command listed here is missing from your install, it is older than this README — upgrade with `npm install -g @getbrevo/cli`.
 
+### Machine-to-machine (M2M) apps
+
+A **private** OAuth app can use the `client_credentials` grant instead of user consent — your
+server calls the Brevo API as itself, with no Brevo user to redirect and no callback to register:
+
+```bash
+brevo app create --name "Ledger Sync" --distribution private \
+  --m2m --scopes "contacts:read,crm:read"
+```
+
+Interactively, pick *Machine to Machine* at the **Which OAuth flow does this app use?** prompt.
+
+M2M apps are **create-only** — the command creates the app, prints the credentials, and stops.
+No directory and no `app-config.json` are written, so `brevo app upload`, `brevo app scaffold`
+and `brevo app start` don't apply. **Scopes are fixed at creation** (there is no config to edit
+afterwards), and the credentials stay retrievable with
+`brevo app credentials --app-id <id> --reveal-secret`.
+
 ### UI apps
 
 `brevo app create`'s interactive prompt can build three kinds of app: an OAuth app, a **UI app**
 that renders directly inside a Brevo CRM record, or a [Brevo Function](#brevo-functions)
-(interactive-only — there is no `--type` flag, so `--json` and piped runs always create an OAuth
-app).
+(interactive-only). There is no `--type` flag on `brevo app create` — the `--type` flag on
+`brevo app list` filters the listing, it does not pick what to create — so a run with none of
+`--ui-app`, `--ui-config` or `--m2m` creates a consent-based OAuth app.
 
 Today the prompt authors one integration type, an **action link** (`extension_type: "actionLink"`).
 In short: it's a clickable menu entry or card CTA button that Brevo renders on a record page — no
