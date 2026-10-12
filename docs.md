@@ -150,6 +150,15 @@ misleading copy. Same gate `app install` already applies (`assertInstallable`'s
 - [ ] **Unrun:** TC-2.2 (interactive Public choice), TC-2.3 (list), TC-6.2 (state→tone map),
       TC-6.4 (`--json`), TC-6.6 (NO_COLOR/FORCE_COLOR), TC-13.4's mismatch branch.
 - [ ] **No `--json` / non-TTY path has been run for any public-app suite.**
+- [ ] **Developer Terms consent gate (new):** QA suite 2 predates the terms consent on
+      public creates — TC-2.1/2.2 now hit the terms notice + y/N question (and the
+      `--accept-developer-terms` flag non-interactively). Update the test cases and
+      cover: decline → exit 0, nothing created; non-interactive without the flag →
+      refusal naming the flag, exit 1.
+- [ ] **README for the release PR:** the `brevo app create` row gains
+      `--accept-developer-terms` and the public-app section should mention the Developer
+      Terms consent. Lands on the `chore(release)` PR per the README rule in CLAUDE.md,
+      not on this branch.
 - [ ] **Re-baseline every public suite against the GA build.** The recorded results were all
       taken on `PREVIEW=1` artifacts. The commands are identical, but "needs a preview
       build" is no longer a precondition anywhere and the sweep should be re-run once on a

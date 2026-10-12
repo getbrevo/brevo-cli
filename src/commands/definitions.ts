@@ -91,7 +91,10 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app create',
         'brevo app create --name "My App" --distribution private',
         ...(isFeatureAvailable('public-distribution')
-          ? ['brevo app create --name "My App" --distribution public']
+          ? [
+              'brevo app create --name "My App" --distribution public',
+              'brevo app create --name "My App" --distribution public --redirect-uri https://myapp.com/callback --accept-developer-terms --json',
+            ]
           : []),
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
@@ -109,6 +112,11 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         {
           flags: '--distribution <type>',
           description: `Distribution type (${distributionValues()})`,
+        },
+        {
+          flags: '--accept-developer-terms',
+          description:
+            'Confirm you have read and agree to the Brevo Developer Terms (required to create a public app non-interactively)',
         },
         {
           flags: '--redirect-uri <url>',
@@ -148,6 +156,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         createCommand({
           name: opts.name as string | undefined,
           distribution: opts.distribution as string | undefined,
+          acceptDeveloperTerms: Boolean(opts.acceptDeveloperTerms),
           redirectUri: opts.redirectUri as string[] | undefined,
           uiConfig: opts.uiConfig as string | undefined,
           uiApp: Boolean(opts.uiApp),

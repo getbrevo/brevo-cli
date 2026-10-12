@@ -338,10 +338,38 @@ function stepNegativeUnknownApp(state: State): string {
   return details.join('; ');
 }
 
+// A non-interactive public create without explicit Developer Terms consent must be
+// refused before any prompt or network call — the refusal names the flag that grants
+// it. Runs before the real create so the suite proves the gate, then passes it.
+function stepNegativeCreateWithoutTermsConsent(state: State): string {
+  requireFeature(state, 'public-distribution');
+  return assertMappedFailure(
+    exec(
+      brevoCmd(state),
+      [
+        'app',
+        'create',
+        '--name',
+        'brevo-cli-smoke-no-consent',
+        '--distribution',
+        'public',
+        '--json',
+      ],
+      state,
+    ),
+    {
+      what: 'public create without --accept-developer-terms',
+      patterns: [/--accept-developer-terms/, /Brevo Developer Terms/],
+      exitCodes: [1],
+    },
+  );
+}
+
 export const publicAppSuite: Suite = {
   name: 'public',
   description: 'Public-app submission and review lifecycle',
   steps: [
+    ['Negative: public create without terms consent', stepNegativeCreateWithoutTermsConsent],
     ['Public app create', stepPublicAppCreate],
     ['Public app upload', stepPublicAppUpload],
     ['Public app status', stepPublicAppStatus],

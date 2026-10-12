@@ -138,6 +138,41 @@ describe('messages (lang/en)', () => {
     expect(messages.WHOAMI_NOT_AUTHENTICATED).toContain('brevo login');
   });
 
+  describe('Developer Terms consent messages', () => {
+    // The notice and the question are legal's wording, VERBATIM, from the "Developing
+    // Process/Use of Dev Tools" section of the Developer Terms wording doc. This pins
+    // the exact sentences so a well-meaning copy edit fails loudly instead of silently
+    // shipping reworded legal text.
+    it('keeps the legal wording verbatim', () => {
+      // The doc's notice sentence ends with the terms link; the URL lives on the
+      // "Opening…" line printed right below it instead, exactly once.
+      expect(messages.APP_CREATE_TERMS_NOTICE).toBe(
+        'The Brevo Developer Terms apply to the use of the Brevo Developer Tools. ' +
+          'Before continuing, please read the Brevo Developer Terms:',
+      );
+      expect(messages.APP_CREATE_TERMS_PROMPT).toBe(
+        'Do you confirm that you have read and agree to the Brevo Developer Terms?',
+      );
+    });
+
+    it('prints the terms URL on the auto-open line', () => {
+      expect(messages.APP_CREATE_TERMS_OPENING).toBe(
+        'Opening the terms in your browser:\nhttps://www.brevo.com/legal/termsofuse/',
+      );
+    });
+
+    // A script author refused in non-interactive mode must be told both where the
+    // terms are and how to consent explicitly.
+    it('points the non-interactive refusal at the terms and the flag', () => {
+      expect(messages.APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE).toContain(
+        'https://www.brevo.com/legal/termsofuse/',
+      );
+      expect(messages.APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE).toContain(
+        '--accept-developer-terms',
+      );
+    });
+  });
+
   describe('M2M create messages', () => {
     // A `list` choice renders one line per option, so the same 80-column budget applies —
     // but with inquirer's pointer (`> `) plus `indentChoices`' own indent rather than the
