@@ -292,6 +292,33 @@ jobs:
             -f account=default \
             -f expected_version="${tag}"
 
+      # Tell getbrevo/brevo-skills that the agent skill may have changed. That
+      # repo packages agent-context/SKILL.md for every agent platform; its
+      # sync-skill workflow copies the skill at this commit and opens a PR there
+      # for review, so nothing reaches users without a merge on that side.
+      #
+      # Best-effort: the publish is already done, so a missing token or a failed
+      # dispatch only warns (continue-on-error) and never turns the release red.
+      # Needs BREVO_SKILLS_SYNC_TOKEN: a fine-grained token (or GitHub App token)
+      # with `actions: write` on getbrevo/brevo-skills only. Uses an env token,
+      # not ~/.netrc, so it can sit before the Homebrew step that deletes it.
+      - name: Trigger brevo-skills sync
+        if: ${{ !cancelled() && steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.BREVO_SKILLS_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning::BREVO_SKILLS_SYNC_TOKEN is not set; skipping the brevo-skills sync."
+            exit 0
+          fi
+          echo "Dispatching brevo-skills sync for brevo-cli at ${GITHUB_SHA}"
+          gh workflow run sync-skill.yml \
+            --repo getbrevo/brevo-skills \
+            -f skill=brevo-cli \
+            -f ref="${GITHUB_SHA}"
+
       # Homebrew tap auto-bump: after a publish, recompute the tarball url +
       # sha256 and open a formula-bump PR on getbrevo/homebrew-tap (tap CI gates
       # it; a human merges). Auth is a fine-grained PAT (HOMEBREW_TAP_TOKEN)
