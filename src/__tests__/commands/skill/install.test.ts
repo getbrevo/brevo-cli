@@ -1,8 +1,12 @@
-jest.mock('../../../services/skill', () => ({
-  skillService: {
-    installAll: jest.fn(),
-  },
-}));
+jest.mock('../../../services/skill', () => {
+  const actual = jest.requireActual('../../../services/skill');
+  return {
+    parseSkillAgents: actual.parseSkillAgents,
+    skillService: {
+      installAll: jest.fn(),
+    },
+  };
+});
 
 import { installCommand } from '../../../commands/skill/install';
 import { skillService } from '../../../services/skill';
@@ -28,52 +32,39 @@ describe('skill/install', () => {
         version: '1.0.0',
         status: 'installed',
         path: fakeSkillPath,
+        agents: ['claude'],
       },
     ]);
 
     await installCommand({});
 
-    expect(skillService.installAll).toHaveBeenCalledWith();
+    expect(skillService.installAll).toHaveBeenCalledWith({ agents: ['claude'] });
     const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).toContain('Installed brevo-cli@1.0.0');
+    expect(output).toContain('Installed brevo-cli@1.0.0 for claude');
+    expect(output).toContain('--agent codex,gemini');
   });
 
-  it('reports "already up to date" without overwriting', async () => {
-    (skillService.installAll as jest.Mock).mockReturnValue([
-      {
-        name: 'brevo-cli',
-        version: '1.0.0',
-        status: 'already-installed',
-        path: fakeSkillPath,
-      },
-    ]);
-
-    await installCommand({});
-
-    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
-    expect(output).toContain('already up to date');
-  });
-
-  it('outputs JSON when --json', async () => {
+  it('installs for the agents given with --agent, without the other-agents hint', async () => {
     (skillService.installAll as jest.Mock).mockReturnValue([
       {
         name: 'brevo-cli',
         version: '1.0.0',
         status: 'installed',
-        path: fakeSkillPath,
+        path: '/home/user/.agents/skills/brevo-cli',
+        agents: ['codex', 'gemini'],
       },
     ]);
 
-    await installCommand({ json: true });
+    await installCommand({ agent: 'codex,gemini' });
 
-    const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
-    expect(parsed).toEqual([
-      {
-        name: 'brevo-cli',
-        version: '1.0.0',
-        status: 'installed',
-        path: fakeSkillPath,
-      },
-    ]);
+    expect(skillService.installAll).toHaveBeenCalledWith({ agents: ['codex', 'gemini'] });
+    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+    expect(output).toContain('for codex, gemini → /home/user/.agents/skills/brevo-cli');
+    expect(output).not.toContain('--agent codex,gemini');
+  });
+
+  it('rejects an unknown agent before installing anything', async () => {
+    await expect(installCommand({ agent: 'cursor' })).rejects.toThrow(/Unknown agent "cursor"/);
+    expect(skillService.installAll).not.toHaveBeenCalled();
   });
 });

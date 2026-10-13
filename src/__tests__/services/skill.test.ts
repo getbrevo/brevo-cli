@@ -2,7 +2,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { skillService, getClaudeSkillsRoot, shouldSkipAutoRefresh } from '../../services/skill';
+import {
+  skillService,
+  getAgentsSkillsRoot,
+  getClaudeSkillsRoot,
+  parseSkillAgents,
+  shouldSkipAutoRefresh,
+} from '../../services/skill';
 import { SKILL_CATALOG } from '../../skills';
 import { CliError } from '../../lib/errors';
 
@@ -15,15 +21,20 @@ const SANDBOX_ROOT = path.join(__dirname, '__sandbox__');
 
 describe('services/skill', () => {
   let tmpHome: string;
+  let tmpAgentsHome: string;
 
   beforeEach(() => {
     fs.mkdirSync(SANDBOX_ROOT, { recursive: true });
     tmpHome = fs.mkdtempSync(path.join(SANDBOX_ROOT, 'brevo-skill-test-'));
+    tmpAgentsHome = fs.mkdtempSync(path.join(SANDBOX_ROOT, 'brevo-skill-agents-'));
     process.env.BREVO_CLAUDE_HOME = tmpHome;
+    process.env.BREVO_AGENTS_HOME = tmpAgentsHome;
   });
 
   afterEach(() => {
     delete process.env.BREVO_CLAUDE_HOME;
+    delete process.env.BREVO_AGENTS_HOME;
+    fs.rmSync(tmpAgentsHome, { recursive: true, force: true });
     delete process.env.BREVO_NO_SKILL_AUTOREFRESH;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   });
@@ -45,6 +56,38 @@ describe('services/skill', () => {
     it('falls back to ~/.claude/skills when override is not set', () => {
       delete process.env.BREVO_CLAUDE_HOME;
       expect(getClaudeSkillsRoot()).toBe(path.join(os.homedir(), '.claude', 'skills'));
+    });
+  });
+
+  describe('getAgentsSkillsRoot', () => {
+    it('respects BREVO_AGENTS_HOME override', () => {
+      expect(getAgentsSkillsRoot()).toBe(path.join(tmpAgentsHome, 'skills'));
+    });
+
+    it('falls back to ~/.agents/skills when override is not set', () => {
+      delete process.env.BREVO_AGENTS_HOME;
+      expect(getAgentsSkillsRoot()).toBe(path.join(os.homedir(), '.agents', 'skills'));
+    });
+  });
+
+  describe('parseSkillAgents', () => {
+    it('defaults to Claude Code when --agent is omitted', () => {
+      expect(parseSkillAgents()).toEqual(['claude']);
+    });
+
+    it('accepts a comma-separated list in any case and order, and returns it in canonical order', () => {
+      expect(parseSkillAgents(' Gemini, claude ')).toEqual(['claude', 'gemini']);
+    });
+
+    it('expands all', () => {
+      expect(parseSkillAgents('all')).toEqual(['claude', 'codex', 'gemini']);
+    });
+
+    it('rejects an unknown or empty agent with the list of valid ones', () => {
+      expect(() => parseSkillAgents('cursor')).toThrow(
+        /Unknown agent "cursor".*claude, codex, gemini/,
+      );
+      expect(() => parseSkillAgents(' , ')).toThrow(CliError);
     });
   });
 
@@ -78,9 +121,11 @@ describe('services/skill', () => {
   });
 
   describe('install', () => {
-    it('copies bundled files into ~/.claude/skills/<name>/', () => {
-      const result = skillService.install('brevo-cli');
-      expect(result.status).toBe('installed');
+    it('copies bundled files into ~/.claude/skills/<name>/ by default', () => {
+      const [result] = skillService.install('brevo-cli');
+      expect(result!.status).toBe('installed');
+      expect(result!.agents).toEqual(['claude']);
+      expect(fs.existsSync(path.join(tmpAgentsHome, 'skills', 'brevo-cli'))).toBe(false);
       const installedFile = path.join(tmpHome, 'skills', 'brevo-cli', 'SKILL.md');
       expect(fs.existsSync(installedFile)).toBe(true);
       expect(fs.readFileSync(installedFile, 'utf-8')).toContain('Brevo CLI');
@@ -98,18 +143,42 @@ describe('services/skill', () => {
 
     it('is idempotent without --force', () => {
       skillService.install('brevo-cli');
-      const result = skillService.install('brevo-cli');
-      expect(result.status).toBe('already-installed');
+      const [result] = skillService.install('brevo-cli');
+      expect(result!.status).toBe('already-installed');
     });
 
     it('overwrites with --force', () => {
       skillService.install('brevo-cli');
-      const result = skillService.install('brevo-cli', { force: true });
-      expect(result.status).toBe('overwritten');
+      const [result] = skillService.install('brevo-cli', { force: true });
+      expect(result!.status).toBe('overwritten');
+    });
+
+    it('installs once into ~/.agents/skills/ for Codex and Gemini CLI together', () => {
+      const results = skillService.install('brevo-cli', { agents: ['codex', 'gemini'] });
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        status: 'installed',
+        agents: ['codex', 'gemini'],
+        path: path.join(tmpAgentsHome, 'skills', 'brevo-cli'),
+      });
+      expect(fs.existsSync(path.join(tmpAgentsHome, 'skills', 'brevo-cli', 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(tmpHome, 'skills', 'brevo-cli'))).toBe(false);
+    });
+
+    it('installs into both directories for all agents', () => {
+      const results = skillService.install('brevo-cli', { agents: ['claude', 'codex', 'gemini'] });
+      expect(results.map((r) => r.agents)).toEqual([['claude'], ['codex', 'gemini']]);
+      expect(skillService.isInstalled('brevo-cli')).toBe(true);
     });
 
     it('throws CliError for an unknown skill', () => {
       expect(() => skillService.install('does-not-exist')).toThrow(CliError);
+    });
+
+    it('isInstalled is true when only the ~/.agents copy exists', () => {
+      skillService.install('brevo-cli', { agents: ['codex'] });
+      expect(skillService.isInstalled('brevo-cli')).toBe(true);
+      expect(skillService.isInstalled('does-not-exist')).toBe(false);
     });
 
     it('installAll installs every catalog entry', () => {
@@ -131,6 +200,21 @@ describe('services/skill', () => {
       const results = skillService.uninstallAll();
       expect(results.map((r) => r.name)).toEqual(['brevo-cli']);
       expect(fs.existsSync(path.join(tmpHome, 'skills', 'brevo-cli'))).toBe(false);
+    });
+
+    it('removes the copies in every agent directory by default', () => {
+      skillService.install('brevo-cli', { agents: ['claude', 'codex'] });
+      const results = skillService.uninstallAll();
+      expect(results.map((r) => r.agents)).toEqual([['claude'], ['codex', 'gemini']]);
+      expect(fs.existsSync(path.join(tmpHome, 'skills', 'brevo-cli'))).toBe(false);
+      expect(fs.existsSync(path.join(tmpAgentsHome, 'skills', 'brevo-cli'))).toBe(false);
+    });
+
+    it("removes only the given agents' copy with agents", () => {
+      skillService.install('brevo-cli', { agents: ['claude', 'codex'] });
+      const results = skillService.uninstallAll({ agents: ['codex'] });
+      expect(results.map((r) => r.path)).toEqual([path.join(tmpAgentsHome, 'skills', 'brevo-cli')]);
+      expect(fs.existsSync(path.join(tmpHome, 'skills', 'brevo-cli'))).toBe(true);
     });
 
     it('skips directories without our marker (safety)', () => {
@@ -216,6 +300,21 @@ describe('services/skill', () => {
       expect(writes).toContain(`v${latest}`);
     });
 
+    it('refreshes a stale copy in ~/.agents/skills too', () => {
+      skillService.install('brevo-cli', { agents: ['codex'] });
+      const markerPath = path.join(tmpAgentsHome, 'skills', 'brevo-cli', '.brevo-skill.json');
+      const marker = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+      marker.version = '0.0.1';
+      fs.writeFileSync(markerPath, JSON.stringify(marker));
+
+      const output = { write: jest.fn() } as unknown as NodeJS.WriteStream;
+      skillService.autoRefreshOutdated({ env: {}, argv: ['node', 'brevo', 'app', 'list'], output });
+
+      const latest = SKILL_CATALOG.find((s) => s.name === 'brevo-cli')!.version;
+      expect(JSON.parse(fs.readFileSync(markerPath, 'utf-8')).version).toBe(latest);
+      expect(fs.existsSync(path.join(tmpHome, 'skills', 'brevo-cli'))).toBe(false);
+    });
+
     it('respects BREVO_NO_SKILL_AUTOREFRESH=1 even when stale', () => {
       const markerPath = installStaleBrevoCli('0.0.1');
 
@@ -233,7 +332,7 @@ describe('services/skill', () => {
 
     it('does not throw if the install fails — falls through to a single error line', () => {
       installStaleBrevoCli('0.0.1');
-      const installSpy = jest.spyOn(skillService, 'install').mockImplementation(() => {
+      const installSpy = jest.spyOn(skillService, 'reinstallAt').mockImplementation(() => {
         throw new Error('EACCES: permission denied');
       });
 

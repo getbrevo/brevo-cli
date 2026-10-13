@@ -257,12 +257,12 @@ src/
 
 The CLI ships two agent-facing docs at the repo root, both bundled into the published tarball via `package.json` `files:`:
 
-- `agent-context/SKILL.md` — the Claude Code skill. Installed into `~/.claude/skills/brevo-cli/` by `brevo skill:cli install` and **auto-refreshed** on every subsequent `brevo` invocation (opt out: `BREVO_NO_SKILL_AUTOREFRESH=1`). It is also the source `src/skills/index.ts` reads via `SKILLS_BUNDLE_DIR` — there is no second copy.
+- `agent-context/SKILL.md` — the agent skill, in the open Agent Skills format. `brevo skill:cli install` installs it into `~/.claude/skills/brevo-cli/` (Claude Code, the default) and, with `--agent codex|gemini|all`, into `~/.agents/skills/brevo-cli/` (read by both Codex and Gemini CLI). Every installed copy is **auto-refreshed** on each subsequent `brevo` invocation (opt out: `BREVO_NO_SKILL_AUTOREFRESH=1`). It is also the source `src/skills/index.ts` reads via `SKILLS_BUNDLE_DIR` — there is no second copy. Keep its wording agent-neutral: name an agent only where a step really differs per agent.
 - `agent-context/AGENTS.md` — the broader `agents.md`-format reference for any agent-aware tool.
 
 **Whenever you change user-visible CLI behavior, update both files in the same PR.** An out-of-sync skill actively misleads any AI helping a user with this CLI — that's worse than no skill at all.
 
-**Keep `AGENTS.md` and `SKILL.md` in sync with each other.** Even when no CLI behavior changed, if you edit one of these files, check the other still aligns before opening the PR. They cover the same command surface, hard rules, version-check procedure, and exit codes — `AGENTS.md` is the broader reference (also documents env vars and the Claude-vs-non-Claude install path), `SKILL.md` is the Claude-focused subset. Pure-doc edits aren't "user-visible CLI behavior," so the rule above doesn't catch them — this rule does. If a difference is intentional (e.g. AGENTS.md branches by agent type because SKILL.md is Claude-only by construction), say so in the PR description so a future reader doesn't try to "fix" it.
+**Keep `AGENTS.md` and `SKILL.md` in sync with each other.** Even when no CLI behavior changed, if you edit one of these files, check the other still aligns before opening the PR. They cover the same command surface, hard rules, version-check procedure, and exit codes — `AGENTS.md` is the broader reference (also documents env vars and the install path for agents with and without a skills directory), `SKILL.md` is the subset an agent loads as a skill. Pure-doc edits aren't "user-visible CLI behavior," so the rule above doesn't catch them — this rule does. If a difference is intentional (e.g. AGENTS.md branches by whether the agent loads skills, which SKILL.md never needs to), say so in the PR description so a future reader doesn't try to "fix" it.
 
 **What counts as user-visible:**
 

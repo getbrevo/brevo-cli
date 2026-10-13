@@ -2,11 +2,12 @@ import { logSuccess, logInfo } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { skillService } from '../../services/skill';
+import { parseSkillAgents, skillService } from '../../services/skill';
 
 export const installCommand = withCommandHandler(
-  async (options: { json?: boolean }): Promise<void> => {
-    const results = skillService.installAll();
+  async (options: { json?: boolean; agent?: string }): Promise<void> => {
+    const agents = parseSkillAgents(options.agent);
+    const results = skillService.installAll({ agents });
 
     if (options.json) {
       jsonOutput(results);
@@ -18,13 +19,14 @@ export const installCommand = withCommandHandler(
       if (r.status === 'already-installed') {
         logInfo(`\n  ${messages.SKILL_INSTALL_ALREADY(r.name, r.version)}`);
       } else {
-        logSuccess(messages.SKILL_INSTALL_SUCCESS(r.name, r.version, r.path));
+        logSuccess(messages.SKILL_INSTALL_SUCCESS(r.name, r.version, r.path, r.agents.join(', ')));
         installedFresh = true;
       }
     }
 
-    if (installedFresh) {
-      logInfo(`\n  ${messages.SKILL_INSTALL_CLAUDE_ONLY}`);
+    // Only the default (Claude Code) install needs the pointer to the other agents.
+    if (installedFresh && options.agent === undefined) {
+      logInfo(`\n  ${messages.SKILL_INSTALL_OTHER_AGENTS}`);
     }
   },
 );

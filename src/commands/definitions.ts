@@ -489,22 +489,53 @@ export const appCommandGroup: SubcommandGroupDefinition = {
 
 export const skillCommandGroup: SubcommandGroupDefinition = {
   name: 'skill:cli',
-  description: 'Install the brevo-cli Claude Code skill (Claude only)',
+  description: 'Install the brevo-cli agent skill (Claude Code, Codex, Gemini CLI)',
   commands: [
     {
       name: 'install',
       description:
-        'Install the brevo-cli skill into ~/.claude/skills/ (Claude only — other AI tools should read agent-context/AGENTS.md instead)',
-      examples: ['brevo skill:cli install', 'brevo skill:cli install --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => skillInstallCommand({ json: Boolean(opts.json) }),
+        'Install the brevo-cli skill for your agent: ~/.claude/skills/ for Claude Code (default), ~/.agents/skills/ for Codex and Gemini CLI',
+      examples: [
+        'brevo skill:cli install',
+        'brevo skill:cli install --agent codex,gemini',
+        'brevo skill:cli install --agent all --json',
+      ],
+      options: [
+        {
+          flags: '--agent <agents>',
+          description:
+            'Agents to install for: claude, codex, gemini (comma-separated), or all. Default: claude',
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        skillInstallCommand({
+          json: Boolean(opts.json),
+          agent: opts.agent as string | undefined,
+        }),
     },
     {
       name: 'uninstall',
-      description: 'Remove the brevo-cli skill from ~/.claude/skills/ (Claude only)',
-      examples: ['brevo skill:cli uninstall', 'brevo skill:cli uninstall --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => skillUninstallCommand({ json: Boolean(opts.json) }),
+      description:
+        'Remove the brevo-cli skill the CLI installed (every agent, or only those given with --agent)',
+      examples: [
+        'brevo skill:cli uninstall',
+        'brevo skill:cli uninstall --agent codex',
+        'brevo skill:cli uninstall --json',
+      ],
+      options: [
+        {
+          flags: '--agent <agents>',
+          description:
+            'Agents to remove it for: claude, codex, gemini (comma-separated), or all. Default: every agent',
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        skillUninstallCommand({
+          json: Boolean(opts.json),
+          agent: opts.agent as string | undefined,
+        }),
     },
   ],
 };

@@ -1113,13 +1113,16 @@ const coreMessages = {
   INIT_DONE_UI_APP: `All set! Follow the next steps above, or run \`${CLI.HELP}\` to see all commands.`,
 
   // Skill
-  SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string) =>
-    `Installed ${name}@${version} → ${dir}`,
-  SKILL_INSTALL_CLAUDE_ONLY:
-    'This skill is consumed by Claude Code. Other AI tools (Claude Desktop chat, Cursor, Copilot CLI, Gemini, etc.) should reference agent-context/AGENTS.md from the @getbrevo/cli npm package instead.',
+  SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string, agents: string) =>
+    `Installed ${name}@${version} for ${agents} → ${dir}`,
+  SKILL_INSTALL_OTHER_AGENTS:
+    "Using Codex or Gemini CLI? Run `brevo skill:cli install --agent codex,gemini` (or `--agent all`). Chat apps that don't read a skills directory, like Claude Desktop chat, can use agent-context/AGENTS.md from the @getbrevo/cli npm package instead.",
+  SKILL_UNKNOWN_AGENT: (agent: string, known: string) =>
+    `Unknown agent "${agent}". Use one or more of: ${known} (comma-separated), or all.`,
   SKILL_INSTALL_ALREADY: (name: string, version: string) =>
     `${name}@${version} is already up to date.`,
-  SKILL_UNINSTALL_SUCCESS: (name: string, dir: string) => `Uninstalled ${name} from ${dir}`,
+  SKILL_UNINSTALL_SUCCESS: (name: string, dir: string, agents: string) =>
+    `Uninstalled ${name} for ${agents} from ${dir}`,
   SKILL_UNINSTALL_NONE: 'No Brevo skills installed.',
   SKILL_AUTOREFRESHED: (name: string, oldVer: string, newVer: string) =>
     `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,

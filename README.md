@@ -265,6 +265,8 @@ Environment overrides:
 | `BREVO_OAUTH_PROXY_URL` | OAuth proxy used by browser login (HTTPS required, except for `localhost`) | `https://oauth-cli.brevo.com` |
 | `BREVO_OAUTH_BASE_URL` | OAuth realm used for scope lookups and scaffolded project templates (HTTPS required, except for `localhost`) | `https://oauth.brevo.com` |
 | `BREVO_CONFIG_HOME` | Override for the credentials directory | `~/.brevo/` |
+| `BREVO_CLAUDE_HOME` | Override the Claude Code home `brevo skill:cli` installs into | `~/.claude/` |
+| `BREVO_AGENTS_HOME` | Override the shared agents home `brevo skill:cli --agent codex,gemini` installs into | `~/.agents/` |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs | off |
 | `NO_COLOR` / `FORCE_COLOR` | Disable / force ANSI colour output | – |
 | `DEBUG` or `--debug` | Verbose HTTP and error logging | off |
@@ -273,20 +275,22 @@ Credentials are stored at `~/.brevo/credentials.json`; per-app client secrets ar
 
 ## AI agent integration
 
-If you use Claude Code, Cursor, Aider, Copilot CLI, or another agent that reads project context, the package ships ready-to-use context files so agents know how to call `brevo` correctly:
+If you use Claude Code, Codex, Gemini CLI, Cursor, Aider, Copilot CLI, or another agent that reads project context, the package ships ready-to-use context files so agents know how to call `brevo` correctly:
 
 - `node_modules/@getbrevo/cli/agent-context/AGENTS.md` — overview, command list, conventions, and safety rules. Compatible with the [agents.md](https://agents.md) format.
-- `node_modules/@getbrevo/cli/agent-context/SKILL.md` — Claude Code skill (with YAML frontmatter and trigger keywords) for auto-activation when a conversation touches the Brevo CLI.
+- `node_modules/@getbrevo/cli/agent-context/SKILL.md` — an [Agent Skills](https://agentskills.io) skill (with YAML frontmatter and trigger keywords) for auto-activation when a conversation touches the Brevo CLI.
 
-### Claude Code skill (recommended)
+### Agent skill (recommended)
 
 The CLI installs and maintains the skill for you:
 
 ```bash
-brevo skill:cli install
+brevo skill:cli install                      # Claude Code (default)
+brevo skill:cli install --agent codex,gemini # Codex and Gemini CLI
+brevo skill:cli install --agent all          # all of them
 ```
 
-This copies `SKILL.md` into `~/.claude/skills/brevo-cli/`. Every subsequent `brevo` invocation auto-refreshes it when the bundled version is newer than the installed one — you'll see a `↻ refreshed brevo-cli skill (vX → vY)` notice on stderr when that happens. Opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`. Remove with `brevo skill:cli uninstall`.
+Claude Code reads it from `~/.claude/skills/brevo-cli/`; Codex and Gemini CLI read it from `~/.agents/skills/brevo-cli/`, so one copy there serves both. Every subsequent `brevo` invocation auto-refreshes every installed copy when the bundled version is newer than the installed one — you'll see a `↻ refreshed brevo-cli skill (vX → vY)` notice on stderr when that happens. Opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`. Remove with `brevo skill:cli uninstall` (every copy) or `brevo skill:cli uninstall --agent <agent>`.
 
 On the first interactive `brevo` invocation after install, you'll also see a one-time banner on stderr inviting you to install the skill. The notice records itself at `~/.brevo/skill-banner.json` and never repeats. Skipped under CI, non-TTY, `--json`, or any `brevo skill:cli` command.
 
@@ -298,7 +302,8 @@ If you prefer not to install via the CLI, copy the files in directly:
 # AGENTS.md — append into your existing AGENTS.md, or copy if you don't have one
 cat node_modules/@getbrevo/cli/agent-context/AGENTS.md >> AGENTS.md
 
-# Claude Code skill — note the directory name matches what `brevo skill:cli install` uses
+# Skill — note the directory name matches what `brevo skill:cli install` uses.
+# Claude Code reads .claude/skills/; Codex and Gemini CLI read .agents/skills/.
 mkdir -p .claude/skills/brevo-cli
 cp node_modules/@getbrevo/cli/agent-context/SKILL.md .claude/skills/brevo-cli/SKILL.md
 ```
