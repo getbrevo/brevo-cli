@@ -1141,6 +1141,8 @@ const coreMessages = {
   SKILL_SKIPPED_DOWNLOAD: (name: string, detail: string) =>
     `Skipped ${name}: download failed (${detail}).`,
   SKILL_SKIPPED_NOT_INSTALLED: (name: string) => `${name} is not installed by the CLI.`,
+  SKILL_UNSAFE_PATH: (name: string, file: string) =>
+    `Refused ${name}: file "${file}" would be written outside the skill directory. Nothing was written.`,
   SKILL_SKIPPED_NOT_IN_CATALOG: (name: string, release: string) =>
     `Skipped ${name}: not in catalog ${release}.`,
   SKILL_HASH_DETAIL: (expected: string, actual: string) =>

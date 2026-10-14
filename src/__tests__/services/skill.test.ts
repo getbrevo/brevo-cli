@@ -9,7 +9,9 @@ import {
   getSkillLockPath,
   parseSkillAgents,
   readSkillLock,
+  resolveSkillFileDestination,
   shouldSkipAutoRefresh,
+  UnsafeSkillPathError,
 } from '../../services/skill';
 import {
   getCatalogCachePath,
@@ -453,6 +455,86 @@ describe('services/skill', () => {
         expect(run.warnings.some((w) => w.includes('skills.lock.json'))).toBe(true);
       } finally {
         fs.chmodSync(getSkillLockPath(), 0o600);
+      }
+    });
+  });
+
+  describe('resolveSkillFileDestination (write-site guard)', () => {
+    it('resolves a plain nested file under the skill directory', () => {
+      const dir = claudeDir('brevo-cli');
+      expect(resolveSkillFileDestination(dir, 'brevo-cli', 'references/commands.md')).toBe(
+        path.resolve(dir, 'references', 'commands.md'),
+      );
+    });
+
+    it.each([
+      ['parent traversal', '../escape.md'],
+      ['deep traversal', 'a/../../escape.md'],
+      ['backslash traversal', 'a\\..\\..\\escape.md'],
+      ['drive letter', 'C:/escape.md'],
+      ['dot segment', './SKILL.md'],
+      ['empty segment', 'a//SKILL.md'],
+      ['marker clobber', '.brevo-skill.json'],
+      ['nested marker clobber', 'refs/.brevo-skill.json'],
+      ['absolute', '/etc/passwd'],
+    ])('refuses %s and names the skill and file', (_label, file) => {
+      const dir = claudeDir('brevo-cli');
+      let caught: unknown;
+      try {
+        resolveSkillFileDestination(dir, 'brevo-cli', file);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(UnsafeSkillPathError);
+      expect((caught as UnsafeSkillPathError).message).toContain('Refused brevo-cli');
+      expect((caught as UnsafeSkillPathError).message).toContain(file);
+      expect(fs.existsSync(path.join(tmpHome, 'escape.md'))).toBe(false);
+    });
+
+    it('refuses a symlinked subdirectory and a symlinked skill directory', () => {
+      const outside = fs.mkdtempSync(path.join(SANDBOX_ROOT, 'brevo-outside-'));
+      try {
+        const dir = claudeDir('brevo-cli');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.symlinkSync(outside, path.join(dir, 'references'));
+        expect(() =>
+          resolveSkillFileDestination(dir, 'brevo-cli', 'references/commands.md'),
+        ).toThrow(UnsafeSkillPathError);
+        // A regular file at the top level of the same directory is still fine.
+        expect(() => resolveSkillFileDestination(dir, 'brevo-cli', 'SKILL.md')).not.toThrow();
+
+        const linkedDir = claudeDir('linked');
+        fs.mkdirSync(path.dirname(linkedDir), { recursive: true });
+        fs.symlinkSync(outside, linkedDir);
+        expect(() => resolveSkillFileDestination(linkedDir, 'linked', 'SKILL.md')).toThrow(
+          UnsafeSkillPathError,
+        );
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it('install skips a skill whose directory would carry a write outside it, and writes nothing there', async () => {
+      const outside = fs.mkdtempSync(path.join(SANDBOX_ROOT, 'brevo-outside-'));
+      try {
+        // A user-authored brevo-cli directory (no marker) whose `references` is a link elsewhere.
+        const dir = claudeDir('brevo-cli');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.symlinkSync(outside, path.join(dir, 'references'));
+
+        const run = await skillService.install(['brevo-cli'], { fetchImpl });
+        expect(run.failed).toBe(true);
+        expect(run.results.find((r) => r.name === 'brevo-cli')).toMatchObject({
+          status: 'skipped',
+          reason: 'unsafe-path',
+          detail: 'references/commands.md',
+        });
+        expect(fs.readdirSync(outside)).toEqual([]);
+        expect(fs.existsSync(path.join(dir, 'SKILL.md'))).toBe(false);
+        expect(fs.existsSync(path.join(dir, '.brevo-skill.json'))).toBe(false);
+        expect(run.results.find((r) => r.name === 'brevo')?.status).toBe('installed');
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true });
       }
     });
   });

@@ -10,6 +10,7 @@ import {
   getCatalogCachePath,
   hashFiles,
   isCatalogCacheStale,
+  isSafeRelativePath,
   noteCatalogAttempt,
   readCatalogCache,
   skillFileUrl,
@@ -174,6 +175,55 @@ describe('services/skill-catalog', () => {
     ])('rejects a malformed catalog: %s', (_label, raw, message) => {
       expect(() => validateCatalog(raw)).toThrow(CatalogInvalidError);
       expect(() => validateCatalog(raw)).toThrow(message);
+    });
+  });
+
+  describe('isSafeRelativePath', () => {
+    it.each([
+      ['parent segment', '../x.md'],
+      ['parent in the middle', 'a/../x.md'],
+      ['backslash', 'a\\..\\..\\x.md'],
+      ['backslash separator', 'refs\\x.md'],
+      ['drive letter', 'C:/x.md'],
+      ['drive letter bare', 'C:x.md'],
+      ['dot segment', './x.md'],
+      ['dot in the middle', 'a/./x.md'],
+      ['empty segment', 'a//x.md'],
+      ['leading slash', '/x.md'],
+      ['trailing slash', 'a/'],
+      ['empty', ''],
+      ['marker name', '.brevo-skill.json'],
+      ['marker name nested', 'refs/.brevo-skill.json'],
+      ['control character', 'a\u0000b.md'],
+      ['newline', 'a\nb.md'],
+      ['space', 'a b.md'],
+      ['not a string', 42],
+    ])('rejects %s', (_label, value) => {
+      expect(isSafeRelativePath(value)).toBe(false);
+    });
+
+    it('accepts plain nested names', () => {
+      expect(isSafeRelativePath('SKILL.md')).toBe(true);
+      expect(isSafeRelativePath('references/conversion-report.md')).toBe(true);
+      expect(isSafeRelativePath('skills/brevo-cli')).toBe(true);
+      expect(isSafeRelativePath('.hidden/_x-1.md')).toBe(true);
+    });
+
+    it('is applied to every file and to the skill path', () => {
+      for (const file of ['a\\..\\x.md', 'C:/x.md', './x.md', 'a//x.md', '.brevo-skill.json']) {
+        const raw = {
+          version: '0.1.0',
+          skills: [{ ...skillEntry(STUB_SKILLS[0]!), files: [file] }],
+        };
+        expect(() => validateCatalog(raw)).toThrow(/not a relative path/);
+      }
+      for (const skillPath of ['skills\\brevo', 'C:skills', 'skills/./brevo', 'skills//brevo']) {
+        const raw = {
+          version: '0.1.0',
+          skills: [{ ...skillEntry(STUB_SKILLS[0]!), path: skillPath }],
+        };
+        expect(() => validateCatalog(raw)).toThrow(/path is missing or not a relative path/);
+      }
     });
   });
 

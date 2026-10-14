@@ -52,6 +52,9 @@ function logResult(r: InstallResult, dryRun: boolean): void {
         case 'download-failed':
           logWarn(messages.SKILL_SKIPPED_DOWNLOAD(r.name, r.detail ?? ''));
           return;
+        case 'unsafe-path':
+          logWarn(messages.SKILL_UNSAFE_PATH(r.name, r.detail ?? ''));
+          return;
         case 'not-installed':
           logInfo(`  ${messages.SKILL_SKIPPED_NOT_INSTALLED(r.name)}`);
           return;

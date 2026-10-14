@@ -122,9 +122,33 @@ const PLATFORMS: readonly SkillPlatform[] = ['claude', 'openai', 'gemini'];
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
-// A path segment that could escape the skill directory. Files and skill paths
-// are joined onto the user's home, so this is the one check that is not optional.
-const SAFE_RELATIVE_RE = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\0]+$/;
+
+/** The marker the installer writes next to a skill's files; a catalog may not ship one. */
+export const SKILL_MARKER_FILE = '.brevo-skill.json';
+
+// One path segment. Deliberately narrow: letters, digits, dot, underscore and
+// dash. Backslashes, colons (drive letters), control characters and anything
+// a shell or a Windows path parser could read as structure are refused.
+const PATH_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * True for a `/`-joined relative path whose every segment is a plain name:
+ * not `.` or `..`, not empty (no leading, trailing or doubled slashes), not the
+ * installer's own marker. Files and skill paths are joined onto the user's
+ * home directory, so this check is the one that keeps a catalog from writing
+ * outside the skill directory — the write site checks again.
+ */
+export function isSafeRelativePath(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  const segments = value.split('/');
+  return segments.every(
+    (segment) =>
+      PATH_SEGMENT_RE.test(segment) &&
+      segment !== '.' &&
+      segment !== '..' &&
+      segment !== SKILL_MARKER_FILE,
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -144,14 +168,14 @@ function validateSkill(raw: unknown, index: number): CatalogSkill {
   if (typeof version !== 'string' || !VERSION_RE.test(version)) {
     throw new CatalogInvalidError(`${name}: version is missing or not semver`);
   }
-  if (typeof skillPath !== 'string' || !SAFE_RELATIVE_RE.test(skillPath)) {
+  if (!isSafeRelativePath(skillPath)) {
     throw new CatalogInvalidError(`${name}: path is missing or not a relative path`);
   }
   if (!isStringArray(files) || files.length === 0) {
     throw new CatalogInvalidError(`${name}: files is missing or empty`);
   }
   for (const file of files) {
-    if (!SAFE_RELATIVE_RE.test(file)) {
+    if (!isSafeRelativePath(file)) {
       throw new CatalogInvalidError(`${name}: file "${file}" is not a relative path`);
     }
   }

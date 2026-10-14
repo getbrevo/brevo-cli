@@ -208,6 +208,15 @@ describe('skill/install', () => {
             agents: ['claude'],
           },
           { name: 'f', version: '1.0.0', status: 'skipped', path: '', agents: ['claude'] },
+          {
+            name: 'g',
+            version: '1.0.0',
+            status: 'skipped',
+            reason: 'unsafe-path',
+            detail: '../x.md',
+            path: '',
+            agents: ['claude'],
+          },
         ],
       }),
     );
@@ -223,6 +232,9 @@ describe('skill/install', () => {
     expect(text).toContain('d is not installed by the CLI');
     expect(text).toContain('Skipped e: not in catalog 0.1.0');
     expect(text).toContain('Skipped f.');
+    expect(text).toContain(
+      'Refused g: file "../x.md" would be written outside the skill directory',
+    );
     // Nothing was written, so no MCP command is printed either.
     expect(text).not.toContain('mcp add');
   });

@@ -4,6 +4,7 @@ import * as os from 'node:os';
 
 import { messages } from '../lang/en';
 import { CliError } from '../lib/errors';
+import { EXIT_CODES } from '../lib/exit-codes';
 import { isNewer } from '../lib/update-notifier';
 import { CLI_VERSION, SKILLS_BUNDLE_DIR, getSkill as getBundledSkill } from '../skills';
 import {
@@ -12,10 +13,12 @@ import {
   CatalogInvalidError,
   CatalogMcp,
   CatalogSkill,
+  SKILL_MARKER_FILE,
   SkillCatalog,
   SkillFile,
   SkillPlatform,
   catalogUrl,
+  isSafeRelativePath,
   fetchCatalog,
   fetchSkillFiles,
   hashFiles,
@@ -128,7 +131,7 @@ function allTargets(): SkillTarget[] {
 // the same value, so an older install is read as a bundled one and migrated to
 // the catalog on the next update).
 
-const MARKER_FILE = '.brevo-skill.json';
+const MARKER_FILE = SKILL_MARKER_FILE;
 
 export type SkillSource = 'brevo-skills' | 'brevo-cli';
 
@@ -209,17 +212,66 @@ function hashInstalledDir(skillDir: string): string {
   return hashFiles(files);
 }
 
-function writeSkillFiles(skillDir: string, files: readonly SkillFile[], replace: boolean): void {
+/** A catalog file that may not be written where it points. The skill is skipped, like a hash mismatch. */
+export class UnsafeSkillPathError extends CliError {
+  constructor(
+    public readonly skill: string,
+    public readonly file: string,
+  ) {
+    super(messages.SKILL_UNSAFE_PATH(skill, file), EXIT_CODES.ERROR);
+    this.name = 'UnsafeSkillPathError';
+  }
+}
+
+function isSymlink(p: string): boolean {
+  try {
+    return fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where one skill file lands, or a throw. The catalog validated the path as
+ * plain segments already; this is the second layer, at the one place bytes
+ * reach the disk, and it does not trust the first: the resolved destination
+ * must stay under the skill directory, and no existing component between the
+ * two may be a symbolic link (a link inside a user-authored directory, or the
+ * directory itself, would carry the write somewhere else).
+ */
+export function resolveSkillFileDestination(skillDir: string, skill: string, file: string): string {
+  if (!isSafeRelativePath(file)) throw new UnsafeSkillPathError(skill, file);
+  const root = path.resolve(skillDir);
+  const segments = file.split('/');
+  const dest = path.resolve(root, ...segments);
+  if (!dest.startsWith(root + path.sep)) throw new UnsafeSkillPathError(skill, file);
+  if (isSymlink(root)) throw new UnsafeSkillPathError(skill, file);
+  let cursor = root;
+  for (const segment of segments) {
+    cursor = path.join(cursor, segment);
+    if (isSymlink(cursor)) throw new UnsafeSkillPathError(skill, file);
+  }
+  return dest;
+}
+
+function writeSkillFiles(
+  skillDir: string,
+  skill: string,
+  files: readonly SkillFile[],
+  replace: boolean,
+): void {
   // A directory the CLI owns is replaced whole, so a file dropped from the
   // skill does not linger; one it does not own only gets the skill's files
-  // written over it.
+  // written over it. Every destination is checked before anything is removed
+  // or written, so a refused file leaves the directory exactly as it was.
   if (replace) fs.rmSync(skillDir, { recursive: true, force: true });
+  const destinations = files.map((file) => resolveSkillFileDestination(skillDir, skill, file.path));
   fs.mkdirSync(skillDir, { recursive: true });
-  for (const file of files) {
-    const dest = path.join(skillDir, ...file.path.split('/'));
+  files.forEach((file, i) => {
+    const dest = destinations[i]!;
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.writeFileSync(dest, file.bytes);
-  }
+  });
 }
 
 // ──────────────── Lock file ────────────────
@@ -355,6 +407,7 @@ export type SkipReason =
   | 'min-cli-version'
   | 'hash-mismatch'
   | 'download-failed'
+  | 'unsafe-path'
   | 'not-installed'
   | 'not-in-catalog'
   | 'pinned';
@@ -670,7 +723,14 @@ export const skillService = {
           });
           continue;
         }
-        writeSkillFiles(skillDir, download.files, marker !== null);
+        try {
+          writeSkillFiles(skillDir, skill.name, download.files, marker !== null);
+        } catch (err) {
+          if (!(err instanceof UnsafeSkillPathError)) throw err;
+          failed = true;
+          results.push({ ...base, status: 'skipped', reason: 'unsafe-path', detail: err.file });
+          continue;
+        }
         const markerSource: SkillSource = source === 'bundled' ? 'brevo-cli' : 'brevo-skills';
         writeMarker(skillDir, {
           name: skill.name,
@@ -802,7 +862,14 @@ export const skillService = {
           });
           continue;
         }
-        writeSkillFiles(dir, download.files, true);
+        try {
+          writeSkillFiles(dir, skill.name, download.files, true);
+        } catch (err) {
+          if (!(err instanceof UnsafeSkillPathError)) throw err;
+          failed = true;
+          results.push({ ...base, status: 'skipped', reason: 'unsafe-path', detail: err.file });
+          continue;
+        }
         writeMarker(dir, {
           name: skill.name,
           version: skill.version,
@@ -1009,7 +1076,7 @@ export const skillService = {
           output.write(`  ${messages.SKILL_AUTOREFRESH_FAILED(marker.name, download.detail)}\n`);
           continue;
         }
-        writeSkillFiles(dir, download.files, true);
+        writeSkillFiles(dir, skill.name, download.files, true);
         writeMarker(dir, {
           name: skill.name,
           version: skill.version,
@@ -1055,7 +1122,7 @@ function refreshBundledCopies(
     if (marker.name !== BUNDLED_SKILL_NAME || marker.source !== 'brevo-cli') continue;
     if (marker.version === CLI_VERSION) continue;
     try {
-      writeSkillFiles(dir, readBundledFiles(), true);
+      writeSkillFiles(dir, bundled.name, readBundledFiles(), true);
       writeMarker(dir, {
         name: bundled.name,
         version: bundled.version,

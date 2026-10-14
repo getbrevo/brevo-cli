@@ -48,36 +48,58 @@ export function formatCommand(argv: readonly string[]): string {
     .join(' ');
 }
 
-/** True when `binary` resolves on the PATH (with the Windows extensions on win32). */
-export function isOnPath(binary: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const dirs = (env.PATH ?? '').split(path.delimiter).filter(Boolean);
+/**
+ * The absolute path of `binary` on the PATH, or undefined. Only absolute PATH
+ * entries count: a relative or empty entry (`.`, or the empty string Windows
+ * reads as the current directory) would let a file planted in the working
+ * directory stand in for the agent's CLI. On win32 the PATHEXT extensions are
+ * tried, bare name first, so the caller can see what kind of file it found.
+ */
+export function resolveOnPath(
+  binary: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  const dirs = (env.PATH ?? '').split(path.delimiter).filter((dir) => path.isAbsolute(dir));
   const names =
-    process.platform === 'win32'
+    platform === 'win32'
       ? [binary, ...(env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';').map((ext) => binary + ext)]
       : [binary];
   for (const dir of dirs) {
     for (const name of names) {
+      const candidate = path.join(dir, name);
       try {
-        const stat = fs.statSync(path.join(dir, name));
-        if (stat.isFile()) return true;
+        if (fs.statSync(candidate).isFile()) return candidate;
       } catch {
         // not here
       }
     }
   }
-  return false;
+  return undefined;
+}
+
+/** True when `binary` resolves on the PATH (see {@link resolveOnPath}). */
+export function isOnPath(binary: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return resolveOnPath(binary, env) !== undefined;
 }
 
 export interface RegisterMcpOptions {
-  /** PATH probe; tests stub it. */
-  isOnPath?: (binary: string) => boolean;
-  /** Runs the command; tests stub it. Returns the exit status and combined output. */
+  /** PATH probe returning the absolute path to run; tests stub it. */
+  resolve?: (binary: string) => string | undefined;
+  /** Runs the command, `argv[0]` being that absolute path; tests stub it. */
   run?: (argv: string[]) => { status: number | null; output: string };
+  /** The platform the `.cmd`/`.bat` rule is decided for; tests stub it. */
+  platform?: NodeJS.Platform;
 }
 
 function runCommand(argv: string[]): { status: number | null; output: string } {
   const [bin, ...args] = argv;
-  const result = spawnSync(bin!, args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const result = spawnSync(bin!, args, {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: false,
+    windowsHide: true,
+  });
   const output = [result.stdout, result.stderr, result.error?.message]
     .filter(Boolean)
     .join('\n')
@@ -87,8 +109,9 @@ function runCommand(argv: string[]): { status: number | null; output: string } {
 
 /**
  * Register the catalog's MCP server with one agent, or produce the command to
- * do it by hand. Only the agent's own CLI is ever executed, with the catalog's
- * `https://` endpoint as an argument and no shell in between.
+ * do it by hand. Only the agent's own CLI is ever executed, by the absolute
+ * path it resolved to, with the catalog's `https://` endpoint as an argument
+ * and no shell in between.
  */
 export function registerMcp(
   agent: SkillAgent,
@@ -99,11 +122,22 @@ export function registerMcp(
   if (!mcp || !endpoint) return { agent, status: 'no-endpoint' };
 
   const command = mcpAddCommand(agent, mcp.serverName, endpoint);
-  const onPath = options.isOnPath ?? isOnPath;
-  if (!onPath(AGENT_BINARY[agent])) {
+  const resolved = (options.resolve ?? resolveOnPath)(AGENT_BINARY[agent]);
+  if (!resolved) {
     return { agent, endpoint, command, status: 'printed' };
   }
-  const result = (options.run ?? runCommand)(command);
+  // On Windows a `.cmd`/`.bat` launcher (how npm installs the agent CLIs) only
+  // runs through cmd.exe, and handing an argument list to a shell is exactly
+  // what this code avoids. Those are printed for the user to run; a real
+  // `.exe` is executed directly.
+  const platform = options.platform ?? process.platform;
+  if (platform === 'win32' && !resolved.toLowerCase().endsWith('.exe')) {
+    return { agent, endpoint, command, status: 'printed' };
+  }
+  // The resolved absolute path is what gets spawned, never the bare name, so
+  // the OS does no lookup of its own (CreateProcess would search the current
+  // directory first).
+  const result = (options.run ?? runCommand)([resolved, ...command.slice(1)]);
   if (result.status === 0) return { agent, endpoint, command, status: 'registered' };
   return {
     agent,
