@@ -120,8 +120,14 @@ function formatRootHelp(description: string): string {
         ])
       : []),
     `Skill commands:`,
-    `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
-    `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,
+    `  brevo skill install [names...]   [--agent <agents>] [--pin <release>] [--mcp] [--force] [--dry-run] [--json]`,
+    `                                                        Install skills from the Brevo skills catalog`,
+    `  brevo skill update [names...]    [--agent <agents>] [--pin <release>] [--mcp] [--force] [--dry-run] [--json]`,
+    `                                                        Reinstall skills that are behind the catalog`,
+    `  brevo skill uninstall [names...] [--agent <agents>] [--json]`,
+    `                                                        Remove skills the CLI installed`,
+    `  brevo skill list                 [--json]             Installed skills and the catalog`,
+    `  brevo skill check                [--json]             Report outdated or modified skills (exit 1)`,
     ``,
     // GA (Brevo Functions shipped): `brevo-function-type` is 'ga' in FEATURE_STAGE, so
     // this renders in every build. The gatedSection call stays for the same reason as

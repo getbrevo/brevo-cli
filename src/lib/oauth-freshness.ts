@@ -93,7 +93,7 @@ export async function ensureFreshOauthToken(deps: OauthFreshnessDeps): Promise<b
 
 // Registers the proactive refresh as a `preAction` hook, gated to exactly the
 // commands the auth guard protects — local-only commands (`login`, `logout`,
-// `skill:cli …`) must keep working offline, so they never trigger a network
+// `skill …`) must keep working offline, so they never trigger a network
 // call. Register after `installAuthGuard` so an unauthenticated invocation
 // still fails fast on the guard.
 //

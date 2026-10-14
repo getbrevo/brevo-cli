@@ -4,14 +4,21 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { parseSkillAgents, skillService } from '../../services/skill';
 
+export interface SkillUninstallOptions {
+  json?: boolean;
+  agent?: string;
+  /** Skill names; empty means every skill the CLI installed. */
+  names?: string[];
+}
+
 export const uninstallCommand = withCommandHandler(
-  async (options: { json?: boolean; agent?: string }): Promise<void> => {
+  async (options: SkillUninstallOptions): Promise<void> => {
     // Without --agent, remove every copy the CLI installed, whichever agent it was for.
     const agents = options.agent === undefined ? undefined : parseSkillAgents(options.agent);
-    const results = skillService.uninstallAll({ agents });
+    const results = skillService.uninstall(options.names ?? [], { agents });
 
     if (options.json) {
-      jsonOutput(results.map((r) => ({ uninstalled: true, ...r })));
+      jsonOutput(results.map((r) => ({ uninstalled: r.status === 'removed', ...r })));
       return;
     }
 
@@ -21,7 +28,11 @@ export const uninstallCommand = withCommandHandler(
     }
 
     for (const r of results) {
-      logSuccess(messages.SKILL_UNINSTALL_SUCCESS(r.name, r.path, r.agents.join(', ')));
+      if (r.status === 'removed') {
+        logSuccess(messages.SKILL_UNINSTALL_SUCCESS(r.name, r.path, r.agents.join(', ')));
+      } else {
+        logInfo(`  ${messages.SKILL_UNINSTALL_NOT_OURS(r.name, r.path)}`);
+      }
     }
   },
 );
