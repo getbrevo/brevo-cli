@@ -19,15 +19,16 @@ The Brevo API enforces the same boundaries independently, so nothing is gained b
 
 Pick the path that matches your tooling:
 
-- **Your agent loads skills from a skills directory** (Claude Code, Codex, Gemini CLI) — install the brevo-cli skill before doing other work, if it isn't already installed:
+- **Your agent loads skills from a skills directory** (Claude Code, Codex, Gemini CLI) — install the Brevo skills before doing other work, if they aren't already installed:
 
   ```bash
-  brevo skill:cli install                      # Claude Code: ~/.claude/skills/brevo-cli/
-  brevo skill:cli install --agent codex,gemini # Codex and Gemini CLI: ~/.agents/skills/brevo-cli/
-  brevo skill:cli install --agent all          # both
+  brevo skill install                          # every Brevo skill, Claude Code: ~/.claude/skills/<name>/
+  brevo skill install brevo-cli                # only this CLI's skill (plus the default router skill)
+  brevo skill install --agent codex,gemini     # Codex and Gemini CLI: ~/.agents/skills/<name>/
+  brevo skill install --agent all --mcp        # every agent, and register the Brevo MCP server with each
   ```
 
-  The skill follows the open Agent Skills format and carries the canonical decision tree, hard rules, and exit codes. Once installed, every copy auto-refreshes on each `brevo` invocation so it stays in sync with the running CLI version (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`). Note: the Claude Desktop **chat** app does not load skills from `~/.claude/skills/`.
+  The skills come from the Brevo skills catalog, follow the open Agent Skills format, and the `brevo-cli` one carries the canonical decision tree, hard rules, and exit codes. Once installed, unpinned copies auto-refresh after `brevo` invocations whenever the catalog cache is older than 12 hours (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`); `brevo skill update` refreshes on demand and `brevo skill check` reports drift. Note: the Claude Desktop **chat** app does not load skills from `~/.claude/skills/`.
 
 - **Your agent doesn't load skills from a directory** (Cursor rules, Copilot CLI, chat apps) — use this `AGENTS.md` as your reference instead; it covers the same surface in less depth.
 
@@ -52,9 +53,9 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 ### 2. Is your reference up to date with the installed CLI?
 
 - **Agents with the skill installed (`~/.claude/skills/brevo-cli/` or `~/.agents/skills/brevo-cli/`):**
-  1. Read the installed skill version from the `.brevo-skill.json` in that directory (`version` field).
-  2. Compare against `brevo --version` from step 1.
-  3. **If they don't match, stop and tell the user to update** — ask them to run any `brevo` command (auto-refreshes the skill) or `brevo skill:cli install` to force-reinstall. Do not proceed with stale guidance.
+  1. Run `brevo skill check`. Exit code `0` means every installed Brevo skill is current and unmodified.
+  2. **If it exits `1`, stop and tell the user to update** — ask them to run `brevo skill update` (or any `brevo` command, which auto-refreshes outdated skills once the catalog cache is older than 12 hours). Do not proceed with stale guidance.
+  3. Offline, read the `.brevo-skill.json` in that directory: a `source` of `brevo-cli` is the bundled copy and its `version` must equal `brevo --version`; a `source` of `brevo-skills` is a catalog install with the skill's own `version`.
 - **Agents reading this `AGENTS.md` directly:** make sure you're reading the canonical bundled copy, not a stale fork.
   1. Locate the canonical `AGENTS.md`. It ships inside the installed `@getbrevo/cli` package:
      - Global npm install: `$(npm root -g)/@getbrevo/cli/agent-context/AGENTS.md`
@@ -92,8 +93,12 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 | `brevo app scopes update` | Change an existing **M2M app's** granted scopes (`--app-id`, `--scopes "<comma-separated>"`, `--yes`, `--json`). **M2M apps only** — refused for consent-based OAuth, UI, or Function apps. There is no `--mode` flag: `--scopes` is always the **full desired scope set**, never a delta. Omitting `--scopes` opens the interactive picker (or, if the catalog can't be read, the typed prompt) pre-filled with the app's *current* scopes, so ticking/unticking or editing that starting point produces the complete new list; passed directly, `--scopes` replaces the whole set outright — anything left out is removed. Prints a current → new diff (flagging removals) and confirms unless `--yes` — **under `--json`, or in any run without an interactive terminal, the prompt can't be shown, so `--yes` is required there: without it the command is refused (exit `1`) before anything is sent**; a no-op request (nothing would change) exits `0` without a network call, even without `--yes`. `--app-id` is required when scripting — same picker convention as `app delete`/`app credentials`. ASSUMPTION pending BEX-481 (the backend API this depends on): treat the wire contract as unverified until it ships. |
 | `brevo app token` | Mint a short-lived M2M access token for an app (`--app-id`, `--scope "<comma-separated>"`, `--json`). **M2M apps only** — refused for consent-based OAuth, UI, or Function apps. Prints the Bearer `access_token` and `expires_in`; omitting `--scope` requests the app's full granted scope set, or pass a comma-separated subset. The token is short-lived by design and printed in full — it is never written to `~/.brevo/credentials.json`. `--app-id` is required when scripting — same picker convention as `app delete`/`app credentials`. ASSUMPTION pending the "brevo app token [Backend]" ticket (BEX-482, not yet built): treat the wire contract as unverified until it ships. |
 | `brevo app secret rotate` | Rotate an M2M app's client secret (`--app-id`, `--yes`, `--json`). **M2M apps only** — refused for consent-based OAuth, UI, or Function apps. The old secret stops working immediately, so it confirms before rotating unless `--yes` is passed — **under `--json`, or in any run without an interactive terminal, the prompt can't be shown, so `--yes` is required there: without it the command is refused (exit `1`) before anything rotates**. Prints the **new** `client_secret` once, in full — unlike `app credentials`, there is no `--reveal-secret` gate: the command's whole purpose is handing back the new secret, including from a non-interactive rotation script, so store it in a secret manager right away — this output is the one place a non-interactive run ever sees the secret in full. It stays retrievable afterward with `brevo app credentials --app-id <id> --reveal-secret`, but **only from an interactive terminal**: off a TTY that command returns the literal `[hidden]` placeholder, never the secret (see the `app credentials` row above). `--app-id` is required when scripting — same picker convention as `app delete`/`app credentials`. ASSUMPTION pending the "brevo app secret rotate [Backend]" ticket (BEX-484, not yet built): treat the wire contract as unverified until it ships. |
-| `brevo skill:cli install` | Install the brevo-cli skill (`--agent claude` by default; `codex`, `gemini` or `all` for `~/.agents/skills/`). Auto-refreshes on every `brevo` run |
-| `brevo skill:cli uninstall` | Remove every copy of the brevo-cli skill the CLI installed (or one agent's, with `--agent`) |
+| `brevo skill install [names...]` | Install Brevo agent skills from the skills catalog — all of them when no name is given; skills marked `default` always come along (`--agent claude` by default; `codex`, `gemini` or `all` for `~/.agents/skills/`; `--pin <release>`, `--mcp`, `--force`, `--dry-run`, `--json`). Files are hashed against the catalog before they are written; a mismatch skips that skill and exits `1`. Offline, `brevo skill install brevo-cli` installs the bundled copy. |
+| `brevo skill update [names...]` | Reinstall installed skills whose version is behind the catalog (same options as `install`; a pinned skill stays on its release until `--pin latest`). |
+| `brevo skill uninstall [names...]` | Remove skills the CLI installed — all of them when no name is given, every agent or only those given with `--agent`. Only directories carrying `.brevo-skill.json` are touched. |
+| `brevo skill list` | Installed skills per agent with versions, and the catalog's available skills (`--json`). |
+| `brevo skill check` | Report outdated or modified skills; changes nothing; exit `1` when something is off (`--json`). |
+| `brevo skill:cli install` / `uninstall` | Aliases of `brevo skill install brevo-cli` / `brevo skill uninstall brevo-cli`, kept for older docs. |
 | `brevo function list` | List deployed Brevo Functions (`--draft` for drafts, `--json`) |
 | `brevo function get` | Show function details (`--id <id>`, `--json`). Picker when `--id` omitted on a TTY; refused under `--json`/off a TTY. |
 | `brevo function init` | Create a new function via AI generation or template selection. **Interactive only** — refused under `--json` or piped input. |
@@ -175,9 +180,11 @@ Writing `app-config.json` for an app whose remote scopes contain `'all'` never p
 | `BREVO_OAUTH_BASE_URL` | Override OAuth realm used for scope lookups and scaffolded project templates (HTTPS required, except `localhost`) |
 | `BREVO_APP_STORE_URL` | Override the app-store service base used for the update notice and the server-side block check (HTTPS required, except `localhost`) |
 | `BREVO_CONFIG_HOME` | Override credentials directory (default `~/.brevo/`) |
-| `BREVO_CLAUDE_HOME` | Override Claude Code home used by `skill:cli` (default `~/.claude/`) |
-| `BREVO_AGENTS_HOME` | Override the shared agents home used by `skill:cli --agent codex/gemini` (default `~/.agents/`) |
+| `BREVO_CLAUDE_HOME` | Override Claude Code home used by `brevo skill` (default `~/.claude/`) |
+| `BREVO_AGENTS_HOME` | Override the shared agents home used by `brevo skill --agent codex/gemini` (default `~/.agents/`) |
 | `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs |
+| `BREVO_SKILLS_CATALOG_URL` | Replace the skills catalog URL (tests and forks) |
+| `BREVO_SKILLS_FILES_URL` | Replace the base URL skill files are fetched from |
 | `BREVO_NO_UPDATE_NOTIFIER` | Set to `1` to suppress the npm update-available notice **and** the blocking major-version force-update gate. Does **not** suppress a server-side `is_blocked` block. |
 | `BREVO_DEBUG=1` or `--debug` | Verbose HTTP and error logging |
 

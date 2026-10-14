@@ -19,7 +19,7 @@ What this means in practice:
 
 The Brevo API enforces the same boundaries independently, so nothing is gained by trying to route around the CLI — a hand-rolled `curl` hits the platform's own refusal.
 
-> **Reading this from the repo rather than from your agent's skills directory?** Install it with `brevo skill:cli install --agent <agent>` so your agent loads it natively and the CLI keeps it current: `claude` (the default) writes `~/.claude/skills/brevo-cli/`, `codex` and `gemini` write `~/.agents/skills/brevo-cli/` (read by Codex and Gemini CLI), `all` writes both. Agents that don't load skills from a directory (Claude Desktop **chat**, Copilot CLI) should read `agent-context/AGENTS.md` instead; it covers the same surface in less depth.
+> **Reading this from the repo rather than from your agent's skills directory?** Install it with `brevo skill install brevo-cli --agent <agent>` so your agent loads it natively and the CLI keeps it current: `claude` (the default) writes `~/.claude/skills/brevo-cli/`, `codex` and `gemini` write `~/.agents/skills/brevo-cli/` (read by Codex and Gemini CLI), `all` writes both. `brevo skill install` with no name installs every Brevo skill from the catalog. Agents that don't load skills from a directory (Claude Desktop **chat**, Copilot CLI) should read `agent-context/AGENTS.md` instead; it covers the same surface in less depth.
 
 ## Before starting a new session
 
@@ -39,13 +39,14 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 
 ### 2. Is this skill up to date?
 
-* [ ] Read the installed skill version from the `.brevo-skill.json` next to this file (`~/.claude/skills/brevo-cli/` or `~/.agents/skills/brevo-cli/`, `version` field).
-* [ ] Compare against `brevo --version` from step 1.
-* [ ] If they don't match, **stop and tell the user to update** — running any `brevo` command auto-refreshes the skill, or `brevo skill:cli install` force-reinstalls. Do not proceed with stale guidance.
+* [ ] Run `brevo skill check`. Exit code `0` means every installed Brevo skill, this one included, is current and unmodified.
+* [ ] If it exits `1`, **stop and tell the user to update** — `brevo skill update` reinstalls what is behind the catalog (any `brevo` command also auto-refreshes outdated skills once the catalog cache is older than 12 hours). Do not proceed with stale guidance.
+* [ ] Offline, or on a copy installed before `brevo skill check` existed: read the `.brevo-skill.json` next to this file (`~/.claude/skills/brevo-cli/` or `~/.agents/skills/brevo-cli/`). A `source` of `brevo-cli` means the bundled copy, whose `version` must equal `brevo --version`; a `source` of `brevo-skills` means a catalog install, whose `version` is the skill's own and is checked by `brevo skill check`.
 
 ## Decision tree
 
 - "Set me up from scratch" → `brevo app init`
+- "Install / update the Brevo agent skills" → `brevo skill install` (all) or `brevo skill install <name...>`, `brevo skill update`, `brevo skill list`, `brevo skill check` (exit `1` when a skill is outdated or modified), `brevo skill uninstall`; `--agent claude,codex,gemini|all`, `--pin <release>`, `--mcp`, `--force`, `--dry-run`, `--json`
 - "Authenticate" → `brevo login` (or `BREVO_API_KEY=xkeysib-... brevo login` for CI)
 - "Who am I logged in as?" → `brevo whoami --json`
 - "Show / pick an app" → `brevo app list --json`
@@ -219,7 +220,7 @@ The soft (non-blocking) notice also prints after a command **fails**, not just a
 
 ## How this skill stays current
 
-This SKILL.md is installed by `brevo skill:cli install` into `~/.claude/skills/brevo-cli/` (Claude Code, the default) and, with `--agent codex`, `--agent gemini` or `--agent all`, into `~/.agents/skills/brevo-cli/` (Codex and Gemini CLI). Once installed, **every `brevo` invocation auto-refreshes every installed copy** if the bundled CLI ships a newer version — you'll see a `↻ refreshed brevo-cli skill (vX → vY)` notice on stderr when that happens. Hand-editing the installed copy is not durable; the CLI overwrites it on the next run. Opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`. The manual escape hatch is `brevo skill:cli uninstall`, which removes every copy the CLI installed (or only one agent's, with `--agent`).
+This SKILL.md is installed by `brevo skill install` (from the Brevo skills catalog, alongside the other Brevo skills) into `~/.claude/skills/brevo-cli/` (Claude Code, the default) and, with `--agent codex`, `--agent gemini` or `--agent all`, into `~/.agents/skills/brevo-cli/` (Codex and Gemini CLI). Once installed, **`brevo` invocations auto-refresh every installed, unpinned copy** whenever the catalog cache is older than 12 hours and the catalog has a newer version — you'll see a `↻ refreshed brevo-cli skill (vX → vY)` notice on stderr when that happens. `brevo skill update` does the same on demand; `brevo skill check` reports drift (outdated, or modified on disk) with exit code `1` and changes nothing. Hand-editing the installed copy is not durable; the CLI overwrites it on the next refresh. Opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`, or pin a release with `brevo skill install --pin <release>`. The manual escape hatch is `brevo skill uninstall brevo-cli`, which removes every copy the CLI installed (or only one agent's, with `--agent`). When the catalog cannot be fetched, `brevo skill install brevo-cli` installs the copy bundled with the CLI. `brevo skill:cli install|uninstall` still work as aliases.
 
 ## More
 
