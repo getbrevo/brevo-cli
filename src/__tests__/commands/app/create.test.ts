@@ -1320,7 +1320,9 @@ describe('app/create', () => {
       expect(output).toContain(messages.APP_CREATE_TERMS_NOTICE);
       expect(output).toContain(messages.APP_CREATE_TERMS_OPENING);
       // The terms are opened automatically — reading them must cost nothing.
-      expect(openBrowser).toHaveBeenCalledWith('https://www.brevo.com/legal/termsofuse/');
+      expect(openBrowser).toHaveBeenCalledWith(
+        'https://developers.brevo.com/docs/apps-developer-terms',
+      );
       expect(appService.createApp).toHaveBeenCalled();
     });
 

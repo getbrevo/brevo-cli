@@ -157,7 +157,7 @@ describe('messages (lang/en)', () => {
 
     it('prints the terms URL on the auto-open line', () => {
       expect(messages.APP_CREATE_TERMS_OPENING).toBe(
-        'Opening the terms in your browser:\nhttps://www.brevo.com/legal/termsofuse/',
+        'Opening the terms in your browser:\nhttps://developers.brevo.com/docs/apps-developer-terms',
       );
     });
 
@@ -165,7 +165,7 @@ describe('messages (lang/en)', () => {
     // terms are and how to consent explicitly.
     it('points the non-interactive refusal at the terms and the flag', () => {
       expect(messages.APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE).toContain(
-        'https://www.brevo.com/legal/termsofuse/',
+        'https://developers.brevo.com/docs/apps-developer-terms',
       );
       expect(messages.APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE).toContain(
         '--accept-developer-terms',
