@@ -8,8 +8,10 @@
  * than deleted: it is the shape the next unreleased feature is meant to arrive in, and
  * re-deriving it from scratch is how the traps below get rediscovered the hard way.
  *
- * Tearing the machinery down completely is tracked as follow-up work in `docs.md`
- * → *Part 2*. Until then, leave it in place with all rows `'ga'`.
+ * Tearing the machinery down is a CLOSED decision: do not. It was torn down once
+ * (`4d4b986`) on the "both builds are identical" argument and had to be reverted —
+ * see CLAUDE.md → *`build:preview` is not removable*. Leave it in place with all
+ * rows `'ga'` between features.
  *
  * ## What the gate does when a row is `'preview'`
  *

@@ -1208,6 +1208,10 @@ const coreMessages = {
   // humans.
   APP_SUBMIT_NOT_SUBMITTABLE: (fields: string[], appId: string): string =>
     `Your app isn't ready to submit yet — required fields are still missing (${fields.join(', ')}).\n  Add them to app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  // `submittable: false` with no `missing_fields` is a legal server answer (the key is
+  // optional on AppStateResponse); copy without the list, or the error names nothing.
+  APP_SUBMIT_NOT_SUBMITTABLE_NO_FIELDS: (appId: string): string =>
+    `Your app isn't ready to submit yet. The server did not name the missing fields — review app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_NOT_SUBMITTABLE_DIFF: (diff: string, appId: string): string =>
     `Your app isn't ready to submit yet — these required fields are still missing:\n${diff}\n\n  Add them to app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
   APP_SUBMIT_IN_SYNC:

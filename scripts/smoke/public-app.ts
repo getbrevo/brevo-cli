@@ -382,6 +382,10 @@ function stepNegativeCreateWithoutTermsConsent(state: State): string {
         '--json',
       ],
       state,
+      // cwd matters even for a refused create: run from a directory holding an
+      // app-config.json and guardAgainstLinkedApp fires FIRST, so the step would
+      // report a false failure of the consent gate. Same cwd every real create uses.
+      { cwd: ensureWorkRoot(state) },
     ),
     {
       what: 'public create without --accept-developer-terms',

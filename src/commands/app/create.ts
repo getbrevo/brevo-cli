@@ -495,11 +495,12 @@ async function resolveDeveloperTermsConsent(
   // only asked once the page is on its way. Same fallback shape as `app submit`'s
   // form open: a headless box gets a quiet "use the link above" line rather than a
   // failure, because the URL is already printed and the question is still answerable.
-  try {
-    openBrowser(BREVO_DEVELOPER_TERMS_URL);
-  } catch {
+  // The failure is only observable via openBrowser's async error callback — a try/catch
+  // here can never fire (see the note in `src/lib/browser.ts`), so the line may print
+  // while the consent prompt is already up; the URL it points at is two lines above.
+  openBrowser(BREVO_DEVELOPER_TERMS_URL, () => {
     logInfo(messages.APP_CREATE_TERMS_OPEN_FAILED);
-  }
+  });
   const { termsAccepted } = await inquirer.prompt([
     {
       type: 'input',

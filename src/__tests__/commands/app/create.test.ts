@@ -1322,14 +1322,19 @@ describe('app/create', () => {
       // The terms are opened automatically — reading them must cost nothing.
       expect(openBrowser).toHaveBeenCalledWith(
         'https://developers.brevo.com/docs/apps-developer-terms',
+        expect.any(Function),
       );
       expect(appService.createApp).toHaveBeenCalled();
     });
 
     it('a failed browser open falls back to the printed link and still asks', async () => {
-      (openBrowser as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('no browser on this box');
-      });
+      // The real openBrowser can only fail asynchronously, via its error callback —
+      // a synchronous throw is an implementation it cannot have (`src/lib/browser.ts`).
+      (openBrowser as jest.Mock).mockImplementationOnce(
+        (_url: string, onError: (err: Error) => void) => {
+          onError(new Error('no browser on this box'));
+        },
+      );
       answerPrompts({ termsAccepted: 'n' });
 
       await expect(

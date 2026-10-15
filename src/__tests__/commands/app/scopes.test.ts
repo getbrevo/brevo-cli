@@ -146,7 +146,7 @@ describe('app/scopes', () => {
     expect(startScopesWebServer).toHaveBeenCalledWith(entries, {
       refetch: fetchSupportedScopes,
     });
-    expect(openBrowser).toHaveBeenCalledWith(url);
+    expect(openBrowser).toHaveBeenCalledWith(url, expect.any(Function));
     expect(close).toHaveBeenCalled();
 
     const out = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
