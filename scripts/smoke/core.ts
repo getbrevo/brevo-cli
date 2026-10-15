@@ -1050,9 +1050,20 @@ export function detectCapabilities(state: State): Record<string, boolean> {
   }
 
   for (const name of GATED_COMMANDS) {
-    caps[name] = UNLISTED_COMMANDS.has(name)
-      ? respondsToOwnHelp(state, name)
-      : listedInHelp(helpText, name);
+    caps[name] = listedInHelp(helpText, name);
+  }
+  // Guarded on the set being non-empty, same as the leak scans in `scripts/build.mjs`
+  // (9bf1240): an empty UNLISTED_COMMANDS is the NORMAL state between features, not a
+  // dead branch, but a static analyser that can prove the set is never added to reads
+  // an unguarded `.has(...)` as unreachable and reports the mechanism as dead code
+  // (SonarCloud S4158 did exactly that on PR #143). Do not "simplify" the guard away,
+  // and do not delete the set because a tool called it empty.
+  if (UNLISTED_COMMANDS.size > 0) {
+    for (const name of GATED_COMMANDS) {
+      if (UNLISTED_COMMANDS.has(name)) {
+        caps[name] = respondsToOwnHelp(state, name);
+      }
+    }
   }
   caps['public-distribution'] = publicDistributionOffered(state);
   caps['m2m-flag'] = m2mFlagOffered(state);
