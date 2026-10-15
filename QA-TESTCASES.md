@@ -109,6 +109,11 @@ Check the exit code after any command with `echo $?`.
 **Preconditions:** Authenticated; empty directory.
 **Steps:** `brevo app create --name "QA Public App" --distribution public`
 **Expected:**
+- **Developer Terms consent is asked first** (new since the terms-consent gate): the terms
+  notice prints, the terms page opens in the browser (URL printed; headless boxes get a
+  "use the link above" line instead of an error), and the y/N question
+  *"Do you confirm that you have read and agree to the Brevo Developer Terms?"* defaults
+  to **No**. Answer `y` to proceed. Passing `--accept-developer-terms` skips the question.
 - **No "coming soon"/unavailable error** and no early exit before the API call.
 - App is created as **public**; API receives `distribution_type: "public"`.
 - `app-config.json` records `"distribution_type": "public"`.
@@ -127,7 +132,7 @@ the refusal half is untested.
 ### TC-2.2 — Public is selectable in the interactive picker
 **Priority:** High
 **Steps:** Run `brevo app create` interactively; at the distribution prompt inspect the choices.
-**Expected:** Two choices — **Private** and **Public** — both selectable (Public is **not** disabled/greyed as "coming soon"). Selecting Public creates a public app.
+**Expected:** Two choices — **Private** and **Public** — both selectable (Public is **not** disabled/greyed as "coming soon"). Selecting Public asks the Developer Terms consent question (see TC-2.1) and, once agreed, creates a public app.
 
 ### TC-2.3 — Public app appears correctly in `list`
 **Priority:** Medium
@@ -151,6 +156,31 @@ public apps can't be created from the CLI yet, a `Do this:` line naming
 text arrives inside the single `{"error": {…}}` document on stdout. An unrelated `400` on
 a public create must keep its own text — the translation is narrowed to messages naming
 `distribution_type`.
+
+### TC-2.5 — Declining the Developer Terms cancels the create cleanly
+**Priority:** High
+**Preconditions:** Authenticated; empty directory; interactive terminal.
+**Steps:** `brevo app create --name "QA Terms Decline" --distribution public`; at the
+Developer Terms question answer `n` (or just press Enter — **No is the default**).
+**Expected:**
+- The create is cancelled with the cancellation message naming the Developer Terms.
+- **Nothing is created**: no API call is made, no directory or `app-config.json` is
+  written, and `brevo app list` does not show the app.
+- Exit `0` — a decline is a choice, not an error.
+
+### TC-2.6 — Non-interactive public create without the flag is refused
+**Priority:** High
+**Preconditions:** Authenticated; empty directory.
+**Steps:** `brevo app create --name "QA Terms NonTTY" --distribution public --json`, and
+the same piped (`echo | brevo app create …`). Then re-run with `--accept-developer-terms`.
+**Expected:**
+- Without the flag: refused **before any prompt or network call**, with an error that
+  names `--accept-developer-terms` and prints the terms URL. Exit `1`. Under `--json` the
+  error arrives as the single `{"error": {…}}` document on stdout.
+- With `--accept-developer-terms`: no question is asked and the create proceeds (subject
+  to TC-2.1's account precondition). The flag is also honoured interactively — it skips
+  the question there too.
+- A **private** create never sees the terms notice, question, or flag requirement.
 
 ---
 
