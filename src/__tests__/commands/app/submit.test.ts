@@ -315,41 +315,34 @@ describe('app/submit', () => {
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
-  it('refuses a private app as private even when it was also never uploaded', async () => {
-    // Ordering: the public-only check fires before the not-uploaded guard and the
-    // state read. A private app can never be submitted, so "run `brevo app upload`"
-    // would send the developer fixing an app that stays unsubmittable when fixed.
-    (readProjectConfig as jest.Mock).mockReturnValue(null);
-    (appService.fetchApp as jest.Mock).mockResolvedValue({
-      ...PUBLIC_APP,
-      distribution_type: 'private',
-      version: '',
-    });
+  it('refuses a private app as private, before the not-uploaded guard and the state read', async () => {
+    // Ordering: the public-only check fires before everything else. A private app can
+    // never be submitted, so any other refusal — "run `brevo app upload`" on one that
+    // was also never uploaded, or the state read's "missing fields" — would send the
+    // developer fixing an app that stays unsubmittable when fixed.
+    const scenarios: Array<{ app: Record<string, unknown>; wrongRemedy: string }> = [
+      {
+        app: { distribution_type: 'private', version: '' },
+        wrongRemedy: 'has never been uploaded',
+      },
+      { app: { distribution_type: 'private' }, wrongRemedy: 'missing' },
+    ];
+    for (const { app, wrongRemedy } of scenarios) {
+      jest.clearAllMocks();
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ ...PUBLIC_APP, ...app });
+      (appService.fetchAppState as jest.Mock).mockResolvedValue({
+        state: 'draft',
+        submittable: false,
+        missing_fields: ['logoLink'],
+      });
 
-    const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
-    expect((error as Error).message).toContain('cannot be submitted for review');
-    expect((error as Error).message).not.toContain('has never been uploaded');
-    expect(appService.fetchAppState).not.toHaveBeenCalled();
-    expect(openBrowser).not.toHaveBeenCalled();
-  });
-
-  it('refuses a private app as private even when the state read would report missing fields', async () => {
-    (readProjectConfig as jest.Mock).mockReturnValue(null);
-    (appService.fetchApp as jest.Mock).mockResolvedValue({
-      ...PUBLIC_APP,
-      distribution_type: 'private',
-    });
-    (appService.fetchAppState as jest.Mock).mockResolvedValue({
-      state: 'draft',
-      submittable: false,
-      missing_fields: ['logoLink'],
-    });
-
-    const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
-    expect((error as Error).message).toContain('cannot be submitted for review');
-    expect((error as Error).message).not.toContain('missing');
-    expect(appService.fetchAppState).not.toHaveBeenCalled();
-    expect(openBrowser).not.toHaveBeenCalled();
+      const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
+      expect((error as Error).message).toContain('cannot be submitted for review');
+      expect((error as Error).message).not.toContain(wrongRemedy);
+      expect(appService.fetchAppState).not.toHaveBeenCalled();
+      expect(openBrowser).not.toHaveBeenCalled();
+    }
   });
 
   it('treats a missing distribution_type as not public', async () => {
