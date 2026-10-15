@@ -257,8 +257,11 @@ const coreCli = {
   FUNCTION_DELETE: 'brevo function delete --id <id>',
   FUNCTION_INIT: 'brevo function init',
   FUNCTION_DEPLOY: 'brevo function deploy --id <draft-id>',
-  SKILL_INSTALL: 'brevo skill:cli install',
-  SKILL_UNINSTALL: 'brevo skill:cli uninstall',
+  SKILL_INSTALL: 'brevo skill install',
+  SKILL_UPDATE: 'brevo skill update',
+  SKILL_UNINSTALL: 'brevo skill uninstall',
+  SKILL_LIST: 'brevo skill list',
+  SKILL_CHECK: 'brevo skill check',
 } as const;
 
 // ELIMINATION SITE — the raw global rather than `isFeatureAvailable`, so esbuild folds

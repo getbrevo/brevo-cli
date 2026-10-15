@@ -257,7 +257,7 @@ src/
 
 The CLI ships two agent-facing docs at the repo root, both bundled into the published tarball via `package.json` `files:`:
 
-- `agent-context/SKILL.md` — the agent skill, in the open Agent Skills format. `brevo skill:cli install` installs it into `~/.claude/skills/brevo-cli/` (Claude Code, the default) and, with `--agent codex|gemini|all`, into `~/.agents/skills/brevo-cli/` (read by both Codex and Gemini CLI). Every installed copy is **auto-refreshed** on each subsequent `brevo` invocation (opt out: `BREVO_NO_SKILL_AUTOREFRESH=1`). It is also the source `src/skills/index.ts` reads via `SKILLS_BUNDLE_DIR` — there is no second copy. Keep its wording agent-neutral: name an agent only where a step really differs per agent.
+- `agent-context/SKILL.md` — the agent skill, in the open Agent Skills format. It is the source the `brevo-skills` catalog syncs the `brevo-cli` skill from, so `brevo skill install` (or `brevo skill install brevo-cli`) normally installs it from the catalog release into `~/.claude/skills/brevo-cli/` (Claude Code, the default) and, with `--agent codex|gemini|all`, into `~/.agents/skills/brevo-cli/` (read by both Codex and Gemini CLI); offline, the bundled copy is installed instead, read by `src/skills/index.ts` via `SKILLS_BUNDLE_DIR` — there is no second copy. Installed, unpinned copies are **auto-refreshed** after `brevo` invocations when the catalog cache is older than 12 hours (opt out: `BREVO_NO_SKILL_AUTOREFRESH=1`). Keep its wording agent-neutral: name an agent only where a step really differs per agent.
 - `agent-context/AGENTS.md` — the broader `agents.md`-format reference for any agent-aware tool.
 
 **Whenever you change user-visible CLI behavior, update both files in the same PR.** An out-of-sync skill actively misleads any AI helping a user with this CLI — that's worse than no skill at all.
@@ -271,7 +271,7 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - New or removed `BREVO_*` env vars, or changes to existing-var semantics.
 - Changed defaults (new opt-in/opt-out, changed prompt behavior).
 - Changed exit codes or error messages that scripts may match on.
-- Removed features that the docs currently advertise (e.g. removing `brevo skill:cli update` requires removing it from both docs).
+- Removed features that the docs currently advertise (e.g. removing `brevo skill update` requires removing it from both docs).
 - **A feature going GA.** Taking a feature out of a `## Before …GA` section in `RELEASE-CHECKLIST.md` is a user-visible change like any other — it adds commands, flags or prompts to the published CLI. **Update `agent-context/SKILL.md` and `agent-context/AGENTS.md` for that feature in the same PR**, before ticking it off the checklist. Their reference text for a gated feature was *deleted* rather than hidden, so recover it from git rather than rewriting it — each GA section names the commit to recover from. A GA release that ships the commands but not the docs is the worst of both: agents keep telling users the feature doesn't exist, and the docs say so in writing.
 
 **What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
@@ -284,7 +284,7 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 
 A GA'd feature the smoke never exercises is the mirror of the docs problem above: the release gate reports green on a surface it never touched.
 
-**Skill version tracks the CLI version automatically.** `SKILL_CATALOG[brevo-cli].version` is computed at module-init from `package.json` (`CLI_VERSION` in `src/skills/index.ts`), so every published CLI release auto-refreshes installed skills — even when `SKILL.md` content didn't change. You only need to land your changeset; the skill version takes care of itself.
+**The bundled skill's version tracks the CLI version automatically.** `SKILL_CATALOG[brevo-cli].version` is computed at module-init from `package.json` (`CLI_VERSION` in `src/skills/index.ts`), so an offline (bundled) install is stamped with the CLI version and refreshed from the bundle after a CLI upgrade. A catalog install carries the skill's own version from `brevo-skills`, where the text is synced to and released; `src/services/skill.ts` is the installer (catalog client in `skill-catalog.ts`, MCP registration in `skill-mcp.ts`), and `brevo skill check` compares each installed directory's hash against the marker.
 
 ## Testing patterns
 
