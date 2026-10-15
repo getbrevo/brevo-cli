@@ -94,9 +94,9 @@ describe('services/skill-mcp', () => {
     it('tries the PATHEXT extensions on win32', () => {
       const dir = fs.mkdtempSync(path.join(SANDBOX_ROOT, 'brevo-path-'));
       try {
-        fs.writeFileSync(path.join(dir, 'claude.cmd'), '@echo off\n');
-        // Case-insensitive: the default PATHEXT is upper-case and so is the match on a
-        // Windows (or macOS) filesystem.
+        // Named with the upper-case extension the default PATHEXT lists, so the lookup also
+        // matches on a case-sensitive (Linux) filesystem; Windows matches either case.
+        fs.writeFileSync(path.join(dir, 'claude.CMD'), '@echo off\n');
         expect(resolveOnPath('claude', { PATH: dir }, 'win32')?.toLowerCase()).toBe(
           path.join(dir, 'claude.cmd').toLowerCase(),
         );

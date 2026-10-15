@@ -885,7 +885,15 @@ describe('services/skill', () => {
       ({ write: jest.fn() }) as unknown as NodeJS.WriteStream;
     const written = (out: NodeJS.WriteStream): string =>
       (out.write as jest.Mock).mock.calls.map((c) => c[0]).join('');
-    const env = (): NodeJS.ProcessEnv => ({ ...process.env });
+    // CI runners set CI=true, which makes the refresh skip itself by design; these tests
+    // exercise the refresh, so they start from an environment without that gate.
+    const env = (): NodeJS.ProcessEnv => {
+      const e = { ...process.env };
+      delete e.CI;
+      delete e.BREVO_NO_SKILL_AUTOREFRESH;
+      delete e.BREVO_SKILL_AUTOREFRESH;
+      return e;
+    };
 
     it('does nothing, and fetches nothing, when no skill is installed', async () => {
       const out = output();
