@@ -28,7 +28,7 @@ Pick the path that matches your tooling:
   brevo skill install --agent all --mcp        # every agent, and register the Brevo MCP server with each
   ```
 
-  The skills come from the Brevo skills catalog, follow the open Agent Skills format, and the `brevo-cli` one carries the canonical decision tree, hard rules, and exit codes. Once installed, unpinned copies auto-refresh after `brevo` invocations whenever the catalog cache is older than 12 hours (opt out with `BREVO_NO_SKILL_AUTOREFRESH=1`); `brevo skill update` refreshes on demand and `brevo skill check` reports drift. Note: the Claude Desktop **chat** app does not load skills from `~/.claude/skills/`.
+  The skills come from the Brevo skills catalog, follow the open Agent Skills format, and the `brevo-cli` one carries the canonical decision tree, hard rules, and exit codes. Once installed, `brevo` invocations print an update notice for unpinned copies that are behind the catalog whenever its cache is older than 12 hours (`BREVO_SKILL_AUTOREFRESH=1` reinstalls them instead; `BREVO_NO_SKILL_AUTOREFRESH=1` turns the check off); `brevo skill update` updates on demand and `brevo skill check` reports drift. Note: the Claude Desktop **chat** app does not load skills from `~/.claude/skills/`.
 
 - **Your agent doesn't load skills from a directory** (Cursor rules, Copilot CLI, chat apps) — use this `AGENTS.md` as your reference instead; it covers the same surface in less depth.
 
@@ -54,7 +54,7 @@ Don't fall back to raw HTTP against `api.brevo.com` — the `brevo` binary is th
 
 - **Agents with the skill installed (`~/.claude/skills/brevo-cli/` or `~/.agents/skills/brevo-cli/`):**
   1. Run `brevo skill check`. Exit code `0` means every installed Brevo skill is current and unmodified.
-  2. **If it exits `1`, stop and tell the user to update** — ask them to run `brevo skill update` (or any `brevo` command, which auto-refreshes outdated skills once the catalog cache is older than 12 hours). Do not proceed with stale guidance.
+  2. **If it exits `1`, stop and tell the user to update** — ask them to run `brevo skill update` (any other `brevo` command only prints an update notice once the catalog cache is older than 12 hours). Do not proceed with stale guidance.
   3. Offline, read the `.brevo-skill.json` in that directory: a `source` of `brevo-cli` is the bundled copy and its `version` must equal `brevo --version`; a `source` of `brevo-skills` is a catalog install with the skill's own `version`.
 - **Agents reading this `AGENTS.md` directly:** make sure you're reading the canonical bundled copy, not a stale fork.
   1. Locate the canonical `AGENTS.md`. It ships inside the installed `@getbrevo/cli` package:
@@ -182,7 +182,8 @@ Writing `app-config.json` for an app whose remote scopes contain `'all'` never p
 | `BREVO_CONFIG_HOME` | Override credentials directory (default `~/.brevo/`) |
 | `BREVO_CLAUDE_HOME` | Override Claude Code home used by `brevo skill` (default `~/.claude/`) |
 | `BREVO_AGENTS_HOME` | Override the shared agents home used by `brevo skill --agent codex/gemini` (default `~/.agents/`) |
-| `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs |
+| `BREVO_SKILL_AUTOREFRESH` | Set to `1` to reinstall outdated skills after `brevo` runs instead of only printing the update notice |
+| `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress the skill update notice (and the reinstall) on `brevo` runs |
 | `BREVO_SKILLS_CATALOG_URL` | Replace the skills catalog URL (tests and forks) |
 | `BREVO_SKILLS_FILES_URL` | Replace the base URL skill files are fetched from |
 | `BREVO_NO_UPDATE_NOTIFIER` | Set to `1` to suppress the npm update-available notice **and** the blocking major-version force-update gate. Does **not** suppress a server-side `is_blocked` block. |

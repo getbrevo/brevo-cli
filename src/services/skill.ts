@@ -1029,16 +1029,19 @@ export const skillService = {
 
   /**
    * After any command: when the catalog cache is older than 12 hours, refetch
-   * it and reinstall outdated, unpinned skills, one line per skill. Nothing is
-   * fetched when no skill is installed. Network failures are silent, and a
-   * failed attempt is recorded so an offline machine does not wait on every
-   * command. Never throws.
+   * it and, by default, print one line naming the installed, unpinned skills
+   * that are behind it and the command that updates them. With
+   * BREVO_SKILL_AUTOREFRESH=1 those skills are reinstalled instead, one line
+   * per skill. Nothing is fetched when no skill is installed. Network failures
+   * are silent, and a failed attempt is recorded so an offline machine does
+   * not wait on every command. Never throws.
    */
   async autoRefreshOutdated(opts: AutoRefreshOptions = {}): Promise<void> {
     if (shouldSkipAutoRefresh(opts)) return;
     const env = opts.env ?? process.env;
     const output = opts.output ?? process.stderr;
     const now = opts.now ? opts.now() : Date.now();
+    const reinstall = wantsAutoReinstall(env);
 
     let installed: { dir: string; marker: SkillMarker; agents: SkillAgent[]; root: string }[];
     try {
@@ -1060,16 +1063,25 @@ export const skillService = {
       } catch {
         // Nothing to do: the next command tries again.
       }
-      refreshBundledCopies(installed, output);
+      refreshBundledCopies(installed, output, reinstall);
       return;
     }
 
     const lock = readSkillLock(env);
-    const downloads = new SkillDownloads(catalog.version, false, { ...opts, env });
-    for (const { dir, marker, root } of installed) {
-      if (lockedPin(lock, root, marker.name)) continue;
+    const behind = installed.flatMap(({ dir, marker, root }) => {
+      if (lockedPin(lock, root, marker.name)) return [];
       const skill = catalog.skills.find((s) => s.name === marker.name);
-      if (!skill || !isOutdated(marker, skill) || needsNewerCli(skill)) continue;
+      if (!skill || !isOutdated(marker, skill) || needsNewerCli(skill)) return [];
+      return [{ dir, marker, root, skill }];
+    });
+    if (!reinstall) {
+      if (behind.length > 0)
+        output.write(`  ${messages.SKILL_UPDATES_AVAILABLE(updatesLine(behind))}\n`);
+      return;
+    }
+
+    const downloads = new SkillDownloads(catalog.version, false, { ...opts, env });
+    for (const { dir, marker, root, skill } of behind) {
       try {
         const download = await downloads.get(skill);
         if ('reason' in download) {
@@ -1107,20 +1119,43 @@ export const skillService = {
   },
 };
 
+/** One `name (vOld → vNew)` per skill, each installed copy listed once. */
+function updatesLine(
+  behind: readonly { marker: SkillMarker; skill: { version: string } }[],
+): string {
+  const seen = new Set<string>();
+  return behind
+    .filter(({ marker }) => !seen.has(marker.name) && seen.add(marker.name))
+    .map(({ marker, skill }) => `${marker.name} (v${marker.version} → v${skill.version})`)
+    .join(', ');
+}
+
 /**
  * The pre-catalog behaviour, kept for the offline case: a bundled copy of the
  * CLI's own skill whose version is behind the running CLI is rewritten from
- * the bundle. Pure local file ops.
+ * the bundle, or, by default, named in the update notice. Pure local file ops.
  */
 function refreshBundledCopies(
   installed: readonly { dir: string; marker: SkillMarker }[],
   output: NodeJS.WriteStream,
+  reinstall: boolean,
 ): void {
   const bundled = bundledCatalog().skills[0];
   if (!bundled) return;
-  for (const { dir, marker } of installed) {
-    if (marker.name !== BUNDLED_SKILL_NAME || marker.source !== 'brevo-cli') continue;
-    if (marker.version === CLI_VERSION) continue;
+  const stale = installed.filter(
+    ({ marker }) =>
+      marker.name === BUNDLED_SKILL_NAME &&
+      marker.source === 'brevo-cli' &&
+      marker.version !== CLI_VERSION,
+  );
+  if (!reinstall) {
+    if (stale.length > 0) {
+      const behind = stale.map((s) => ({ ...s, skill: bundled }));
+      output.write(`  ${messages.SKILL_UPDATES_AVAILABLE(updatesLine(behind))}\n`);
+    }
+    return;
+  }
+  for (const { dir, marker } of stale) {
     try {
       writeSkillFiles(dir, bundled.name, readBundledFiles(), true);
       writeMarker(dir, {
@@ -1152,6 +1187,11 @@ export interface AutoRefreshOptions extends CatalogFetchOptions {
   output?: NodeJS.WriteStream;
 }
 
+/** BREVO_SKILL_AUTOREFRESH=1 reinstalls outdated skills after a command instead of only naming them. */
+export function wantsAutoReinstall(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.BREVO_SKILL_AUTOREFRESH === '1' || env.BREVO_SKILL_AUTOREFRESH === 'true';
+}
+
 export function shouldSkipAutoRefresh(opts: AutoRefreshOptions = {}): boolean {
   const env = opts.env ?? process.env;
   const argv = opts.argv ?? process.argv;
@@ -1162,8 +1202,7 @@ export function shouldSkipAutoRefresh(opts: AutoRefreshOptions = {}): boolean {
   if (argv.includes('--json')) return true;
   // The user is already managing skills — let their explicit command do the work.
   if (argv.length > 2 && (argv[2] === 'skill' || argv[2] === 'skill:cli')) return true;
-  // Dedicated opt-out for users who hand-edit their installed SKILL.md and
-  // don't want it clobbered on the next `brevo` run.
+  // Dedicated opt-out: no catalog fetch and no notice at all.
   if (env.BREVO_NO_SKILL_AUTOREFRESH === '1' || env.BREVO_NO_SKILL_AUTOREFRESH === 'true') {
     return true;
   }

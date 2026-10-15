@@ -11,6 +11,7 @@ import {
   readSkillLock,
   resolveSkillFileDestination,
   shouldSkipAutoRefresh,
+  wantsAutoReinstall,
   UnsafeSkillPathError,
 } from '../../services/skill';
 import {
@@ -78,6 +79,7 @@ describe('services/skill', () => {
       'BREVO_SKILLS_CATALOG_URL',
       'BREVO_SKILLS_FILES_URL',
       'BREVO_NO_SKILL_AUTOREFRESH',
+      'BREVO_SKILL_AUTOREFRESH',
     ]) {
       delete process.env[key];
     }
@@ -869,6 +871,15 @@ describe('services/skill', () => {
     });
   });
 
+  describe('wantsAutoReinstall', () => {
+    it('is off unless BREVO_SKILL_AUTOREFRESH is 1 or true', () => {
+      expect(wantsAutoReinstall({})).toBe(false);
+      expect(wantsAutoReinstall({ BREVO_SKILL_AUTOREFRESH: '0' })).toBe(false);
+      expect(wantsAutoReinstall({ BREVO_SKILL_AUTOREFRESH: '1' })).toBe(true);
+      expect(wantsAutoReinstall({ BREVO_SKILL_AUTOREFRESH: 'true' })).toBe(true);
+    });
+  });
+
   describe('autoRefreshOutdated', () => {
     const output = (): NodeJS.WriteStream =>
       ({ write: jest.fn() }) as unknown as NodeJS.WriteStream;
@@ -901,7 +912,7 @@ describe('services/skill', () => {
       expect(fetchImpl).not.toHaveBeenCalled();
     });
 
-    it('refetches when the cache is older than 12 hours and reinstalls outdated, unpinned skills', async () => {
+    it('refetches when the cache is older than 12 hours and names outdated, unpinned skills without writing', async () => {
       await skillService.install(['brevo-cli'], { fetchImpl, agents: ['claude', 'codex'] });
       // Pin brevo in the Codex directory only.
       const lock = readSkillLock();
@@ -914,6 +925,62 @@ describe('services/skill', () => {
       const later = Date.now() + 13 * 60 * 60 * 1000;
       await skillService.autoRefreshOutdated({
         env: env(),
+        argv: NOT_SKILL_ARGV,
+        output: out,
+        fetchImpl,
+        now: () => later,
+      });
+
+      // Only the catalog was fetched: no skill file was downloaded or rewritten.
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(markerOf(claudeDir('brevo'))).toMatchObject({ version: '1.0.0' });
+      expect(markerOf(claudeDir('brevo-cli'))).toMatchObject({ version: '1.1.0' });
+      expect(markerOf(agentsDir('brevo-cli'))).toMatchObject({ version: '1.1.0' });
+      const text = written(out);
+      expect(text).toBe(
+        '  ↑ Brevo skill update available: brevo (v1.0.0 → v1.1.0), brevo-cli (v1.1.0 → v1.2.0). Run `brevo skill update`.\n',
+      );
+      expect(readCatalogCache()?.fetchedAt).toBe(later);
+
+      // A fresh cache means no second notice until the next refetch.
+      fetchImpl.mockClear();
+      await skillService.autoRefreshOutdated({
+        env: env(),
+        argv: NOT_SKILL_ARGV,
+        output: out,
+        fetchImpl,
+        now: () => later + 1000,
+      });
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(written(out)).toBe(text);
+    });
+
+    it('says nothing when every installed skill matches the catalog', async () => {
+      await skillService.install(['brevo-cli'], { fetchImpl });
+      const out = output();
+      await skillService.autoRefreshOutdated({
+        env: env(),
+        argv: NOT_SKILL_ARGV,
+        output: out,
+        fetchImpl,
+        now: () => Date.now() + 13 * 60 * 60 * 1000,
+      });
+      expect(out.write).not.toHaveBeenCalled();
+    });
+
+    it('reinstalls outdated, unpinned skills with BREVO_SKILL_AUTOREFRESH=1', async () => {
+      await skillService.install(['brevo-cli'], { fetchImpl, agents: ['claude', 'codex'] });
+      // Pin brevo in the Codex directory only.
+      const lock = readSkillLock();
+      lock.directories[path.join(tmpAgentsHome, 'skills')]!.skills.brevo!.pin = '0.1.0';
+      fs.writeFileSync(getSkillLockPath(), JSON.stringify(lock));
+
+      const { catalog, skills } = newerRelease();
+      fetchImpl = makeFetch(releaseRoutes(catalog, skills));
+      const out = output();
+      const later = Date.now() + 13 * 60 * 60 * 1000;
+      await skillService.autoRefreshOutdated({
+        env: { ...env(), BREVO_SKILL_AUTOREFRESH: '1' },
         argv: NOT_SKILL_ARGV,
         output: out,
         fetchImpl,
@@ -936,8 +1003,8 @@ describe('services/skill', () => {
       );
     });
 
-    it('stays silent on a network failure, records the attempt, and refreshes a stale bundled copy', async () => {
-      // A bundled install from an older CLI, as the pre-catalog installer left it.
+    /** A bundled install from an older CLI, as the pre-catalog installer left it, with no catalog cache. */
+    async function staleBundledInstall(): Promise<void> {
       fetchImpl = makeFetch({});
       await skillService.install(['brevo-cli'], { fetchImpl });
       const markerPath = path.join(claudeDir('brevo-cli'), '.brevo-skill.json');
@@ -946,6 +1013,10 @@ describe('services/skill', () => {
         JSON.stringify({ ...markerOf(claudeDir('brevo-cli')), version: '0.0.1' }),
       );
       fs.rmSync(getCatalogCachePath(), { force: true });
+    }
+
+    it('stays silent on a network failure, records the attempt, and names a stale bundled copy', async () => {
+      await staleBundledInstall();
 
       const out = output();
       const now = Date.now();
@@ -959,9 +1030,11 @@ describe('services/skill', () => {
         }),
       ).resolves.toBeUndefined();
 
-      expect(written(out)).toContain(`refreshed brevo-cli skill (v0.0.1 → v${CLI_VERSION})`);
+      expect(written(out)).toBe(
+        `  ↑ Brevo skill update available: brevo-cli (v0.0.1 → v${CLI_VERSION}). Run \`brevo skill update\`.\n`,
+      );
       expect(markerOf(claudeDir('brevo-cli'))).toMatchObject({
-        version: CLI_VERSION,
+        version: '0.0.1',
         source: 'brevo-cli',
       });
       expect(readCatalogCache()).toMatchObject({ fetchedAt: 0, attemptedAt: now });
@@ -976,6 +1049,23 @@ describe('services/skill', () => {
         now: () => now + 1000,
       });
       expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('refreshes a stale bundled copy offline with BREVO_SKILL_AUTOREFRESH=1', async () => {
+      await staleBundledInstall();
+      const out = output();
+      await skillService.autoRefreshOutdated({
+        env: { ...env(), BREVO_SKILL_AUTOREFRESH: '1' },
+        argv: NOT_SKILL_ARGV,
+        output: out,
+        fetchImpl,
+        now: () => Date.now(),
+      });
+      expect(written(out)).toContain(`refreshed brevo-cli skill (v0.0.1 → v${CLI_VERSION})`);
+      expect(markerOf(claudeDir('brevo-cli'))).toMatchObject({
+        version: CLI_VERSION,
+        source: 'brevo-cli',
+      });
     });
 
     it('respects BREVO_NO_SKILL_AUTOREFRESH=1 even when stale', async () => {
@@ -1000,7 +1090,7 @@ describe('services/skill', () => {
       fetchImpl = makeFetch(releaseRoutes(makeCatalog(broken, { version: '0.2.0' }), broken));
       const out = output();
       await skillService.autoRefreshOutdated({
-        env: env(),
+        env: { ...env(), BREVO_SKILL_AUTOREFRESH: '1' },
         argv: NOT_SKILL_ARGV,
         output: out,
         fetchImpl,
@@ -1022,7 +1112,7 @@ describe('services/skill', () => {
       try {
         await expect(
           skillService.autoRefreshOutdated({
-            env: env(),
+            env: { ...env(), BREVO_SKILL_AUTOREFRESH: '1' },
             argv: NOT_SKILL_ARGV,
             output: out,
             fetchImpl,

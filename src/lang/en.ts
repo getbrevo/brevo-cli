@@ -1154,6 +1154,8 @@ const coreMessages = {
     `${name} is not installed by the CLI at ${dir} (no .brevo-skill.json); left alone.`,
   SKILL_UNINSTALL_NONE: 'No Brevo skills installed.',
   SKILL_UPDATE_NONE: 'No installed skills to update. Run `brevo skill install` first.',
+  SKILL_UPDATES_AVAILABLE: (items: string) =>
+    `↑ Brevo skill update available: ${items}. Run \`brevo skill update\`.`,
   SKILL_AUTOREFRESHED: (name: string, oldVer: string, newVer: string) =>
     `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
   SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>

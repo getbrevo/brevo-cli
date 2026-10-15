@@ -267,7 +267,8 @@ Environment overrides:
 | `BREVO_CONFIG_HOME` | Override for the credentials directory | `~/.brevo/` |
 | `BREVO_CLAUDE_HOME` | Override the Claude Code home `brevo skill install` writes into | `~/.claude/` |
 | `BREVO_AGENTS_HOME` | Override the shared agents home `brevo skill install --agent codex,gemini` writes into | `~/.agents/` |
-| `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress automatic skill refresh on `brevo` runs | off |
+| `BREVO_SKILL_AUTOREFRESH` | Set to `1` to reinstall outdated skills after `brevo` runs instead of only printing the update notice | off |
+| `BREVO_NO_SKILL_AUTOREFRESH` | Set to `1` to suppress the skill update notice (and the reinstall) on `brevo` runs | off |
 | `BREVO_SKILLS_CATALOG_URL` | Replace the skills catalog URL (tests and forks) | the latest `brevo-skills` release |
 | `BREVO_SKILLS_FILES_URL` | Replace the base URL skill files are fetched from | `raw.githubusercontent.com/getbrevo/brevo-skills` |
 | `NO_COLOR` / `FORCE_COLOR` | Disable / force ANSI colour output | – |
@@ -316,7 +317,7 @@ Options shared by `install` and `update`:
 
 Every skill's files are downloaded from the release tag, hashed, and written only when the hash matches the catalog's `sha256`; a mismatch skips that skill and the command exits 1 at the end. A skill whose `min_cli_version` is newer than the running CLI is skipped with the version to upgrade to. Each installed skill directory gets a `.brevo-skill.json` marker, and `~/.brevo/skills.lock.json` records what is installed where and any pin.
 
-After any `brevo` command, when the cached catalog (`~/.brevo/skills-catalog.json`) is older than 12 hours, the CLI refetches it (2-second timeout) and reinstalls outdated, unpinned skills — you'll see a `↻ refreshed <name> skill (vX → vY)` notice on stderr when that happens. Skipped under CI, `--json`, any `brevo skill` command, and with `BREVO_NO_SKILL_AUTOREFRESH=1`; silent when the network is down.
+After any `brevo` command, when the cached catalog (`~/.brevo/skills-catalog.json`) is older than 12 hours, the CLI refetches it (2-second timeout) and, if an installed, unpinned skill is behind it, prints one line on stderr: `↑ Brevo skill update available: <name> (vX → vY). Run \`brevo skill update\`.` Nothing on disk changes until you run that command. Set `BREVO_SKILL_AUTOREFRESH=1` to have those skills reinstalled right away instead (`↻ refreshed <name> skill (vX → vY)` per skill). Both are skipped under CI, `--json`, any `brevo skill` command, and with `BREVO_NO_SKILL_AUTOREFRESH=1`; silent when the network is down.
 
 When the catalog cannot be fetched, `brevo skill install brevo-cli` installs the copy of the skill bundled with the CLI (`agent-context/SKILL.md`), with the CLI version as its version; the other skills need the network. `brevo skill:cli install` and `brevo skill:cli uninstall` keep working as aliases of `brevo skill install brevo-cli` and `brevo skill uninstall brevo-cli`.
 

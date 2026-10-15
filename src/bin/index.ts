@@ -239,10 +239,11 @@ applyCliInfo()
     // notifyUpdate is idempotent, so the early-banner path above suppresses this
     // one on its own — no need to branch on showBannerEarly.
     await notifyUpdate(updateCheck, { name: pkg.name, version });
-    // Skill auto-refresh: when something is installed and the catalog cache is
+    // Skill update notice: when something is installed and the catalog cache is
     // older than 12 hours, refetch the catalog (2 s budget, silent on failure)
-    // and reinstall outdated, unpinned skills so the AI tool always sees the
-    // current text. Opt out with BREVO_NO_SKILL_AUTOREFRESH=1.
+    // and name the outdated, unpinned skills with the command that updates
+    // them. BREVO_SKILL_AUTOREFRESH=1 reinstalls them instead; opt out of both
+    // with BREVO_NO_SKILL_AUTOREFRESH=1.
     await skillService.autoRefreshOutdated();
     // Force exit — Node's native fetch keeps TCP connections alive which can
     // prevent the process from exiting when running against local servers.
