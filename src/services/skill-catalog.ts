@@ -233,7 +233,7 @@ export function validateCatalog(raw: unknown): SkillCatalog {
     throw new CatalogInvalidError('version is missing or not semver');
   }
   if (!Array.isArray(raw.skills)) throw new CatalogInvalidError('skills is missing');
-  const skills = raw.skills.map(validateSkill);
+  const skills = raw.skills.map((skill, index) => validateSkill(skill, index));
   const seen = new Set<string>();
   for (const skill of skills) {
     if (seen.has(skill.name)) throw new CatalogInvalidError(`${skill.name} is listed twice`);
