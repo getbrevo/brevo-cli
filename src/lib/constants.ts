@@ -477,3 +477,4 @@ export const BREVO_DOCS_URL = 'https://developers.brevo.com';
 export const BREVO_CLI_REFERENCE_URL = 'https://developers.brevo.com/docs/cli-reference';
 export const BREVO_OAUTH_SCOPES_DOCS_URL =
   'https://developers.brevo.com/docs/oauth-scopes#scope-catalog';
+export const BREVO_DEVELOPER_TERMS_URL = 'https://developers.brevo.com/docs/apps-developer-terms';

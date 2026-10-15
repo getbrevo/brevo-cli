@@ -1,4 +1,9 @@
-import { CLI, BREVO_CLI_REFERENCE_URL, BREVO_OAUTH_SCOPES_DOCS_URL } from '../lib/constants';
+import {
+  CLI,
+  BREVO_CLI_REFERENCE_URL,
+  BREVO_DEVELOPER_TERMS_URL,
+  BREVO_OAUTH_SCOPES_DOCS_URL,
+} from '../lib/constants';
 
 /**
  * How a scaffold report describes what it just did, given the files it wrote and the
@@ -139,6 +144,31 @@ const coreMessages = {
   APP_CREATE_OAUTH_FLOW_CONSENT:
     'Consent Based       (A user authorizes it; you act on their behalf)',
   APP_CREATE_OAUTH_FLOW_M2M: 'Machine to Machine  (Your server calls the API as itself; no user)',
+  // Developer Terms consent for public-distribution apps. The notice and the question
+  // are the legal team's wording, VERBATIM, from the "Developing Process/Use of Dev
+  // Tools" section of the Developer Terms wording doc — do not reword either without
+  // legal sign-off. The doc ends the notice sentence with the terms link; here the URL
+  // lives on the "Opening…" line right below instead, printed once, because the CLI
+  // opens it in the browser automatically. The `(y/N)` suffix the doc shows is appended
+  // by the prompt helper in create.ts, same as every other y/N input prompt.
+  APP_CREATE_TERMS_NOTICE:
+    'The Brevo Developer Terms apply to the use of the Brevo Developer Tools. Before continuing, ' +
+    'please read the Brevo Developer Terms:',
+  APP_CREATE_TERMS_PROMPT:
+    'Do you confirm that you have read and agree to the Brevo Developer Terms?',
+  // Not legal copy — printed between the notice and the question while the browser
+  // opens. The URL is on its own line so the terminal renders it as a clickable link
+  // even when the auto-open fails.
+  APP_CREATE_TERMS_OPENING: `Opening the terms in your browser:\n${BREVO_DEVELOPER_TERMS_URL}`,
+  APP_CREATE_TERMS_OPEN_FAILED: 'Could not open a browser here — use the link above instead.',
+  APP_CREATE_TERMS_DECLINED:
+    'App creation cancelled — creating a public app requires agreeing to the Brevo Developer Terms.',
+  // Non-interactive (`--json` / piped) public create: no question can be asked, so the
+  // run is refused before any prompt or network call unless consent is given explicitly.
+  APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE:
+    'Creating a public app requires agreeing to the Brevo Developer Terms, and no confirmation can be asked in non-interactive mode.\n\n' +
+    `  Read them:   ${BREVO_DEVELOPER_TERMS_URL}\n` +
+    '  Then re-run with `--accept-developer-terms` to confirm agreement explicitly.',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   // Shown only after every prompt has been answered — hence the reassurance:

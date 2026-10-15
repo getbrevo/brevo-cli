@@ -1335,6 +1335,9 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     name,
     '--distribution',
     opts.distribution,
+    // A non-interactive public create is refused without explicit Developer Terms
+    // consent — the smoke run consents the way a script is meant to, via the flag.
+    ...(opts.distribution === 'public' ? ['--accept-developer-terms'] : []),
     '--redirect-uri',
     redirectUri,
     '--json',
