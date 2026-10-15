@@ -4,6 +4,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   FailureExpectation,
@@ -23,11 +25,14 @@ import {
   must,
   optStr,
   parseJson,
+  readJsonFile,
   requireApp,
   requireCommand,
   requireFeature,
+  requireProjectDir,
   skip,
   uploadApp,
+  usesSnakeCaseKeys,
 } from './core';
 
 // Every state APP_STATUS_MESSAGE (src/lang/en.ts — moved there from
@@ -104,16 +109,37 @@ async function stepPublicAppCreate(state: State): Promise<string> {
   return `public app ${app.appId} created in ${app.projectDir}, listed`;
 }
 
+// The review-state API's submittable check requires a logo (`logoUri` in its
+// missing_fields vocabulary), and `app create` takes no logo input (BEX-489) —
+// a logo only reaches the server via app-config.json + `app upload`. So set one
+// before the upload, exactly the way a user would, or the submit step is
+// refused with "required fields are still missing (logoUri)" before it can
+// exercise anything the CLI owns.
+const SMOKE_LOGO_URI = 'https://example.com/logo.png';
+
 function stepPublicAppUpload(state: State): string {
   requireCommand(state, 'upload');
   const app = requirePublicApp(state);
+
+  // Write the logo under the file's own key spelling, like uploadApp's edits.
+  const configPath = join(requireProjectDir(app), 'app-config.json');
+  const cfg = readJsonFile(configPath);
+  const edited = usesSnakeCaseKeys(cfg)
+    ? { ...cfg, logo_uri: SMOKE_LOGO_URI }
+    : { ...cfg, logoUri: SMOKE_LOGO_URI };
+  writeFileSync(configPath, JSON.stringify(edited, null, 2));
+
   const res = uploadApp(state, app);
   const next = (res.next ?? {}) as Record<string, unknown>;
   must(
     next.distribution_type === 'public',
     `upload next.distribution_type ${JSON.stringify(next.distribution_type)} != public`,
   );
-  return `public app uploaded, version ${optStr(res.version)}`;
+  must(
+    next.logo_uri === SMOKE_LOGO_URI,
+    `upload next.logo_uri ${JSON.stringify(next.logo_uri)} != ${SMOKE_LOGO_URI} — submit will be refused for a missing logo`,
+  );
+  return `public app uploaded with a logo, version ${optStr(res.version)}`;
 }
 
 // Read the review state through `brevo app status --json`. The state itself is
