@@ -95,7 +95,7 @@ Or step by step:
 
    ```bash
    brevo app list
-   brevo app create --name "My App" --distribution private   # or --distribution public
+   brevo app create --name "My App" --distribution private   # or --distribution public (asks you to agree to the Brevo Developer Terms)
    brevo app scaffold --app-id 3f8c1a2e-5b47-4d9c-8e10-6a2b7d4f0c93
    brevo app start oauth --port 3000
    ```
@@ -110,7 +110,7 @@ Run `brevo --help` or `brevo <command> --help` for full command and option lists
 | `brevo logout` | Clear stored credentials (`--force` to skip confirmation) |
 | `brevo whoami` | Show the authenticated user |
 | `brevo app init` | Guided setup — login, create app, and scaffold in one go |
-| `brevo app create` | Create an app — a consent-based OAuth app (`--name`, `--distribution private\|public`, repeatable `--redirect-uri`), a **machine-to-machine** OAuth app (`--m2m --scopes "…"`, private only — creates the app and stops, writing no project files), a UI app (`--ui-app …` / `--ui-config <file>`), or a Brevo Function (interactive prompt only). There is no `--type` flag on this command (`brevo app list --type` is a filter, not a creator); a run with none of those flags creates a consent-based OAuth app. `distribution_type` is immutable after create. **There is no logo input at creation time** — set `logo_uri` in `app-config.json` and run `brevo app upload` afterward |
+| `brevo app create` | Create an app — a consent-based OAuth app (`--name`, `--distribution private\|public`, repeatable `--redirect-uri`), a **machine-to-machine** OAuth app (`--m2m --scopes "…"`, private only — creates the app and stops, writing no project files), a UI app (`--ui-app …` / `--ui-config <file>`), or a Brevo Function (interactive prompt only). **A public app requires agreeing to the [Brevo Developer Terms](https://developers.brevo.com/docs/apps-developer-terms)**: interactively the CLI opens the terms and asks a y/N question (default No — declining cancels the create); non-interactively (`--json` or piped) a `--distribution public` create is refused unless `--accept-developer-terms` is passed, which also skips the question interactively. Private apps never see this. There is no `--type` flag on this command (`brevo app list --type` is a filter, not a creator); a run with none of those flags creates a consent-based OAuth app. `distribution_type` is immutable after create. **There is no logo input at creation time** — set `logo_uri` in `app-config.json` and run `brevo app upload` afterward |
 | `brevo app list` | List apps in your account (each row names its type). `--type <oauth\|ui\|function\|m2m>` shows one kind only — `oauth` covers both OAuth flows, so use `m2m` to isolate machine-to-machine apps |
 | `brevo app credentials` | Show client ID and secret (`--app-id`, `--reveal-secret`) |
 | `brevo app upload` | Push `app-config.json` to Brevo after showing a local-vs-server diff — field by field, including every `ui_app` placement (`--yes`). This is how an app's name, redirect URLs, scopes and `logo_uri` are changed after creation: edit the field, then upload |
