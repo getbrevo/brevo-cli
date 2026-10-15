@@ -29,9 +29,11 @@ jobs:
       # `private` (the two suites are disjoint). Both have shipped in every
       # build since their respective GA milestones.
       #
-      # No 'public': those commands are eliminated from the published bundle, so
-      # the steps could only ever skip — and smoke.yml now refuses that pairing
-      # outright rather than skipping through it to a green run.
+      # No 'public': the suite has not been proven headless on ubuntu-latest yet,
+      # and widening a publish gate is a deliberate decision — tracked in issue
+      # #145. (The old reason — the commands being eliminated from the published
+      # bundle — ended at public-apps GA, and smoke.yml's refusal of that pairing
+      # went with it; nothing refuses the pairing today, the steps would skip.)
       suite: private,ui
       account: default
       expected_version: ${{ github.event.release.tag_name }}

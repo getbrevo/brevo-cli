@@ -110,7 +110,7 @@ describe('app/submit', () => {
     await submitCommand({ appId: '42' });
 
     expect(appService.fetchAppState).toHaveBeenCalledWith('42');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   it('aborts before submitting when the status check fails', async () => {
@@ -161,7 +161,7 @@ describe('app/submit', () => {
     await submitCommand({});
 
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
     expect(output()).toContain(FORM_URL);
     expect(output()).toContain('check its status anytime with `brevo app status`');
   });
@@ -190,14 +190,16 @@ describe('app/submit', () => {
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
     // The unrelated local config must not trigger a drift error.
     expect(output()).not.toContain('differs from the app on Brevo');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   it('succeeds and keeps the URL visible when the browser fails to open', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
-    (openBrowser as jest.Mock).mockImplementation(() => {
-      throw new Error('no display');
+    // The real openBrowser can only fail asynchronously, via its error callback —
+    // a synchronous throw is an implementation it cannot have (`src/lib/browser.ts`).
+    (openBrowser as jest.Mock).mockImplementation((_url: string, onError: (err: Error) => void) => {
+      onError(new Error('no display'));
     });
 
     await submitCommand({});
@@ -231,7 +233,7 @@ describe('app/submit', () => {
     expect(out).toContain('Scopes:        crm:read');
     expect(out).toContain('Logo URL:      https://example.com/logo.png');
     expect(out).toContain('Version:       0.0.2');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   it('cancels cleanly when the confirmation is declined', async () => {
@@ -264,7 +266,7 @@ describe('app/submit', () => {
     await submitCommand({});
 
     expect(inquirer.prompt).not.toHaveBeenCalled();
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   // ── Google-Form gate note ──
@@ -311,6 +313,36 @@ describe('app/submit', () => {
     // `app upload --distribution public` as a remedy.
     expect((error as Error).message).not.toContain('app upload --distribution');
     expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('refuses a private app as private, before the not-uploaded guard and the state read', async () => {
+    // Ordering: the public-only check fires before everything else. A private app can
+    // never be submitted, so any other refusal — "run `brevo app upload`" on one that
+    // was also never uploaded, or the state read's "missing fields" — would send the
+    // developer fixing an app that stays unsubmittable when fixed.
+    const scenarios: Array<{ app: Record<string, unknown>; wrongRemedy: string }> = [
+      {
+        app: { distribution_type: 'private', version: '' },
+        wrongRemedy: 'has never been uploaded',
+      },
+      { app: { distribution_type: 'private' }, wrongRemedy: 'missing' },
+    ];
+    for (const { app, wrongRemedy } of scenarios) {
+      jest.clearAllMocks();
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ ...PUBLIC_APP, ...app });
+      (appService.fetchAppState as jest.Mock).mockResolvedValue({
+        state: 'draft',
+        submittable: false,
+        missing_fields: ['logoLink'],
+      });
+
+      const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
+      expect((error as Error).message).toContain('cannot be submitted for review');
+      expect((error as Error).message).not.toContain(wrongRemedy);
+      expect(appService.fetchAppState).not.toHaveBeenCalled();
+      expect(openBrowser).not.toHaveBeenCalled();
+    }
   });
 
   it('treats a missing distribution_type as not public', async () => {
@@ -367,6 +399,31 @@ describe('app/submit', () => {
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
+  it('falls back to generic not-ready copy when submittable is false with no missing fields', async () => {
+    // `missing_fields` is optional and `submittable: false` with none named is a legal
+    // answer — rendering the list anyway produced "missing ()." / a trailing blank line.
+    for (const missing of [undefined, []]) {
+      (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+      (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+      (appService.fetchAppState as jest.Mock).mockResolvedValue({
+        state: 'draft',
+        submittable: false,
+        ...(missing === undefined ? {} : { missing_fields: missing }),
+      });
+
+      for (const json of [false, true]) {
+        const error = await submitCommand({ appId: '42', json }).catch((e: Error) => e);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("isn't ready to submit");
+        expect((error as Error).message).toContain('did not name the missing fields');
+        // The malformed shapes the fallback replaces must not appear.
+        expect((error as Error).message).not.toContain('()');
+        expect((error as Error).message).not.toMatch(/missing:\s*\n\s*\n/);
+        expect(openBrowser).not.toHaveBeenCalled();
+      }
+    }
+  });
+
   it('still submits when the server omits the submittable flag (older server)', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
@@ -374,7 +431,7 @@ describe('app/submit', () => {
 
     await submitCommand({ appId: '42' });
 
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   // ── Sync check ──
@@ -452,7 +509,7 @@ describe('app/submit', () => {
 
     await submitCommand({});
 
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   // ── App resolution ──
@@ -493,7 +550,7 @@ describe('app/submit', () => {
 
     expect(appService.pickApp).toHaveBeenCalledWith('Which app do you want to submit for review?');
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   // ── Missing form link ──

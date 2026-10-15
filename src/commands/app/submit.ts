@@ -191,6 +191,12 @@ async function preflightAppState(
 function assertSubmittable(state: AppStateResponse, jsonMode: boolean, appId: string): void {
   if (state.submittable !== false) return;
   const fields = state.missing_fields ?? [];
+  // `missing_fields` is optional on AppStateResponse, and `submittable: false` with no
+  // fields is a legal answer — rendering the list anyway produces "missing ()." / a
+  // blank line, an error that names nothing to fix. Fall back to copy without the list.
+  if (fields.length === 0) {
+    throw new CliError(messages.APP_SUBMIT_NOT_SUBMITTABLE_NO_FIELDS(appId));
+  }
   if (jsonMode) {
     throw new CliError(messages.APP_SUBMIT_NOT_SUBMITTABLE(fields, appId));
   }
@@ -231,20 +237,16 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
   // `assertInstallable`'s `requireUploaded` in `account-install.ts`, and CLAUDE.md on why
   // a local pre-flight is kept even where the server also checks.
   const app = await fetchExistingApp(appId, options.json);
-  if (!app.version?.trim()) {
-    throw new CliError(messages.APP_SUBMIT_NOT_UPLOADED(appId));
-  }
-
-  // The response carries the submittability signal used just below.
-  const state = await preflightAppState(appId, options.json);
-
-  // Block when the app is still missing fields required for review (BEX-383) before
-  // doing any submit work.
-  assertSubmittable(state, !!options.json, appId);
 
   // Only public apps can be submitted for review — expressed as a capability so the rule
   // lives in one table (`src/app-types/capabilities.ts`) instead of being restated by each
   // command that needs it.
+  //
+  // Checked FIRST, before the not-uploaded guard and the state read: a private app can
+  // never be submitted, so every other refusal would be actively misleading — "run
+  // `brevo app upload`" or "these fields are missing" sends the developer fixing an app
+  // that stays unsubmittable when fixed. `distribution_type` is already on the payload
+  // `fetchExistingApp` returned, so ordering this first costs no extra round trip.
   //
   // The MESSAGE stays this command's own, deliberately: scripts may match on it and
   // `CLAUDE.md` counts a changed error string or exit code as user-visible, so the matrix
@@ -259,6 +261,17 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     'review-lifecycle',
     messages.APP_SUBMIT_NOT_PUBLIC(appId),
   );
+
+  if (!app.version?.trim()) {
+    throw new CliError(messages.APP_SUBMIT_NOT_UPLOADED(appId));
+  }
+
+  // The response carries the submittability signal used just below.
+  const state = await preflightAppState(appId, options.json);
+
+  // Block when the app is still missing fields required for review (BEX-383) before
+  // doing any submit work.
+  assertSubmittable(state, !!options.json, appId);
 
   // Tracks whether we actually ran a local-vs-server comparison and it came back
   // clean — only then does the "no mismatch" note make sense to show.
@@ -329,12 +342,13 @@ function assertConfigInSync(
 }
 
 function openSubmissionForm(formUrl: string, appId: string): void {
-  // Both branches include the URL, so headless users always get it.
-  try {
-    openBrowser(formUrl);
-    logSuccess(messages.APP_SUBMIT_BROWSER_OPENED(formUrl, appId));
-  } catch (err) {
-    logDebug('openBrowser failed', { message: (err as Error).message });
+  // Both lines include the URL, so headless users always get it. The failure is only
+  // observable via openBrowser's async error callback — a try/catch here can never fire
+  // (see the note in `src/lib/browser.ts`) — so the "couldn't open" line lands after the
+  // "opened" one when the opener is missing; both name the same URL.
+  openBrowser(formUrl, (err) => {
+    logDebug('openBrowser failed', { message: err.message });
     logInfo(messages.APP_SUBMIT_BROWSER_FAILED(formUrl, appId));
-  }
+  });
+  logSuccess(messages.APP_SUBMIT_BROWSER_OPENED(formUrl, appId));
 }

@@ -139,10 +139,12 @@ footgun this feature exists to remove.
 The internal working docs are committed on feature branches only and **must never land
 on `main`** — this repo is public, and they consolidate internal release state:
 
-- `docs.md` and `QA-TESTCASES.md` on `feature_set-brevo-cli-v2` (this branch — the
-  public-apps halves). `RELEASE-CHECKLIST.md` and `PUBLIC-APPS-RELEASE-STATUS.md` were
-  here too until public apps went GA; the runbook was worked through and both were
-  deleted, so do not go looking for them.
+- `docs.md` and `QA-TESTCASES.md` on `feature_set-brevo-cli-v2` (the public-apps
+  halves) — **both deleted from the branch at the main-merge prep (PR #142)**, their
+  still-open items now tracked as GitHub issues (the release-gate gap is #145) and
+  readable at the pre-deletion commit. `RELEASE-CHECKLIST.md` and
+  `PUBLIC-APPS-RELEASE-STATUS.md` were here too until public apps went GA; the runbook
+  was worked through and both were deleted, so do not go looking for any of them.
 - `UI-APPS-RELEASE-STATUS.md`, `RELEASE-CHECKLIST.md`, `docs.md` and `QA-TESTCASES.md`
   on `feat/bex-416-entry-size` (the UI-apps halves)
 
@@ -288,12 +290,12 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 
 **What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
 
-**A feature going GA must join the smoke test's live suites, in the same PR.** The smoke runner splits by surface: `scripts/smoke-test.ts`'s `SUITES` registry holds one suite per app type, and `.github/workflows/smoke.yml`'s `suite` input defaults to the **live** set — the suites whose commands are in the published bundle. Every suite is live today (`private,ui,public`), because nothing is gated; `public` was the last preview suite and joined the default at public-apps GA. So when a feature leaves `FEATURE_STAGE`'s `'preview'`:
+**A feature going GA must join the smoke test's live suites, in the same PR.** The smoke runner splits by surface: `scripts/smoke-test.ts`'s `SUITES` registry holds one suite per app type, and `.github/workflows/smoke.yml`'s `suite` input defaults to the **live** set — the suites whose commands are in the published bundle. Every suite is live today (`smoke.yml`'s dispatch default is `private,ui,public,function`), because nothing is gated; `public` was the last preview suite and joined the default at public-apps GA. So when a feature leaves `FEATURE_STAGE`'s `'preview'`:
 
 1. Move its steps out of the preview suite, or add a suite for it, in `scripts/smoke/`.
 2. Add it to `smoke.yml`'s `suite` **default** and its `options`, so the manual button and any new lane cover it.
 3. **Check `scripts/smoke/core.ts`'s build step.** `stepReinstall` used to build `PREVIEW=1` whenever the selected suites needed a gated surface. That fork is gone with the gate — a local run now always builds the published artifact — but if a suite is ever build-specific again, re-add it there *and* re-add `smoke.yml`'s refusal of the impossible pairing. Letting a preview-only suite run against a published package auto-skips every step into a green run, which reads as coverage the run never had.
-4. Decide, deliberately, whether the release lanes should cover it — `smoke-pre-merge.yml`, `smoke-post-merge.yml` and `release.yaml`'s dispatch each **pin** `suite` explicitly so a retuned default can never silently change what a publish gate verifies. Widening a gate is a real decision: verify the suite passes on `ubuntu-latest` first, since a suite that only ever ran on a dev machine (a pty-driven one especially) has not been proven headless. As of public-apps GA, `smoke-pre-merge.yml` covers `all` (non-blocking, `against=local`) while `smoke-post-merge.yml` stays pinned at `private,ui` against the published package — so the review lifecycle is **not** yet a publish gate. Tracked in `docs.md` → *Part 2*.
+4. Decide, deliberately, whether the release lanes should cover it — `smoke-pre-merge.yml`, `smoke-post-merge.yml` and `release.yaml`'s dispatch each **pin** `suite` explicitly so a retuned default can never silently change what a publish gate verifies. Widening a gate is a real decision: verify the suite passes on `ubuntu-latest` first, since a suite that only ever ran on a dev machine (a pty-driven one especially) has not been proven headless. As of public-apps GA, `smoke-pre-merge.yml` pins `private,public,ui,init` plus a dedicated `function` job (non-blocking, `against=local`) while `smoke-post-merge.yml` stays pinned at `private,ui` plus `function` against the published package — so the review lifecycle is **not** yet a publish gate. Tracked in issue #145.
 
 A GA'd feature the smoke never exercises is the mirror of the docs problem above: the release gate reports green on a surface it never touched.
 
@@ -306,37 +308,30 @@ A GA'd feature the smoke never exercises is the mirror of the docs problem above
 - Services are tested against mocked API client responses.
 - Template tests verify variable substitution, not file I/O.
 
-## Working docs: `docs.md` and `QA-TESTCASES.md`
+## Working docs: `docs.md` and `QA-TESTCASES.md` — deleted; the pattern stays
 
-Two working docs at this branch's root, both **branch-local, never merged into `main`**
-(see the rule above). They carry the **public-apps halves**; the UI-apps halves live on
-`feat/bex-416-entry-size`. Read this before editing either.
+The two public-apps working docs that lived at this branch's root — `docs.md` (the
+open-questions log) and `QA-TESTCASES.md` (the manual test plan, suites 2, 5, 6, 7, 10,
+13) — were **deleted at the main-merge prep (PR #142)**, per the never-merge rule above.
+Their final state is readable at that PR's pre-deletion commit, and the items still open
+when they were deleted moved out: the release-gate coverage gap is GitHub issue #145, and
+the BEX-355 / BEX-350 / BEX-437 sign-offs live on their Jira tickets. The UI-apps halves
+still exist on `feat/bex-416-entry-size`.
 
-- **`docs.md` — the open-questions log.** Everything still open on public apps after GA:
-  the deferred gate-machinery teardown, the release-gate coverage gap, TC-6.3's remaining
-  half, the BEX-355 / BEX-350 / BEX-437 sign-offs, and the QA gaps. It used to have a
-  *Part 1* holding release copy until GA; that copy was consumed into the changeset and
-  the split is gone.
-- **`QA-TESTCASES.md` — the manual public-apps test plan** (suites 2, 5, 6, 7, 10, 13),
-  with the recorded sweep results. The recorded results were taken on `PREVIEW=1`
-  artifacts and predate GA; re-baselining them on a plain build is tracked in `docs.md`.
+Working rules that outlive the files:
 
-Neither is in `package.json` `files:`, so nothing ships to npm — but the never-merge rule
-applies regardless, because branches are public too.
-
-Working rules:
-
-- **Whenever you identify follow-up work that isn't done in the current change**, add it to
-  `docs.md` rather than letting it fall through silently — this branch's copy for
-  public-apps work, `feat/bex-416-entry-size`'s for UI-apps work. (There was a `TODO.md`
-  here; it was folded into `docs.md` because its contents were entirely public-app /
-  UI-app follow-ups.)
-- **When an item in `docs.md` turns into a set of ordered release steps, it needs a
+- **Whenever you identify follow-up work that isn't done in the current change**, give it
+  a durable home rather than letting it fall through silently — a branch-local working
+  doc while a feature branch is active, a GitHub issue or Jira ticket once the branch is
+  merge-bound (issues on this public repo must follow the public-repo rules above).
+- **When tracked follow-up turns into a set of ordered release steps, it needs a
   runbook.** There was a `RELEASE-CHECKLIST.md` here for exactly that and it was deleted
-  once public apps shipped — recreate one rather than growing `docs.md` into it. Keep the
-  split: `docs.md` is *what is still unknown*, a runbook is *what to do on the day*.
-- **Before merging this branch into `main`, delete both working docs from it** (the
-  never-merge rule above).
+  once public apps shipped — recreate one rather than growing an open-questions log into
+  it. Keep the split: the log is *what is still unknown*, a runbook is *what to do on the
+  day*.
+- **Before merging any branch carrying a working doc into `main`, delete the doc from the
+  branch first** (the never-merge rule above), moving its still-open items to a durable
+  home in the same PR.
 - **Per-branch verification notes are scratch.** If a branch keeps a
   `## Per-branch verification` section in a working doc, clear it before merging into
   `main` — per-branch working state doesn't belong in `main`'s history.

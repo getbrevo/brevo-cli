@@ -53,11 +53,11 @@ async function runWebMode(entries: ScopeEntry[]): Promise<void> {
   const server = await startScopesWebServer(entries, { refetch: fetchSupportedScopes });
   logInfo('');
   logInfo(messages.APP_SCOPES_WEB_LISTENING(server.url));
-  try {
-    openBrowser(server.url);
-  } catch (err) {
-    logDebug('openBrowser failed', { message: (err as Error).message });
-  }
+  // The failure is only observable via openBrowser's async error callback — a try/catch
+  // can never fire here (see `src/lib/browser.ts`). The URL is already printed above.
+  openBrowser(server.url, (err) => {
+    logDebug('openBrowser failed', { message: err.message });
+  });
   await waitForShutdownSignal();
   await server.close();
 }
