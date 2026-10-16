@@ -1,5 +1,30 @@
 # @getbrevo/cli
 
+## 2.5.0
+
+### Minor Changes
+
+- e208fbf: feat(public apps): public app distribution and the review lifecycle are now GA (BEX-405)
+
+  `brevo app create --distribution public` is accepted (`Public` is also selectable in the interactive distribution prompt), and three review-lifecycle commands now ship in the published package. All three resolve the target app from `--app-id`, the linked `app-config.json`, or an interactive picker:
+  - **`brevo app status`** — the app's review state (`draft`, `submitted`, `in_review`, `approved`, `rejected`, `changes_requested`, or `unknown`) with the message returned by the API, falling back to built-in per-state copy when absent. Read-only; `--json` gives `{ state, message }`.
+  - **`brevo app submit`** — opens the public-app review submission form. Requires `distribution_type: public`, an uploaded app, and a local `app-config.json` that matches the server (drift is shown as a field-by-field diff with `(local only)` / `(server only)` tags). `--json` prints `{"app_id","form_url"}` on stdout with the next-steps notes on stderr. The command changes nothing server-side — the app is submitted only once the form itself is completed.
+  - **`brevo app withdraw`** — withdraws an app from submission (`--force`, `--json`). An app that was never submitted prints a hint and exits `0`.
+
+  **Consent is now required for public apps.** Creating one requires agreeing to the [Brevo Developer Terms](https://developers.brevo.com/docs/apps-developer-terms); submitting one requires confirming the Submission Process statement. Interactively each command asks a y/N question (default No) — declining cancels with exit `0` and nothing is sent — and `brevo app create` also opens the terms in the browser (the URL is always printed too). Non-interactive runs (`--json` or piped stdin) must pass the new `--accept-developer-terms` (create) or `--accept-submission-terms` (submit) flag as explicit consent, or the run is refused before anything is sent or opened; either flag also skips the question in interactive runs. Private, M2M, UI and Function apps are unaffected.
+
+  The scaffolded OAuth flow now branches on distribution: a **public** app gets Authorization Code + PKCE (RFC 7636, `S256`) with no `client_secret` — the generated `.env.local` / `.env.example` carry none. **Private** apps keep the confidential-client flow unchanged.
+
+  **Known limitation:** the platform currently refuses public app creation from the CLI — `brevo app create --distribution public` sends the request and the API answers `400`, which the CLI reports as _"Public apps can't be created from the CLI yet"_ with the server's own message quoted. The CLI-side commands are all in place and will work as soon as the platform allows it.
+
+  `distribution_type` remains immutable after `brevo app create` — pick `private` for apps used exclusively by your own organisation and `public` for apps distributed to end users or marketplace listings. Only a public app can be submitted for review.
+
+  Fixes shipped alongside:
+  - `app submit` applies its refusals in the right order and with the right copy: a private app is told it cannot be submitted (instead of being asked to upload or fix fields), a never-uploaded app is refused with the real cause named, missing required fields are shown exactly as returned by the API, and `submittable: false` with no `missing_fields` gets generic not-ready copy instead of a malformed message (BEX-454).
+  - A failed browser open — in `app create`'s Developer-Terms consent, `app submit`'s form open and `app available-scopes --web` — is now actually reported instead of failing silently; the URL is always printed regardless, as before.
+
+  Docs: `agent-context/SKILL.md` and `agent-context/AGENTS.md` now document the publication and review flow — from a public create to an approved app, the refusals `submit` applies in order, the review states, and the fact that a successful `submit` has not yet submitted anything.
+
 ## 2.4.0
 
 ### Minor Changes
