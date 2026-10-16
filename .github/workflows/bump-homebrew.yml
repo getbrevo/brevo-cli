@@ -1,0 +1,51 @@
+name: Bump Homebrew formula
+
+# Manual trigger for the same step the Release workflow runs after every publish:
+# open a formula-bump PR on getbrevo/homebrew-tap for a published @getbrevo/cli
+# version. Use it to re-run a bump that failed, or to bump to an older release.
+#
+# Runs in the `npm-publish` environment, which holds HOMEBREW_TAP_TOKEN, so it
+# needs the same reviewer approval as a release and only runs from `main`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published @getbrevo/cli version to bump to, e.g. 2.5.0. Defaults to the latest on npm"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bump-homebrew
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump brevo formula
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-}"
+          if [ -z "$version" ]; then
+            version=$(npm view @getbrevo/cli version)
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Bump Homebrew formula
+        uses: ./.github/actions/bump-homebrew-formula
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          version: ${{ steps.version.outputs.version }}

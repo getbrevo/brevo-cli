@@ -292,6 +292,23 @@ jobs:
             -f account=default \
             -f expected_version="${tag}"
 
+      # The published @getbrevo/cli version, for the two follow-ups below. Empty
+      # when this run published something else, which skips both.
+      - name: Resolve published CLI version
+        id: cli
+        if: ${{ !cancelled() && steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true' }}
+        env:
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          set -euo pipefail
+          # publishedPackages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
+          version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[] | select(.name=="@getbrevo/cli") | .version' | head -n1)
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "No @getbrevo/cli version in publishedPackages; skipping the follow-ups."
+            version=""
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
       # Tell getbrevo/brevo-skills that the agent skill may have changed. That
       # repo packages agent-context/SKILL.md for every agent platform; its
       # sync-skill workflow copies the skill at this commit and opens a PR there
@@ -299,121 +316,32 @@ jobs:
       #
       # Best-effort: the publish is already done, so a missing token or a failed
       # dispatch only warns (continue-on-error) and never turns the release red.
-      # Needs BREVO_SKILLS_SYNC_TOKEN: a fine-grained token (or GitHub App token)
-      # with `actions: write` on getbrevo/brevo-skills only. Uses an env token,
-      # not ~/.netrc, so it can sit before the Homebrew step that deletes it.
+      # Needs BREVO_SKILLS_SYNC_TOKEN in the npm-publish environment. The same
+      # step can be run by hand: Actions → Sync brevo-skills → Run workflow.
       - name: Trigger brevo-skills sync
-        if: ${{ !cancelled() && steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true' }}
+        if: ${{ !cancelled() && steps.cli.outputs.version != '' }}
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.BREVO_SKILLS_SYNC_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${GH_TOKEN}" ]; then
-            echo "::warning::BREVO_SKILLS_SYNC_TOKEN is not set; skipping the brevo-skills sync."
-            exit 0
-          fi
-          echo "Dispatching brevo-skills sync for brevo-cli at ${GITHUB_SHA}"
-          gh workflow run sync-skill.yml \
-            --repo getbrevo/brevo-skills \
-            -f skill=brevo-cli \
-            -f ref="${GITHUB_SHA}"
+        uses: ./.github/actions/sync-brevo-skills
+        with:
+          token: ${{ secrets.BREVO_SKILLS_SYNC_TOKEN }}
+          ref: ${{ github.sha }}
 
       # Homebrew tap auto-bump: after a publish, recompute the tarball url +
       # sha256 and open a formula-bump PR on getbrevo/homebrew-tap (tap CI gates
       # it; a human merges). Auth is a fine-grained PAT (HOMEBREW_TAP_TOKEN)
       # scoped to ONLY that repo (contents + PRs) — no npm access, so the
-      # OIDC/no-NPM_TOKEN publish posture is unaffected.
+      # OIDC/no-NPM_TOKEN publish posture is unaffected. The logic lives in
+      # .github/actions/bump-homebrew-formula so the manual workflow
+      # (Actions → Bump Homebrew formula → Run workflow) runs the same code.
       #
       # `!cancelled()`: the publish is irreversible by this point, so a failure
       # in a step between it and here must not leave npm ahead of the formula —
       # that happened for 2.2.0 and was bumped by hand. Still gated on a real
-      # publish, and the run still goes red. Keep this step LAST: it deletes
-      # ~/.netrc.
+      # publish, and the run still goes red. Keep this step LAST: the action
+      # deletes ~/.netrc.
       - name: Bump Homebrew formula
-        if: ${{ !cancelled() && steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
-        run: |
-          set -euo pipefail
-
-          # publishedPackages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
-          version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[] | select(.name=="@getbrevo/cli") | .version' | head -n1)
-          if [ -z "$version" ] || [ "$version" = "null" ]; then
-            echo "No @getbrevo/cli version in publishedPackages; nothing to bump."
-            exit 0
-          fi
-
-          tarball_url="https://registry.npmjs.org/@getbrevo/cli/-/cli-${version}.tgz"
-
-          # sha256 from the published tarball (never hand-entered); retry as it
-          # can lag a few seconds behind the publish.
-          sha256=""
-          for attempt in 1 2 3 4 5; do
-            sha256=$(curl -fsSL --proto '=https' --proto-redir '=https' "$tarball_url" \
-              | shasum -a 256 | awk '{print $1}') && break || true
-            echo "tarball not ready yet (attempt $attempt), retrying in 10s…"
-            sleep 10
-          done
-          if [ -z "$sha256" ]; then
-            echo "Failed to fetch tarball $tarball_url after retries." >&2
-            exit 1
-          fi
-          echo "Bumping brevo formula to ${version} (sha256 ${sha256})"
-
-          # Clone the tap via gh (shallow): the PAT never lands in argv or
-          # remote.origin.url; gh authenticates from $GH_TOKEN.
-          workdir=$(mktemp -d)
-          gh repo clone getbrevo/homebrew-tap "$workdir" -- --depth 1 --single-branch
-          cd "$workdir"
-
-          branch="bump-brevo-${version}"
-          git checkout -b "$branch"
-
-          # Rewrite ONLY the url and sha256 lines in the formula.
-          formula="Formula/brevo.rb"
-          sed -i.bak -E "s|^(  url ).*|\1\"${tarball_url}\"|" "$formula"
-          sed -i.bak -E "s|^(  sha256 ).*|\1\"${sha256}\"|" "$formula"
-          rm -f "${formula}.bak"
-
-          if git diff --quiet; then
-            echo "Formula already at ${version}; no PR needed."
-            exit 0
-          fi
-
-          git -c user.name="brevo-release-bot" \
-              -c user.email="brevo-release-bot@users.noreply.github.com" \
-              commit -am "chore: bump brevo to ${version}"
-
-          # changesets/action wrote ~/.netrc with the repo-scoped GITHUB_TOKEN;
-          # git would send it pre-emptively and push as github-actions[bot],
-          # which has no access to the tap (403). Remove it and wire gh in as
-          # git's credential helper so the push authenticates with $GH_TOKEN
-          # (the tap PAT) — still never landing the token in argv, the remote
-          # URL, or on-disk config. Safe: this is the job's last step and every
-          # other step authenticates via env tokens, not netrc.
-          rm -f "$HOME/.netrc"
-          gh auth setup-git --hostname github.com
-
-          git push --force-with-lease origin "$branch"
-
-          # Don't fail the job if a bump PR is already open (e.g. a re-run).
-          existing=$(gh pr list --repo getbrevo/homebrew-tap --head "$branch" \
-            --state open --json number --jq 'length')
-          if [ "$existing" != "0" ]; then
-            echo "PR already open for ${branch}; nothing to do."
-            exit 0
-          fi
-
-          gh pr create \
-            --repo getbrevo/homebrew-tap \
-            --base main \
-            --head "$branch" \
-            --title "chore: bump brevo to ${version}" \
-            --body "Automated formula bump for \`@getbrevo/cli@${version}\`.
-
-          - url: ${tarball_url}
-          - sha256: \`${sha256}\`
-
-          Tap CI (\`brew audit\`/\`brew test\`) gates this PR. Merge after green."
+        if: ${{ !cancelled() && steps.cli.outputs.version != '' }}
+        uses: ./.github/actions/bump-homebrew-formula
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          version: ${{ steps.cli.outputs.version }}

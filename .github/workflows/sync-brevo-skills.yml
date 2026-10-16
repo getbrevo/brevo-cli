@@ -1,0 +1,41 @@
+name: Sync brevo-skills
+
+# Manual trigger for the same step the Release workflow runs after every publish:
+# ask getbrevo/brevo-skills to re-sync the brevo-cli agent skill (it opens a PR
+# there for review). Use it to re-run a sync that failed or was skipped, or to
+# sync a commit that has not been released yet.
+#
+# Runs in the `npm-publish` environment, which holds BREVO_SKILLS_SYNC_TOKEN, so
+# it needs the same reviewer approval as a release and only runs from `main`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit, branch or tag of this repo to sync from. Defaults to the tip of main"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-brevo-skills
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync brevo-cli skill
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Trigger brevo-skills sync
+        uses: ./.github/actions/sync-brevo-skills
+        with:
+          token: ${{ secrets.BREVO_SKILLS_SYNC_TOKEN }}
+          ref: ${{ inputs.ref || github.sha }}
+          strict: "true"
