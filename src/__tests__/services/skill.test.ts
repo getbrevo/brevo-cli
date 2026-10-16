@@ -373,7 +373,7 @@ describe('services/skill', () => {
       expect(run.source).toBe('bundled');
       expect(run.release).toBeUndefined();
       expect(run.warnings[0]).toMatch(
-        /Could not fetch the skills catalog from .*; installing the brevo-cli skill bundled/,
+        /brevo-skills repository is not reachable .*; installing the brevo-cli skill bundled/,
       );
       expect(run.results).toHaveLength(1);
       expect(run.results[0]).toMatchObject({
@@ -401,7 +401,8 @@ describe('services/skill', () => {
       expect(err).toBeInstanceOf(CliError);
       expect(err.message).toContain(STUB_CATALOG_URL);
       expect(err.message).toContain('release 0.1.0');
-      expect(err.message).toContain('brevo skill install brevo-cli');
+      expect(err.message).toContain('not reachable');
+      expect(err.message).toContain('brevo skill:cli install');
 
       const all = await skillService.install([], { fetchImpl }).catch((e) => e);
       expect(all).toBeInstanceOf(CliError);

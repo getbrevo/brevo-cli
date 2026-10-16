@@ -1196,10 +1196,12 @@ const coreMessages = {
     (cachedRelease
       ? ` The cached catalog is release ${cachedRelease}; \`brevo skill list\` and \`brevo skill check\` can read it.`
       : '') +
-    ' `brevo skill install brevo-cli` works offline from the copy bundled with the CLI.',
+    ' The brevo-skills repository is not reachable from here. To install only the CLI skill, which' +
+    ' is bundled with the CLI and needs no network, run `brevo skill:cli install`' +
+    ' (add `--agent codex,gemini` or `--agent all` for other agents).',
   SKILL_CATALOG_INVALID: (problem: string) => `The skills catalog is not valid: ${problem}.`,
   SKILL_OFFLINE_FALLBACK: (url: string) =>
-    `Could not fetch the skills catalog from ${url}; installing the brevo-cli skill bundled with this CLI instead.`,
+    `The brevo-skills repository is not reachable (${url}); installing the brevo-cli skill bundled with this CLI instead.`,
   SKILL_LOCK_WRITE_FAILED: (err: string) =>
     `Could not write ~/.brevo/skills.lock.json (${err}). The installed skills are in place; pins will not be remembered.`,
   SKILL_LIST_INSTALLED_HEADER: 'Installed skills:',

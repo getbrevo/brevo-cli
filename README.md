@@ -322,7 +322,7 @@ Every skill's files are downloaded from the release tag, hashed, and written onl
 
 After any `brevo` command, when the cached catalog (`~/.brevo/skills-catalog.json`) is older than 12 hours, the CLI refetches it (2-second timeout) and, if an installed, unpinned skill is behind it, prints one line on stderr: `↑ Brevo skill update available: <name> (vX → vY). Run \`brevo skill update\`.` Nothing on disk changes until you run that command. Set `BREVO_SKILL_AUTOREFRESH=1` to have those skills reinstalled right away instead (`↻ refreshed <name> skill (vX → vY)` per skill). Both are skipped under CI, `--json`, any `brevo skill` command, and with `BREVO_NO_SKILL_AUTOREFRESH=1`; silent when the network is down.
 
-When the catalog cannot be fetched, `brevo skill install brevo-cli` installs the copy of the skill bundled with the CLI (`agent-context/SKILL.md`), with the CLI version as its version; the other skills need the network. `brevo skill:cli install` and `brevo skill:cli uninstall` keep working as aliases of `brevo skill install brevo-cli` and `brevo skill uninstall brevo-cli`.
+When the brevo-skills repository is not reachable, `brevo skill install` stops with a message saying so, and points to the hidden `brevo skill:cli install` group for the CLI skill alone. `brevo skill install brevo-cli` does the same thing: it installs the copy of the skill bundled with the CLI (`agent-context/SKILL.md`), with the CLI version as its version; the other skills need the network. `brevo skill:cli install` and `brevo skill:cli uninstall` keep working as aliases of `brevo skill install brevo-cli` and `brevo skill uninstall brevo-cli`.
 
 ### Manual install (escape hatch)
 
