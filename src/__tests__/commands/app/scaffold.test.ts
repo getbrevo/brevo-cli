@@ -200,14 +200,29 @@ describe('app/scaffold', () => {
         // Jest runs with no TTY, so the prompt path is unreachable unless it is
         // faked — the two tests that assert the *non*-interactive behaviour set it
         // back to falsy themselves.
+        //
+        // Set through `defineProperty` with an explicit `writable`, never by plain
+        // assignment: several other suites redefine `process.stdin.isTTY` as
+        // `{ value, configurable: true }`, which leaves it **non-writable** (the
+        // descriptor default), and `process.stdin` is shared across every file a Jest
+        // worker runs. An assignment here therefore throws `Cannot assign to read only
+        // property 'isTTY'` depending only on which file ran before this one in the
+        // same worker — a failure that comes and goes with the file mix.
         let originalIsTTY: boolean | undefined;
         beforeEach(() => {
-          const stdin = process.stdin as unknown as { isTTY?: boolean };
-          originalIsTTY = stdin.isTTY;
-          stdin.isTTY = true;
+          originalIsTTY = process.stdin.isTTY;
+          Object.defineProperty(process.stdin, 'isTTY', {
+            configurable: true,
+            writable: true,
+            value: true,
+          });
         });
         afterEach(() => {
-          (process.stdin as unknown as { isTTY?: boolean }).isTTY = originalIsTTY;
+          Object.defineProperty(process.stdin, 'isTTY', {
+            configurable: true,
+            writable: true,
+            value: originalIsTTY,
+          });
         });
 
         it('offers to set the directory up for an existing app, then bootstraps the picked one', async () => {

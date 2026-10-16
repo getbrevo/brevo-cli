@@ -34,6 +34,12 @@ jest.mock('../../../commands/login', () => ({
   loginCommand: jest.fn().mockResolvedValue(undefined),
 }));
 
+// The Developer Terms consent prompt opens the terms on an `o` answer. Mocked so no
+// test launches a real browser.
+jest.mock('../../../lib/browser', () => ({
+  openBrowser: jest.fn(),
+}));
+
 jest.mock('../../../container', () => ({
   appService: {
     fetchAppsList: jest.fn(),
@@ -102,6 +108,7 @@ import {
   readProjectConfig,
 } from '../../../lib/config';
 import { loginCommand } from '../../../commands/login';
+import { openBrowser } from '../../../lib/browser';
 import { messages } from '../../../lang/en';
 import {
   fetchAppContext,
@@ -958,6 +965,7 @@ describe('app/create', () => {
       (appService.createApp as jest.Mock).mockRejectedValue(rejection());
 
       answerPrompts({
+        termsAccepted: 'y',
         appType: 'oauth',
         redirectUrl: 'https://example.com/cb',
         another: false,
@@ -980,6 +988,7 @@ describe('app/create', () => {
       (appService.createApp as jest.Mock).mockRejectedValue(rejection());
 
       answerPrompts({
+        termsAccepted: 'y',
         appType: 'oauth',
         redirectUrl: 'https://example.com/cb',
         another: false,
@@ -1005,6 +1014,7 @@ describe('app/create', () => {
       });
 
       answerPrompts({
+        termsAccepted: 'y',
         appType: 'oauth',
         redirectUrl: 'https://example.com/cb',
         another: false,
@@ -1027,6 +1037,7 @@ describe('app/create', () => {
       );
 
       answerPrompts({
+        termsAccepted: 'y',
         appType: 'oauth',
         redirectUrl: 'https://example.com/cb',
         another: false,
@@ -1242,6 +1253,7 @@ describe('app/create', () => {
     });
 
     answerPrompts({
+      termsAccepted: 'y', // Developer Terms consent, asked of every public app
       appType: 'oauth', // app type
       redirectUrl: 'http://localhost:3009/auth/callback',
       another: false,
@@ -1258,6 +1270,181 @@ describe('app/create', () => {
         scopes: ['contacts:read', 'contacts:write', 'crm:read', 'crm:write'],
         redirect_uris: ['http://localhost:3009/auth/callback'],
       },
+    });
+  });
+
+  // ──────────── Developer Terms consent (public distribution only) ────────────
+  //
+  // A public app may not be created without agreement to the Brevo Developer Terms.
+  // Interactively that is the y/N question (legal's wording, verbatim — pinned in
+  // `__tests__/lang/en.test.ts`); non-interactively it is the `--accept-developer-terms`
+  // flag, and a run with neither is refused before any prompt or network call.
+  describe('Developer Terms consent for public apps', () => {
+    beforeEach(() => {
+      (appService.createApp as jest.Mock).mockResolvedValue({
+        app_id: 7,
+        name: 'Public App',
+        client_id: 'cli-public',
+        client_secret: 'secret-public',
+        redirect_uris: ['https://example.com/cb'],
+      });
+    });
+
+    it('asks for consent directly after the distribution is known, then proceeds on yes', async () => {
+      const asked: string[] = [];
+      answerPrompts(
+        {
+          distribution: 'public',
+          termsAccepted: 'y',
+          appType: 'oauth',
+          redirectUrl: 'https://example.com/cb',
+          another: false,
+          scaffoldRaw: 'n',
+        },
+        asked,
+      );
+
+      await createCommand({ name: 'Public App' });
+
+      // Directly after the distribution question — before the app type, so a decline
+      // costs the caller nothing further.
+      expect(asked.indexOf('termsAccepted')).toBe(asked.indexOf('distribution') + 1);
+
+      const question = mockPrompt.mock.calls
+        .flatMap((call) => call[0])
+        .find((q) => q?.name === 'termsAccepted');
+      expect(question.message).toBe(messages.APP_CREATE_TERMS_PROMPT + ' (y/N)');
+      expect(question.default).toBe('n');
+
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+      expect(output).toContain(messages.APP_CREATE_TERMS_NOTICE);
+      expect(output).toContain(messages.APP_CREATE_TERMS_OPENING);
+      // The terms are opened automatically — reading them must cost nothing.
+      expect(openBrowser).toHaveBeenCalledWith(
+        'https://developers.brevo.com/docs/apps-developer-terms',
+        expect.any(Function),
+      );
+      expect(appService.createApp).toHaveBeenCalled();
+    });
+
+    it('a failed browser open falls back to the printed link and still asks', async () => {
+      // The real openBrowser can only fail asynchronously, via its error callback —
+      // a synchronous throw is an implementation it cannot have (`src/lib/browser.ts`).
+      (openBrowser as jest.Mock).mockImplementationOnce(
+        (_url: string, onError: (err: Error) => void) => {
+          onError(new Error('no browser on this box'));
+        },
+      );
+      answerPrompts({ termsAccepted: 'n' });
+
+      await expect(
+        createCommand({ name: 'Public App', distribution: 'public' }),
+      ).resolves.toBeUndefined();
+
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+      expect(output).toContain(messages.APP_CREATE_TERMS_OPEN_FAILED);
+      expect(output).toContain(messages.APP_CREATE_TERMS_DECLINED);
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    it('never opens a browser for a private app or under --accept-developer-terms', async () => {
+      answerPrompts({
+        appType: 'oauth',
+        redirectUrl: 'https://example.com/cb',
+        another: false,
+        scaffoldRaw: 'n',
+      });
+
+      await createCommand({ name: 'Private App', distribution: 'private' });
+      await createCommand({
+        name: 'Public App',
+        distribution: 'public',
+        acceptDeveloperTerms: true,
+      });
+
+      expect(openBrowser).not.toHaveBeenCalled();
+    });
+
+    it('declining cancels the create — no API call, no error, the cancel line printed', async () => {
+      answerPrompts({ termsAccepted: 'n' });
+
+      await expect(
+        createCommand({ name: 'Public App', distribution: 'public' }),
+      ).resolves.toBeUndefined();
+
+      expect(appService.createApp).not.toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+      expect(output).toContain(messages.APP_CREATE_TERMS_DECLINED);
+    });
+
+    it('never asks for a private app', async () => {
+      const asked: string[] = [];
+      answerPrompts(
+        {
+          appType: 'oauth',
+          redirectUrl: 'https://example.com/cb',
+          another: false,
+          scaffoldRaw: 'n',
+        },
+        asked,
+      );
+
+      await createCommand({ name: 'Private App', distribution: 'private' });
+
+      expect(asked).not.toContain('termsAccepted');
+    });
+
+    it('--accept-developer-terms is explicit consent — no question even interactively', async () => {
+      const asked: string[] = [];
+      answerPrompts(
+        {
+          appType: 'oauth',
+          redirectUrl: 'https://example.com/cb',
+          another: false,
+          scaffoldRaw: 'n',
+        },
+        asked,
+      );
+
+      await createCommand({
+        name: 'Public App',
+        distribution: 'public',
+        acceptDeveloperTerms: true,
+      });
+
+      expect(asked).not.toContain('termsAccepted');
+      expect(appService.createApp).toHaveBeenCalled();
+    });
+
+    it('refuses a non-interactive public create without the flag, before any prompt or API call', async () => {
+      await expect(
+        createCommand({ name: 'Public App', distribution: 'public', json: true }),
+      ).rejects.toThrow(/--accept-developer-terms/);
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(appService.createApp).not.toHaveBeenCalled();
+    });
+
+    it('allows a non-interactive public create with the flag, asking nothing', async () => {
+      // A genuinely piped run: off a TTY the redirect URL falls back to its default
+      // instead of prompting, so "asking nothing" is provable.
+      Object.defineProperty(process.stdin, 'isTTY', {
+        configurable: true,
+        writable: true,
+        value: false,
+      });
+
+      await createCommand({
+        name: 'Public App',
+        distribution: 'public',
+        acceptDeveloperTerms: true,
+        json: true,
+      });
+
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(appService.createApp).toHaveBeenCalledWith(
+        expect.objectContaining({ distribution_type: 'public' }),
+      );
     });
   });
 
@@ -2545,10 +2732,16 @@ describe('app/create', () => {
   });
 
   // ──────── The pre-GA gate inside `app create` (BEX-405) ────────
-  // Two of the four gated features are not commands, so `command-registry`'s
-  // interceptor cannot reach them: the *UI app* choice is a prompt option and
-  // `public` is a flag VALUE. They are gated inside the flow instead, and the
-  // shape of the refusal differs — a prompt choice is withheld, a flag is refused.
+  // Two of the four gated features were never commands, so `command-registry`'s
+  // interceptor could not reach them: the *UI app* choice is a prompt option and
+  // `public` is a flag VALUE. They were gated inside the flow instead, with different
+  // refusal shapes — a prompt choice withheld, a flag value refused.
+  //
+  // **Both have shipped**: `ui-app-type` at BEX-290, `public-distribution` at BEX-405.
+  // So these tests now assert the published artifact offers the full surface. They are
+  // kept pointed at a public build rather than deleted, because a published build is the
+  // artifact users get and "the gate is off" is worth asserting there specifically —
+  // `preview.test.ts` covers the refusal mechanism against a simulated gated row.
   describe('in a published (public) build', () => {
     beforeEach(() => {
       // jest.setup.js runs the suite as a preview build so the feature tests above
@@ -2569,25 +2762,29 @@ describe('app/create', () => {
       globalThis.__BREVO_PREVIEW__ = true;
     });
 
-    it('refuses --distribution public with the unreleased-feature message', async () => {
-      await expect(
-        createCommand({ name: 'Test App', distribution: 'public', json: true }),
-      ).rejects.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
+    // Was a refusal carrying `PREVIEW_FEATURE_UNAVAILABLE` until public-apps GA. The
+    // published build is the one that changed — a preview build always accepted it.
+    it('accepts --distribution public and sends it on the wire', async () => {
+      await createCommand({
+        name: 'Test App',
+        distribution: 'public',
+        acceptDeveloperTerms: true,
+        json: true,
+      });
+
+      const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+      expect(payload.distribution_type).toBe('public');
     });
 
-    // The refusal must land BEFORE any filesystem work. `app create` decides its
-    // target directory and then applies it (mkdir + chdir), so a refusal arriving
-    // after the apply step would leave a stray directory and a moved cwd behind for
-    // a command that failed — the same failure mode a server-side refusal used to
-    // cause before the decide/apply split.
-    it('refuses before creating anything', async () => {
+    it('does not mention the unreleased-feature message for a public create', async () => {
       await expect(
-        createCommand({ name: 'Test App', distribution: 'public', json: true }),
-      ).rejects.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
-
-      expect(appService.createApp).not.toHaveBeenCalled();
-      expect(resolveProjectDirectory).not.toHaveBeenCalled();
-      expect(chdirSpy).not.toHaveBeenCalled();
+        createCommand({
+          name: 'Test App',
+          distribution: 'public',
+          acceptDeveloperTerms: true,
+          json: true,
+        }),
+      ).resolves.not.toThrow();
     });
 
     // A genuine typo must still read as a typo. Routing every bad value through the
@@ -2601,9 +2798,9 @@ describe('app/create', () => {
       ).rejects.not.toThrow(messages.PREVIEW_FEATURE_UNAVAILABLE);
     });
 
-    // The question is asked in every build. UI apps and Brevo Functions are GA, so the
-    // published build offers all three app types — the choices no longer differ between
-    // builds; only the distribution question below still withholds its gated value.
+    // Nothing is withheld from the question any more: UI apps (BEX-290), public
+    // distribution (BEX-405) and Brevo Functions have all shipped, so there is one
+    // build and it offers all three app types.
     it('asks for the app type, offering OAuth, UI app, and Brevo Function', async () => {
       mockPrompt.mockResolvedValue({ appType: 'oauth', redirectUrl: '' });
 
@@ -2631,8 +2828,11 @@ describe('app/create', () => {
       expect(payload).not.toHaveProperty('ui_app');
     });
 
-    // Same rule for the distribution question, whose gated choice is `public`.
-    it('asks for the distribution, offering only private, and defaults to private', async () => {
+    // Same story for the distribution question, whose gated choice was `public`: the
+    // published build offered `Private` only until BEX-405 and offers both now. The
+    // ORDER matters and is asserted — `private` stays first so it remains what a bare
+    // Enter selects, which is the conservative default a developer should land on.
+    it('asks for the distribution, offering both values, and defaults to private', async () => {
       mockPrompt.mockResolvedValue({
         appType: 'oauth',
         distribution: 'private',
@@ -2645,8 +2845,10 @@ describe('app/create', () => {
         .flatMap((call) => call[0])
         .find((question) => question?.name === 'distribution');
       expect(distributionQuestion).toBeDefined();
-      expect(distributionQuestion.choices).toHaveLength(1);
-      expect(distributionQuestion.choices[0].value).toBe('private');
+      expect(distributionQuestion.choices).toHaveLength(2);
+      expect(distributionQuestion.choices.map((choice: { value: string }) => choice.value)).toEqual(
+        ['private', 'public'],
+      );
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(payload.distribution_type).toBe('private');
@@ -2666,12 +2868,17 @@ describe('app/create', () => {
       expect(payload).not.toHaveProperty('ui_app');
     });
 
-    // The same command in a preview build, which is what `PREVIEW=1 yarn link:dev`
-    // produces and how this path is tested locally.
-    it('allows --distribution public in a preview build', async () => {
+    // A preview build is a superset, never a replacement — `PREVIEW=1 yarn link:dev`
+    // must not be the only artifact that accepts a public create now that it is GA.
+    it('allows --distribution public in a preview build too', async () => {
       globalThis.__BREVO_PREVIEW__ = true;
 
-      await createCommand({ name: 'Test App', distribution: 'public', json: true });
+      await createCommand({
+        name: 'Test App',
+        distribution: 'public',
+        acceptDeveloperTerms: true,
+        json: true,
+      });
 
       const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
       expect(payload.distribution_type).toBe('public');

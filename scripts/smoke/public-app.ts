@@ -4,6 +4,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   FailureExpectation,
@@ -23,19 +25,27 @@ import {
   must,
   optStr,
   parseJson,
+  readJsonFile,
   requireApp,
   requireCommand,
   requireFeature,
+  requireProjectDir,
   skip,
   uploadApp,
+  usesSnakeCaseKeys,
 } from './core';
 
-// Every state src/lang/en.ts (APP_STATUS_MESSAGE) has canned copy for, plus the
-// 'unknown' sentinel status.ts normalises an empty state to. An unrecognised
-// value means the server grew a state the CLI doesn't describe yet.
+// Every state APP_STATUS_MESSAGE (src/lang/en.ts — moved there from
+// preview-messages.ts at public-apps GA) has canned copy
+// for, plus the 'unknown' sentinel status.ts normalises an empty state to. An
+// unrecognised value means the server grew a state the CLI doesn't describe yet.
+//
+// BEX-382 renamed the initial state `configured` → `draft` on the wire (the
+// server migration renames every existing row, so `configured` no longer
+// appears — a clean rename with no alias), and BEX-383 reads the new value.
 const KNOWN_REVIEW_STATES = [
   'unknown',
-  'configured',
+  'draft',
   'submitted',
   'in_review',
   'approved',
@@ -99,16 +109,37 @@ async function stepPublicAppCreate(state: State): Promise<string> {
   return `public app ${app.appId} created in ${app.projectDir}, listed`;
 }
 
+// The review-state API's submittable check requires a logo (`logoUri` in its
+// missing_fields vocabulary), and `app create` takes no logo input (BEX-489) —
+// a logo only reaches the server via app-config.json + `app upload`. So set one
+// before the upload, exactly the way a user would, or the submit step is
+// refused with "required fields are still missing (logoUri)" before it can
+// exercise anything the CLI owns.
+const SMOKE_LOGO_URI = 'https://example.com/logo.png';
+
 function stepPublicAppUpload(state: State): string {
   requireCommand(state, 'upload');
   const app = requirePublicApp(state);
+
+  // Write the logo under the file's own key spelling, like uploadApp's edits.
+  const configPath = join(requireProjectDir(app), 'app-config.json');
+  const cfg = readJsonFile(configPath);
+  const edited = usesSnakeCaseKeys(cfg)
+    ? { ...cfg, logo_uri: SMOKE_LOGO_URI }
+    : { ...cfg, logoUri: SMOKE_LOGO_URI };
+  writeFileSync(configPath, JSON.stringify(edited, null, 2));
+
   const res = uploadApp(state, app);
   const next = (res.next ?? {}) as Record<string, unknown>;
   must(
     next.distribution_type === 'public',
     `upload next.distribution_type ${JSON.stringify(next.distribution_type)} != public`,
   );
-  return `public app uploaded, version ${optStr(res.version)}`;
+  must(
+    next.logo_uri === SMOKE_LOGO_URI,
+    `upload next.logo_uri ${JSON.stringify(next.logo_uri)} != ${SMOKE_LOGO_URI} — submit will be refused for a missing logo`,
+  );
+  return `public app uploaded with a logo, version ${optStr(res.version)}`;
 }
 
 // Read the review state through `brevo app status --json`. The state itself is
@@ -333,10 +364,42 @@ function stepNegativeUnknownApp(state: State): string {
   return details.join('; ');
 }
 
+// A non-interactive public create without explicit Developer Terms consent must be
+// refused before any prompt or network call — the refusal names the flag that grants
+// it. Runs before the real create so the suite proves the gate, then passes it.
+function stepNegativeCreateWithoutTermsConsent(state: State): string {
+  requireFeature(state, 'public-distribution');
+  return assertMappedFailure(
+    exec(
+      brevoCmd(state),
+      [
+        'app',
+        'create',
+        '--name',
+        'brevo-cli-smoke-no-consent',
+        '--distribution',
+        'public',
+        '--json',
+      ],
+      state,
+      // cwd matters even for a refused create: run from a directory holding an
+      // app-config.json and guardAgainstLinkedApp fires FIRST, so the step would
+      // report a false failure of the consent gate. Same cwd every real create uses.
+      { cwd: ensureWorkRoot(state) },
+    ),
+    {
+      what: 'public create without --accept-developer-terms',
+      patterns: [/--accept-developer-terms/, /Brevo Developer Terms/],
+      exitCodes: [1],
+    },
+  );
+}
+
 export const publicAppSuite: Suite = {
   name: 'public',
   description: 'Public-app submission and review lifecycle',
   steps: [
+    ['Negative: public create without terms consent', stepNegativeCreateWithoutTermsConsent],
     ['Public app create', stepPublicAppCreate],
     ['Public app upload', stepPublicAppUpload],
     ['Public app status', stepPublicAppStatus],

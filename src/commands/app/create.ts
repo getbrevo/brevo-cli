@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import inquirer from 'inquirer';
 import {
+  BREVO_DEVELOPER_TERMS_URL,
   CLI,
   DEFAULT_PORT,
   DEFAULT_REDIRECT_URI,
@@ -10,6 +11,7 @@ import {
   M2M_AUTH_TYPE,
   WIRE_APP_TYPE,
 } from '../../lib/constants';
+import { openBrowser } from '../../lib/browser';
 import { findAvailablePort } from '../../lib/port';
 import { logInfo, logError, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
@@ -253,10 +255,9 @@ async function resolveAppType(interactive: boolean, distribution?: string): Prom
   if (isFeatureAvailable('ui-app-type')) {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_UI, value: 'ui' });
   }
-  // Brevo Functions are GA — the `__BREVO_PREVIEW__` wrapper this site carried pre-GA is
-  // gone with the gate. `isFeatureAvailable` stays so the choice keeps reading the same
-  // `FEATURE_STAGE` table as everything else — same pattern as the UI-app choice above.
-  if (isFeatureAvailable('brevo-function-type') && distribution === 'private') {
+  // Brevo Functions are a private-distribution-only app type. The condition is a
+  // product constraint, not a readiness gate — Functions ship in every build.
+  if (distribution === 'private') {
     choices.push({ name: messages.APP_CREATE_APP_TYPE_FUNCTION, value: 'function' });
   }
   const answer = await inquirer.prompt([
@@ -413,11 +414,12 @@ function assertM2mFlags(opts: M2mFlagOptions): void {
 //     typo` costs a name prompt first. Pure — no I/O, no prompts — so it is safe this
 //     early.
 //
-//     Public distribution is pre-GA (BEX-405). The flag keeps validating against the
-//     full set so `--distribution public` still fails as an *unreleased feature* rather
-//     than as an unknown value — the second would be a lie, and would send the user
-//     looking for a typo. `validateEnum` runs first so a genuine typo still gets the
-//     "invalid value" error it deserves.
+//     Public distribution is GA (BEX-405), so `assertFeatureAvailable` is now a no-op
+//     and both values are accepted. The check is kept rather than deleted: it is the one
+//     place a flag *value* can be held back, which a `FEATURE_STAGE` row cannot express
+//     on its own — the flag parses before any gate sees it, so a gated value has to be
+//     refused rather than hidden. `validateEnum` still runs first so a genuine typo gets
+//     the "invalid value" error it deserves.
 function assertDistributionFlag(distributionFlag: string | undefined): void {
   const VALID_DISTRIBUTIONS = ['private', 'public'] as const;
   validateEnum(distributionFlag, VALID_DISTRIBUTIONS, '--distribution');
@@ -441,12 +443,16 @@ async function resolveDistribution(
     return 'private';
   }
   // Same shape as the app-type prompt: the question is always asked, only the choices
-  // are gated. See the ELIMINATION SITE note there for why the raw global appears
-  // alongside `isFeatureAvailable`.
+  // are gated. Public apps are GA, so `isFeatureAvailable` answers true in every build
+  // and both choices are offered. What GA removed is the `__BREVO_PREVIEW__ &&` conjunct
+  // that used to guard this push — the build flag was the outer authority, so flipping
+  // the FEATURE_STAGE row alone would have left a published build offering `Private`
+  // only. The `isFeatureAvailable` call stays so an emergency flip back to 'preview'
+  // narrows the prompt again without a rewrite.
   const choices: Array<{ name: string; value: string }> = [
     { name: 'Private  (Used exclusively by your organisation)', value: 'private' },
   ];
-  if (__BREVO_PREVIEW__ && isFeatureAvailable('public-distribution')) {
+  if (isFeatureAvailable('public-distribution')) {
     choices.push({
       name: 'Public   (Distributed to end users or marketplace listings)',
       value: 'public',
@@ -461,6 +467,50 @@ async function resolveDistribution(
     },
   ]);
   return answer.distribution;
+}
+
+// 3b. Developer Terms consent — asked for every PUBLIC app, every time, with the legal
+//     team's wording verbatim (see the note on the strings in lang/en.ts). The flag is
+//     explicit consent in both modes; without it a non-interactive run is refused here,
+//     before any further prompt or network call, because no question can be asked and
+//     silently creating the app would skip a consent legal requires. A private app never
+//     sees any of this.
+async function resolveDeveloperTermsConsent(
+  distribution: string,
+  interactive: boolean,
+  acceptFlag: boolean,
+): Promise<boolean> {
+  if (distribution !== 'public') {
+    return true;
+  }
+  if (acceptFlag) {
+    return true;
+  }
+  if (!interactive) {
+    throw new CliError(messages.APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE);
+  }
+  logInfo(messages.APP_CREATE_TERMS_NOTICE);
+  logInfo(messages.APP_CREATE_TERMS_OPENING);
+  // Opened automatically so reading the terms costs nothing — the question below is
+  // only asked once the page is on its way. Same fallback shape as `app submit`'s
+  // form open: a headless box gets a quiet "use the link above" line rather than a
+  // failure, because the URL is already printed and the question is still answerable.
+  // The failure is only observable via openBrowser's async error callback — a try/catch
+  // here can never fire (see the note in `src/lib/browser.ts`), so the line may print
+  // while the consent prompt is already up; the URL it points at is two lines above.
+  openBrowser(BREVO_DEVELOPER_TERMS_URL, () => {
+    logInfo(messages.APP_CREATE_TERMS_OPEN_FAILED);
+  });
+  const { termsAccepted } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'termsAccepted',
+      message: messages.APP_CREATE_TERMS_PROMPT + ' (y/N)',
+      default: 'n',
+      validate: validateYesNo,
+    },
+  ]);
+  return String(termsAccepted).toLowerCase().trim().startsWith('y');
 }
 
 async function promptAddAnotherRedirect(): Promise<boolean> {
@@ -1012,6 +1062,7 @@ export const createCommand = withCommandHandler(
   async (options: {
     name?: string;
     distribution?: string;
+    acceptDeveloperTerms?: boolean;
     redirectUri?: string[];
     uiConfig?: string;
     uiApp?: boolean;
@@ -1048,6 +1099,20 @@ export const createCommand = withCommandHandler(
     // branch point, and everything below it belongs to one path or the other.
     const appName = await resolveAppName(options.name);
     const distribution = await resolveDistribution(options.distribution, interactive);
+    // Directly after the distribution is known and before any other question or network
+    // call: a public app may not be created without agreement to the Developer Terms, so
+    // a decline (or a non-interactive run without `--accept-developer-terms`, which
+    // throws inside) must cost the caller nothing further. Decline is a cancel, not an
+    // error — same exit-0 shape as `app delete`'s declined confirm.
+    const termsAccepted = await resolveDeveloperTermsConsent(
+      distribution,
+      interactive,
+      !!options.acceptDeveloperTerms,
+    );
+    if (!termsAccepted) {
+      logInfo(messages.APP_CREATE_TERMS_DECLINED);
+      return;
+    }
     // `--ui-config`/`--ui-app` decide the type outright — `resolveAppType` (and its TTY
     // check) never runs for them, which is what makes them reachable without a terminal.
     // `--m2m` decides it just as outright: an M2M app is an OAuth app by definition, and

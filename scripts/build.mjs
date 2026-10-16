@@ -115,50 +115,48 @@ fs.chmodSync(outfile, builtMode | ((builtMode & 0o444) >> 2));
 // means that module survived. `minifyIdentifiers` is off, so these names appear
 // verbatim if the module does.
 //
-// WHAT THIS CANNOT CATCH, and why it is not a bug in the list: esbuild cannot prune
-// individual properties from an object literal, so anything reached as `OBJECT.KEY`
-// survives at zero references. One such object still carries a gated name in a public
-// build — the `withdrawApp` method on the `appService` literal (`services/app.ts`). It
-// is inert: no command reaches it and no help lists it. (`CLI.APP_INSTALL`/
-// `APP_UNINSTALL`, the `/installs` endpoint and the `installApp`/`uninstallApp` methods
-// used to be residue too; they became live surface at UI-apps GA.)
-//
-// `lang/en.ts` had the same problem and was fixed by moving the gated strings into
-// `lang/preview-messages.ts` and spreading that in behind the build flag. `CLI` and
-// `ENDPOINTS` carried the same residue — `brevo app submit --app-id <id>`, `brevo app
-// withdraw --app-id <id>`, `brevo app status` and the `/withdraw` and `/state` paths
-// were all readable via `strings` on the published binary — and have now had the same
-// treatment (`lib/preview-constants.ts`), which is why `previewCli` and
-// `previewEndpoints` are markers below. `appService` is the remaining case; the same
-// treatment would work for it if the residue ever matters. Tracked in the GA runbook
-// (`RELEASE-CHECKLIST.md` on `feature_set-brevo-cli-v2`; see CLAUDE.md → Working docs
-// for why it is branch-local).
+// WHAT THIS CANNOT CATCH, and why it would not be a bug in the list: esbuild cannot
+// prune individual properties from an object literal, so anything reached as
+// `OBJECT.KEY` survives at zero references. That is why gating an object's contents
+// needs a separate MODULE spread in behind the build flag, not a property on the shared
+// literal. Three modules existed for exactly that reason — `lang/preview-messages.ts`
+// (gated copy), `lib/preview-constants.ts` (gated `CLI.*` names and `ENDPOINTS` paths),
+// `commands/preview-definitions.ts` (gated command definitions) — because without them
+// `brevo app submit --app-id <id>`, `brevo app withdraw --app-id <id>`, `brevo app
+// status` and the `/withdraw` and `/state` paths were all readable via `strings` on the
+// published binary even though no command could reach them. All three emptied at
+// public-apps GA and were deleted; `services/app.ts`'s `withdrawApp` stopped being
+// residue at the same moment and is live surface now. (`CLI.APP_INSTALL`/`APP_UNINSTALL`,
+// the `/installs` endpoint and `installApp`/`uninstallApp` made the same trip at
+// UI-apps GA.) Recreate the modules the same way if a feature is ever gated again.
 //
 // So: a marker here must name a MODULE-level binding, never an object property, or the
 // check fails in a way no amount of correct gating can clear. The one property-level case
 // that is NOT inert — a live reader left holding a key whose definition was eliminated —
 // is caught by `orphanedPreviewMessageKeys` below, which works the opposite way round:
 // it asserts on names that must be ABSENT from a public build's surviving code.
-const LEAK_MARKERS = [
-  'previewAppCommands', // commands/preview-definitions.ts
-  'submitCommand', // commands/app/submit.ts
-  'statusCommand', // commands/app/status.ts
-  'withdrawCommand', // commands/app/withdraw.ts
-  'previewCli', // lib/preview-constants.ts — the gated `brevo app …` command strings
-  'previewEndpoints', // lib/preview-constants.ts — the gated `/withdraw` + `/state` paths
-];
+//
+// EMPTY BY DESIGN: nothing is gated today (every `FEATURE_STAGE` row is `'ga'`), so
+// there is no binding a public build must lack. The list is not vestigial — it is where
+// the next gated module's binding goes, and it is asserted in BOTH directions below, so
+// a name left here after its feature ships fails the build both ways.
+const LEAK_MARKERS = [];
 
 // What a reader actually sees. LEAK_MARKERS names bindings, which is the right check for
 // "did a gated module survive" but says nothing about what `strings dist/bin/index.js`
 // prints — and the published tarball is public, so the command names themselves are the
-// leak that matters. These stayed readable long after the modules were correctly
-// eliminated, because they arrived as properties of `CLI` (see the note above); they are
-// checkable only now that `lib/preview-constants.ts` makes them genuinely absent.
+// leak that matters. `brevo app submit`, `brevo app withdraw` and `brevo app status`
+// lived here and stayed readable long after their modules were correctly eliminated,
+// because they arrived as properties of `CLI` (see the note above); splitting them into
+// `lib/preview-constants.ts` is what made them genuinely absent, and public-apps GA is
+// what made them GA copy that every build should carry.
 //
 // Substrings, matched verbatim against the bundle. Keep them specific enough not to
 // collide with GA copy: `brevo app status` must not match `brevo app start`, and a bare
 // path fragment like `/withdraw` would false-positive on unrelated text.
-const LEAK_STRINGS = ['brevo app submit', 'brevo app withdraw', 'brevo app status'];
+//
+// EMPTY BY DESIGN — same reason as `LEAK_MARKERS`: nothing is gated today.
+const LEAK_STRINGS = [];
 
 // Every file the tarball carries, because that is the scope this particular check has
 // always claimed: not "what did the bundler emit" but "what can someone read in an
@@ -188,6 +186,9 @@ const GA_MARKERS = [
   'appInstallCommand', // commands/app/install.ts — GA at BEX-290
   'appUninstallCommand', // commands/app/uninstall.ts — GA at BEX-290
   'resolveInstallTarget', // commands/app/account-install.ts — GA at BEX-290
+  'submitCommand', // commands/app/submit.ts — GA at BEX-405
+  'statusCommand', // commands/app/status.ts — GA at BEX-405
+  'withdrawCommand', // commands/app/withdraw.ts — GA at BEX-405
   'listFunctionCommand', // commands/function/list.ts — GA at Brevo Functions release
   'initFunctionCommand', // commands/function/init.ts — GA at Brevo Functions release
   'deployFunctionCommand', // commands/function/deploy.ts — GA at Brevo Functions release
@@ -208,7 +209,13 @@ const GA_MARKERS = [
 // `messages.KEY` appears verbatim; the definition cannot, because the module is dropped.
 // A hit therefore means exactly one thing: a live reader with no definition.
 function orphanedPreviewMessageKeys(bundle) {
-  const source = fs.readFileSync(path.join(root, 'src/lang/preview-messages.ts'), 'utf-8');
+  // The module only exists while something is gated, and nothing is today — it emptied
+  // and was deleted at public-apps GA. No file means no gated keys, so there is nothing
+  // that can be orphaned. Guarded rather than deleted so recreating `preview-messages.ts`
+  // for the next gated feature re-arms this check with no edit here.
+  const modulePath = path.join(root, 'src/lang/preview-messages.ts');
+  if (!fs.existsSync(modulePath)) return [];
+  const source = fs.readFileSync(modulePath, 'utf-8');
   const keys = [...source.matchAll(/^ {2}([A-Z][A-Z0-9_]*)\s*:/gm)].map((m) => m[1]);
   return keys.filter((key) => bundle.includes(key));
 }
@@ -222,34 +229,46 @@ if (missingGa.length > 0) {
   throw new Error(
     `GA surface missing from the ${preview ? 'preview' : 'public'} build: ${missingGa.join(', ')}.\n` +
       'A shipped module was eliminated. Check that nothing moved its only reference ' +
-      'behind `__BREVO_PREVIEW__` or into `commands/preview-definitions.ts`.',
+      'behind `__BREVO_PREVIEW__` or into a gated definitions module.',
   );
 }
 
 if (!preview) {
-  const leaked = LEAK_MARKERS.filter((marker) => bundle.includes(marker));
-  if (leaked.length > 0) {
-    throw new Error(
-      `Gated surface leaked into a public build: ${leaked.join(', ')}.\n` +
-        'A gated module is reachable from live code. Check that it is referenced only ' +
-        'from behind `__BREVO_PREVIEW__` (not the imported PREVIEW_BUILD constant, which ' +
-        'esbuild cannot fold across modules) and that nothing else imports it.',
-    );
+  // The two scans below are guarded on their list being non-empty, and the guards are
+  // not defensive padding — they state in code what the comments on the lists state in
+  // prose: an empty list is the NORMAL state between features, not a dead check. Without
+  // them, every static analyser that can prove an empty literal is never pushed to reads
+  // `[].filter(...)` as unreachable and reports the mechanism as dead code (SonarCloud
+  // S4158 did exactly that on PR #120). That is the same inference that produced the
+  // teardown in `4d4b986`. Do not "simplify" these guards away, and do not delete the
+  // lists because a tool called them empty.
+  if (LEAK_MARKERS.length > 0) {
+    const leaked = LEAK_MARKERS.filter((marker) => bundle.includes(marker));
+    if (leaked.length > 0) {
+      throw new Error(
+        `Gated surface leaked into a public build: ${leaked.join(', ')}.\n` +
+          'A gated module is reachable from live code. Check that it is referenced only ' +
+          'from behind `__BREVO_PREVIEW__` (not the imported PREVIEW_BUILD constant, which ' +
+          'esbuild cannot fold across modules) and that nothing else imports it.',
+      );
+    }
   }
-  const leakedStrings = publishedFiles().flatMap((file) => {
-    const content = fs.readFileSync(file, 'utf-8');
-    return LEAK_STRINGS.filter((s) => content.includes(s)).map(
-      (s) => `${s} (${path.relative(root, file)})`,
-    );
-  });
-  if (leakedStrings.length > 0) {
-    throw new Error(
-      `Gated command strings are readable in a public build: ${leakedStrings.join(', ')}.\n` +
-        'No command is registered for them, but `strings` on the published files names ' +
-        'an unreleased feature. Move the string into `lib/preview-constants.ts` (or ' +
-        '`lang/preview-messages.ts` if it is user-facing copy) so the object carrying it ' +
-        'is eliminated, rather than deleting the check.',
-    );
+  if (LEAK_STRINGS.length > 0) {
+    const leakedStrings = publishedFiles().flatMap((file) => {
+      const content = fs.readFileSync(file, 'utf-8');
+      return LEAK_STRINGS.filter((str) => content.includes(str)).map(
+        (str) => `${str} (${path.relative(root, file)})`,
+      );
+    });
+    if (leakedStrings.length > 0) {
+      throw new Error(
+        `Gated command strings are readable in a public build: ${leakedStrings.join(', ')}.\n` +
+          'No command is registered for them, but `strings` on the published files names ' +
+          'an unreleased feature. Move the string into `lib/preview-constants.ts` (or ' +
+          '`lang/preview-messages.ts` if it is user-facing copy) so the object carrying it ' +
+          'is eliminated, rather than deleting the check.',
+      );
+    }
   }
   const orphaned = orphanedPreviewMessageKeys(bundle);
   if (orphaned.length > 0) {
@@ -260,10 +279,11 @@ if (!preview) {
         'code that reads it behind `__BREVO_PREVIEW__`.',
     );
   }
-} else {
+} else if (LEAK_MARKERS.length > 0 || LEAK_STRINGS.length > 0) {
   // Inverted on a preview build: a marker going missing here means the elimination is
   // firing when it shouldn't, which would silently ship a preview build with no preview
-  // surface — the failure that looks like everything working.
+  // surface — the failure that looks like everything working. Guarded for the same
+  // reason as the public branch above: with nothing gated there is nothing to miss.
   const missing = [
     ...LEAK_MARKERS.filter((marker) => !bundle.includes(marker)),
     ...LEAK_STRINGS.filter((s) => !bundle.includes(s)),
