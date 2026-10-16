@@ -433,7 +433,7 @@ export const appCommandGroup: SubcommandGroupDefinition = {
       examples: [
         'brevo app submit',
         `brevo app submit --app-id ${EXAMPLE_APP_ID}`,
-        `brevo app submit --app-id ${EXAMPLE_APP_ID} --json`,
+        `brevo app submit --app-id ${EXAMPLE_APP_ID} --json --accept-submission-terms`,
       ],
       options: [
         {
@@ -445,11 +445,17 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           flags: '--json',
           description: 'Print the submission form URL as JSON instead of opening a browser',
         },
+        {
+          flags: '--accept-submission-terms',
+          description:
+            'Confirm the submission statement explicitly (required for --json / piped runs)',
+        },
       ],
       handler: (opts) =>
         submitCommand({
           appId: opts.appId as string | undefined,
           json: Boolean(opts.json),
+          acceptSubmissionTerms: Boolean(opts.acceptSubmissionTerms),
         }),
     },
     {

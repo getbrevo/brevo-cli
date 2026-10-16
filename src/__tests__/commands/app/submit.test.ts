@@ -80,9 +80,9 @@ describe('app/submit', () => {
       submittable: true,
       missing_fields: [],
     });
-    // Interactive runs now confirm before opening the form — accept by default
-    // so pre-existing flow tests exercise the full path.
-    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ confirmed: true });
+    // Interactive runs confirm the Submission Process affirmation before opening the
+    // form — accept by default so pre-existing flow tests exercise the full path.
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ termsAccepted: 'y' });
   });
 
   afterEach(() => {
@@ -171,7 +171,7 @@ describe('app/submit', () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
-    await submitCommand({ appId: '42', json: true });
+    await submitCommand({ appId: '42', json: true, acceptSubmissionTerms: true });
 
     expect(openBrowser).not.toHaveBeenCalled();
     // stdout must stay pure parseable JSON — the next-steps note goes to stderr.
@@ -208,9 +208,9 @@ describe('app/submit', () => {
     expect(output()).toContain("couldn't open a browser automatically");
   });
 
-  // ── Confirmation prompt ──
+  // ── Confirmation prompt (submit go-ahead + Submission Process affirmation) ──
 
-  it('shows the full app object and asks for confirmation before opening the form', async () => {
+  it('shows the full app object and the affirmation statement, then asks before opening the form', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...MATCHING_CONFIG,
       logo_uri: 'https://example.com/logo.png',
@@ -233,40 +233,81 @@ describe('app/submit', () => {
     expect(out).toContain('Scopes:        crm:read');
     expect(out).toContain('Logo URL:      https://example.com/logo.png');
     expect(out).toContain('Version:       0.0.2');
+    // The legal statement prints verbatim, and the one y/N question (default No)
+    // is both the go-ahead and the affirmation.
+    expect(out).toContain('I have read and agree to the Brevo Developer Terms.');
+    const promptArg = (inquirer.prompt as unknown as jest.Mock).mock.calls[0][0][0];
+    expect(promptArg.message).toContain('Do you confirm the above statement?');
+    expect(promptArg.default).toBe('n');
     expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
-  it('cancels cleanly when the confirmation is declined', async () => {
+  it('cancels cleanly when the affirmation is declined', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
-    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ confirmed: false });
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ termsAccepted: 'n' });
 
     await submitCommand({});
 
-    expect(output()).toContain('Submission cancelled.');
+    expect(output()).toContain('Submission cancelled');
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
-  it('never prompts in --json mode', async () => {
-    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  it('skips the prompt when --accept-submission-terms is passed interactively', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
-    await submitCommand({ appId: '42', json: true });
+    await submitCommand({ acceptSubmissionTerms: true });
 
     expect(inquirer.prompt).not.toHaveBeenCalled();
-    stderrSpy.mockRestore();
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
-  it('skips the prompt when non-interactive and proceeds to open the form', async () => {
+  it('refuses --json without --accept-submission-terms, before revealing the form URL', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+
+    const error = await submitCommand({ appId: '42', json: true }).catch((e: Error) => e);
+    expect((error as Error).message).toContain('--accept-submission-terms');
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(output()).not.toContain(FORM_URL);
+  });
+
+  it('refuses a piped (non-TTY) run without --accept-submission-terms', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
 
-    await submitCommand({});
+    const error = await submitCommand({}).catch((e: Error) => e);
+    expect((error as Error).message).toContain('--accept-submission-terms');
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('opens the form on a non-TTY run when --accept-submission-terms is passed', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+
+    await submitCommand({ acceptSubmissionTerms: true });
 
     expect(inquirer.prompt).not.toHaveBeenCalled();
     expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
+  });
+
+  it('still reports the missing form URL ahead of the terms gate', async () => {
+    // The affirmation gates the form hand-off only — an app with no form link gets
+    // its specific refusal, never the terms one, even non-interactively.
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({
+      ...PUBLIC_APP,
+      google_form_link: undefined,
+    });
+
+    const error = await submitCommand({ appId: '42', json: true }).catch((e: Error) => e);
+    expect((error as Error).message).toContain('Review submission is currently unavailable');
+    expect((error as Error).message).not.toContain('--accept-submission-terms');
   });
 
   // ── Google-Form gate note ──
@@ -287,7 +328,7 @@ describe('app/submit', () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
-    await submitCommand({ appId: '42', json: true });
+    await submitCommand({ appId: '42', json: true, acceptSubmissionTerms: true });
 
     const stderr = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(stderr).toContain('submitted for review only after you complete and submit');
