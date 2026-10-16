@@ -9,12 +9,14 @@ import { EXIT_CODES } from '../../lib/exit-codes';
 import { jsonOutput } from '../../lib/json-output';
 import { logDebug, logInfo, logSuccess } from '../../lib/logger';
 import { createSpinner } from '../../lib/ui';
-import { OAuthApp } from '../../types';
+import { validateYesNo } from '../../lib/validators';
+import { AppStateResponse, OAuthApp } from '../../types';
 import { assertCapability, resolveFromRecord, type Distribution } from '../../app-types';
 
 interface SubmitOptions {
   appId?: string;
   json?: boolean;
+  acceptSubmissionTerms?: boolean;
 }
 
 // Order-independent equality — redirect URLs and scopes are sets, not
@@ -134,20 +136,25 @@ function renderAppSummary(app: OAuthApp): string {
     .join('\n');
 }
 
-// Show the exact object under review and get an explicit go-ahead before
-// opening the form. Returns true when the flow should proceed.
+// Show the exact object under review, print the Submission Process affirmation
+// verbatim, and get one explicit y/N answer that is both the go-ahead and the
+// legal sign-off. Default No, like `app create`'s Developer Terms question — a
+// bare Enter must never agree to legal copy. Returns true when the flow should
+// proceed.
 async function confirmSubmission(app: OAuthApp): Promise<boolean> {
   process.stdout.write(`\n  ${messages.APP_SUBMIT_CONFIRM_HEADER}\n${renderAppSummary(app)}\n\n`);
-  const { confirmed } = await inquirer.prompt([
+  logInfo(messages.APP_SUBMIT_TERMS_STATEMENT);
+  const { termsAccepted } = await inquirer.prompt([
     {
-      type: 'confirm',
-      name: 'confirmed',
-      message: messages.APP_SUBMIT_CONFIRM_PROMPT,
-      default: true,
+      type: 'input',
+      name: 'termsAccepted',
+      message: messages.APP_SUBMIT_TERMS_PROMPT + ' (y/N)',
+      default: 'n',
+      validate: validateYesNo,
     },
   ]);
-  if (!confirmed) {
-    logInfo(`\n  ${messages.APP_SUBMIT_CANCELLED}\n`);
+  if (!String(termsAccepted).toLowerCase().trim().startsWith('y')) {
+    logInfo(`\n  ${messages.APP_SUBMIT_TERMS_DECLINED}\n`);
     return false;
   }
   return true;
@@ -165,17 +172,43 @@ async function resolveAppId(options: SubmitOptions, config: ProjectConfig | null
 }
 
 // Preflight through the canonical review-state read (`brevo app status`'s path)
-// before doing any submit work. Only a failed fetch — network, auth, or a
-// not-found app — blocks the flow; the returned state value is not a gate, so
-// it's read and discarded. A thrown error propagates to the command handler,
-// which aborts the submission.
-async function checkAppStatus(appId: string, silent: boolean | undefined): Promise<void> {
+// before doing any submit work. A failed fetch — network, auth, or a not-found
+// app — propagates to the command handler and aborts the submission. The
+// returned state also carries the submittability signal (BEX-383), consumed by
+// `assertSubmittable` immediately after this read.
+async function preflightAppState(
+  appId: string,
+  silent: boolean | undefined,
+): Promise<AppStateResponse> {
   const spinner = createSpinner(messages.APP_SUBMIT_CHECKING_STATUS, { silent });
   try {
-    await appService.fetchAppState(appId);
+    return await appService.fetchAppState(appId);
   } finally {
     spinner.stop();
   }
+}
+
+// Block a submission the backend would reject for incompleteness. The state API
+// reports `submittable` plus the specific `missing_fields`; only an explicit
+// `false` gates, so an older server that omits the flag still submits (matches the
+// optional type in AppStateResponse). Both modes show the field keys exactly as the
+// server returns them (e.g. `logoLink`, `oauth.scopes`) — no local relabelling — so
+// the developer sees the same name the API uses. --json is a compact inline list;
+// humans get the multiline list.
+function assertSubmittable(state: AppStateResponse, jsonMode: boolean, appId: string): void {
+  if (state.submittable !== false) return;
+  const fields = state.missing_fields ?? [];
+  // `missing_fields` is optional on AppStateResponse, and `submittable: false` with no
+  // fields is a legal answer — rendering the list anyway produces "missing ()." / a
+  // blank line, an error that names nothing to fix. Fall back to copy without the list.
+  if (fields.length === 0) {
+    throw new CliError(messages.APP_SUBMIT_NOT_SUBMITTABLE_NO_FIELDS(appId));
+  }
+  if (jsonMode) {
+    throw new CliError(messages.APP_SUBMIT_NOT_SUBMITTABLE(fields, appId));
+  }
+  const diff = fields.map((f) => `  ${f}`).join('\n');
+  throw new CliError(messages.APP_SUBMIT_NOT_SUBMITTABLE_DIFF(diff, appId));
 }
 
 async function fetchExistingApp(appId: string, silent: boolean | undefined): Promise<OAuthApp> {
@@ -196,15 +229,31 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
   const config = readProjectConfig();
   const appId = await resolveAppId(options, config);
 
-  // Run the status check first — a failed read aborts before we attempt to
-  // submit.
-  await checkAppStatus(appId, options.json);
-
+  // Fetch the app BEFORE the review-state read, so an app that was never uploaded is
+  // refused in the CLI's own words (TC-6.3). The order used to be the other way round —
+  // state read first, "a failed read aborts before we attempt to submit" — and it still
+  // does abort, just one round trip later. What the old order cost was the error message:
+  // the state read fails on an app with no `app_versions` row, and the server's copy for
+  // that failure names `name`, `logo_uri`, `scopes` and `redirect_uris` as the things to
+  // fix. All four can be present. Nothing in `apiCodeMessages` maps the code, so it
+  // reached the user verbatim and sent them auditing fields that were already correct.
+  //
+  // `version` is the certain signal: it is written only by a successful `app upload`, so
+  // its absence means the app has never been uploaded and cannot have a review state.
+  // Same gate `app install` already applies for the same reason — see
+  // `assertInstallable`'s `requireUploaded` in `account-install.ts`, and CLAUDE.md on why
+  // a local pre-flight is kept even where the server also checks.
   const app = await fetchExistingApp(appId, options.json);
 
   // Only public apps can be submitted for review — expressed as a capability so the rule
   // lives in one table (`src/app-types/capabilities.ts`) instead of being restated by each
   // command that needs it.
+  //
+  // Checked FIRST, before the not-uploaded guard and the state read: a private app can
+  // never be submitted, so every other refusal would be actively misleading — "run
+  // `brevo app upload`" or "these fields are missing" sends the developer fixing an app
+  // that stays unsubmittable when fixed. `distribution_type` is already on the payload
+  // `fetchExistingApp` returned, so ordering this first costs no extra round trip.
   //
   // The MESSAGE stays this command's own, deliberately: scripts may match on it and
   // `CLAUDE.md` counts a changed error string or exit code as user-visible, so the matrix
@@ -220,6 +269,17 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     messages.APP_SUBMIT_NOT_PUBLIC(appId),
   );
 
+  if (!app.version?.trim()) {
+    throw new CliError(messages.APP_SUBMIT_NOT_UPLOADED(appId));
+  }
+
+  // The response carries the submittability signal used just below.
+  const state = await preflightAppState(appId, options.json);
+
+  // Block when the app is still missing fields required for review (BEX-383) before
+  // doing any submit work.
+  assertSubmittable(state, !!options.json, appId);
+
   // Tracks whether we actually ran a local-vs-server comparison and it came back
   // clean — only then does the "no mismatch" note make sense to show.
   const configVerified = assertConfigInSync(config, app, appId, !!options.json);
@@ -231,6 +291,17 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     throw new CliError(messages.APP_SUBMIT_NO_FORM_URL);
   }
 
+  // The Submission Process affirmation gates the form hand-off itself — it fires only
+  // once the form URL is known to exist (every ineligible app got its specific refusal
+  // above) and right before that URL is printed or opened. `--accept-submission-terms`
+  // is explicit consent and skips the question everywhere; without it a run that can't
+  // ask (--json or piped stdin) is refused before the URL is revealed, mirroring
+  // `app create`'s `--accept-developer-terms` gate.
+  const interactive = !options.json && process.stdin.isTTY;
+  if (!options.acceptSubmissionTerms && !interactive) {
+    throw new CliError(messages.APP_SUBMIT_TERMS_REQUIRED_NON_INTERACTIVE);
+  }
+
   if (options.json) {
     jsonOutput({ app_id: appId, form_url: formUrl });
     // The next-steps notes print in every mode (BEX-251), but on stderr here
@@ -240,10 +311,10 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     return;
   }
 
-  // Everything is in sync at this point — show the full object being submitted
-  // and ask before opening the form. Non-TTY (piped/CI) can't answer a prompt,
-  // so it keeps the previous straight-through behavior.
-  if (process.stdin.isTTY) {
+  // Everything is in sync at this point — show the full object being submitted,
+  // print the affirmation statement, and ask before opening the form. The flag
+  // stands in for the answer when given (same as on create).
+  if (!options.acceptSubmissionTerms) {
     if (configVerified) {
       logInfo(messages.APP_SUBMIT_IN_SYNC);
     }
@@ -289,12 +360,13 @@ function assertConfigInSync(
 }
 
 function openSubmissionForm(formUrl: string, appId: string): void {
-  // Both branches include the URL, so headless users always get it.
-  try {
-    openBrowser(formUrl);
-    logSuccess(messages.APP_SUBMIT_BROWSER_OPENED(formUrl, appId));
-  } catch (err) {
-    logDebug('openBrowser failed', { message: (err as Error).message });
+  // Both lines include the URL, so headless users always get it. The failure is only
+  // observable via openBrowser's async error callback — a try/catch here can never fire
+  // (see the note in `src/lib/browser.ts`) — so the "couldn't open" line lands after the
+  // "opened" one when the opener is missing; both name the same URL.
+  openBrowser(formUrl, (err) => {
+    logDebug('openBrowser failed', { message: err.message });
     logInfo(messages.APP_SUBMIT_BROWSER_FAILED(formUrl, appId));
-  }
+  });
+  logSuccess(messages.APP_SUBMIT_BROWSER_OPENED(formUrl, appId));
 }

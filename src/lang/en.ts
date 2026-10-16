@@ -1,5 +1,9 @@
-import { CLI, BREVO_CLI_REFERENCE_URL, BREVO_OAUTH_SCOPES_DOCS_URL } from '../lib/constants';
-import { previewMessages } from './preview-messages';
+import {
+  CLI,
+  BREVO_CLI_REFERENCE_URL,
+  BREVO_DEVELOPER_TERMS_URL,
+  BREVO_OAUTH_SCOPES_DOCS_URL,
+} from '../lib/constants';
 
 /**
  * How a scaffold report describes what it just did, given the files it wrote and the
@@ -140,6 +144,31 @@ const coreMessages = {
   APP_CREATE_OAUTH_FLOW_CONSENT:
     'Consent Based       (A user authorizes it; you act on their behalf)',
   APP_CREATE_OAUTH_FLOW_M2M: 'Machine to Machine  (Your server calls the API as itself; no user)',
+  // Developer Terms consent for public-distribution apps. The notice and the question
+  // are the legal team's wording, VERBATIM, from the "Developing Process/Use of Dev
+  // Tools" section of the Developer Terms wording doc — do not reword either without
+  // legal sign-off. The doc ends the notice sentence with the terms link; here the URL
+  // lives on the "Opening…" line right below instead, printed once, because the CLI
+  // opens it in the browser automatically. The `(y/N)` suffix the doc shows is appended
+  // by the prompt helper in create.ts, same as every other y/N input prompt.
+  APP_CREATE_TERMS_NOTICE:
+    'The Brevo Developer Terms apply to the use of the Brevo Developer Tools. Before continuing, ' +
+    'please read the Brevo Developer Terms:',
+  APP_CREATE_TERMS_PROMPT:
+    'Do you confirm that you have read and agree to the Brevo Developer Terms?',
+  // Not legal copy — printed between the notice and the question while the browser
+  // opens. The URL is on its own line so the terminal renders it as a clickable link
+  // even when the auto-open fails.
+  APP_CREATE_TERMS_OPENING: `Opening the terms in your browser:\n${BREVO_DEVELOPER_TERMS_URL}`,
+  APP_CREATE_TERMS_OPEN_FAILED: 'Could not open a browser here — use the link above instead.',
+  APP_CREATE_TERMS_DECLINED:
+    'App creation cancelled — creating a public app requires agreeing to the Brevo Developer Terms.',
+  // Non-interactive (`--json` / piped) public create: no question can be asked, so the
+  // run is refused before any prompt or network call unless consent is given explicitly.
+  APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE:
+    'Creating a public app requires agreeing to the Brevo Developer Terms, and no confirmation can be asked in non-interactive mode.\n\n' +
+    `  Read them:   ${BREVO_DEVELOPER_TERMS_URL}\n` +
+    '  Then re-run with `--accept-developer-terms` to confirm agreement explicitly.',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   // Shown only after every prompt has been answered — hence the reassurance:
@@ -1158,16 +1187,122 @@ const coreMessages = {
   OAUTH_METADATA_FETCH_FAILED: (url: string, status: number): string =>
     `Failed to fetch OAuth scopes from ${url} (HTTP ${status}).`,
 
+  // App submit / status / withdraw — the public-app review lifecycle (BEX-221 / BEX-251
+  // / BEX-252 / BEX-383). Moved here from `preview-messages.ts` at public-apps GA
+  // (BEX-405), the same move the UI-app and install strings made at UI-apps GA.
+  // App submit (BEX-221)
+  APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
+  APP_SUBMIT_FETCHING: 'Fetching app...',
+  APP_SUBMIT_PICK_APP: 'Which app do you want to submit for review?',
+  APP_SUBMIT_NO_APP_RESOLVED:
+    'Cannot determine which app to submit. Provide --app-id or run from a directory with app-config.json.',
+  APP_SUBMIT_OUT_OF_SYNC: (fields: string[], appId: string): string =>
+    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
+    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo:\n${diff}\n\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  // Submittability gate (BEX-383). The state API reports which required fields the
+  // app still lacks; block before opening the form so the developer isn't sent to
+  // complete a submission the backend would reject (`422 app_not_submittable`).
+  // Two shapes, matching OUT_OF_SYNC above, both showing the raw server field keys
+  // (no local relabelling): a compact inline list for --json, a multiline list for
+  // humans.
+  APP_SUBMIT_NOT_SUBMITTABLE: (fields: string[], appId: string): string =>
+    `Your app isn't ready to submit yet — required fields are still missing (${fields.join(', ')}).\n  Add them to app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  // `submittable: false` with no `missing_fields` is a legal server answer (the key is
+  // optional on AppStateResponse); copy without the list, or the error names nothing.
+  APP_SUBMIT_NOT_SUBMITTABLE_NO_FIELDS: (appId: string): string =>
+    `Your app isn't ready to submit yet. The server did not name the missing fields — review app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_NOT_SUBMITTABLE_DIFF: (diff: string, appId: string): string =>
+    `Your app isn't ready to submit yet — these required fields are still missing:\n${diff}\n\n  Add them to app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_IN_SYNC:
+    'No configuration mismatch detected. Showing the submission confirmation prompt with the complete app configuration below.',
+  APP_SUBMIT_CONFIRM_HEADER: 'You are about to submit this app for review:',
+  // Legal sign-off (the "Submission Process" affirmation from the Developer Terms
+  // wording doc) — the statement is byte-exact to the approved copy, so don't reword
+  // it without a new legal sign-off. Printed verbatim as a notice, then confirmed by
+  // the question below, which doubles as the submit confirmation: one y/N answer
+  // (default No) is both the go-ahead and the affirmation. The `(y/N)` suffix is
+  // appended by the prompt call in submit.ts, same as every other y/N input prompt.
+  APP_SUBMIT_TERMS_STATEMENT:
+    "I have read and agree to the Brevo Developer Terms. I confirm that the information in this submission is accurate and complete, and that my app complies with the Brevo Developer Terms and all applicable laws. I understand that Brevo's activation of my app does not constitute a review, certification, or endorsement of my app.",
+  APP_SUBMIT_TERMS_PROMPT: 'Do you confirm the above statement?',
+  APP_SUBMIT_TERMS_DECLINED:
+    'Submission cancelled — submitting an app for review requires confirming the statement above.',
+  // Non-interactive (`--json` / piped) submit: no question can be asked, so the form
+  // URL is withheld unless consent is given explicitly. Mirrors `app create`'s
+  // `--accept-developer-terms` gate (`APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE`).
+  APP_SUBMIT_TERMS_REQUIRED_NON_INTERACTIVE:
+    'Submitting an app for review requires confirming the submission statement (you have read and agree to the Brevo Developer Terms, the submission is accurate and complete, and the app complies with the terms and applicable laws), and no confirmation can be asked in non-interactive mode.\n\n' +
+    `  Read the terms:   ${BREVO_DEVELOPER_TERMS_URL}\n` +
+    '  Then re-run with `--accept-submission-terms` to confirm the statement explicitly.',
+  APP_SUBMIT_FORM_GATE:
+    'Note: Your app will be submitted for review only after you complete and submit the Google Form.',
+  APP_SUBMIT_BROWSER_OPENED: (url: string, appId: string): string =>
+    `We've opened a browser tab with the submission form for app ${appId}:\n  ${url}`,
+  APP_SUBMIT_BROWSER_FAILED: (url: string, appId: string): string =>
+    `We couldn't open a browser automatically. Open the submission form for app ${appId} yourself:\n  ${url}`,
+  APP_SUBMIT_NEXT_STEPS: `Please submit the form for review. You'll receive an email once your app has been reviewed — check its status anytime with \`${CLI.APP_STATUS}\`.`,
+  // TC-6.3. A never-uploaded app has no `app_versions` row, so the review-state read
+  // fails — and the server's copy for that failure names `name`, `logo_uri`, `scopes`
+  // and `redirect_uris` as the things to fix, which is misleading: all four can be
+  // present and the read still fails. Nothing in `apiCodeMessages` maps it, so it was
+  // relayed verbatim. Refused locally instead, before the read, on the one signal that
+  // is certain — an app with no `version` has never been uploaded. Same shape and
+  // reasoning as `assertInstallable`'s `requireUploaded` gate (`APP_INSTALL_NOT_UPLOADED`),
+  // and a separate string because this names a different precondition in its own voice.
+  APP_SUBMIT_NOT_UPLOADED: (appId: string): string =>
+    `App ${appId} has never been uploaded, so it has no version to review.\n  Run \`${CLI.APP_UPLOAD}\` first, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_NO_FORM_URL: `Review submission is currently unavailable. This may happen if your app has not been uploaded yet or if it has already been submitted and is under review. You can check the current status of your app using \`${CLI.APP_STATUS}\`.`,
+
+  // App status
+  APP_STATUS_SELECT: 'Select an app:',
+  APP_STATUS_TITLE: 'App status',
+  // Canned copy per review state (server-side `app_submission_states.state`).
+  // Reviewer feedback is delivered by email, not surfaced here (BEX-252).
+  APP_STATUS_MESSAGE: (state: string): string => {
+    switch (state) {
+      // Empty/missing state is normalized to the "unknown" sentinel upstream
+      // (src/commands/app/status.ts); '' is kept as a defensive fallthrough.
+      case '':
+      case 'unknown':
+        return `Status information isn't available for your app yet. Make sure your app is public and has been uploaded with \`${CLI.APP_UPLOAD}\`.`;
+      case 'draft':
+        return "Your app is set up but hasn't been submitted for review yet.";
+      case 'submitted':
+        return 'Your app has been submitted and is waiting to be reviewed.';
+      case 'in_review':
+        return 'Your app is currently being reviewed by our team.';
+      case 'approved':
+        return 'Your app has been approved.';
+      case 'rejected':
+        return 'Your app was not approved. Check your email for details.';
+      case 'changes_requested':
+        return 'Changes have been requested for your app. Check your email for details.';
+      default:
+        return `Your app is in state "${state}".`;
+    }
+  },
+
+  // App withdraw
+  APP_WITHDRAW_SELECT: 'Select an app to withdraw:',
+  APP_WITHDRAW_CONFIRM: (name: string, id: string) =>
+    `Withdraw app "${name}" (${id}) from submission?`,
+  APP_WITHDRAW_CANCELLED: 'Withdrawal cancelled.',
+  APP_WITHDRAW_SUCCESS: (id: string) => `App ${id} withdrawn from submission.`,
+  APP_WITHDRAW_NOT_SUBMITTED: (id: string) => `App ${id} has not been submitted yet.`,
+  APP_WITHDRAW_SUBMIT_HINT: (id: string) => `Submit it first: ${CLI.APP_SUBMIT(id)}`,
+  APP_SUBMIT_NOT_PUBLIC: (appId: string): string =>
+    `App ${appId} is private. Private apps cannot be submitted for review. Only public apps are eligible for the approval process. Please make your app public before submitting it for review.`,
+
   // General
   ABORTED: 'Aborted.',
 } as const;
 
-// ELIMINATION SITE — the raw global rather than `isFeatureAvailable`, so esbuild folds
-// the spread to `{}` and drops ./preview-messages entirely. `messages` is one object
-// literal, so a property can only be removed by removing the whole object it arrived in.
-// The `as typeof previewMessages` cast keeps every call site type-safe in both builds;
-// see that module for why the lie is safe.
+// Nothing is gated any more, so there is no second object to spread in. This stayed a
+// wrapper around `coreMessages` rather than collapsing into one export because that is
+// what every call site imports; the indirection is also where a future gated-strings
+// module would spread back in. See `lib/preview.ts` for why object literals need their
+// own module to be gatable at all — esbuild cannot prune a property from one.
 export const messages = {
   ...coreMessages,
-  ...(__BREVO_PREVIEW__ ? previewMessages : ({} as typeof previewMessages)),
 };
