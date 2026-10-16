@@ -1217,8 +1217,24 @@ const coreMessages = {
   APP_SUBMIT_IN_SYNC:
     'No configuration mismatch detected. Showing the submission confirmation prompt with the complete app configuration below.',
   APP_SUBMIT_CONFIRM_HEADER: 'You are about to submit this app for review:',
-  APP_SUBMIT_CONFIRM_PROMPT: 'Submit this app for review?',
-  APP_SUBMIT_CANCELLED: 'Submission cancelled.',
+  // Legal sign-off (the "Submission Process" affirmation from the Developer Terms
+  // wording doc) — the statement is byte-exact to the approved copy, so don't reword
+  // it without a new legal sign-off. Printed verbatim as a notice, then confirmed by
+  // the question below, which doubles as the submit confirmation: one y/N answer
+  // (default No) is both the go-ahead and the affirmation. The `(y/N)` suffix is
+  // appended by the prompt call in submit.ts, same as every other y/N input prompt.
+  APP_SUBMIT_TERMS_STATEMENT:
+    "I have read and agree to the Brevo Developer Terms. I confirm that the information in this submission is accurate and complete, and that my app complies with the Brevo Developer Terms and all applicable laws. I understand that Brevo's activation of my app does not constitute a review, certification, or endorsement of my app.",
+  APP_SUBMIT_TERMS_PROMPT: 'Do you confirm the above statement?',
+  APP_SUBMIT_TERMS_DECLINED:
+    'Submission cancelled — submitting an app for review requires confirming the statement above.',
+  // Non-interactive (`--json` / piped) submit: no question can be asked, so the form
+  // URL is withheld unless consent is given explicitly. Mirrors `app create`'s
+  // `--accept-developer-terms` gate (`APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE`).
+  APP_SUBMIT_TERMS_REQUIRED_NON_INTERACTIVE:
+    'Submitting an app for review requires confirming the submission statement (you have read and agree to the Brevo Developer Terms, the submission is accurate and complete, and the app complies with the terms and applicable laws), and no confirmation can be asked in non-interactive mode.\n\n' +
+    `  Read the terms:   ${BREVO_DEVELOPER_TERMS_URL}\n` +
+    '  Then re-run with `--accept-submission-terms` to confirm the statement explicitly.',
   APP_SUBMIT_FORM_GATE:
     'Note: Your app will be submitted for review only after you complete and submit the Google Form.',
   APP_SUBMIT_BROWSER_OPENED: (url: string, appId: string): string =>

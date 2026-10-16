@@ -9,12 +9,14 @@ import { EXIT_CODES } from '../../lib/exit-codes';
 import { jsonOutput } from '../../lib/json-output';
 import { logDebug, logInfo, logSuccess } from '../../lib/logger';
 import { createSpinner } from '../../lib/ui';
+import { validateYesNo } from '../../lib/validators';
 import { AppStateResponse, OAuthApp } from '../../types';
 import { assertCapability, resolveFromRecord, type Distribution } from '../../app-types';
 
 interface SubmitOptions {
   appId?: string;
   json?: boolean;
+  acceptSubmissionTerms?: boolean;
 }
 
 // Order-independent equality — redirect URLs and scopes are sets, not
@@ -134,20 +136,25 @@ function renderAppSummary(app: OAuthApp): string {
     .join('\n');
 }
 
-// Show the exact object under review and get an explicit go-ahead before
-// opening the form. Returns true when the flow should proceed.
+// Show the exact object under review, print the Submission Process affirmation
+// verbatim, and get one explicit y/N answer that is both the go-ahead and the
+// legal sign-off. Default No, like `app create`'s Developer Terms question — a
+// bare Enter must never agree to legal copy. Returns true when the flow should
+// proceed.
 async function confirmSubmission(app: OAuthApp): Promise<boolean> {
   process.stdout.write(`\n  ${messages.APP_SUBMIT_CONFIRM_HEADER}\n${renderAppSummary(app)}\n\n`);
-  const { confirmed } = await inquirer.prompt([
+  logInfo(messages.APP_SUBMIT_TERMS_STATEMENT);
+  const { termsAccepted } = await inquirer.prompt([
     {
-      type: 'confirm',
-      name: 'confirmed',
-      message: messages.APP_SUBMIT_CONFIRM_PROMPT,
-      default: true,
+      type: 'input',
+      name: 'termsAccepted',
+      message: messages.APP_SUBMIT_TERMS_PROMPT + ' (y/N)',
+      default: 'n',
+      validate: validateYesNo,
     },
   ]);
-  if (!confirmed) {
-    logInfo(`\n  ${messages.APP_SUBMIT_CANCELLED}\n`);
+  if (!String(termsAccepted).toLowerCase().trim().startsWith('y')) {
+    logInfo(`\n  ${messages.APP_SUBMIT_TERMS_DECLINED}\n`);
     return false;
   }
   return true;
@@ -284,6 +291,17 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     throw new CliError(messages.APP_SUBMIT_NO_FORM_URL);
   }
 
+  // The Submission Process affirmation gates the form hand-off itself — it fires only
+  // once the form URL is known to exist (every ineligible app got its specific refusal
+  // above) and right before that URL is printed or opened. `--accept-submission-terms`
+  // is explicit consent and skips the question everywhere; without it a run that can't
+  // ask (--json or piped stdin) is refused before the URL is revealed, mirroring
+  // `app create`'s `--accept-developer-terms` gate.
+  const interactive = !options.json && process.stdin.isTTY;
+  if (!options.acceptSubmissionTerms && !interactive) {
+    throw new CliError(messages.APP_SUBMIT_TERMS_REQUIRED_NON_INTERACTIVE);
+  }
+
   if (options.json) {
     jsonOutput({ app_id: appId, form_url: formUrl });
     // The next-steps notes print in every mode (BEX-251), but on stderr here
@@ -293,10 +311,10 @@ export const submitCommand = withCommandHandler(async (options: SubmitOptions): 
     return;
   }
 
-  // Everything is in sync at this point — show the full object being submitted
-  // and ask before opening the form. Non-TTY (piped/CI) can't answer a prompt,
-  // so it keeps the previous straight-through behavior.
-  if (process.stdin.isTTY) {
+  // Everything is in sync at this point — show the full object being submitted,
+  // print the affirmation statement, and ask before opening the form. The flag
+  // stands in for the answer when given (same as on create).
+  if (!options.acceptSubmissionTerms) {
     if (configVerified) {
       logInfo(messages.APP_SUBMIT_IN_SYNC);
     }
