@@ -25,6 +25,11 @@ jobs:
     # Every publish then requires an explicit human approval click.
     environment: npm-publish
 
+    # The published @getbrevo/cli version ('' when this run published nothing),
+    # for the `homebrew` job below.
+    outputs:
+      cli_version: ${{ steps.cli.outputs.version }}
+
     permissions:
       contents: write
       pull-requests: write
@@ -292,8 +297,8 @@ jobs:
             -f account=default \
             -f expected_version="${tag}"
 
-      # The published @getbrevo/cli version, for the two follow-ups below. Empty
-      # when this run published something else, which skips both.
+      # The published @getbrevo/cli version, for the follow-ups below. Empty when
+      # this run published something else, which skips them.
       - name: Resolve published CLI version
         id: cli
         if: ${{ !cancelled() && steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true' }}
@@ -326,22 +331,19 @@ jobs:
           token: ${{ secrets.BREVO_SKILLS_SYNC_TOKEN }}
           ref: ${{ github.sha }}
 
-      # Homebrew tap auto-bump: after a publish, recompute the tarball url +
-      # sha256 and open a formula-bump PR on getbrevo/homebrew-tap (tap CI gates
-      # it; a human merges). Auth is a fine-grained PAT (HOMEBREW_TAP_TOKEN)
-      # scoped to ONLY that repo (contents + PRs) — no npm access, so the
-      # OIDC/no-NPM_TOKEN publish posture is unaffected. The logic lives in
-      # .github/actions/bump-homebrew-formula so the manual workflow
-      # (Actions → Bump Homebrew formula → Run workflow) runs the same code.
-      #
-      # `!cancelled()`: the publish is irreversible by this point, so a failure
-      # in a step between it and here must not leave npm ahead of the formula —
-      # that happened for 2.2.0 and was bumped by hand. Still gated on a real
-      # publish, and the run still goes red. Keep this step LAST: the action
-      # deletes ~/.netrc.
-      - name: Bump Homebrew formula
-        if: ${{ !cancelled() && steps.cli.outputs.version != '' }}
-        uses: ./.github/actions/bump-homebrew-formula
-        with:
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          version: ${{ steps.cli.outputs.version }}
+  # Homebrew tap auto-bump, as its own job so a failure here never fails the
+  # release job and the bump can be re-run on its own (Actions → Bump Homebrew
+  # formula → Run workflow). The logic lives in bump-homebrew.yml. Runs only
+  # after a real publish; `!cancelled()` keeps it going if a non-critical step
+  # earlier in the release job failed — npm must not be left ahead of the formula
+  # (that happened for 2.2.0 and was bumped by hand). That job's environment
+  # (npm-publish) asks for its own approval.
+  homebrew:
+    name: Homebrew formula
+    needs: release
+    if: ${{ !cancelled() && needs.release.outputs.cli_version != '' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/bump-homebrew.yml
+    with:
+      version: ${{ needs.release.outputs.cli_version }}
