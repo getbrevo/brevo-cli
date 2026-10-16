@@ -1142,18 +1142,93 @@ const coreMessages = {
   INIT_DONE_UI_APP: `All set! Follow the next steps above, or run \`${CLI.HELP}\` to see all commands.`,
 
   // Skill
-  SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string) =>
-    `Installed ${name}@${version} → ${dir}`,
-  SKILL_INSTALL_CLAUDE_ONLY:
-    'This skill is consumed by Claude Code. Other AI tools (Claude Desktop chat, Cursor, Copilot CLI, Gemini, etc.) should reference agent-context/AGENTS.md from the @getbrevo/cli npm package instead.',
-  SKILL_INSTALL_ALREADY: (name: string, version: string) =>
-    `${name}@${version} is already up to date.`,
-  SKILL_UNINSTALL_SUCCESS: (name: string, dir: string) => `Uninstalled ${name} from ${dir}`,
+  SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string, agents: string) =>
+    `Installed ${name}@${version} for ${agents} → ${dir}`,
+  SKILL_UPDATE_SUCCESS: (name: string, from: string, to: string, dir: string, agents: string) =>
+    from === to
+      ? `Reinstalled ${name}@${to} for ${agents} → ${dir}`
+      : `Updated ${name} ${from} → ${to} for ${agents} → ${dir}`,
+  SKILL_WOULD_INSTALL: (name: string, version: string, dir: string, agents: string) =>
+    `Would install ${name}@${version} for ${agents} → ${dir}`,
+  SKILL_WOULD_UPDATE: (name: string, from: string, to: string, dir: string, agents: string) =>
+    `Would update ${name} ${from} → ${to} for ${agents} → ${dir}`,
+  SKILL_DRY_RUN_NOTE: 'Dry run: nothing was written.',
+  SKILL_INSTALL_OTHER_AGENTS:
+    "Using Codex or Gemini CLI? Run `brevo skill install --agent codex,gemini` (or `--agent all`). Chat apps that don't read a skills directory, like Claude Desktop chat, can use agent-context/AGENTS.md from the @getbrevo/cli npm package instead.",
+  SKILL_UNKNOWN_AGENT: (agent: string, known: string) =>
+    `Unknown agent "${agent}". Use one or more of: ${known} (comma-separated), or all.`,
+  SKILL_UNKNOWN: (name: string, available: string) =>
+    `Unknown skill "${name}". Available: ${available}`,
+  SKILL_INSTALL_ALREADY: (name: string, version: string, agents: string) =>
+    `${name}@${version} is already up to date for ${agents}.`,
+  SKILL_SKIPPED_PLATFORM: (name: string, agents: string, platforms: string) =>
+    `Skipped ${name} for ${agents}: it is written for ${platforms || 'no platform'}.`,
+  SKILL_SKIPPED_MIN_CLI: (name: string, minVersion: string, cliVersion: string) =>
+    `Skipped ${name}: it needs @getbrevo/cli ${minVersion} or newer (you have ${cliVersion}). Run \`npm install -g @getbrevo/cli@latest\`.`,
+  SKILL_SKIPPED_HASH: (name: string, detail: string) =>
+    `Refused ${name}: the downloaded files do not match the catalog's hash (${detail}). Nothing was written.`,
+  SKILL_SKIPPED_DOWNLOAD: (name: string, detail: string) =>
+    `Skipped ${name}: download failed (${detail}).`,
+  SKILL_SKIPPED_NOT_INSTALLED: (name: string) => `${name} is not installed by the CLI.`,
+  SKILL_UNSAFE_PATH: (name: string, file: string) =>
+    `Refused ${name}: file "${file}" would be written outside the skill directory. Nothing was written.`,
+  SKILL_SKIPPED_NOT_IN_CATALOG: (name: string, release: string) =>
+    `Skipped ${name}: not in catalog ${release}.`,
+  SKILL_HASH_DETAIL: (expected: string, actual: string) =>
+    `expected ${expected.slice(0, 12)}…, got ${actual.slice(0, 12)}…`,
+  SKILL_RUN_FAILED: 'One or more skills could not be installed. See the lines above.',
+  SKILL_UNINSTALL_SUCCESS: (name: string, dir: string, agents: string) =>
+    `Uninstalled ${name} for ${agents} from ${dir}`,
+  SKILL_UNINSTALL_NOT_OURS: (name: string, dir: string) =>
+    `${name} is not installed by the CLI at ${dir} (no .brevo-skill.json); left alone.`,
   SKILL_UNINSTALL_NONE: 'No Brevo skills installed.',
+  SKILL_UPDATE_NONE: 'No installed skills to update. Run `brevo skill install` first.',
+  SKILL_UPDATES_AVAILABLE: (items: string) =>
+    `↑ Brevo skill update available: ${items}. Run \`brevo skill update\`.`,
   SKILL_AUTOREFRESHED: (name: string, oldVer: string, newVer: string) =>
     `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
   SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>
     `⚠ failed to refresh ${name} skill: ${err}`,
+  SKILL_CATALOG_UNREACHABLE: (url: string, reason: string) =>
+    `Could not fetch the skills catalog from ${url} (${reason}).`,
+  SKILL_CATALOG_UNREACHABLE_INSTALL: (url: string, reason: string, cachedRelease?: string) =>
+    `Could not fetch the skills catalog from ${url} (${reason}).` +
+    (cachedRelease
+      ? ` The cached catalog is release ${cachedRelease}; \`brevo skill list\` and \`brevo skill check\` can read it.`
+      : '') +
+    ' The brevo-skills repository is not reachable from here. To install only the CLI skill, which' +
+    ' is bundled with the CLI and needs no network, run `brevo skill:cli install`' +
+    ' (add `--agent codex,gemini` or `--agent all` for other agents).',
+  SKILL_CATALOG_INVALID: (problem: string) => `The skills catalog is not valid: ${problem}.`,
+  SKILL_OFFLINE_FALLBACK: (url: string) =>
+    `The brevo-skills repository is not reachable (${url}); installing the brevo-cli skill bundled with this CLI instead.`,
+  SKILL_LOCK_WRITE_FAILED: (err: string) =>
+    `Could not write ~/.brevo/skills.lock.json (${err}). The installed skills are in place; pins will not be remembered.`,
+  SKILL_LIST_INSTALLED_HEADER: 'Installed skills:',
+  SKILL_LIST_NONE_INSTALLED: 'No Brevo skills installed. Run `brevo skill install` to add them.',
+  SKILL_LIST_AVAILABLE_HEADER: (release: string, source: string) =>
+    `Available in catalog ${release}${source === 'cache' ? ' (cached)' : ''}:`,
+  SKILL_LIST_NO_CATALOG: (error: string) => `Catalog unavailable: ${error}`,
+  SKILL_CHECK_OK: (count: number) =>
+    `${count} skill${count === 1 ? '' : 's'} installed, all current and unmodified.`,
+  SKILL_CHECK_OUTDATED: (name: string, installed: string, latest: string, dir: string) =>
+    `${name}: outdated (${installed} installed, ${latest} in catalog) → ${dir}`,
+  SKILL_CHECK_TAMPERED: (name: string, dir: string) =>
+    `${name}: modified on disk since it was installed → ${dir}`,
+  SKILL_CHECK_UNVERIFIED: (name: string, dir: string) =>
+    `${name}: installed before hashes were recorded; cannot verify → ${dir}`,
+  SKILL_CHECK_CURRENT: (name: string, version: string, dir: string) =>
+    `${name}@${version}: current → ${dir}`,
+  SKILL_CHECK_FAILED: (outdated: number, tampered: number) =>
+    `${outdated} outdated, ${tampered} modified. Run \`brevo skill update\` to reinstall from the catalog.`,
+  SKILL_MCP_REGISTERED: (agent: string, endpoint: string) =>
+    `Registered the Brevo MCP server for ${agent} (${endpoint})`,
+  SKILL_MCP_PRINT: (agent: string, command: string) =>
+    `To connect ${agent} to the Brevo MCP server, run: ${command}`,
+  SKILL_MCP_FAILED: (agent: string, command: string, detail: string) =>
+    `Could not register the Brevo MCP server for ${agent} (${detail}). Run it by hand: ${command}`,
+  SKILL_MCP_NO_ENDPOINT: (agent: string) =>
+    `The catalog lists no MCP endpoint for ${agent}; nothing to register.`,
 
   // App scopes
   APP_SCOPES_EMPTY: 'The IdP returned an empty scope list.',

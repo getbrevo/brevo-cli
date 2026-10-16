@@ -116,8 +116,14 @@ function formatRootHelp(description: string): string {
       ``,
     ]),
     `Skill commands:`,
-    `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
-    `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,
+    `  brevo skill install [names...]   [--agent <agents>] [--pin <release>] [--mcp] [--force] [--dry-run] [--json]`,
+    `                                                        Install skills from the Brevo skills catalog`,
+    `  brevo skill update [names...]    [--agent <agents>] [--pin <release>] [--mcp] [--force] [--dry-run] [--json]`,
+    `                                                        Reinstall skills that are behind the catalog`,
+    `  brevo skill uninstall [names...] [--agent <agents>] [--json]`,
+    `                                                        Remove skills the CLI installed`,
+    `  brevo skill list                 [--json]             Installed skills and the catalog`,
+    `  brevo skill check                [--json]             Report outdated or modified skills (exit 1)`,
     ``,
     // Brevo Functions shipped, so this renders in every build — like every other
     // section here since the pre-GA gate was torn down (BEX-405). There is one build
