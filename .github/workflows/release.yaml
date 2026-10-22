@@ -314,22 +314,9 @@ jobs:
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
-      # Tell getbrevo/brevo-skills that the agent skill may have changed. That
-      # repo packages agent-context/SKILL.md for every agent platform; its
-      # sync-skill workflow copies the skill at this commit and opens a PR there
-      # for review, so nothing reaches users without a merge on that side.
-      #
-      # Best-effort: the publish is already done, so a missing token or a failed
-      # dispatch only warns (continue-on-error) and never turns the release red.
-      # Needs BREVO_SKILLS_SYNC_TOKEN in the npm-publish environment. The same
-      # step can be run by hand: Actions → Sync brevo-skills → Run workflow.
-      - name: Trigger brevo-skills sync
-        if: ${{ !cancelled() && steps.cli.outputs.version != '' }}
-        continue-on-error: true
-        uses: ./.github/actions/sync-brevo-skills
-        with:
-          token: ${{ secrets.BREVO_SKILLS_SYNC_TOKEN }}
-          ref: ${{ github.sha }}
+      # The agent skill (agent-context/SKILL.md) is not pushed anywhere from here: the
+      # repository that publishes the Brevo skills pulls it from this repo's latest release
+      # (its "Sync a skill from its source repo" workflow), so a release needs no token for it.
 
   # Homebrew tap auto-bump, as its own job so a failure here never fails the
   # release job and the bump can be re-run on its own (Actions → Bump Homebrew
