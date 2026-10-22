@@ -29,7 +29,10 @@ import { submitCommand } from './app/submit';
 import { statusCommand } from './app/status';
 import { withdrawCommand } from './app/withdraw';
 import { installCommand as skillInstallCommand } from './skill/install';
+import { updateCommand as skillUpdateCommand } from './skill/update';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
+import { listCommand as skillListCommand } from './skill/list';
+import { checkCommand as skillCheckCommand } from './skill/check';
 import { listFunctionCommand } from './function/list';
 import { getFunctionCommand } from './function/get';
 import { activateFunctionCommand } from './function/activate';
@@ -570,24 +573,161 @@ export const appCommandGroup: SubcommandGroupDefinition = {
   ],
 };
 
+const SKILL_AGENT_OPTION = {
+  flags: '--agent <agents>',
+  description:
+    'Agents to install for: claude, codex, gemini (comma-separated), or all. Default: claude',
+};
+const SKILL_JSON_OPTION = { flags: '--json', description: 'Output as JSON' };
+const SKILL_INSTALL_OPTIONS = [
+  SKILL_AGENT_OPTION,
+  {
+    flags: '--pin <release>',
+    description:
+      'Install from this brevo-skills release instead of the latest, and stay on it; `latest` clears a pin',
+  },
+  {
+    flags: '--mcp',
+    description:
+      'Register the Brevo MCP server with each agent whose CLI is on the PATH (otherwise the command is printed)',
+  },
+  { flags: '--force', description: 'Reinstall even when the installed version matches' },
+  {
+    flags: '--dry-run',
+    description: 'Print what would change, per agent directory, and write nothing',
+  },
+  SKILL_JSON_OPTION,
+];
+
+function installLikeOptions(opts: Record<string, unknown>) {
+  return {
+    json: Boolean(opts.json),
+    agent: opts.agent as string | undefined,
+    pin: opts.pin as string | undefined,
+    mcp: Boolean(opts.mcp),
+    force: Boolean(opts.force),
+    dryRun: Boolean(opts.dryRun),
+  };
+}
+
 export const skillCommandGroup: SubcommandGroupDefinition = {
-  name: 'skill:cli',
-  description: 'Install the brevo-cli Claude Code skill (Claude only)',
+  name: 'skill',
+  description: 'Install and update Brevo agent skills (Claude Code, Codex, Gemini CLI)',
   commands: [
     {
       name: 'install',
       description:
-        'Install the brevo-cli skill into ~/.claude/skills/ (Claude only — other AI tools should read agent-context/AGENTS.md instead)',
-      examples: ['brevo skill:cli install', 'brevo skill:cli install --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => skillInstallCommand({ json: Boolean(opts.json) }),
+        'Install skills from the Brevo skills catalog (all of them when none is named): ~/.claude/skills/ for Claude Code (default), ~/.agents/skills/ for Codex and Gemini CLI',
+      arguments: [{ name: '[names...]', description: 'Skill names (default: every skill)' }],
+      examples: [
+        'brevo skill install',
+        'brevo skill install brevo-cli --agent codex,gemini',
+        'brevo skill install --agent all --mcp',
+        'brevo skill install --pin 0.1.0 --dry-run',
+      ],
+      options: SKILL_INSTALL_OPTIONS,
+      handler: (opts, names) =>
+        skillInstallCommand({ ...installLikeOptions(opts), names: (names as string[]) ?? [] }),
+    },
+    {
+      name: 'update',
+      description:
+        'Reinstall installed skills whose version is behind the catalog (all of them when none is named)',
+      arguments: [
+        { name: '[names...]', description: 'Skill names (default: every installed skill)' },
+      ],
+      examples: [
+        'brevo skill update',
+        'brevo skill update --agent all --dry-run',
+        'brevo skill update brevo-cli --pin latest',
+      ],
+      options: SKILL_INSTALL_OPTIONS,
+      handler: (opts, names) =>
+        skillUpdateCommand({ ...installLikeOptions(opts), names: (names as string[]) ?? [] }),
     },
     {
       name: 'uninstall',
-      description: 'Remove the brevo-cli skill from ~/.claude/skills/ (Claude only)',
-      examples: ['brevo skill:cli uninstall', 'brevo skill:cli uninstall --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => skillUninstallCommand({ json: Boolean(opts.json) }),
+      description:
+        'Remove skills the CLI installed (all of them when none is named), from every agent or only those given with --agent',
+      arguments: [
+        { name: '[names...]', description: 'Skill names (default: every installed skill)' },
+      ],
+      examples: [
+        'brevo skill uninstall',
+        'brevo skill uninstall brevo-cli --agent codex',
+        'brevo skill uninstall --json',
+      ],
+      options: [
+        {
+          flags: '--agent <agents>',
+          description:
+            'Agents to remove them for: claude, codex, gemini (comma-separated), or all. Default: every agent',
+        },
+        SKILL_JSON_OPTION,
+      ],
+      handler: (opts, names) =>
+        skillUninstallCommand({
+          json: Boolean(opts.json),
+          agent: opts.agent as string | undefined,
+          names: (names as string[]) ?? [],
+        }),
+    },
+    {
+      name: 'list',
+      description: 'Installed skills per agent, and the skills the catalog offers',
+      examples: ['brevo skill list', 'brevo skill list --json'],
+      options: [SKILL_JSON_OPTION],
+      handler: (opts) => skillListCommand({ json: Boolean(opts.json) }),
+    },
+    {
+      name: 'check',
+      description:
+        'Report outdated or modified skills without changing anything (exit code 1 when something is off)',
+      examples: ['brevo skill check', 'brevo skill check --json'],
+      options: [SKILL_JSON_OPTION],
+      handler: (opts) => skillCheckCommand({ json: Boolean(opts.json) }),
+    },
+  ],
+};
+
+/**
+ * `brevo skill:cli install|uninstall`, the one-skill group the catalog installer
+ * replaced. Kept as hidden aliases of `brevo skill install brevo-cli` and
+ * `brevo skill uninstall brevo-cli`, so documented commands keep working.
+ */
+export const skillCliCommandGroup: SubcommandGroupDefinition = {
+  name: 'skill:cli',
+  hidden: true,
+  description: 'Alias of `brevo skill install brevo-cli` / `brevo skill uninstall brevo-cli`',
+  commands: [
+    {
+      name: 'install',
+      description: 'Alias of `brevo skill install brevo-cli`',
+      options: [SKILL_AGENT_OPTION, SKILL_JSON_OPTION],
+      handler: (opts) =>
+        skillInstallCommand({
+          json: Boolean(opts.json),
+          agent: opts.agent as string | undefined,
+          names: ['brevo-cli'],
+        }),
+    },
+    {
+      name: 'uninstall',
+      description: 'Alias of `brevo skill uninstall brevo-cli`',
+      options: [
+        {
+          flags: '--agent <agents>',
+          description:
+            'Agents to remove it for: claude, codex, gemini (comma-separated), or all. Default: every agent',
+        },
+        SKILL_JSON_OPTION,
+      ],
+      handler: (opts) =>
+        skillUninstallCommand({
+          json: Boolean(opts.json),
+          agent: opts.agent as string | undefined,
+          names: ['brevo-cli'],
+        }),
     },
   ],
 };
