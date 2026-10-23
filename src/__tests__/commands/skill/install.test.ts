@@ -86,7 +86,9 @@ describe('skill/install', () => {
     expect(output()).toContain('--agent codex,gemini');
     // Without --mcp the command is printed, not run.
     expect(registerMcp).not.toHaveBeenCalled();
-    expect(output()).toContain('claude mcp add --transport http brevo https://mcp.example/claude');
+    expect(output()).toContain(
+      'claude mcp add --scope user --transport http brevo https://mcp.example/claude',
+    );
   });
 
   it('passes names and flags through, without the other-agents hint when --agent is given', async () => {

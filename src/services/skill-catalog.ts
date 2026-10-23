@@ -21,8 +21,14 @@ import { CliError } from '../lib/errors';
 const RELEASES_BASE = 'https://github.com/getbrevo/brevo-skills/releases';
 const RAW_FILES_BASE = 'https://raw.githubusercontent.com/getbrevo/brevo-skills';
 
-/** Same budget as the npm update check: the catalog must never hold a command up. */
-export const CATALOG_FETCH_TIMEOUT_MS = 2000;
+/**
+ * Budget for a command the user typed (`install`, `update`, `list`, `check`): GitHub's release
+ * redirect is sometimes slow, and a false "not reachable" is worse than a short wait.
+ */
+export const CATALOG_FETCH_TIMEOUT_MS = 15000;
+
+/** Same budget as the npm update check: the post-command notice must never hold a command up. */
+export const CATALOG_NOTICE_TIMEOUT_MS = 2000;
 
 /** The cached latest catalog counts as fresh for this long (auto-refresh reads it). */
 export const CATALOG_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;

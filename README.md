@@ -348,7 +348,7 @@ Options shared by `install` and `update`:
 
 - `--agent claude,codex,gemini|all` (default `claude`). Claude Code reads `~/.claude/skills/<name>/`; Codex and Gemini CLI both read `~/.agents/skills/<name>/`, so one copy there serves the two. A skill is installed for an agent only when the catalog lists that agent's platform for it.
 - `--pin <release>` installs from a specific `brevo-skills` release instead of the latest and records the pin; `update` stays on it until `--pin latest` clears it.
-- `--mcp` registers the Brevo MCP server with each agent whose CLI is on the `PATH` (`claude mcp add`, `codex mcp add`, `gemini mcp add`), using the catalog's endpoint for that agent. Without `--mcp` the command is printed for you to run. Never required: agents also connect through their own settings.
+- `--mcp` registers the Brevo MCP server with each agent whose CLI is on the `PATH` (`claude mcp add`, `codex mcp add`, `gemini mcp add`; Claude Code and Gemini CLI are registered at user scope, not for the current folder only), using the catalog's endpoint for that agent. Without `--mcp` the command is printed for you to run. Never required: agents also connect through their own settings.
 - `--force` reinstalls even when the version matches.
 - `--dry-run` prints what would change, per agent directory, and writes nothing (exit code 0; `check` is the command that signals drift).
 - `--json` for machine-readable output.

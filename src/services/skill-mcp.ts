@@ -29,15 +29,39 @@ export interface McpRegistration {
   detail?: string;
 }
 
-/** The `mcp add` invocation for one agent, as argv. */
+/**
+ * The `mcp add` invocation for one agent, as argv. Claude Code and Gemini CLI default to a
+ * per-project scope (Gemini refuses it in an untrusted folder), so both ask for the user
+ * scope; Codex has a single global config.
+ */
 export function mcpAddCommand(agent: SkillAgent, serverName: string, endpoint: string): string[] {
   switch (agent) {
     case 'claude':
-      return ['claude', 'mcp', 'add', '--transport', 'http', serverName, endpoint];
+      return [
+        'claude',
+        'mcp',
+        'add',
+        '--scope',
+        'user',
+        '--transport',
+        'http',
+        serverName,
+        endpoint,
+      ];
     case 'codex':
       return ['codex', 'mcp', 'add', serverName, '--url', endpoint];
     case 'gemini':
-      return ['gemini', 'mcp', 'add', '--transport', 'http', serverName, endpoint];
+      return [
+        'gemini',
+        'mcp',
+        'add',
+        '--scope',
+        'user',
+        '--transport',
+        'http',
+        serverName,
+        endpoint,
+      ];
   }
 }
 

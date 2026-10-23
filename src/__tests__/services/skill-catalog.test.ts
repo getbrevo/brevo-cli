@@ -2,6 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import {
+  CATALOG_FETCH_TIMEOUT_MS,
+  CATALOG_NOTICE_TIMEOUT_MS,
   CatalogFetchError,
   CatalogInvalidError,
   catalogUrl,
@@ -33,6 +35,11 @@ import {
 const SANDBOX_ROOT = path.join(__dirname, '__sandbox__');
 
 describe('services/skill-catalog', () => {
+  it('gives a typed command a longer catalog budget than the post-command notice', () => {
+    expect(CATALOG_NOTICE_TIMEOUT_MS).toBe(2000);
+    expect(CATALOG_FETCH_TIMEOUT_MS).toBeGreaterThanOrEqual(10000);
+  });
+
   let configHome: string;
 
   beforeEach(() => {
