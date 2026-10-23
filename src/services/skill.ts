@@ -19,6 +19,7 @@ import {
   SkillPlatform,
   catalogUrl,
   isSafeRelativePath,
+  CATALOG_NOTICE_TIMEOUT_MS,
   fetchCatalog,
   fetchSkillFiles,
   hashFiles,
@@ -1056,7 +1057,11 @@ export const skillService = {
 
     let catalog: SkillCatalog;
     try {
-      catalog = await fetchCatalog(undefined, { ...opts, env });
+      catalog = await fetchCatalog(undefined, {
+        ...opts,
+        env,
+        timeoutMs: opts.timeoutMs ?? CATALOG_NOTICE_TIMEOUT_MS,
+      });
     } catch {
       try {
         noteCatalogAttempt(catalogUrl(undefined, env), now, env);
