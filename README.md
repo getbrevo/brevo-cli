@@ -16,8 +16,6 @@ Command-line tool to build [Brevo](https://www.brevo.com/) integrations from you
 - **Public app distribution and the review lifecycle are GA.** `brevo app create --distribution public`
   is accepted, and `brevo app submit`, `brevo app status` and `brevo app withdraw` ship in the
   published package — see [Public apps and the review lifecycle](#public-apps-and-the-review-lifecycle).
-  Note that the platform currently refuses public app _creation_ from the CLI (the API answers `400`);
-  the CLI side is in place and will work as soon as the platform allows it.
 - **Consent gates for public apps.** Creating a public app requires agreeing to the
   [Brevo Developer Terms](https://developers.brevo.com/docs/apps-developer-terms), and submitting one
   for review requires confirming the Submission Process statement. Non-interactive runs pass the new
@@ -160,12 +158,6 @@ afterwards), and the credentials stay retrievable with
 An OAuth app's `distribution_type` is chosen at `brevo app create` and is **immutable afterwards**:
 `private` for apps used exclusively by your own organisation, `public` for apps distributed to end
 users or marketplace listings. Only a public app can be submitted for review.
-
-> [!NOTE]
-> The platform currently refuses public app **creation** from the CLI — `brevo app create
---distribution public` sends the request and the API answers `400`, which the CLI reports as
-> _"Public apps can't be created from the CLI yet"_ with the server's own message quoted. The
-> CLI-side commands below are all in place and will work as soon as the platform allows it.
 
 Public apps carry two consent gates. Creating one requires agreeing to the
 [Brevo Developer Terms](https://developers.brevo.com/docs/apps-developer-terms); submitting one for
