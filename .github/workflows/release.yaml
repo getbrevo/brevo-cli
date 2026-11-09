@@ -114,13 +114,13 @@ jobs:
 
       - name: Create Release PR or Publish
         id: changesets
-        # changesets/action@v1.9.0
+        # changesets/action@v2.1.2
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51
         with:
-          version: yarn version:packages
-          publish: yarn publish:packages
-          title: "${{ steps.next.outputs.has_changesets == 'true' && format('chore(release): {0}@{1}', steps.next.outputs.name, steps.next.outputs.version) || 'chore(release): version packages' }}"
-          commit: "${{ steps.next.outputs.has_changesets == 'true' && format('chore(release): {0}@{1}', steps.next.outputs.name, steps.next.outputs.version) || 'chore(release): version packages' }}"
+          version-script: yarn version:packages
+          publish-script: yarn publish:packages
+          pr-title: "${{ steps.next.outputs.has_changesets == 'true' && format('chore(release): {0}@{1}', steps.next.outputs.name, steps.next.outputs.version) || 'chore(release): version packages' }}"
+          commit-message: "${{ steps.next.outputs.has_changesets == 'true' && format('chore(release): {0}@{1}', steps.next.outputs.name, steps.next.outputs.version) || 'chore(release): version packages' }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No NPM_TOKEN — auth is via npm Trusted Publishing (OIDC).
@@ -142,22 +142,22 @@ jobs:
       - name: Post-publish checks
         if: steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true'
         env:
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
         run: |
           set -euo pipefail
-          # publishedPackages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
+          # published-packages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
           version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[] | select(.name=="@getbrevo/cli") | .version' | head -n1)
           if [ -z "$version" ] || [ "$version" = "null" ]; then
-            echo "No @getbrevo/cli version in publishedPackages; nothing to verify."
+            echo "No @getbrevo/cli version in published-packages; nothing to verify."
             exit 0
           fi
           node scripts/release-check.mjs post --version="$version"
 
       - name: Enhance release PR description
-        if: steps.changesets.outputs.pullRequestNumber != '' && steps.next.outputs.has_changesets == 'true'
+        if: steps.changesets.outputs.pr-number != '' && steps.next.outputs.has_changesets == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pr-number }}
           NAME: ${{ steps.next.outputs.name }}
           VERSION: ${{ steps.next.outputs.version }}
         run: |
@@ -180,7 +180,7 @@ jobs:
           gh pr edit "$PR_NUMBER" --body-file /tmp/pr-body.md
 
       - name: Notify Slack of upcoming release
-        if: steps.changesets.outputs.pullRequestNumber != '' && steps.next.outputs.has_changesets == 'true'
+        if: steps.changesets.outputs.pr-number != '' && steps.next.outputs.has_changesets == 'true'
         continue-on-error: true
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_UPCOMING_RELEASE_ANNOUNCEMENT_WEBHOOK_URL }}
@@ -188,7 +188,7 @@ jobs:
           PKG_NAME: ${{ steps.next.outputs.name }}
           PKG_NEW_VERSION: ${{ steps.next.outputs.version }}
           ACTOR: ${{ github.actor }}
-          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pr-number }}
         run: |
           if [ -z "$SLACK_WEBHOOK_URL" ]; then
             echo "SLACK_WEBHOOK_URL is not set; skipping notification."
@@ -219,7 +219,7 @@ jobs:
         continue-on-error: true
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PACKAGE_RELEASE_WEBHOOK_URL }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
           REPO: ${{ github.repository }}
           ACTOR: ${{ github.actor }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -272,10 +272,10 @@ jobs:
         if: steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
         run: |
           set -euo pipefail
-          # publishedPackages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
+          # published-packages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
           name=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[0].name')
           version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[0].version')
           tag="${name}@${version}"
@@ -303,13 +303,13 @@ jobs:
         id: cli
         if: ${{ !cancelled() && steps.changesets.outcome == 'success' && steps.changesets.outputs.published == 'true' }}
         env:
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
         run: |
           set -euo pipefail
-          # publishedPackages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
+          # published-packages: [{"name":"@getbrevo/cli","version":"1.2.3"}, ...]
           version=$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r '.[] | select(.name=="@getbrevo/cli") | .version' | head -n1)
           if [ -z "$version" ] || [ "$version" = "null" ]; then
-            echo "No @getbrevo/cli version in publishedPackages; skipping the follow-ups."
+            echo "No @getbrevo/cli version in published-packages; skipping the follow-ups."
             version=""
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
