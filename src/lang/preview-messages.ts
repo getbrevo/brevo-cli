@@ -23,4 +23,23 @@ export const previewMessages = {
   // merely unreachable. The other iframe strings stay in `en.ts` — live code (`app
   // upload`'s refusal translation, the renderers) reads them in every build.
   APP_CREATE_UI_INTEGRATION_MODAL_IFRAME: 'Iframe (Embeds your page in a modal)',
+
+  // The framing/CSP checklist (BEX-498), printed after a successful iframe create and
+  // pointed to after an iframe upload. Here, not in `en.ts`, because it names the gated
+  // feature: both read sites sit behind `__BREVO_PREVIEW__`, so a published build drops the
+  // strings entirely (`LEAK_STRINGS` asserts it). Deliberately generic about origins — it
+  // says "Brevo's app origin" and names no hostname, because the CLI cannot know which
+  // origin(s) a given environment frames from.
+  APP_IFRAME_CHECKLIST_TITLE: 'Before your iframe renders',
+  APP_IFRAME_CHECKLIST_LINES: [
+    "Your page loads inside a frame on Brevo's app origin. A frame the browser blocks shows blank, with no error in the CLI.",
+    '',
+    '1. Do not send X-Frame-Options: DENY or SAMEORIGIN.',
+    "2. If you send a Content-Security-Policy, frame-ancestors must allow Brevo's app origin(s) or be omitted.",
+    '3. iframe_href must be an absolute https:// URL, not a Brevo host, an IP address or localhost.',
+    '4. Do not rely on third-party cookies inside the frame; read the record identifiers from the query parameters.',
+    '5. The platform sets the iframe sandbox. It cannot be authored in app-config.json.',
+  ],
+  APP_IFRAME_CHECKLIST_UPLOAD_HINT:
+    'Before your iframe renders: your page must allow framing by non-same-origin parents (no X-Frame-Options DENY/SAMEORIGIN; frame-ancestors must allow the Brevo app origin). A blocked frame shows blank with no CLI error.',
 } as const;

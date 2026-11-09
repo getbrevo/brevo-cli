@@ -941,4 +941,10 @@ export function renderCreatedUiApp(result: CreateAppResponse, appName: string, u
     messages.APP_CREATE_UI_BOX_HINT,
   ];
   printBox(messages.APP_CREATE_UI_BOX_TITLE, boxLines);
+  // Framing/CSP checklist (BEX-498). Text mode only by construction: `--json` returns before
+  // any box is rendered. `__BREVO_PREVIEW__` is the elimination site — the strings live in
+  // `preview-messages.ts`, so a published build must not even reference them.
+  if (__BREVO_PREVIEW__ && uiApp.extension_type === 'iframeExtension') {
+    printBox(messages.APP_IFRAME_CHECKLIST_TITLE, [...messages.APP_IFRAME_CHECKLIST_LINES]);
+  }
 }

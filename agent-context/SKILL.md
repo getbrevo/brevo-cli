@@ -113,6 +113,16 @@ The `ui_app` block in `app-config.json`:
 - Do **not** write `link_target`, `extension_point_name` or `sandbox` anywhere in the file — all three are wire/server-stamped values (`app upload` injects `link_target: "_blank"` itself; `sandbox` is the platform's own policy) and the CLI strips them from server echoes. An authored `sandbox` is refused by name, at the `ui_app` root and on any entry, before `app upload` makes a single call: it is Brevo's decision, and the platform applies the stored value verbatim with no default of its own.
 - The old `heading`/`subheading` names are rejected with a migration hint — they are `label`/`more_info` now, and they live **per entry**, not at the `ui_app` root.
 
+**Iframe embeds (pre-GA, preview builds only): framing/CSP checklist.** An `iframeExtension` entry loads its `iframe_href` page inside a frame on Brevo's app origin, and a frame the browser blocks renders blank with no CLI error. `brevo app create` prints this checklist after an iframe app is created, and `brevo app upload` prints a one-line pointer to it after an iframe upload (text mode only, never under `--json`, never for an action link):
+
+1. Your page must not send `X-Frame-Options: DENY` or `SAMEORIGIN`.
+2. If it sends a `Content-Security-Policy`, `frame-ancestors` must allow Brevo's app origin(s) or be omitted.
+3. `iframe_href` must be an absolute `https://` URL, not a Brevo host, an IP address or `localhost`.
+4. Do not rely on third-party cookies inside the frame; read the record identifiers from the query parameters.
+5. The platform sets the iframe sandbox. It cannot be authored in `app-config.json`.
+
+The CLI does not name Brevo's origin hostnames; check the platform's current documentation for the exact origin(s) your `frame-ancestors` must allow.
+
 Install semantics worth knowing: only UI apps install into an account; the app must have a `version` (written by a successful `brevo app upload`) before `install` will proceed; `uninstall` of a not-installed app is informational (exit `0`).
 
 **An installed UI app tracks the server's configuration, not the account's copy of it.** There is one stored snapshot per app, so `brevo app upload` changes what every account it is installed in renders, immediately and with no re-install — which is why `upload` warns and asks before pushing a UI app, and why `install` shows the stored configuration it is about to make visible. Tell a user to edit `app-config.json` and run `brevo app upload`; never tell them to uninstall and re-install to pick up a change.

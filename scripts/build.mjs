@@ -156,7 +156,7 @@ const LEAK_MARKERS = [];
 // collide with GA copy: `brevo app status` must not match `brevo app start`, and a bare
 // path fragment like `/withdraw` would false-positive on unrelated text.
 //
-// One entry today: the gated *Iframe* integration choice (BEX-459).
+// Two entries today: the gated *Iframe* integration choice (BEX-459) and its checklist.
 const LEAK_STRINGS = [
   // Not a command name, so nothing in LEAK_MARKERS covers it: it is a prompt label, and
   // the only thing a reader of the bundle could learn the feature from. Its definition
@@ -164,6 +164,9 @@ const LEAK_STRINGS = [
   // `__BREVO_PREVIEW__` branch, so a hit here means one of those two moved back into
   // always-shipped code.
   'Iframe (Embeds',
+  // The framing/CSP checklist title (BEX-498): same story, lives in `preview-messages.ts`
+  // and is read only behind `__BREVO_PREVIEW__` in `renderCreatedUiApp` and `app upload`.
+  'Before your iframe renders',
 ];
 
 // Every file the tarball carries, because that is the scope this particular check has

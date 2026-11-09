@@ -431,6 +431,56 @@ describe('app/upload', () => {
   // Earlier CLI versions guaranteed `ui_app` was never sent at all. That
   // guarantee now applies to OAuth apps only (BEX-290) — the UI-app half of the
   // contract is covered in the 'UI apps' block below.
+  // Framing/CSP checklist pointer (BEX-498): only for an iframeExtension config, text mode only.
+  describe('iframe framing checklist pointer', () => {
+    const uiConfig = (extensionType: 'iframeExtension' | 'actionLink') => ({
+      ...BASE_CONFIG,
+      auth: {},
+      ui_app: {
+        extension_type: extensionType,
+        surface_point_list: [
+          extensionType === 'iframeExtension'
+            ? {
+                surface_point_name: 'contactDetails.header.menu',
+                label: 'View in CRM',
+                iframe_href: 'https://example.com/embed',
+              }
+            : {
+                surface_point_name: 'contactDetails.header.menu',
+                label: 'View in CRM',
+                redirect_link: 'https://example.com/brevo',
+              },
+        ],
+      },
+    });
+    const output = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+    beforeEach(() => {
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        auth: undefined,
+      });
+    });
+
+    it('prints the pointer after a successful iframe upload', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(uiConfig('iframeExtension'));
+      await uploadCommand({ yes: true });
+      expect(output()).toContain(messages.APP_IFRAME_CHECKLIST_UPLOAD_HINT);
+    });
+
+    it('does not print the pointer for an action link', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(uiConfig('actionLink'));
+      await uploadCommand({ yes: true });
+      expect(output()).not.toContain(messages.APP_IFRAME_CHECKLIST_UPLOAD_HINT);
+    });
+
+    it('does not print the pointer under --json', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(uiConfig('iframeExtension'));
+      await uploadCommand({ json: true });
+      expect(output()).not.toContain(messages.APP_IFRAME_CHECKLIST_UPLOAD_HINT);
+    });
+  });
+
   it('never sends a ui_app field for an OAuth app', async () => {
     const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);

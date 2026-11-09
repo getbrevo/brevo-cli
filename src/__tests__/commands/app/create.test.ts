@@ -2028,6 +2028,49 @@ describe('app/create', () => {
       expect(entry).not.toHaveProperty('link_target');
     });
 
+    // Framing/CSP checklist (BEX-498): a second box after the created-app box, iframe only.
+    describe('framing checklist', () => {
+      const printed = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+      it('prints the checklist after creating an iframe app in text mode', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+        await createCommand(CLI_OPTIONS);
+
+        const out = printed();
+        expect(out).toContain(messages.APP_IFRAME_CHECKLIST_TITLE);
+        expect(out).toContain('X-Frame-Options: DENY or SAMEORIGIN');
+        expect(out).toContain('frame-ancestors');
+        expect(out).toContain('absolute https:// URL');
+        expect(out).toContain('third-party cookies');
+        expect(out).toContain('iframe sandbox');
+      });
+
+      it('does not print the checklist for an action link', async () => {
+        await createCommand(CLI_OPTIONS);
+
+        expect(printed()).not.toContain(messages.APP_IFRAME_CHECKLIST_TITLE);
+      });
+
+      it('does not print the checklist under --json', async () => {
+        await createCommand({ ...CLI_OPTIONS, json: true });
+
+        expect(printed()).not.toContain(messages.APP_IFRAME_CHECKLIST_TITLE);
+      });
+
+      it('does not print the checklist on a published build', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+        globalThis.__BREVO_PREVIEW__ = false;
+        try {
+          await createCommand(CLI_OPTIONS);
+        } finally {
+          globalThis.__BREVO_PREVIEW__ = true;
+        }
+
+        expect(printed()).not.toContain('Before your iframe renders');
+      });
+    });
+
     // Inline cards: the layout question is asked only for an Iframe on a WIDGET slot, and
     // BOTH answers are written — the entry states how it presents rather than leaving a
     // reader of app-config.json to know what an absent `layout` falls back to.

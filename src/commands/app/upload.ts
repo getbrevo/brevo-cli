@@ -721,5 +721,10 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   logSuccess(messages.APP_UPLOAD_SUCCESS);
   logInfo(`  Version: ${confirmedVersion || '(unknown)'}`);
   if (migratingKeys) logInfo(`  ${messages.APP_CONFIG_KEYS_MIGRATED}`);
+  // One-line pointer to the framing checklist (BEX-498). `__BREVO_PREVIEW__` is the
+  // elimination site for the gated string; see `preview-messages.ts`.
+  if (__BREVO_PREVIEW__ && config.ui_app?.extension_type === 'iframeExtension') {
+    logInfo(`  ${messages.APP_IFRAME_CHECKLIST_UPLOAD_HINT}`);
+  }
   process.stdout.write('\n');
 });
