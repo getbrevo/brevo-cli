@@ -36,7 +36,7 @@ export const previewMessages = {
     '',
     '1. Do not send X-Frame-Options: DENY or SAMEORIGIN.',
     "2. If you send a Content-Security-Policy, frame-ancestors must allow Brevo's app origin(s) or be omitted.",
-    '3. iframe_href must be an absolute https:// URL, not a Brevo host, an IP address or localhost.',
+    '3. iframe_href must be an absolute https:// URL, not an IP address or localhost.',
     '4. Do not rely on third-party cookies inside the frame; read the record identifiers from the query parameters.',
     '5. The platform sets the iframe sandbox. It cannot be authored in app-config.json.',
   ],
