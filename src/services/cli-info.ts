@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { APP_STORE_BASE, ENDPOINTS } from '../lib/constants';
 import { sanitizeErrorMessage, looksLikeHtml } from '../api/client';
+import { buildCliHeaders } from '../lib/telemetry';
 import { CliInfo, CliInfoQuery, CliInfoResponse } from '../types';
 
 // Budget for the whole call. The notice is cosmetic and the banner is already
@@ -171,7 +172,10 @@ export async function fetchCliInfo(
     const res = await fetchImpl(buildUrl(baseUrl, query), {
       method: 'GET',
       signal: controller.signal,
-      headers: { Accept: 'application/json' },
+      // No credentials (the endpoint is unauthenticated), so the agent carries
+      // no `auth=` method — but it still names the CLI, which Node's default
+      // `node` agent does not.
+      headers: { Accept: 'application/json', ...buildCliHeaders() },
     });
     if (!res.ok) return undefined;
 

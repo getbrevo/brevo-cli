@@ -14,6 +14,7 @@ import {
   validateUiAppSizeAxis,
   validateUiAppUrl,
   validateSurfacePoint,
+  parseAppListType,
 } from '../../lib/validators';
 import { CliError } from '../../lib/errors';
 
@@ -838,5 +839,28 @@ describe('validateUiAppCardHeight', () => {
   it('refuses what the authored-file check would refuse', () => {
     expect(validateUiAppCardHeight('300')).toMatch(/px or % unit/);
     expect(validateUiAppCardHeight('150%')).toMatch(/between 1% and 100%/);
+  });
+});
+
+describe('parseAppListType', () => {
+  it.each(['oauth', 'ui', 'function', 'm2m'])('accepts the CLI token %s unchanged', (token) => {
+    expect(parseAppListType(token)).toBe(token);
+  });
+
+  // The wire spellings are deliberately NOT accepted as input: `--type` speaks the
+  // CLI's vocabulary (what `--json` prints), and accepting both would make the two
+  // vocabularies look interchangeable. This test is what catches that "simplification".
+  it.each(['ui_app', 'brevo_function', 'oauth.m2m'])('refuses the wire spelling %s', (wire) => {
+    expect(() => parseAppListType(wire)).toThrow(CliError);
+  });
+
+  it('is case-sensitive', () => {
+    expect(() => parseAppListType('OAUTH')).toThrow(CliError);
+  });
+
+  it('names every valid value in the error', () => {
+    expect(() => parseAppListType('uiapp')).toThrow(
+      'Invalid --type "uiapp". Must be one of: oauth, ui, function, m2m.',
+    );
   });
 });

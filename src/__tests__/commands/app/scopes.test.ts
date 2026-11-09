@@ -1,6 +1,10 @@
 import { scopesCommand } from '../../../commands/app/scopes';
 
+// Only the network read is mocked. `groupScopesByCategory` is pure and shared with the
+// `app create` scope picker, so the real one runs here — a stub would let the two grouping
+// callers drift without any test noticing.
 jest.mock('../../../services/oauth-metadata', () => ({
+  ...jest.requireActual('../../../services/oauth-metadata'),
   fetchSupportedScopes: jest.fn(),
 }));
 
@@ -142,7 +146,7 @@ describe('app/scopes', () => {
     expect(startScopesWebServer).toHaveBeenCalledWith(entries, {
       refetch: fetchSupportedScopes,
     });
-    expect(openBrowser).toHaveBeenCalledWith(url);
+    expect(openBrowser).toHaveBeenCalledWith(url, expect.any(Function));
     expect(close).toHaveBeenCalled();
 
     const out = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');

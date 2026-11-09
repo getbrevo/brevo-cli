@@ -7,15 +7,22 @@ import { jsonOutput } from '../../lib/json-output';
 import { createSpinner } from '../../lib/ui';
 import { getAppNames, deleteAppName } from '../../lib/config';
 import { containsLegacyAllScope } from '../../lib/validators';
+import { LIST_FILTER_APP_TYPE, type ListFilterAppType } from '../../lib/constants';
 import { resolveFromRecord } from '../../app-types';
 import { formatPlacementLines } from '../../app-types/ui/fields';
 
 export const listCommand = withCommandHandler(
-  async (options: { json?: boolean }): Promise<void> => {
+  async (options: { json?: boolean; type?: ListFilterAppType }): Promise<void> => {
     const spinner = createSpinner('Fetching apps...', { silent: options.json });
     let apps: OAuthApp[] | undefined;
     try {
-      apps = await appService.fetchAppsList();
+      // Filtered server-side, never with a local `.filter()`: the list records
+      // carry no reliable discriminator (M2M detection here would have to go
+      // through the `isM2mApp` heuristic), so the server's answer is the only
+      // authority. `--type` is already validated by its Commander parser.
+      apps = await appService.fetchAppsList(
+        options.type ? { type: LIST_FILTER_APP_TYPE[options.type] } : undefined,
+      );
     } finally {
       spinner.stop();
     }
@@ -28,11 +35,15 @@ export const listCommand = withCommandHandler(
     }
 
     if (merged.length === 0) {
-      logInfo(`\n  ${messages.APP_LIST_EMPTY}\n`);
+      logInfo(
+        `\n  ${options.type ? messages.APP_LIST_EMPTY_FILTERED(options.type) : messages.APP_LIST_EMPTY}\n`,
+      );
       return;
     }
 
-    logInfo(`\n  ${messages.APP_LIST_HEADER}\n`);
+    logInfo(
+      `\n  ${options.type ? messages.APP_LIST_HEADER_FILTERED(options.type) : messages.APP_LIST_HEADER}\n`,
+    );
 
     for (const app of merged) {
       printApp(app);

@@ -27,6 +27,7 @@ import {
 } from '../../lib/config';
 import { resolveFromRecord } from '../../app-types';
 import { stripUiAppWireOnlyKeys } from '../../app-types/wire';
+import { isM2mApp } from '../../services/app';
 import { promptAppSelection } from './select-app';
 import { promptFeatureType } from './scaffold-prompts';
 // The project writer. `app create` imports the same module directly — neither command
@@ -150,6 +151,16 @@ async function resolveBootstrapPlan(appId: string, jsonMode: boolean): Promise<S
   const probe = await fetchAppContext(appId, jsonMode);
   const record = probe.appDetails;
 
+  // An M2M app has no local project (BEX-488) — it is create-only, with no
+  // directory and no app-config.json (see `createM2mApp`). Without this check it
+  // would fall through to the recoverability check below and pass it: an M2M
+  // record has a `client_id` and no `ui_app`/`brevo_function` block, which reads
+  // as a perfectly ordinary (if callback-less) OAuth app. Checked first so this
+  // M2M-specific message wins over the generic "unrecoverable" one.
+  if (record && isM2mApp(record)) {
+    throw new CliError(messages.APP_SCAFFOLD_BOOTSTRAP_M2M(appId));
+  }
+
   // Refuse before writing anything when the server cannot answer with enough to rebuild
   // a complete app-config.json.
   //
@@ -222,7 +233,12 @@ async function resolveBootstrapAppId(
     },
   ]);
   if (!useExisting) return undefined;
-  const { appId } = await promptAppSelection(messages.APP_SCAFFOLD_SELECT);
+  // An M2M app has no local project to set up (BEX-488) — offering one here would
+  // only lead to the refusal `resolveBootstrapPlan` raises a moment later.
+  const { appId } = await promptAppSelection(messages.APP_SCAFFOLD_SELECT, {
+    filter: (app) => !isM2mApp(app),
+    emptyMessage: messages.APP_SCAFFOLD_NO_BOOTSTRAPPABLE_APPS,
+  });
   return appId;
 }
 

@@ -85,7 +85,7 @@ async function fetchExistingApp(appId: string, silent: boolean | undefined): Pro
     spinner.stop();
   }
   if (!app) {
-    throw new CliError(`App ${appId} not found.`);
+    throw new CliError(messages.APP_NOT_FOUND(appId));
   }
   return app;
 }

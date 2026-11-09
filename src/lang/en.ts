@@ -1,4 +1,9 @@
-import { CLI, BREVO_CLI_REFERENCE_URL, BREVO_OAUTH_SCOPES_DOCS_URL } from '../lib/constants';
+import {
+  CLI,
+  BREVO_CLI_REFERENCE_URL,
+  BREVO_DEVELOPER_TERMS_URL,
+  BREVO_OAUTH_SCOPES_DOCS_URL,
+} from '../lib/constants';
 import { previewMessages } from './preview-messages';
 
 /**
@@ -126,6 +131,45 @@ const coreMessages = {
     'UI app          (Render inside Brevo \u2014 opens your app from a record)',
   APP_CREATE_APP_TYPE_FUNCTION:
     'Brevo Function  (Serverless function running on Brevo’s infrastructure)',
+  // The OAuth flow, asked only for a PRIVATE OAuth app — a sibling of the app-type
+  // question right above, and phrased as a full question for the same reason.
+  //
+  // "Consent Based" and "Machine to Machine" are the product's own names for the two
+  // flows, so they are used verbatim rather than being restated as the grant names
+  // (`authorization_code` / `client_credentials`). The parentheticals carry the
+  // distinction that actually decides the answer — whether a Brevo user is involved —
+  // because that is the thing a partner knows about their own integration before they
+  // know which grant it implies. Padded so the two parentheticals align with each
+  // other, the same way the app-type choices above are padded to align with theirs.
+  APP_CREATE_OAUTH_FLOW_PROMPT: 'Which OAuth flow does this app use?',
+  APP_CREATE_OAUTH_FLOW_CONSENT:
+    'Consent Based       (A user authorizes it; you act on their behalf)',
+  APP_CREATE_OAUTH_FLOW_M2M: 'Machine to Machine  (Your server calls the API as itself; no user)',
+  // Developer Terms consent for public-distribution apps. The notice and the question
+  // are the legal team's wording, VERBATIM, from the "Developing Process/Use of Dev
+  // Tools" section of the Developer Terms wording doc — do not reword either without
+  // legal sign-off. The doc ends the notice sentence with the terms link; here the URL
+  // lives on the "Opening…" line right below instead, printed once, because the CLI
+  // opens it in the browser automatically. The `(y/N)` suffix the doc shows is appended
+  // by the prompt helper in create.ts, same as every other y/N input prompt.
+  APP_CREATE_TERMS_NOTICE:
+    'The Brevo Developer Terms apply to the use of the Brevo Developer Tools. Before continuing, ' +
+    'please read the Brevo Developer Terms:',
+  APP_CREATE_TERMS_PROMPT:
+    'Do you confirm that you have read and agree to the Brevo Developer Terms?',
+  // Not legal copy — printed between the notice and the question while the browser
+  // opens. The URL is on its own line so the terminal renders it as a clickable link
+  // even when the auto-open fails.
+  APP_CREATE_TERMS_OPENING: `Opening the terms in your browser:\n${BREVO_DEVELOPER_TERMS_URL}`,
+  APP_CREATE_TERMS_OPEN_FAILED: 'Could not open a browser here — use the link above instead.',
+  APP_CREATE_TERMS_DECLINED:
+    'App creation cancelled — creating a public app requires agreeing to the Brevo Developer Terms.',
+  // Non-interactive (`--json` / piped) public create: no question can be asked, so the
+  // run is refused before any prompt or network call unless consent is given explicitly.
+  APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE:
+    'Creating a public app requires agreeing to the Brevo Developer Terms, and no confirmation can be asked in non-interactive mode.\n\n' +
+    `  Read them:   ${BREVO_DEVELOPER_TERMS_URL}\n` +
+    '  Then re-run with `--accept-developer-terms` to confirm agreement explicitly.',
   APP_CREATE_SUCCESS: 'App created.',
   APP_CREATE_NAME_TAKEN: 'That name is already taken. Try a different name.',
   // Shown only after every prompt has been answered — hence the reassurance:
@@ -167,15 +211,6 @@ const coreMessages = {
   APP_CREATE_REDIRECT_ANOTHER: 'Add another redirect URL?',
   APP_CREATE_REDIRECT_EMPTY: 'Redirect URL cannot be empty',
   APP_CREATE_REDIRECT_INVALID: 'Invalid format. Must start with http:// or https://',
-  // Kept under 80 columns *including* inquirer's `? ` prefix. The example URL this used
-  // to carry pushed it to 83, and inquirer wraps a prompt without indenting the
-  // continuation, so `skip):` landed alone and flush-left on any 80-column terminal —
-  // which is the standard default, and this is now the second question in the flow.
-  // The example lives in `APP_CREATE_LOGO_INVALID` instead, which is exactly when a
-  // user needs to be shown the format.
-  APP_CREATE_LOGO_PROMPT: 'App logo URL (optional — leave blank to skip):',
-  APP_CREATE_LOGO_INVALID:
-    'Invalid format. Must be a valid https:// URL (e.g. https://example.com/logo.png).',
   APP_CREATE_PORT_IN_USE: (port: number, available: number) =>
     `Port ${port} is in use. Defaulting to port ${available}.`,
   APP_CREATE_PORT_SCAN_FAILED: (port: number) =>
@@ -377,6 +412,216 @@ const coreMessages = {
   APP_UI_IFRAME_PRIVATE_ONLY:
     'ui_app.extension_type "iframeExtension" requires distribution_type "private" — iframe extensions are private-only. Change distribution_type to "private", or use "actionLink".',
 
+  // App create — M2M (machine-to-machine) OAuth apps.
+  //
+  // An M2M app uses the `client_credentials` grant: the partner's own server holds the
+  // credentials and calls the API as itself, so there is no Brevo user to redirect and no
+  // callback to register. That is the whole reason this path exists as its own branch —
+  // every OAuth string above assumes a redirect URL.
+  //
+  // It is also CREATE-ONLY: nothing is written to disk, so none of the copy here may
+  // mention `app-config.json`, `cd`, `app upload` or `app scaffold` as a next step. The
+  // absence is stated once, in APP_CREATE_M2M_NEXT, rather than left for the partner to
+  // discover by running a command that has nothing to read.
+  //
+  // Scopes are collected two ways, and both are reachable: a multi-select over the IdP's
+  // live catalog (the normal path), and the free-text prompt below when that catalog
+  // cannot be read. The picker copy therefore may not be the only place a rule is
+  // stated — anything the partner must know about M2M scopes has to survive the
+  // fallback too, which is why the reminder to name every needed scope lives in
+  // APP_CREATE_M2M_SCOPES_FIXED and is printed on both paths.
+  //
+  // NOTE (BEX-486): scopes are no longer permanent — `brevo app scopes update` can
+  // change them after creation — so this copy, despite its constant name, must not
+  // claim otherwise. The name is kept (renaming touches every call site for no
+  // behavioural gain); only the wording changed.
+  APP_CREATE_M2M_SCOPES_FIXED: (updateCmd: string) =>
+    `Select every scope this app needs — you can add or remove scopes later with \`${updateCmd}\`.`,
+  APP_CREATE_M2M_SCOPES_PICKER_SPINNER: 'Loading available scopes...',
+  APP_CREATE_M2M_SCOPES_PICKER_PROMPT: 'Which scopes does this app need?',
+  // The trailing half of a selectable section heading — the category's own label from the
+  // IdP precedes it, and the two are styled differently, which is why this owns only the
+  // phrase. Says the count because that number IS the breadth being granted, and an M2M
+  // grant has no consent screen where anyone reads it back.
+  APP_CREATE_M2M_SCOPES_SECTION_ALL: (count: number) => `— all ${count} scopes`,
+  // Named for what the partner does next, not for what broke: the catalog read is a
+  // convenience, and typing the names is still a supported way to answer.
+  APP_CREATE_M2M_SCOPES_CATALOG_UNAVAILABLE: (cmd: string) =>
+    `Could not load the scope catalog, so scopes have to be typed. Run \`${cmd}\` once the connection is back to see every scope your account can grant.`,
+  APP_CREATE_M2M_SCOPES_PROMPT: 'Scopes (comma-separated):',
+  APP_CREATE_M2M_SCOPES_HINT: (cmd: string, updateCmd: string) =>
+    `Tip: Run \`${cmd}\` in another terminal to see every scope your account can grant. You can add or remove scopes later with \`${updateCmd}\`.`,
+  APP_CREATE_M2M_SCOPES_EMPTY: 'Enter at least one scope.',
+  APP_CREATE_M2M_BOX_SCOPES_LABEL: 'Scopes:',
+  // Deliberately NOT `APP_CREATE_BOX_SCOPE_HINT`, which tells the user to edit
+  // `auth.scopes` in app-config.json — a file an M2M app does not have.
+  //
+  // Every line is kept inside the box's content budget (terminal width minus chrome,
+  // so ~74 columns on a standard 80-column terminal) rather than written as prose and
+  // left to `printBox` to fold: a wrapped command or URL is no longer copy-pasteable,
+  // and the continuation indent reads as a second step. That budget is also why the
+  // command shown is `--app-id` alone with `--reveal-secret` named on the next line —
+  // both flags plus a 36-character app UUID is 83 columns and cannot fit either way.
+  //
+  // Step 2 names `brevo app token` and nothing else. It used to spell out the raw
+  // `client_credentials` request against the IdP's token endpoint, which predates that
+  // command; now that the CLI mints the token itself, printing both would offer the
+  // harder route as an equal option on the one screen where the partner has just
+  // created the app and wants to see it work.
+  APP_CREATE_M2M_NEXT: (appId: string): string[] => [
+    '1. Read the credentials back at any time:',
+    `   ${CLI.APP_CREDENTIALS(appId)}`,
+    '   Add `--reveal-secret` to print the client secret.',
+    '',
+    '2. Mint a short-lived access token:',
+    `   ${CLI.APP_TOKEN(appId)}`,
+    '   Add `--scope "<a,b,c>"` to narrow it to some of the granted scopes.',
+    '',
+    `No project files were written: an M2M app has no app-config.json, so \`${CLI.APP_UPLOAD}\` and \`${CLI.APP_SCAFFOLD}\` do not apply to it.`,
+  ],
+
+  // App create — M2M flag combinations. Every one of these is checked before the first
+  // prompt, so a bad invocation costs the caller nothing; see `assertM2mFlags`.
+  APP_CREATE_M2M_SCOPES_REQUIRED: `\`--m2m\` needs \`--scopes\` at creation time — there is no app-config.json to seed them from later, though scopes can still be changed afterwards with \`${CLI.APP_SCOPES_UPDATE()}\`. Example: \`--m2m --scopes "contacts:read,crm:read"\`.`,
+  // Refused rather than ignored: a consent-based create always sends the default scope
+  // set, so silently dropping `--scopes` would leave the caller believing they had
+  // narrowed an app that in fact got the defaults.
+  APP_CREATE_M2M_SCOPES_WITHOUT_M2M: `\`--scopes\` only applies to an M2M app — pass \`--m2m\` as well. A consent-based OAuth app is created with the default scopes; change them by editing \`auth.scopes\` in app-config.json and running \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_M2M_REDIRECT_URI: `\`--m2m\` can't be combined with \`--redirect-uri\` — an M2M app calls the API as itself, so there is no user to redirect and no callback to register.`,
+  APP_CREATE_M2M_UI_FLAG: (flag: string) =>
+    `\`--m2m\` can't be combined with \`${flag}\` — an app is either an OAuth app or a UI app, not both.`,
+  APP_CREATE_M2M_PUBLIC: `\`--m2m\` requires \`--distribution private\` — the machine-to-machine flow is only available for private apps.`,
+
+  // App scopes update (BEX-486) — change an existing M2M app's granted scopes.
+  //
+  // ASSUMPTION pending BEX-481 (the backend scopes-update API, "Ready for dev" as of this
+  // writing): the endpoint contract this command sends is built from BEX-481's own spec,
+  // not a live implementation — see the plan doc for BEX-486.
+  //
+  // Design note: there is deliberately no `--mode append|replace` flag. The interactive
+  // picker is genuinely pre-selected with the app's CURRENT scopes (`promptScopeSelection`'s
+  // `preselected` in `scope-prompts.ts` pre-checks each box), so what a partner ticks/unticks
+  // there already IS the complete desired set. The TYPED fallback (catalog unreadable) is
+  // weaker: inquirer 8's `input` prompt does not write `default` into an editable line — it
+  // only shows it as a dim hint and substitutes it if the line is submitted EMPTY — so
+  // `promptTypedScopeList`'s `prefill` cannot make someone's partial edit start from the
+  // full list. `APP_SCOPES_UPDATE_TYPED_INTRO` below exists to close that gap in words
+  // instead: it tells the partner the current scopes and that Enter alone keeps them, so
+  // typing anything is understood as typing the COMPLETE new list, not an addition to it.
+  // Either way the server can always treat the request as a plain replace — there is no
+  // separate delta to reconcile, and no ambiguity about whether an omitted scope should be
+  // dropped, as long as the partner reads that reminder on the typed path.
+  APP_SCOPES_UPDATE_SELECT: 'Select an M2M app to update:',
+  APP_SCOPES_UPDATE_SPINNER: 'Updating scopes...',
+  APP_SCOPES_UPDATE_NO_M2M_APPS:
+    'No M2M apps found in this account. Scopes can only be updated on an app created with `--m2m`.',
+  APP_SCOPES_UPDATE_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app's scopes can be changed with this command.`,
+  // Refuses BEFORE the scope prompt when there's no terminal to show it on. Distinct from
+  // `APP_SELECT_NON_INTERACTIVE` (the app picker's own refusal): by the time this fires the
+  // app has already been named (via `--app-id` or that picker) — what can't be shown here is
+  // the SCOPE picker, a different prompt with a different fix (`--scopes`, not `--app-id`).
+  APP_SCOPES_UPDATE_SCOPES_REQUIRED: (cmd: string) =>
+    `\`--scopes\` is required when scripting — there is no terminal to prompt for scopes on. Example: \`${cmd}\`.`,
+  // Printed instead of `APP_CREATE_M2M_SCOPES_FIXED` when the picker opens with existing
+  // scopes already ticked — that message's "select every scope this app needs" reads oddly
+  // once the boxes already reflect a grant, and would say nothing about editing them.
+  APP_SCOPES_UPDATE_PICKER_INTRO:
+    "Already-granted scopes are pre-selected below — untick to remove, tick more to add. What you submit becomes the app's complete set of scopes.",
+  // Printed instead of `APP_CREATE_M2M_SCOPES_HINT` on the typed-fallback path when there
+  // ARE current scopes to show (i.e. always, for `app scopes update` — `app create` has
+  // none and keeps the plain hint). Says explicitly that Enter-with-no-input keeps the
+  // list shown, because inquirer does NOT pre-populate the editable line — see the design
+  // note above. Without this a partner could reasonably type just the scope they meant to
+  // ADD and silently lose the rest.
+  APP_SCOPES_UPDATE_TYPED_INTRO: (current: readonly string[]) =>
+    `Current scopes: ${current.length ? current.join(', ') : '(none)'} — press Enter to keep them as-is, or type the complete new list (not just what's being added).`,
+  APP_SCOPES_UPDATE_NO_CHANGE: (appId: string) =>
+    `No change: app ${appId} already has exactly these scopes.`,
+  // The one message that must foreground a REMOVAL: a scope the app currently has, but
+  // that isn't in the submitted list, silently disappears unless this line calls it out —
+  // easy to miss on the typed-fallback path, where the field starts pre-filled but nothing
+  // stops someone deleting more than they meant to.
+  APP_SCOPES_UPDATE_DIFF: (
+    current: readonly string[],
+    next: readonly string[],
+    added: readonly string[],
+    removed: readonly string[],
+  ): string => {
+    const lines = [
+      `Current scopes: ${current.length ? current.join(', ') : '(none)'}`,
+      `New scopes:     ${next.length ? next.join(', ') : '(none)'}`,
+    ];
+    if (added.length) lines.push(`  + ${added.join(', ')}`);
+    if (removed.length) {
+      lines.push(`  ⚠ this will REMOVE: ${removed.join(', ')}`);
+    }
+    return lines.join('\n  ');
+  },
+  APP_SCOPES_UPDATE_CONFIRM: (appLabel: string, appId: string) =>
+    `Set the scopes on "${appLabel}" (${appId}) to this list?`,
+  APP_SCOPES_UPDATE_CANCELLED: 'Cancelled — no scopes were changed.',
+  APP_SCOPES_UPDATE_SUCCESS: (appId: string, scopes: readonly string[]) =>
+    `Updated app ${appId}. Scopes: ${scopes.length ? scopes.join(', ') : '(none)'}`,
+
+  // App token (BEX-482) — mint a short-lived M2M access token for an app.
+  //
+  // ASSUMPTION pending the "brevo app token [Backend]" ticket (not yet built at the time
+  // this command was written): the endpoint contract this command sends is a reasonable
+  // guess, not a verified implementation — see the plan doc for BEX-482. A server error
+  // shape this command doesn't recognize is not swallowed: `mapTokenError` in
+  // `commands/app/token.ts` only remaps the codes it knows and rethrows anything else
+  // unchanged, so the server's own message still reaches the partner.
+  APP_TOKEN_SELECT: 'Select an M2M app to mint a token for:',
+  APP_TOKEN_MINT_SPINNER: 'Minting token...',
+  APP_TOKEN_NO_M2M_APPS:
+    'No M2M apps found in this account. A token can only be minted for an app created with `--m2m`.',
+  APP_TOKEN_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app can mint an access token with this command.`,
+  APP_TOKEN_UNAUTHORIZED: (appId: string) =>
+    `Not authorized to mint a token for app ${appId}. Run \`${CLI.LOGIN}\` again, or confirm this account can manage that app.`,
+  APP_TOKEN_SCOPE_NOT_GRANTED: (appId: string) =>
+    `One or more requested scopes are not granted to app ${appId}. Check granted scopes with \`${CLI.APP_CREDENTIALS(appId)}\`, or omit \`--scope\` to request the app's full granted set.`,
+  APP_TOKEN_MALFORMED_RESPONSE:
+    'The server returned a token response the CLI does not recognize. Try again, or check for a CLI update.',
+  APP_TOKEN_SUCCESS: (expiresIn: number) => `Minted an access token, valid for ${expiresIn}s.`,
+
+  // App secret rotate (BEX-484) — rotate an M2M app's client secret.
+  //
+  // ASSUMPTION pending the "brevo app secret rotate [Backend]" ticket (not yet built at
+  // the time this command was written): the endpoint contract this command sends is a
+  // reasonable guess, not a verified implementation — see the plan doc for BEX-484. A
+  // server error shape this command doesn't recognize is not swallowed: `mapRotateError`
+  // in `commands/app/secret-rotate.ts` only remaps the codes it knows and rethrows
+  // anything else unchanged, so the server's own message still reaches the partner.
+  //
+  // Unlike `app credentials`/`app create`, the rotated secret is printed in full
+  // immediately rather than hidden behind `--reveal-secret` — the whole point of this
+  // command is to hand back the new secret, including for CI-driven rotation, where the
+  // reveal-gate's TTY requirement would make the command unable to ever return the value
+  // it exists to produce. The confirmation prompt below still gates the destructive
+  // ACTION (the old secret stops working immediately); it is not a reveal-gate.
+  APP_SECRET_ROTATE_SELECT: 'Select an M2M app to rotate the secret for:',
+  APP_SECRET_ROTATE_SPINNER: 'Rotating secret...',
+  APP_SECRET_ROTATE_NO_M2M_APPS:
+    'No M2M apps found in this account. A secret can only be rotated on an app created with `--m2m`.',
+  APP_SECRET_ROTATE_NOT_M2M: (appId: string) =>
+    `App ${appId} is not an M2M app — only an M2M app's secret can be rotated with this command.`,
+  APP_SECRET_ROTATE_UNAUTHORIZED: (appId: string) =>
+    `Not authorized to rotate the secret for app ${appId}. Run \`${CLI.LOGIN}\` again, or confirm this account can manage that app.`,
+  APP_SECRET_ROTATE_MALFORMED_RESPONSE:
+    'The server returned a secret-rotation response the CLI does not recognize. Try again, or check for a CLI update.',
+  APP_SECRET_ROTATE_CONFIRM: (appLabel: string, appId: string) =>
+    `This immediately invalidates the current secret for "${appLabel}" (${appId}) — any caller still using it will start failing. Continue?`,
+  APP_SECRET_ROTATE_CANCELLED: 'Cancelled — the secret was not rotated.',
+  APP_SECRET_ROTATE_SUCCESS: (appId: string) => `Rotated the client secret for app ${appId}.`,
+  // The two value lines under the success message. Indentation stays at the call site
+  // (same pattern as APP_SECRET_ROTATE_STORE_HINT below).
+  APP_SECRET_ROTATE_SECRET_LINE: (secret: string) => `Client secret: ${secret}`,
+  APP_SECRET_ROTATE_GRACE_LINE: (until: string) => `Old secret valid until: ${until}`,
+  APP_SECRET_ROTATE_STORE_HINT:
+    'Store this secret in a secret manager now — it will not be shown again by this command.',
+
   // App install / uninstall — per-account availability for UI apps (BEX-290).
   // Moved here from `preview-messages.ts` at UI-apps GA.
   APP_INSTALL_SELECT: 'Select an app to install:',
@@ -485,6 +730,15 @@ const coreMessages = {
   // Not "Your OAuth apps" — the listing can contain UI apps too (BEX-290), and
   // each row names its own type.
   APP_LIST_HEADER: 'Your apps:',
+  // Under `--type`, the flag is echoed verbatim rather than translated to an
+  // `APP_TYPE_*` label: those read "Your OAuth app apps:", and there is no
+  // label for `m2m` at all (it is an auth flow, not an app type).
+  APP_LIST_HEADER_FILTERED: (type: string) => `Your apps (--type ${type}):`,
+  // Not APP_LIST_EMPTY: under a filter the account usually *does* have apps,
+  // just none of that type, so "Create one with ..." would be both false and
+  // the wrong next step. Name the filter as the cause and the way out.
+  APP_LIST_EMPTY_FILTERED: (type: string) =>
+    `No apps match --type ${type}. \`${CLI.APP_LIST}\` shows every app.`,
 
   // App type, as named on a rendered row. `app_type` exists in the config but is
   // informational; the discriminator is `ui_app` / `brevo_function` presence.
@@ -498,6 +752,19 @@ const coreMessages = {
   // with a raw ERR_USE_AFTER_CLOSE readline stack instead of anything readable.
   APP_SELECT_NON_INTERACTIVE: (command: string) =>
     `Cannot show the app picker in non-interactive mode. Name the app instead:\n\n      ${command}\n\n  \`${CLI.APP_LIST}\` shows the IDs.`,
+
+  // Raised instead of the confirmation prompt when there is no way to ask it — under
+  // --json (one parseable document, no questions) or off a TTY. Silence must not be
+  // consent for a change that cannot be undone, so the caller is told to say yes
+  // explicitly rather than having it assumed.
+  APP_CONFIRM_NON_INTERACTIVE: (command: string) =>
+    `This change needs confirmation, and none can be asked in non-interactive mode. Re-run with \`--yes\` to confirm it explicitly:\n\n      ${command}`,
+
+  // The one not-found line every app-addressing command (and the service layer's
+  // rethrowNotFound) throws. Scripts match on this text — keep it stable.
+  APP_NOT_FOUND: (appId: string) => `App ${appId} not found.`,
+  // Shared spinner label for the pre-flight app read the M2M commands perform.
+  APP_LOAD_SPINNER: 'Loading app...',
 
   // Function list
   FUNCTION_LIST_HEADER: 'Your Brevo Functions:',
@@ -823,6 +1090,18 @@ const coreMessages = {
   // directory, so the two remaining routes go on screen instead of exiting silently.
   APP_SCAFFOLD_BOOTSTRAP_DECLINED: `Nothing to do here yet.\n\n  - run \`${CLI.APP_CREATE}\` to create a new app in this directory, or\n  - cd into an existing project folder and run \`${CLI.APP_SCAFFOLD}\` there.`,
   APP_SCAFFOLD_SELECT: 'Which app do you want to set a project up for?',
+  // An M2M app is create-only (BEX-488) — no directory, no app-config.json, nothing
+  // for `app scaffold` to set up. Named after the picker filter that keeps M2M apps
+  // off this list in the first place; this is what fires when filtering empties it.
+  APP_SCAFFOLD_NO_BOOTSTRAPPABLE_APPS:
+    "All of this account's apps are M2M apps, which have no local project to set up. " +
+    `Run \`${CLI.HELP}\` to see the commands available for an M2M app.`,
+  // The authoritative backstop behind the filter above — reached when `--app-id`
+  // names an M2M app directly, bypassing the picker.
+  APP_SCAFFOLD_BOOTSTRAP_M2M: (appId: string) =>
+    `App ${appId} is an M2M app, which has no local project to set up — ` +
+    `\`${CLI.APP_SCAFFOLD}\` does not apply to it. Run \`${CLI.HELP}\` to see the ` +
+    'commands available for an M2M app.',
   // Refuses rather than bootstrapping a nested project. `readProjectConfig` reads cwd and
   // does not walk up, so this is the only thing standing between a mistyped `cd` and a
   // second app-config.json inside an existing project — after which `app upload` from that
@@ -973,18 +1252,93 @@ const coreMessages = {
   INIT_DONE_UI_APP: `All set! Follow the next steps above, or run \`${CLI.HELP}\` to see all commands.`,
 
   // Skill
-  SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string) =>
-    `Installed ${name}@${version} → ${dir}`,
-  SKILL_INSTALL_CLAUDE_ONLY:
-    'This skill is consumed by Claude Code. Other AI tools (Claude Desktop chat, Cursor, Copilot CLI, Gemini, etc.) should reference agent-context/AGENTS.md from the @getbrevo/cli npm package instead.',
-  SKILL_INSTALL_ALREADY: (name: string, version: string) =>
-    `${name}@${version} is already up to date.`,
-  SKILL_UNINSTALL_SUCCESS: (name: string, dir: string) => `Uninstalled ${name} from ${dir}`,
+  SKILL_INSTALL_SUCCESS: (name: string, version: string, dir: string, agents: string) =>
+    `Installed ${name}@${version} for ${agents} → ${dir}`,
+  SKILL_UPDATE_SUCCESS: (name: string, from: string, to: string, dir: string, agents: string) =>
+    from === to
+      ? `Reinstalled ${name}@${to} for ${agents} → ${dir}`
+      : `Updated ${name} ${from} → ${to} for ${agents} → ${dir}`,
+  SKILL_WOULD_INSTALL: (name: string, version: string, dir: string, agents: string) =>
+    `Would install ${name}@${version} for ${agents} → ${dir}`,
+  SKILL_WOULD_UPDATE: (name: string, from: string, to: string, dir: string, agents: string) =>
+    `Would update ${name} ${from} → ${to} for ${agents} → ${dir}`,
+  SKILL_DRY_RUN_NOTE: 'Dry run: nothing was written.',
+  SKILL_INSTALL_OTHER_AGENTS:
+    "Using Codex or Gemini CLI? Run `brevo skill install --agent codex,gemini` (or `--agent all`). Chat apps that don't read a skills directory, like Claude Desktop chat, can use agent-context/AGENTS.md from the @getbrevo/cli npm package instead.",
+  SKILL_UNKNOWN_AGENT: (agent: string, known: string) =>
+    `Unknown agent "${agent}". Use one or more of: ${known} (comma-separated), or all.`,
+  SKILL_UNKNOWN: (name: string, available: string) =>
+    `Unknown skill "${name}". Available: ${available}`,
+  SKILL_INSTALL_ALREADY: (name: string, version: string, agents: string) =>
+    `${name}@${version} is already up to date for ${agents}.`,
+  SKILL_SKIPPED_PLATFORM: (name: string, agents: string, platforms: string) =>
+    `Skipped ${name} for ${agents}: it is written for ${platforms || 'no platform'}.`,
+  SKILL_SKIPPED_MIN_CLI: (name: string, minVersion: string, cliVersion: string) =>
+    `Skipped ${name}: it needs @getbrevo/cli ${minVersion} or newer (you have ${cliVersion}). Run \`npm install -g @getbrevo/cli@latest\`.`,
+  SKILL_SKIPPED_HASH: (name: string, detail: string) =>
+    `Refused ${name}: the downloaded files do not match the catalog's hash (${detail}). Nothing was written.`,
+  SKILL_SKIPPED_DOWNLOAD: (name: string, detail: string) =>
+    `Skipped ${name}: download failed (${detail}).`,
+  SKILL_SKIPPED_NOT_INSTALLED: (name: string) => `${name} is not installed by the CLI.`,
+  SKILL_UNSAFE_PATH: (name: string, file: string) =>
+    `Refused ${name}: file "${file}" would be written outside the skill directory. Nothing was written.`,
+  SKILL_SKIPPED_NOT_IN_CATALOG: (name: string, release: string) =>
+    `Skipped ${name}: not in catalog ${release}.`,
+  SKILL_HASH_DETAIL: (expected: string, actual: string) =>
+    `expected ${expected.slice(0, 12)}…, got ${actual.slice(0, 12)}…`,
+  SKILL_RUN_FAILED: 'One or more skills could not be installed. See the lines above.',
+  SKILL_UNINSTALL_SUCCESS: (name: string, dir: string, agents: string) =>
+    `Uninstalled ${name} for ${agents} from ${dir}`,
+  SKILL_UNINSTALL_NOT_OURS: (name: string, dir: string) =>
+    `${name} is not installed by the CLI at ${dir} (no .brevo-skill.json); left alone.`,
   SKILL_UNINSTALL_NONE: 'No Brevo skills installed.',
+  SKILL_UPDATE_NONE: 'No installed skills to update. Run `brevo skill install` first.',
+  SKILL_UPDATES_AVAILABLE: (items: string) =>
+    `↑ Brevo skill update available: ${items}. Run \`brevo skill update\`.`,
   SKILL_AUTOREFRESHED: (name: string, oldVer: string, newVer: string) =>
     `↻ refreshed ${name} skill (v${oldVer} → v${newVer})`,
   SKILL_AUTOREFRESH_FAILED: (name: string, err: string) =>
     `⚠ failed to refresh ${name} skill: ${err}`,
+  SKILL_CATALOG_UNREACHABLE: (url: string, reason: string) =>
+    `Could not fetch the skills catalog from ${url} (${reason}).`,
+  SKILL_CATALOG_UNREACHABLE_INSTALL: (url: string, reason: string, cachedRelease?: string) =>
+    `Could not fetch the skills catalog from ${url} (${reason}).` +
+    (cachedRelease
+      ? ` The cached catalog is release ${cachedRelease}; \`brevo skill list\` and \`brevo skill check\` can read it.`
+      : '') +
+    ' The brevo-skills repository is not reachable from here. To install only the CLI skill, which' +
+    ' is bundled with the CLI and needs no network, run `brevo skill:cli install`' +
+    ' (add `--agent codex,gemini` or `--agent all` for other agents).',
+  SKILL_CATALOG_INVALID: (problem: string) => `The skills catalog is not valid: ${problem}.`,
+  SKILL_OFFLINE_FALLBACK: (url: string) =>
+    `The brevo-skills repository is not reachable (${url}); installing the brevo-cli skill bundled with this CLI instead.`,
+  SKILL_LOCK_WRITE_FAILED: (err: string) =>
+    `Could not write ~/.brevo/skills.lock.json (${err}). The installed skills are in place; pins will not be remembered.`,
+  SKILL_LIST_INSTALLED_HEADER: 'Installed skills:',
+  SKILL_LIST_NONE_INSTALLED: 'No Brevo skills installed. Run `brevo skill install` to add them.',
+  SKILL_LIST_AVAILABLE_HEADER: (release: string, source: string) =>
+    `Available in catalog ${release}${source === 'cache' ? ' (cached)' : ''}:`,
+  SKILL_LIST_NO_CATALOG: (error: string) => `Catalog unavailable: ${error}`,
+  SKILL_CHECK_OK: (count: number) =>
+    `${count} skill${count === 1 ? '' : 's'} installed, all current and unmodified.`,
+  SKILL_CHECK_OUTDATED: (name: string, installed: string, latest: string, dir: string) =>
+    `${name}: outdated (${installed} installed, ${latest} in catalog) → ${dir}`,
+  SKILL_CHECK_TAMPERED: (name: string, dir: string) =>
+    `${name}: modified on disk since it was installed → ${dir}`,
+  SKILL_CHECK_UNVERIFIED: (name: string, dir: string) =>
+    `${name}: installed before hashes were recorded; cannot verify → ${dir}`,
+  SKILL_CHECK_CURRENT: (name: string, version: string, dir: string) =>
+    `${name}@${version}: current → ${dir}`,
+  SKILL_CHECK_FAILED: (outdated: number, tampered: number) =>
+    `${outdated} outdated, ${tampered} modified. Run \`brevo skill update\` to reinstall from the catalog.`,
+  SKILL_MCP_REGISTERED: (agent: string, endpoint: string) =>
+    `Registered the Brevo MCP server for ${agent} (${endpoint})`,
+  SKILL_MCP_PRINT: (agent: string, command: string) =>
+    `To connect ${agent} to the Brevo MCP server, run: ${command}`,
+  SKILL_MCP_FAILED: (agent: string, command: string, detail: string) =>
+    `Could not register the Brevo MCP server for ${agent} (${detail}). Run it by hand: ${command}`,
+  SKILL_MCP_NO_ENDPOINT: (agent: string) =>
+    `The catalog lists no MCP endpoint for ${agent}; nothing to register.`,
 
   // App scopes
   APP_SCOPES_EMPTY: 'The IdP returned an empty scope list.',
@@ -1018,6 +1372,113 @@ const coreMessages = {
   OAUTH_METADATA_FETCH_FAILED: (url: string, status: number): string =>
     `Failed to fetch OAuth scopes from ${url} (HTTP ${status}).`,
 
+  // App submit / status / withdraw — the public-app review lifecycle (BEX-221 / BEX-251
+  // / BEX-252 / BEX-383). Moved here from `preview-messages.ts` at public-apps GA
+  // (BEX-405), the same move the UI-app and install strings made at UI-apps GA.
+  // App submit (BEX-221)
+  APP_SUBMIT_CHECKING_STATUS: 'Checking app status...',
+  APP_SUBMIT_FETCHING: 'Fetching app...',
+  APP_SUBMIT_PICK_APP: 'Which app do you want to submit for review?',
+  APP_SUBMIT_NO_APP_RESOLVED:
+    'Cannot determine which app to submit. Provide --app-id or run from a directory with app-config.json.',
+  APP_SUBMIT_OUT_OF_SYNC: (fields: string[], appId: string): string =>
+    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo (${fields.join(', ')}).\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_OUT_OF_SYNC_DIFF: (diff: string, appId: string): string =>
+    `Configuration mismatch detected — your local app-config.json differs from the app on Brevo:\n${diff}\n\n  Please update your local configuration with the latest server values, or run \`${CLI.APP_UPLOAD}\` to upload your local changes to the server, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  // Submittability gate (BEX-383). The state API reports which required fields the
+  // app still lacks; block before opening the form so the developer isn't sent to
+  // complete a submission the backend would reject (`422 app_not_submittable`).
+  // Two shapes, matching OUT_OF_SYNC above, both showing the raw server field keys
+  // (no local relabelling): a compact inline list for --json, a multiline list for
+  // humans.
+  APP_SUBMIT_NOT_SUBMITTABLE: (fields: string[], appId: string): string =>
+    `Your app isn't ready to submit yet — required fields are still missing (${fields.join(', ')}).\n  Add them to app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  // `submittable: false` with no `missing_fields` is a legal server answer (the key is
+  // optional on AppStateResponse); copy without the list, or the error names nothing.
+  APP_SUBMIT_NOT_SUBMITTABLE_NO_FIELDS: (appId: string): string =>
+    `Your app isn't ready to submit yet. The server did not name the missing fields — review app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_NOT_SUBMITTABLE_DIFF: (diff: string, appId: string): string =>
+    `Your app isn't ready to submit yet — these required fields are still missing:\n${diff}\n\n  Add them to app-config.json, run \`${CLI.APP_UPLOAD}\`, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_IN_SYNC:
+    'No configuration mismatch detected. Showing the submission confirmation prompt with the complete app configuration below.',
+  APP_SUBMIT_CONFIRM_HEADER: 'You are about to submit this app for review:',
+  // Legal sign-off (the "Submission Process" affirmation from the Developer Terms
+  // wording doc) — the statement is byte-exact to the approved copy, so don't reword
+  // it without a new legal sign-off. Printed verbatim as a notice, then confirmed by
+  // the question below, which doubles as the submit confirmation: one y/N answer
+  // (default No) is both the go-ahead and the affirmation. The `(y/N)` suffix is
+  // appended by the prompt call in submit.ts, same as every other y/N input prompt.
+  APP_SUBMIT_TERMS_STATEMENT:
+    "I have read and agree to the Brevo Developer Terms. I confirm that the information in this submission is accurate and complete, and that my app complies with the Brevo Developer Terms and all applicable laws. I understand that Brevo's activation of my app does not constitute a review, certification, or endorsement of my app.",
+  APP_SUBMIT_TERMS_PROMPT: 'Do you confirm the above statement?',
+  APP_SUBMIT_TERMS_DECLINED:
+    'Submission cancelled — submitting an app for review requires confirming the statement above.',
+  // Non-interactive (`--json` / piped) submit: no question can be asked, so the form
+  // URL is withheld unless consent is given explicitly. Mirrors `app create`'s
+  // `--accept-developer-terms` gate (`APP_CREATE_TERMS_REQUIRED_NON_INTERACTIVE`).
+  APP_SUBMIT_TERMS_REQUIRED_NON_INTERACTIVE:
+    'Submitting an app for review requires confirming the submission statement (you have read and agree to the Brevo Developer Terms, the submission is accurate and complete, and the app complies with the terms and applicable laws), and no confirmation can be asked in non-interactive mode.\n\n' +
+    `  Read the terms:   ${BREVO_DEVELOPER_TERMS_URL}\n` +
+    '  Then re-run with `--accept-submission-terms` to confirm the statement explicitly.',
+  APP_SUBMIT_FORM_GATE:
+    'Note: Your app will be submitted for review only after you complete and submit the Google Form.',
+  APP_SUBMIT_BROWSER_OPENED: (url: string, appId: string): string =>
+    `We've opened a browser tab with the submission form for app ${appId}:\n  ${url}`,
+  APP_SUBMIT_BROWSER_FAILED: (url: string, appId: string): string =>
+    `We couldn't open a browser automatically. Open the submission form for app ${appId} yourself:\n  ${url}`,
+  APP_SUBMIT_NEXT_STEPS: `Please submit the form for review. You'll receive an email once your app has been reviewed — check its status anytime with \`${CLI.APP_STATUS}\`.`,
+  // TC-6.3. A never-uploaded app has no `app_versions` row, so the review-state read
+  // fails — and the server's copy for that failure names `name`, `logo_uri`, `scopes`
+  // and `redirect_uris` as the things to fix, which is misleading: all four can be
+  // present and the read still fails. Nothing in `apiCodeMessages` maps it, so it was
+  // relayed verbatim. Refused locally instead, before the read, on the one signal that
+  // is certain — an app with no `version` has never been uploaded. Same shape and
+  // reasoning as `assertInstallable`'s `requireUploaded` gate (`APP_INSTALL_NOT_UPLOADED`),
+  // and a separate string because this names a different precondition in its own voice.
+  APP_SUBMIT_NOT_UPLOADED: (appId: string): string =>
+    `App ${appId} has never been uploaded, so it has no version to review.\n  Run \`${CLI.APP_UPLOAD}\` first, then re-run \`${CLI.APP_SUBMIT(appId)}\`.`,
+  APP_SUBMIT_NO_FORM_URL: `Review submission is currently unavailable. This may happen if your app has not been uploaded yet or if it has already been submitted and is under review. You can check the current status of your app using \`${CLI.APP_STATUS}\`.`,
+
+  // App status
+  APP_STATUS_SELECT: 'Select an app:',
+  APP_STATUS_TITLE: 'App status',
+  // Canned copy per review state (server-side `app_submission_states.state`).
+  // Reviewer feedback is delivered by email, not surfaced here (BEX-252).
+  APP_STATUS_MESSAGE: (state: string): string => {
+    switch (state) {
+      // Empty/missing state is normalized to the "unknown" sentinel upstream
+      // (src/commands/app/status.ts); '' is kept as a defensive fallthrough.
+      case '':
+      case 'unknown':
+        return `Status information isn't available for your app yet. Make sure your app is public and has been uploaded with \`${CLI.APP_UPLOAD}\`.`;
+      case 'draft':
+        return "Your app is set up but hasn't been submitted for review yet.";
+      case 'submitted':
+        return 'Your app has been submitted and is waiting to be reviewed.';
+      case 'in_review':
+        return 'Your app is currently being reviewed by our team.';
+      case 'approved':
+        return 'Your app has been approved.';
+      case 'rejected':
+        return 'Your app was not approved. Check your email for details.';
+      case 'changes_requested':
+        return 'Changes have been requested for your app. Check your email for details.';
+      default:
+        return `Your app is in state "${state}".`;
+    }
+  },
+
+  // App withdraw
+  APP_WITHDRAW_SELECT: 'Select an app to withdraw:',
+  APP_WITHDRAW_CONFIRM: (name: string, id: string) =>
+    `Withdraw app "${name}" (${id}) from submission?`,
+  APP_WITHDRAW_CANCELLED: 'Withdrawal cancelled.',
+  APP_WITHDRAW_SUCCESS: (id: string) => `App ${id} withdrawn from submission.`,
+  APP_WITHDRAW_NOT_SUBMITTED: (id: string) => `App ${id} has not been submitted yet.`,
+  APP_WITHDRAW_SUBMIT_HINT: (id: string) => `Submit it first: ${CLI.APP_SUBMIT(id)}`,
+  APP_SUBMIT_NOT_PUBLIC: (appId: string): string =>
+    `App ${appId} is private. Private apps cannot be submitted for review. Only public apps are eligible for the approval process. Please make your app public before submitting it for review.`,
+
   // General
   ABORTED: 'Aborted.',
 } as const;
@@ -1026,7 +1487,8 @@ const coreMessages = {
 // the spread to `{}` and drops ./preview-messages entirely. `messages` is one object
 // literal, so a property can only be removed by removing the whole object it arrived in.
 // The `as typeof previewMessages` cast keeps every call site type-safe in both builds;
-// see that module for why the lie is safe.
+// see that module for why the lie is safe. Only the iframe integration label is gated
+// today (BEX-459); everything else is GA and lives in `coreMessages`.
 export const messages = {
   ...coreMessages,
   ...(__BREVO_PREVIEW__ ? previewMessages : ({} as typeof previewMessages)),

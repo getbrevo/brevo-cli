@@ -447,12 +447,20 @@ export interface ProjectConfig {
    * contradiction (`assertAppTypeAgrees`); a config that omits it is uploaded unchanged,
    * which is how every pre-BEX-468 file keeps working.
    *
-   * **File-only, by construction.** It is never sent to the server: `UploadAppPayload` and
-   * the create body in `src/types.ts` are closed structs that `upload.ts` / `create.ts`
-   * build key by key, so there is no spread that could carry this one onto the wire, and
-   * `upload.test.ts` pins the payload's key set. That is the whole mechanism — no explicit
-   * strip step to keep in sync, and no bo-be change needed to accept the field, because it
-   * never arrives. Keep both payloads closed if either is refactored.
+   * **File-only, by construction.** THIS value is never sent to the server:
+   * `UploadAppPayload` and the create body in `src/types.ts` are closed structs that
+   * `upload.ts` / `create.ts` build key by key, so there is no spread that could carry
+   * this one onto the wire, and `upload.test.ts` pins the payload's key set. That is the
+   * whole mechanism — no explicit strip step to keep in sync. Keep both payloads closed if
+   * either is refactored.
+   *
+   * **Do not confuse it with the `app_type` `app create` sends.** The create request also
+   * carries a top-level `app_type`, and the two share nothing but the name: that one is
+   * `oauth.consent` / `oauth.m2m` / `ui_app.<extension_type>` / `brevo_function`
+   * (`WIRE_APP_TYPE` in `lib/constants.ts`), it is derived from the request's own
+   * discriminator block rather than read from any file, and `app upload` still sends no
+   * `app_type` at all. Reading this field to build that one would defeat the point of
+   * deriving it.
    */
   app_type?: 'oauth' | 'ui' | 'function';
   /**

@@ -75,10 +75,14 @@ describe('app/submit', () => {
     // The status preflight must pass by default so flow tests reach the submit
     // logic; the preflight-failure test overrides this. (clearAllMocks resets
     // call data but not implementations, so re-establish it each test.)
-    (appService.fetchAppState as jest.Mock).mockResolvedValue({ state: 'configured' });
-    // Interactive runs now confirm before opening the form — accept by default
-    // so pre-existing flow tests exercise the full path.
-    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ confirmed: true });
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({
+      state: 'draft',
+      submittable: true,
+      missing_fields: [],
+    });
+    // Interactive runs confirm the Submission Process affirmation before opening the
+    // form — accept by default so pre-existing flow tests exercise the full path.
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ termsAccepted: 'y' });
   });
 
   afterEach(() => {
@@ -96,13 +100,17 @@ describe('app/submit', () => {
 
   it('runs the status check before opening the submission form', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
-    (appService.fetchAppState as jest.Mock).mockResolvedValue({ state: 'configured' });
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({
+      state: 'draft',
+      submittable: true,
+      missing_fields: [],
+    });
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
     await submitCommand({ appId: '42' });
 
     expect(appService.fetchAppState).toHaveBeenCalledWith('42');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   it('aborts before submitting when the status check fails', async () => {
@@ -111,10 +119,37 @@ describe('app/submit', () => {
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
     await expect(submitCommand({ appId: '42' })).rejects.toThrow('network unreachable');
-    // The preflight runs first, so a failed status read stops the flow before
-    // fetching the app or opening the form.
-    expect(appService.fetchApp).not.toHaveBeenCalled();
+    // A failed status read still stops the flow — the form is never opened. The app
+    // fetch DOES run first now (it feeds the never-uploaded gate, TC-6.3), so the
+    // abort is one round trip later than it used to be; what matters is that nothing
+    // submit-side happens, which is what `openBrowser` witnesses.
+    expect(appService.fetchApp).toHaveBeenCalledWith('42');
     expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  // ── The never-uploaded gate (TC-6.3) ──
+
+  it('refuses an app that has never been uploaded, before reading the review state', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({ ...PUBLIC_APP, version: undefined });
+
+    const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
+    expect((error as Error).message).toContain('never been uploaded');
+    expect((error as Error).message).toContain('brevo app upload');
+    // The whole point of the gate: the review-state read is what produced the
+    // misleading server copy (four fields named, all four present), so it must not
+    // happen at all for an app that cannot have a review state.
+    expect(appService.fetchAppState).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('treats a blank version as never uploaded', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({ ...PUBLIC_APP, version: '   ' });
+
+    const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
+    expect((error as Error).message).toContain('never been uploaded');
+    expect(appService.fetchAppState).not.toHaveBeenCalled();
   });
 
   // ── Happy paths ──
@@ -126,7 +161,7 @@ describe('app/submit', () => {
     await submitCommand({});
 
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
     expect(output()).toContain(FORM_URL);
     expect(output()).toContain('check its status anytime with `brevo app status`');
   });
@@ -136,7 +171,7 @@ describe('app/submit', () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
-    await submitCommand({ appId: '42', json: true });
+    await submitCommand({ appId: '42', json: true, acceptSubmissionTerms: true });
 
     expect(openBrowser).not.toHaveBeenCalled();
     // stdout must stay pure parseable JSON — the next-steps note goes to stderr.
@@ -155,14 +190,16 @@ describe('app/submit', () => {
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
     // The unrelated local config must not trigger a drift error.
     expect(output()).not.toContain('differs from the app on Brevo');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   it('succeeds and keeps the URL visible when the browser fails to open', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
-    (openBrowser as jest.Mock).mockImplementation(() => {
-      throw new Error('no display');
+    // The real openBrowser can only fail asynchronously, via its error callback —
+    // a synchronous throw is an implementation it cannot have (`src/lib/browser.ts`).
+    (openBrowser as jest.Mock).mockImplementation((_url: string, onError: (err: Error) => void) => {
+      onError(new Error('no display'));
     });
 
     await submitCommand({});
@@ -171,9 +208,9 @@ describe('app/submit', () => {
     expect(output()).toContain("couldn't open a browser automatically");
   });
 
-  // ── Confirmation prompt ──
+  // ── Confirmation prompt (submit go-ahead + Submission Process affirmation) ──
 
-  it('shows the full app object and asks for confirmation before opening the form', async () => {
+  it('shows the full app object and the affirmation statement, then asks before opening the form', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue({
       ...MATCHING_CONFIG,
       logo_uri: 'https://example.com/logo.png',
@@ -196,40 +233,81 @@ describe('app/submit', () => {
     expect(out).toContain('Scopes:        crm:read');
     expect(out).toContain('Logo URL:      https://example.com/logo.png');
     expect(out).toContain('Version:       0.0.2');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    // The legal statement prints verbatim, and the one y/N question (default No)
+    // is both the go-ahead and the affirmation.
+    expect(out).toContain('I have read and agree to the Brevo Developer Terms.');
+    const promptArg = (inquirer.prompt as unknown as jest.Mock).mock.calls[0][0][0];
+    expect(promptArg.message).toContain('Do you confirm the above statement?');
+    expect(promptArg.default).toBe('n');
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
-  it('cancels cleanly when the confirmation is declined', async () => {
+  it('cancels cleanly when the affirmation is declined', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
-    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ confirmed: false });
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ termsAccepted: 'n' });
 
     await submitCommand({});
 
-    expect(output()).toContain('Submission cancelled.');
+    expect(output()).toContain('Submission cancelled');
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
-  it('never prompts in --json mode', async () => {
-    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  it('skips the prompt when --accept-submission-terms is passed interactively', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
-    await submitCommand({ appId: '42', json: true });
+    await submitCommand({ acceptSubmissionTerms: true });
 
     expect(inquirer.prompt).not.toHaveBeenCalled();
-    stderrSpy.mockRestore();
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
-  it('skips the prompt when non-interactive and proceeds to open the form', async () => {
+  it('refuses --json without --accept-submission-terms, before revealing the form URL', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+
+    const error = await submitCommand({ appId: '42', json: true }).catch((e: Error) => e);
+    expect((error as Error).message).toContain('--accept-submission-terms');
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(output()).not.toContain(FORM_URL);
+  });
+
+  it('refuses a piped (non-TTY) run without --accept-submission-terms', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
 
-    await submitCommand({});
+    const error = await submitCommand({}).catch((e: Error) => e);
+    expect((error as Error).message).toContain('--accept-submission-terms');
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('opens the form on a non-TTY run when --accept-submission-terms is passed', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+
+    await submitCommand({ acceptSubmissionTerms: true });
 
     expect(inquirer.prompt).not.toHaveBeenCalled();
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
+  });
+
+  it('still reports the missing form URL ahead of the terms gate', async () => {
+    // The affirmation gates the form hand-off only — an app with no form link gets
+    // its specific refusal, never the terms one, even non-interactively.
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue({
+      ...PUBLIC_APP,
+      google_form_link: undefined,
+    });
+
+    const error = await submitCommand({ appId: '42', json: true }).catch((e: Error) => e);
+    expect((error as Error).message).toContain('Review submission is currently unavailable');
+    expect((error as Error).message).not.toContain('--accept-submission-terms');
   });
 
   // ── Google-Form gate note ──
@@ -250,7 +328,7 @@ describe('app/submit', () => {
     (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
     (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
 
-    await submitCommand({ appId: '42', json: true });
+    await submitCommand({ appId: '42', json: true, acceptSubmissionTerms: true });
 
     const stderr = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(stderr).toContain('submitted for review only after you complete and submit');
@@ -278,6 +356,36 @@ describe('app/submit', () => {
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
+  it('refuses a private app as private, before the not-uploaded guard and the state read', async () => {
+    // Ordering: the public-only check fires before everything else. A private app can
+    // never be submitted, so any other refusal — "run `brevo app upload`" on one that
+    // was also never uploaded, or the state read's "missing fields" — would send the
+    // developer fixing an app that stays unsubmittable when fixed.
+    const scenarios: Array<{ app: Record<string, unknown>; wrongRemedy: string }> = [
+      {
+        app: { distribution_type: 'private', version: '' },
+        wrongRemedy: 'has never been uploaded',
+      },
+      { app: { distribution_type: 'private' }, wrongRemedy: 'missing' },
+    ];
+    for (const { app, wrongRemedy } of scenarios) {
+      jest.clearAllMocks();
+      (readProjectConfig as jest.Mock).mockReturnValue(null);
+      (appService.fetchApp as jest.Mock).mockResolvedValue({ ...PUBLIC_APP, ...app });
+      (appService.fetchAppState as jest.Mock).mockResolvedValue({
+        state: 'draft',
+        submittable: false,
+        missing_fields: ['logoLink'],
+      });
+
+      const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
+      expect((error as Error).message).toContain('cannot be submitted for review');
+      expect((error as Error).message).not.toContain(wrongRemedy);
+      expect(appService.fetchAppState).not.toHaveBeenCalled();
+      expect(openBrowser).not.toHaveBeenCalled();
+    }
+  });
+
   it('treats a missing distribution_type as not public', async () => {
     (readProjectConfig as jest.Mock).mockReturnValue(null);
     (appService.fetchApp as jest.Mock).mockResolvedValue({
@@ -286,6 +394,85 @@ describe('app/submit', () => {
     });
 
     await expect(submitCommand({ appId: '42' })).rejects.toThrow('cannot be submitted for review');
+  });
+
+  // ── Submittability gate (BEX-383) ──
+
+  it('blocks and lists the missing fields (raw server keys) when the app is not submittable', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    // Pinned rather than inherited: `clearAllMocks` resets call data but not
+    // implementations, so without this the test leans on whatever an earlier test left
+    // on `fetchApp` — and it needs a versioned app to get past the gate above.
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({
+      state: 'draft',
+      submittable: false,
+      missing_fields: ['logoLink', 'oauth.scopes'],
+    });
+
+    const error = await submitCommand({ appId: '42' }).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("isn't ready to submit");
+    // Field keys are shown exactly as the state API returns them — no relabelling.
+    expect((error as Error).message).toContain('logoLink');
+    expect((error as Error).message).toContain('oauth.scopes');
+    expect((error as Error).message).toContain('brevo app upload');
+    // The gate stops the flow before the form opens. It no longer runs before the app
+    // fetch — that moved ahead of the state read for the never-uploaded gate above — so
+    // `openBrowser` is what witnesses the refusal.
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('reports the raw missing-field keys in --json mode when not submittable', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({
+      state: 'draft',
+      submittable: false,
+      missing_fields: ['logoLink', 'oauth.scopes'],
+    });
+
+    const error = await submitCommand({ appId: '42', json: true }).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    // --json keeps the compact raw-key form (no label translation).
+    expect((error as Error).message).toContain('logoLink');
+    expect((error as Error).message).toContain('oauth.scopes');
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('falls back to generic not-ready copy when submittable is false with no missing fields', async () => {
+    // `missing_fields` is optional and `submittable: false` with none named is a legal
+    // answer — rendering the list anyway produced "missing ()." / a trailing blank line.
+    for (const missing of [undefined, []]) {
+      (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+      (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+      (appService.fetchAppState as jest.Mock).mockResolvedValue({
+        state: 'draft',
+        submittable: false,
+        ...(missing === undefined ? {} : { missing_fields: missing }),
+      });
+
+      for (const json of [false, true]) {
+        const error = await submitCommand({ appId: '42', json }).catch((e: Error) => e);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("isn't ready to submit");
+        expect((error as Error).message).toContain('did not name the missing fields');
+        // The malformed shapes the fallback replaces must not appear.
+        expect((error as Error).message).not.toContain('()');
+        expect((error as Error).message).not.toMatch(/missing:\s*\n\s*\n/);
+        expect(openBrowser).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  it('still submits when the server omits the submittable flag (older server)', async () => {
+    (readProjectConfig as jest.Mock).mockReturnValue(MATCHING_CONFIG);
+    (appService.fetchApp as jest.Mock).mockResolvedValue(PUBLIC_APP);
+    (appService.fetchAppState as jest.Mock).mockResolvedValue({ state: 'draft' });
+
+    await submitCommand({ appId: '42' });
+
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   // ── Sync check ──
@@ -363,7 +550,7 @@ describe('app/submit', () => {
 
     await submitCommand({});
 
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   // ── App resolution ──
@@ -404,7 +591,7 @@ describe('app/submit', () => {
 
     expect(appService.pickApp).toHaveBeenCalledWith('Which app do you want to submit for review?');
     expect(appService.fetchApp).toHaveBeenCalledWith('42');
-    expect(openBrowser).toHaveBeenCalledWith(FORM_URL);
+    expect(openBrowser).toHaveBeenCalledWith(FORM_URL, expect.any(Function));
   });
 
   // ── Missing form link ──

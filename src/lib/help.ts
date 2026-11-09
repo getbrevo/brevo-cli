@@ -63,11 +63,15 @@ function formatRootHelp(description: string): string {
     // stays and its value list narrows. Same for the app-type prompt: a locked run
     // is OAuth-only, so the description stops advertising a choice it won't offer.
     `  brevo app create            [--name] [--distribution ${distributionValues()}]`,
-    `                              [--redirect-uri <url>...] [--logo-uri <url>] [--json]`,
+    `                              [--redirect-uri <url>...] [--json]`,
     `                                                        ${createDescription()}`,
-    `  brevo app list              [--json]                  List all apps in your account`,
+    `  brevo app list              [--type <type>] [--json]  List all apps in your account`,
     `  brevo app credentials       [--app-id <id>] [--reveal-secret] [--json]`,
     `                                                        Show an app's client ID and secret`,
+    `  brevo app token             [--app-id <id>] [--scope <a,b,c>] [--json]`,
+    `                                                        Mint a short-lived M2M access token`,
+    `  brevo app secret rotate     [--app-id <id>] [--yes] [--json]`,
+    `                                                        Rotate an M2M app's client secret`,
     `  brevo app scaffold          [--app-id <id>] [--json]  Add a feature (e.g. OAuth server) here`,
     `  brevo app start             [feature] [--port <port>] Run a scaffolded feature locally`,
     `  brevo app upload            [--yes] [--json]          Push app-config.json to Brevo`,
@@ -75,11 +79,12 @@ function formatRootHelp(description: string): string {
     `                                                        Delete an app`,
     ``,
     // GA (UI apps shipped): `account-install` is 'ga' in FEATURE_STAGE, so this renders
-    // in every build. What GA removed is the `__BREVO_PREVIEW__` wrapper (still on the
-    // review-lifecycle block below) — the gatedSection call stays, so the section keeps
-    // lining up 1:1 with the commands' `requires: 'account-install'`: an emergency flip
-    // of the row back to 'preview' hides it here exactly as registerCommand hides the
-    // commands, instead of root help advertising what the runtime refuses.
+    // in every build. What GA removed is the `__BREVO_PREVIEW__` wrapper — the
+    // gatedSection call stays, so the section keeps lining up 1:1 with the commands'
+    // `requires: 'account-install'`: an emergency flip of the row back to 'preview'
+    // hides it here exactly as registerCommand hides the commands, instead of root help
+    // advertising what the runtime refuses. The review-lifecycle block below shed its
+    // wrapper the same way at public-apps GA; no block carries one now.
     ...gatedSection('account-install', [
       `App-install commands (UI apps only):`,
       `  brevo app install           [account-id] [--app-id <id>] [--force] [--json]`,
@@ -88,60 +93,57 @@ function formatRootHelp(description: string): string {
       `                                                        Uninstall an app from an account`,
       ``,
     ]),
-    // ELIMINATION SITE — `__BREVO_PREVIEW__` wraps the call rather than living inside a
-    // helper, because an array passed as a function *argument* is still evaluated: a
-    // `previewOnlySection(feature, [...])` helper left every one of these lines in the
-    // published bundle as a readable string. Folding `false ? … : []` at the call site is
-    // what removes the array itself.
+    // GA (public apps shipped): `review-lifecycle` is 'ga' in FEATURE_STAGE, so this
+    // section renders in every build. What GA removed is the `__BREVO_PREVIEW__` wrapper
+    // that used to fold the whole array away — the build flag was the OUTER authority
+    // here, above FEATURE_STAGE, so flipping the row alone would have kept the section
+    // hidden in a published build. The `gatedSection` call stays, so this keeps lining up
+    // 1:1 with the commands' `requires: 'review-lifecycle'`: an emergency flip of the row
+    // back to 'preview' hides it here exactly as registerCommand hides the commands,
+    // instead of root help advertising what the runtime refuses.
     //
-    // **The build flag is therefore the outer authority for help text, above
-    // `FEATURE_STAGE`.** At GA that is a trap — flipping a row to `'ga'` is not enough,
-    // since a published build still has `__BREVO_PREVIEW__ === false` and would keep
-    // hiding the restored section. The wrapper must be removed by hand at the same time
-    // (exactly what happened to the App-install section above at UI-apps GA); the GA
-    // runbook (`RELEASE-CHECKLIST.md` on `feature_set-brevo-cli-v2`) lists it, alongside
-    // the identical trap in `commands/preview-definitions.ts`.
-    ...(__BREVO_PREVIEW__
-      ? gatedSection('review-lifecycle', [
-          `App-review commands (public apps only):`,
-          `  brevo app submit            [--app-id <id>] [--json]  Submit a public app for review`,
-          `  brevo app status            [--app-id <id>] [--json]  Show an app's review status`,
-          // `brevo app withdraw` is deliberately absent. It is registered and callable in
-          // a preview build, just marked `hidden` in `commands/preview-definitions.ts` so
-          // it is advertised on neither help screen. Commander's `hidden` governs its own
-          // generated output and cannot reach this hand-written string, so the omission
-          // has to be made here by hand — the same two-renderers/one-decision split the
-          // comment above describes for the gate. Restore both together.
-          ``,
-        ])
-      : []),
-    `Skill commands:`,
-    `  brevo skill:cli install     [--json]                  Install the brevo-cli Claude Code skill`,
-    `  brevo skill:cli uninstall   [--json]                  Remove the brevo-cli skill`,
-    ``,
-    // GA (Brevo Functions shipped): `brevo-function-type` is 'ga' in FEATURE_STAGE, so
-    // this renders in every build. The gatedSection call stays for the same reason as
-    // `account-install` above: an emergency flip back to 'preview' hides it here.
-    // NOTE: the function command definitions do not carry a `requires` gate, so flipping
-    // the stage back to 'preview' only hides this help section — the commands themselves
-    // remain reachable. To fully gate them, add `requires: 'brevo-function-type'` to
-    // each definition in `functionCommandGroup`.
-    ...gatedSection('brevo-function-type', [
-      `Function commands (alias: brevo fn):`,
-      `  brevo function list              [--draft] [--json]   List all Brevo Functions in your account`,
-      `  brevo function get               [--id <id>] [--json] Show details of a Brevo Function`,
-      `  brevo function activate          [--id <id>] [--json] Activate a Brevo Function`,
-      `  brevo function deactivate        [--id <id>] [--json] Deactivate a Brevo Function`,
-      `  brevo function delete            [--id <id>] [--force] [--json]`,
-      `                                                        Delete a Brevo Function`,
-      `  brevo function init                                   Create a new Brevo Function (interactive)`,
-      `  brevo function deploy            [--id <id>] [--app-id <id>] [--json]`,
-      `                                                        Deploy a draft Brevo Function`,
+    // `brevo app withdraw` was additionally marked `hidden` while the review lifecycle was
+    // being finished, and Commander's `hidden` governs only its own generated output — it
+    // cannot reach this hand-written string, so withdraw's two lines had to be removed
+    // here by hand and restored the same way. Two renderers, one decision: keep them in
+    // step, and never assume `hidden` covers this screen.
+    ...gatedSection('review-lifecycle', [
+      `App-review commands (public apps only):`,
+      `  brevo app submit            [--app-id <id>] [--json]  Submit a public app for review`,
+      `  brevo app status            [--app-id <id>] [--json]  Show an app's review status`,
+      `  brevo app withdraw          [--app-id <id>] [--force] [--json]`,
+      `                                                        Withdraw an app from submission`,
       ``,
     ]),
+    `Skill commands:`,
+    `  brevo skill install [names...]   [--agent <agents>] [--pin <release>] [--mcp] [--force] [--dry-run] [--json]`,
+    `                                                        Install skills from the Brevo skills catalog`,
+    `  brevo skill update [names...]    [--agent <agents>] [--pin <release>] [--mcp] [--force] [--dry-run] [--json]`,
+    `                                                        Reinstall skills that are behind the catalog`,
+    `  brevo skill uninstall [names...] [--agent <agents>] [--json]`,
+    `                                                        Remove skills the CLI installed`,
+    `  brevo skill list                 [--json]             Installed skills and the catalog`,
+    `  brevo skill check                [--json]             Report outdated or modified skills (exit 1)`,
+    ``,
+    // Brevo Functions shipped, so this renders in every build — like every other
+    // section here since the pre-GA gate was torn down (BEX-405). There is one build
+    // and nothing is withheld from it.
+    `Function commands (alias: brevo fn):`,
+    `  brevo function list              [--draft] [--json]   List all Brevo Functions in your account`,
+    `  brevo function get               [--id <id>] [--json] Show details of a Brevo Function`,
+    `  brevo function activate          [--id <id>] [--json] Activate a Brevo Function`,
+    `  brevo function deactivate        [--id <id>] [--json] Deactivate a Brevo Function`,
+    `  brevo function delete            [--id <id>] [--force] [--json]`,
+    `                                                        Delete a Brevo Function`,
+    `  brevo function init                                   Create a new Brevo Function (interactive)`,
+    `  brevo function deploy            [--id <id>] [--app-id <id>] [--json]`,
+    `                                                        Deploy a draft Brevo Function`,
+    ``,
     `Scope commands:`,
     `  brevo app available-scopes  [--web] [--json]          List OAuth scopes supported by the IdP`,
     `                                                        (--web opens the catalog in a browser)`,
+    `  brevo app scopes update     [--app-id <id>] [--scopes <a,b,c>] [--yes] [--json]`,
+    `                                                        Change an M2M app's granted scopes`,
     ``,
     `Run \`brevo <command> --help\` for details on a specific command.`,
     ``,
@@ -150,6 +152,7 @@ function formatRootHelp(description: string): string {
     `  $ brevo app init                                # guided setup`,
     `  $ brevo app create --name "My App" --json       # create app, JSON output`,
     `  $ brevo app list --json                         # list apps as JSON`,
+    `  $ brevo app list --type function                # list only Function apps`,
     `  $ brevo app scaffold --app-id APPID             # generate starter code`,
     `  $ brevo app start oauth --port 3000             # start OAuth test server`,
     `  $ brevo app available-scopes --web              # browse OAuth scope catalog`,

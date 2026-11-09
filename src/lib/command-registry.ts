@@ -63,7 +63,21 @@ export interface SubcommandGroupDefinition {
   /** Alternative names that resolve to the same group (e.g. `fn` for `function`). */
   aliases?: string[];
   description: string;
+  /**
+   * Keep the whole group out of `brevo --help` while leaving it registered and callable,
+   * for a group kept only as an alias of a documented one (`skill:cli`). Same split as
+   * `CommandDefinition.hidden`: the hand-aligned root screen in `lib/help.ts` is a separate
+   * renderer, so a hidden group must also be absent from `formatRootHelp`.
+   */
+  hidden?: boolean;
   commands: CommandDefinition[];
+  /**
+   * Nested groups one level deeper, e.g. `app scopes update` (`scopes` nested inside
+   * `app`). Optional and undefined for every group that doesn't need it — `registerAll`'s
+   * top-level `groups` list is unaffected either way; nesting is expressed inside one
+   * group's own `groups` field rather than by reshaping the top-level call.
+   */
+  groups?: SubcommandGroupDefinition[];
 }
 
 /**
@@ -182,7 +196,9 @@ function registerRemovedCommand(parent: Command, removed: RemovedCommand): void 
  * Register a group of subcommands (e.g. `app create`, `app list`).
  */
 function registerSubcommandGroup(parent: Command, group: SubcommandGroupDefinition): void {
-  const groupCmd = parent.command(group.name).description(group.description);
+  const groupCmd = parent
+    .command(group.name, { hidden: group.hidden === true })
+    .description(group.description);
   if (group.aliases) {
     for (const alias of group.aliases) {
       groupCmd.alias(alias);
@@ -193,6 +209,13 @@ function registerSubcommandGroup(parent: Command, group: SubcommandGroupDefiniti
   }
   for (const removed of removedCommandsIn(group.name)) {
     registerRemovedCommand(groupCmd, removed);
+  }
+  // One level of nesting (e.g. `scopes` inside `app`, for `app scopes update`).
+  // `registerSubcommandGroup` is generic over "any parent Command" already — it has
+  // just never been called with a non-root parent before — so recursing on `groupCmd`
+  // works unchanged.
+  for (const nested of group.groups ?? []) {
+    registerSubcommandGroup(groupCmd, nested);
   }
 }
 

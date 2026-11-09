@@ -111,7 +111,7 @@ export const credentialsCommand = withCommandHandler(
     const result = await appService.resolveAppCredentials(appId);
     spinner.stop();
     if (!result) {
-      throw new CliError(`App ${appId} not found.`);
+      throw new CliError(messages.APP_NOT_FOUND(appId));
     }
     const { app, diffs } = result;
 

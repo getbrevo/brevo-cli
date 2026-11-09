@@ -1,13 +1,12 @@
 import { CommandDefinition, SubcommandGroupDefinition } from '../lib/command-registry';
-import { parseAppId, parsePositiveInt, collectUrls, validateUrl } from '../lib/validators';
-import { EXAMPLE_APP_ID } from '../lib/constants';
+import { parseAppId, parsePositiveInt, collectUrls, parseAppListType } from '../lib/validators';
+import {
+  EXAMPLE_APP_ID,
+  LIST_FILTER_APP_TYPE_VALUES,
+  type ListFilterAppType,
+} from '../lib/constants';
 import { isFeatureAvailable } from '../lib/preview';
 import { createDescription, distributionValues } from '../lib/help';
-// The gated subcommands are referenced only through this binding, and only from behind
-// `__BREVO_PREVIEW__`. That is what lets esbuild drop them — and their handler modules —
-// from a published build. Importing any of those handlers directly here would make them
-// live references again and ship the whole surface. See ./preview-definitions.ts.
-import { previewAppCommands } from './preview-definitions';
 
 import { initCommand } from './init';
 import { loginCommand } from './login';
@@ -16,15 +15,24 @@ import { whoamiCommand } from './whoami';
 import { createCommand } from './app/create';
 import { listCommand } from './app/list';
 import { credentialsCommand } from './app/credentials';
+import { tokenCommand } from './app/token';
+import { secretRotateCommand } from './app/secret-rotate';
 import { uploadCommand } from './app/upload';
 import { deleteCommand } from './app/delete';
 import { scaffoldCommand } from './app/scaffold';
 import { scopesCommand } from './app/scopes';
+import { updateScopesCommand } from './app/scopes-update';
 import { startCommand } from './app/start';
 import { appInstallCommand } from './app/install';
 import { appUninstallCommand } from './app/uninstall';
+import { submitCommand } from './app/submit';
+import { statusCommand } from './app/status';
+import { withdrawCommand } from './app/withdraw';
 import { installCommand as skillInstallCommand } from './skill/install';
+import { updateCommand as skillUpdateCommand } from './skill/update';
 import { uninstallCommand as skillUninstallCommand } from './skill/uninstall';
+import { listCommand as skillListCommand } from './skill/list';
+import { checkCommand as skillCheckCommand } from './skill/check';
 import { listFunctionCommand } from './function/list';
 import { getFunctionCommand } from './function/get';
 import { activateFunctionCommand } from './function/activate';
@@ -86,13 +94,16 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         'brevo app create',
         'brevo app create --name "My App" --distribution private',
         ...(isFeatureAvailable('public-distribution')
-          ? ['brevo app create --name "My App" --distribution public']
+          ? [
+              'brevo app create --name "My App" --distribution public',
+              'brevo app create --name "My App" --distribution public --redirect-uri https://myapp.com/callback --accept-developer-terms --json',
+            ]
           : []),
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback',
         'brevo app create --name "My App" --distribution private --redirect-uri http://localhost:3009/auth/callback --redirect-uri https://myapp.com/callback --json',
-        'brevo app create --name "My App" --distribution private --logo-uri https://example.com/logo.png',
         'brevo app create --name "My App" --ui-app --record-page contactDetails --placement contactDetails.header.menu --label "Open in Acme" --url https://example.com/open --json',
         'brevo app create --name "My App" --ui-config ./ui-app.json --json',
+        'brevo app create --name "My App" --distribution private --m2m --scopes "contacts:read,crm:read" --json',
       ],
       // A UI app is authored either through the interactive prompts (BEX-290), or
       // non-interactively via --ui-config or the --ui-app flag set — both build an
@@ -106,17 +117,14 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           description: `Distribution type (${distributionValues()})`,
         },
         {
+          flags: '--accept-developer-terms',
+          description:
+            'Confirm you have read and agree to the Brevo Developer Terms (required to create a public app non-interactively)',
+        },
+        {
           flags: '--redirect-uri <url>',
           description: 'Redirect URI (repeatable, OAuth apps only)',
           parser: collectUrls,
-        },
-        {
-          flags: '--logo-uri <url>',
-          description: 'App logo URL (http or https)',
-          parser: (v: string) => {
-            validateUrl(v, 'logo URL');
-            return v;
-          },
         },
         {
           flags: '--ui-config <file>',
@@ -137,14 +145,22 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           description: 'UI app supporting text, max 255 chars, optional (with --ui-app)',
         },
         { flags: '--url <url>', description: 'UI app destination URL (with --ui-app)' },
+        {
+          flags: '--m2m',
+          description: 'Create a machine-to-machine OAuth app (private only; needs --scopes)',
+        },
+        {
+          flags: '--scopes <list>',
+          description: 'Comma-separated scopes for the M2M app (with --m2m)',
+        },
         { flags: '--json', description: 'Output as JSON' },
       ],
       handler: (opts) =>
         createCommand({
           name: opts.name as string | undefined,
           distribution: opts.distribution as string | undefined,
+          acceptDeveloperTerms: Boolean(opts.acceptDeveloperTerms),
           redirectUri: opts.redirectUri as string[] | undefined,
-          logoUri: opts.logoUri as string | undefined,
           uiConfig: opts.uiConfig as string | undefined,
           uiApp: Boolean(opts.uiApp),
           recordPage: opts.recordPage as string | undefined,
@@ -152,15 +168,35 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           label: opts.label as string | undefined,
           moreInfo: opts.moreInfo as string | undefined,
           url: opts.url as string | undefined,
+          m2m: Boolean(opts.m2m),
+          // Deliberately NOT parsed here. Commander parsers throw before the command's
+          // own pre-flight runs, so `--scopes` without `--m2m` would fail on the scope
+          // charset instead of naming the real problem. `resolveM2mScopes` splits and
+          // validates it, after `assertM2mFlags` has ruled out the combination errors.
+          scopes: opts.scopes as string | undefined,
           json: Boolean(opts.json),
         }),
     },
     {
       name: 'list',
       description: 'List all apps in your account',
-      examples: ['brevo app list', 'brevo app list --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => listCommand({ json: Boolean(opts.json) }),
+      examples: ['brevo app list', 'brevo app list --type function', 'brevo app list --json'],
+      options: [
+        {
+          flags: '--type <type>',
+          description: `Show only apps of one type (${LIST_FILTER_APP_TYPE_VALUES.join('|')})`,
+          // Parsed rather than checked in the handler: unlike `--scopes` below,
+          // there is no pre-flight whose error this could mask, and a parser is
+          // what puts the refusal ahead of the network call.
+          parser: (v) => parseAppListType(v),
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        listCommand({
+          json: Boolean(opts.json),
+          type: opts.type as ListFilterAppType | undefined,
+        }),
     },
     {
       name: 'credentials',
@@ -182,6 +218,33 @@ export const appCommandGroup: SubcommandGroupDefinition = {
         credentialsCommand({
           appId: opts.appId as string | undefined,
           revealSecret: Boolean(opts.revealSecret),
+          json: Boolean(opts.json),
+        }),
+    },
+    {
+      name: 'token',
+      description: 'Mint a short-lived M2M access token for an app',
+      examples: [
+        `brevo app token --app-id ${EXAMPLE_APP_ID}`,
+        `brevo app token --app-id ${EXAMPLE_APP_ID} --scope contacts:read,crm:read`,
+        `brevo app token --app-id ${EXAMPLE_APP_ID} --json`,
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID',
+          parser: (v) => parseAppId(v),
+        },
+        {
+          flags: '--scope <list>',
+          description: 'Comma-separated scopes to request (default: full granted set)',
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        tokenCommand({
+          appId: opts.appId as string | undefined,
+          scope: opts.scope as string | undefined,
           json: Boolean(opts.json),
         }),
     },
@@ -358,37 +421,313 @@ export const appCommandGroup: SubcommandGroupDefinition = {
           json: Boolean(opts.json),
         }),
     },
-    // ELIMINATION SITE — the raw global rather than `isFeatureAvailable()` on purpose:
-    // esbuild substitutes the global here, folds the ternary to `[]`, and can then drop
-    // `previewAppCommands` and the three handler modules only it imports. Importing the
-    // constant instead leaves a runtime ternary and ships the whole gated surface. See
-    // src/globals.d.ts.
+    // Moved here from ./preview-definitions.ts when public apps went GA, exactly as the
+    // two `account-install` commands above were at UI-apps GA. `requires` stays: it is
+    // the capability the command applies to (public apps only — see
+    // `src/app-types/capabilities.ts`), and with its `FEATURE_STAGE` row at 'ga' it no
+    // longer hides or refuses anything.
     //
-    // Appended, not interleaved, so the spread is one foldable expression. Ordering in
-    // `brevo app --help` is unaffected in a public build (there is nothing to order);
-    // a preview build simply lists these three last.
-    ...(__BREVO_PREVIEW__ ? previewAppCommands : []),
+    // Listed in lifecycle order — submit, status, withdraw — matching the App-review
+    // block in `formatRootHelp` so the two help renderers read the same way.
+    {
+      name: 'submit',
+      requires: 'review-lifecycle',
+      description: 'Submit a public app for review',
+      examples: [
+        'brevo app submit',
+        `brevo app submit --app-id ${EXAMPLE_APP_ID}`,
+        `brevo app submit --app-id ${EXAMPLE_APP_ID} --json --accept-submission-terms`,
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        {
+          flags: '--json',
+          description: 'Print the submission form URL as JSON instead of opening a browser',
+        },
+        {
+          flags: '--accept-submission-terms',
+          description:
+            'Confirm the submission statement explicitly (required for --json / piped runs)',
+        },
+      ],
+      handler: (opts) =>
+        submitCommand({
+          appId: opts.appId as string | undefined,
+          json: Boolean(opts.json),
+          acceptSubmissionTerms: Boolean(opts.acceptSubmissionTerms),
+        }),
+    },
+    {
+      name: 'status',
+      requires: 'review-lifecycle',
+      description: "Show an app's review status",
+      examples: [
+        'brevo app status',
+        `brevo app status --app-id ${EXAMPLE_APP_ID}`,
+        `brevo app status --app-id ${EXAMPLE_APP_ID} --json`,
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        statusCommand({ appId: opts.appId as string | undefined, json: Boolean(opts.json) }),
+    },
+    {
+      name: 'withdraw',
+      requires: 'review-lifecycle',
+      description: 'Withdraw an app from submission',
+      examples: [
+        'brevo app withdraw',
+        `brevo app withdraw --app-id ${EXAMPLE_APP_ID}`,
+        `brevo app withdraw --app-id ${EXAMPLE_APP_ID} --force`,
+        `brevo app withdraw --app-id ${EXAMPLE_APP_ID} --json`,
+      ],
+      options: [
+        {
+          flags: '--app-id <id>',
+          description: 'App ID (uses app-config.json if omitted)',
+          parser: (v) => parseAppId(v),
+        },
+        { flags: '--force', description: 'Skip confirmation (for CI)' },
+        { flags: '--json', description: 'Output as JSON' },
+      ],
+      handler: (opts) =>
+        withdrawCommand({
+          appId: opts.appId as string | undefined,
+          force: Boolean(opts.force),
+          json: Boolean(opts.json),
+        }),
+    },
+  ],
+  // One level of nesting (`app scopes update`) — see `groups` on
+  // `SubcommandGroupDefinition` in command-registry.ts. GA immediately: M2M app creation
+  // and `available-scopes` are both already GA with no capability/preview gate, and this
+  // command is a natural extension of that already-GA M2M lifecycle surface.
+  groups: [
+    {
+      name: 'scopes',
+      description: 'Manage OAuth scopes on an existing M2M app',
+      commands: [
+        {
+          name: 'update',
+          description: "Update an M2M app's granted OAuth scopes",
+          examples: [
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read,crm:read`,
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --yes`,
+            `brevo app scopes update --app-id ${EXAMPLE_APP_ID} --scopes contacts:read --json`,
+          ],
+          options: [
+            { flags: '--app-id <id>', description: 'App ID', parser: (v) => parseAppId(v) },
+            {
+              flags: '--scopes <list>',
+              description: 'Comma-separated scope list — the full desired set of scopes',
+            },
+            { flags: '--yes', description: 'Skip confirmation (for CI)' },
+            { flags: '--json', description: 'Output as JSON' },
+          ],
+          handler: (opts) =>
+            updateScopesCommand({
+              appId: opts.appId as string | undefined,
+              scopes: opts.scopes as string | undefined,
+              yes: Boolean(opts.yes),
+              json: Boolean(opts.json),
+            }),
+        },
+      ],
+    },
+    {
+      name: 'secret',
+      description: "Manage an M2M app's client secret",
+      commands: [
+        {
+          name: 'rotate',
+          description: "Rotate an M2M app's client secret",
+          examples: [
+            `brevo app secret rotate --app-id ${EXAMPLE_APP_ID}`,
+            `brevo app secret rotate --app-id ${EXAMPLE_APP_ID} --yes`,
+            `brevo app secret rotate --app-id ${EXAMPLE_APP_ID} --json`,
+          ],
+          options: [
+            { flags: '--app-id <id>', description: 'App ID', parser: (v) => parseAppId(v) },
+            { flags: '--yes', description: 'Skip confirmation (for CI)' },
+            { flags: '--json', description: 'Output as JSON' },
+          ],
+          handler: (opts) =>
+            secretRotateCommand({
+              appId: opts.appId as string | undefined,
+              yes: Boolean(opts.yes),
+              json: Boolean(opts.json),
+            }),
+        },
+      ],
+    },
   ],
 };
 
+const SKILL_AGENT_OPTION = {
+  flags: '--agent <agents>',
+  description:
+    'Agents to install for: claude, codex, gemini (comma-separated), or all. Default: claude',
+};
+const SKILL_JSON_OPTION = { flags: '--json', description: 'Output as JSON' };
+const SKILL_INSTALL_OPTIONS = [
+  SKILL_AGENT_OPTION,
+  {
+    flags: '--pin <release>',
+    description:
+      'Install from this brevo-skills release instead of the latest, and stay on it; `latest` clears a pin',
+  },
+  {
+    flags: '--mcp',
+    description:
+      'Register the Brevo MCP server with each agent whose CLI is on the PATH (otherwise the command is printed)',
+  },
+  { flags: '--force', description: 'Reinstall even when the installed version matches' },
+  {
+    flags: '--dry-run',
+    description: 'Print what would change, per agent directory, and write nothing',
+  },
+  SKILL_JSON_OPTION,
+];
+
+function installLikeOptions(opts: Record<string, unknown>) {
+  return {
+    json: Boolean(opts.json),
+    agent: opts.agent as string | undefined,
+    pin: opts.pin as string | undefined,
+    mcp: Boolean(opts.mcp),
+    force: Boolean(opts.force),
+    dryRun: Boolean(opts.dryRun),
+  };
+}
+
 export const skillCommandGroup: SubcommandGroupDefinition = {
-  name: 'skill:cli',
-  description: 'Install the brevo-cli Claude Code skill (Claude only)',
+  name: 'skill',
+  description: 'Install and update Brevo agent skills (Claude Code, Codex, Gemini CLI)',
   commands: [
     {
       name: 'install',
       description:
-        'Install the brevo-cli skill into ~/.claude/skills/ (Claude only — other AI tools should read agent-context/AGENTS.md instead)',
-      examples: ['brevo skill:cli install', 'brevo skill:cli install --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => skillInstallCommand({ json: Boolean(opts.json) }),
+        'Install skills from the Brevo skills catalog (all of them when none is named): ~/.claude/skills/ for Claude Code (default), ~/.agents/skills/ for Codex and Gemini CLI',
+      arguments: [{ name: '[names...]', description: 'Skill names (default: every skill)' }],
+      examples: [
+        'brevo skill install',
+        'brevo skill install brevo-cli --agent codex,gemini',
+        'brevo skill install --agent all --mcp',
+        'brevo skill install --pin 0.1.0 --dry-run',
+      ],
+      options: SKILL_INSTALL_OPTIONS,
+      handler: (opts, names) =>
+        skillInstallCommand({ ...installLikeOptions(opts), names: (names as string[]) ?? [] }),
+    },
+    {
+      name: 'update',
+      description:
+        'Reinstall installed skills whose version is behind the catalog (all of them when none is named)',
+      arguments: [
+        { name: '[names...]', description: 'Skill names (default: every installed skill)' },
+      ],
+      examples: [
+        'brevo skill update',
+        'brevo skill update --agent all --dry-run',
+        'brevo skill update brevo-cli --pin latest',
+      ],
+      options: SKILL_INSTALL_OPTIONS,
+      handler: (opts, names) =>
+        skillUpdateCommand({ ...installLikeOptions(opts), names: (names as string[]) ?? [] }),
     },
     {
       name: 'uninstall',
-      description: 'Remove the brevo-cli skill from ~/.claude/skills/ (Claude only)',
-      examples: ['brevo skill:cli uninstall', 'brevo skill:cli uninstall --json'],
-      options: [{ flags: '--json', description: 'Output as JSON' }],
-      handler: (opts) => skillUninstallCommand({ json: Boolean(opts.json) }),
+      description:
+        'Remove skills the CLI installed (all of them when none is named), from every agent or only those given with --agent',
+      arguments: [
+        { name: '[names...]', description: 'Skill names (default: every installed skill)' },
+      ],
+      examples: [
+        'brevo skill uninstall',
+        'brevo skill uninstall brevo-cli --agent codex',
+        'brevo skill uninstall --json',
+      ],
+      options: [
+        {
+          flags: '--agent <agents>',
+          description:
+            'Agents to remove them for: claude, codex, gemini (comma-separated), or all. Default: every agent',
+        },
+        SKILL_JSON_OPTION,
+      ],
+      handler: (opts, names) =>
+        skillUninstallCommand({
+          json: Boolean(opts.json),
+          agent: opts.agent as string | undefined,
+          names: (names as string[]) ?? [],
+        }),
+    },
+    {
+      name: 'list',
+      description: 'Installed skills per agent, and the skills the catalog offers',
+      examples: ['brevo skill list', 'brevo skill list --json'],
+      options: [SKILL_JSON_OPTION],
+      handler: (opts) => skillListCommand({ json: Boolean(opts.json) }),
+    },
+    {
+      name: 'check',
+      description:
+        'Report outdated or modified skills without changing anything (exit code 1 when something is off)',
+      examples: ['brevo skill check', 'brevo skill check --json'],
+      options: [SKILL_JSON_OPTION],
+      handler: (opts) => skillCheckCommand({ json: Boolean(opts.json) }),
+    },
+  ],
+};
+
+/**
+ * `brevo skill:cli install|uninstall`, the one-skill group the catalog installer
+ * replaced. Kept as hidden aliases of `brevo skill install brevo-cli` and
+ * `brevo skill uninstall brevo-cli`, so documented commands keep working.
+ */
+export const skillCliCommandGroup: SubcommandGroupDefinition = {
+  name: 'skill:cli',
+  hidden: true,
+  description: 'Alias of `brevo skill install brevo-cli` / `brevo skill uninstall brevo-cli`',
+  commands: [
+    {
+      name: 'install',
+      description: 'Alias of `brevo skill install brevo-cli`',
+      options: [SKILL_AGENT_OPTION, SKILL_JSON_OPTION],
+      handler: (opts) =>
+        skillInstallCommand({
+          json: Boolean(opts.json),
+          agent: opts.agent as string | undefined,
+          names: ['brevo-cli'],
+        }),
+    },
+    {
+      name: 'uninstall',
+      description: 'Alias of `brevo skill uninstall brevo-cli`',
+      options: [
+        {
+          flags: '--agent <agents>',
+          description:
+            'Agents to remove it for: claude, codex, gemini (comma-separated), or all. Default: every agent',
+        },
+        SKILL_JSON_OPTION,
+      ],
+      handler: (opts) =>
+        skillUninstallCommand({
+          json: Boolean(opts.json),
+          agent: opts.agent as string | undefined,
+          names: ['brevo-cli'],
+        }),
     },
   ],
 };

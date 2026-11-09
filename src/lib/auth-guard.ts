@@ -14,10 +14,11 @@ const UNAUTHENTICATED_COMMANDS = new Set([
   'logout',
   'available-scopes',
 ]);
-// Subcommand groups whose entire subtree is local-only and never needs auth.
-// Skill management touches files under ~/.claude/ — there is nothing to call
-// against the Brevo API.
-const UNAUTHENTICATED_GROUPS = new Set(['skill:cli']);
+// Subcommand groups whose entire subtree never needs auth. Skill management
+// touches the public skills catalog and files under ~/.claude/ and ~/.agents/ —
+// there is nothing to call against the Brevo API. `skill:cli` is the hidden
+// alias of `skill`.
+const UNAUTHENTICATED_GROUPS = new Set(['skill', 'skill:cli']);
 
 /**
  * True when the invocation being dispatched needs stored credentials.

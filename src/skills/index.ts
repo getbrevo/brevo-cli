@@ -4,17 +4,18 @@ import { CLI_VERSION } from '../lib/cli-version';
 export { CLI_VERSION };
 
 /**
- * Catalog of Brevo-authored agent skills installable via `brevo skill:cli install`.
+ * The skills bundled with the CLI: the offline fallback of `brevo skill install`.
  *
- * Source content lives under `agent-context/` at the repo root — the same
- * directory the README documents for manual install (`cp .../agent-context/
- * SKILL.md ...`). Keeping a single source avoids drift between the
- * programmatic install path and the documented manual path.
+ * Skills are normally installed from the brevo-skills catalog
+ * (`services/skill-catalog.ts`). This bundle exists so `brevo skill install
+ * brevo-cli` still works with no network: the source content lives under
+ * `agent-context/` at the repo root — the same directory the README documents
+ * for manual install (`cp .../agent-context/SKILL.md ...`) and the one the
+ * skills repo syncs from. Keeping a single source avoids drift.
  *
- * **Skill version is the CLI version.** Every published CLI release carries
- * its own bundled `agent-context/`, so installed skills auto-refresh after a
- * CLI upgrade even if `SKILL.md` itself didn't change. This eliminates the
- * "forgot to bump skill version when editing SKILL.md" failure mode.
+ * **Bundled skill version is the CLI version.** Every published CLI release
+ * carries its own `agent-context/`, so a bundled install is refreshed after a
+ * CLI upgrade even if `SKILL.md` itself didn't change.
  *
  * To add a new skill:
  *   1. Drop SKILL.md (+ any supporting files) under `agent-context/<subdir>/`,

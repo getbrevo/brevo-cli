@@ -9,21 +9,29 @@ Brevo Developer CLI (`@getbrevo/cli`) — create, manage, and test OAuth integra
 - **Package manager:** Yarn >= 1.19.1
 - **Public CLI reference:** https://developers.brevo.com/docs/cli-reference — keep behaviour, flags, and exit codes in sync with this page when changing user-facing commands.
 
-## Public app distribution is not GA — the published build omits it (BEX-405)
+## Public apps are GA — the whole surface ships (BEX-405)
 
-Public app distribution is **not live on the Brevo platform**. The repo contains the whole surface — `brevo app create --distribution public`, `brevo app submit`, `brevo app status`, `brevo app withdraw` — but a **published build does not**: `scripts/build.mjs` eliminates the review-lifecycle commands from the bundle, and `--distribution public` is refused with a typed `CliError`.
+Public app distribution and the review lifecycle are **live**. `brevo app create --distribution public`, `brevo app submit`, `brevo app status` and `brevo app withdraw` all ship in the published build. This replaced a build-time gate that eliminated them from the bundle; `scripts/build.mjs` now asserts the three command bindings are **present** in every build (`GA_MARKERS`) rather than absent.
 
-**This does not restrict work in this repo.** Building, changing, testing, and QA-ing the public-app code paths is expected and unblocked — write the code, run the commands, create public apps against test environments. Build with `PREVIEW=1 yarn link:dev` (or `yarn build:preview`) and the full surface is there. Never refuse or hedge on a public-app task in this repo.
+**Exactly one thing is gated: the iframe integration type (BEX-459).** `FEATURE_STAGE['ui-iframe-type']` in `src/lib/preview.ts` is `'preview'` and every other row is `'ga'`, so `yarn build:preview` now differs from `yarn build` by that one prompt choice (and the `ui-iframe-type` guard in `uiAppType.validateConfig`). `src/commands/preview-definitions.ts` and `src/lib/preview-constants.ts` emptied and were deleted at public-apps GA; `src/lang/preview-messages.ts` was recreated to carry the iframe choice's label, and `LEAK_STRINGS` in `scripts/build.mjs` asserts a published bundle lacks it. The gate machinery itself is **deliberately kept** — `preview.ts`, `src/globals.d.ts`, `jest.setup.js`, the esbuild `define` block, `build:preview`, and the `gatedSection` / `distributionValues` / `createDescription` helpers in `src/lib/help.ts` — because it is the shape the next unreleased feature should arrive in, and its two traps are written down there. **It is not to be torn down** — see the hard rule below.
 
-- **The guard is the build, not the docs.** This replaced a documentation-only notice (and then a runtime check). `agent-context/SKILL.md` and `AGENTS.md` no longer carry a *⚠️ not available yet* section or an *Exception — internal Brevo accounts* clause; they carry one rule instead — `brevo --help` is the complete surface. Don't reintroduce prohibition prose: an agent can't be led into a command that isn't in the binary.
-- **There is deliberately no runtime escape hatch.** The earlier gate unlocked on an `@brevo.com` account or `BREVO_ENABLE_PREVIEW=1`; both are gone. A compile-time guard any user can switch back on is a runtime guard wearing a costume, and it has to ship the surface in order to reveal it. Internal testing is a different artifact, not a different flag. **Do not add one back.**
-- **Two layers, no soft middle.** The build removes the surface; the Brevo API refuses public-app creation independently (`400 invalid_parameter`). There is no longer a client-side check for a user to talk past, so the old "guardrail, not a security boundary" caveat no longer applies.
-- **`src/lib/preview.ts` → `FEATURE_STAGE` is the single source of truth** for what is gated. Flipping a row to `'ga'` is necessary but **not sufficient** for a command: gated command definitions live in `src/commands/preview-definitions.ts` and are referenced from behind `__BREVO_PREVIEW__`, a *build* flag, so a GA feature left in that module is still eliminated. See the GA runbook (`RELEASE-CHECKLIST.md` on `feature_set-brevo-cli-v2`) → *Before public-apps GA* for the full sequence.
-- **When public apps go GA**, work through the runbook's *Before public-apps GA* section in one pass.
+### `build:preview` is not removable — an identical bundle is the expected result
+
+**Never delete `"build:preview": "PREVIEW=1 yarn build"` from `package.json`, or the machinery behind it.** Not as drive-by cleanup, not in a release PR, not folded into an unrelated refactor. This is a hard rule, and it is written down because the one argument that will be made for removing it is wrong.
+
+**When nothing is gated, both builds are byte-identical — that is the mechanism working, not the mechanism being dead.** Between features every `FEATURE_STAGE` row is `'ga'`, so the flag has nothing to withhold and `yarn build:preview` emits exactly what `yarn build` emits. Do **not** treat "both builds are the same size" as a finding, do not diff the two bundles to "prove" the script is a no-op, and do not remove it on those grounds. That reasoning is precisely what produced the teardown in `4d4b986`, which had to be reverted and rebuilt.
+
+The rest of the mechanism is equally not-removable and goes or stays as one piece: `src/lib/preview.ts`, `src/globals.d.ts`, the esbuild `define` block, `LEAK_MARKERS` / `LEAK_STRINGS` in `scripts/build.mjs`, `help.ts`'s `gatedSection` / `distributionValues` / `createDescription`, `messages.PREVIEW_FEATURE_UNAVAILABLE`, and the `preview.test.ts` / `preview-gate.test.ts` suites. Removing any one of them silently breaks the others' reason to exist. If you believe a piece is genuinely dead, **ask before touching it** — never bundle its removal with other work.
+
+**If you ever gate a feature again, read `src/lib/preview.ts`'s header first.** Flipping a `FEATURE_STAGE` row is necessary but not sufficient, and both reasons cost a release each to learn: a gated command's definition must live in a module referenced only from behind `__BREVO_PREVIEW__` (inline, the import is live and the command ships), and `__BREVO_PREVIEW__` is the **outer** authority over `FEATURE_STAGE` for help text and prompt branches — a wrapper left on keeps a GA'd feature hidden in a published build. Object literals (`messages`, `CLI`, `ENDPOINTS`) cannot have properties pruned by esbuild, which is why gated strings need their own spread-in module or they stay readable via `strings` on the published binary.
+
+**`brevo app submit` is a form hand-off, not a state transition.** It opens a Google Form (`app.google_form_link` off the app payload) and changes nothing server-side; the submission is real only when the developer completes that form. Exit `0` does not mean "submitted", and the agent docs carry that as a hard rule. There is **no CLI-side refusal of `upload` or `delete` while an app is under review** — don't add doc claims to that effect without building the check.
+
+**The initial review state is `draft`, not `configured`** (BEX-382 renamed it on the wire with no alias). The full set is `draft`, `submitted`, `in_review`, `approved`, `rejected`, `changes_requested`, plus the `unknown` sentinel `status.ts` normalises an empty state to. Reviewer feedback is delivered by email and deliberately never surfaced by `app status` (BEX-252).
 
 ## UI apps are GA — they ship in every build (BEX-290)
 
-UI apps (action links and modal iframe extensions that render inside Brevo CRM records) are **out of the pre-GA gate**: the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app install [account-id]` and `brevo app uninstall [account-id]` all ship in the published build. `FEATURE_STAGE['ui-app-type']` and `FEATURE_STAGE['account-install']` are `'ga'`, the two command definitions live in `src/commands/definitions.ts` (not `preview-definitions.ts`), their strings live in `src/lang/en.ts` (not `preview-messages.ts`), and their names are gone from `LEAK_MARKERS` in `scripts/build.mjs`. What is still gated: the public-apps surface above, and the **iframe integration type** (`FEATURE_STAGE['ui-iframe-type']` is `'preview'` — see the `iframe_href` note below). Action links are the whole of the UI-app surface a published build can author.
+UI apps (action links and modal iframe extensions that render inside Brevo CRM records) are **out of the pre-GA gate**: the *UI app* choice at `brevo app create`'s app-type prompt, `brevo app install [account-id]` and `brevo app uninstall [account-id]` all ship in the published build. `FEATURE_STAGE['ui-app-type']` and `FEATURE_STAGE['account-install']` are `'ga'`, the two command definitions live in `src/commands/definitions.ts`, their strings live in `src/lang/en.ts`, and their names moved from `LEAK_MARKERS` to `GA_MARKERS` in `scripts/build.mjs` so every build asserts they ship. Public apps followed at BEX-405, which retired the preview modules those parentheticals used to name. **What is still gated: the iframe integration type** (`FEATURE_STAGE['ui-iframe-type']` is `'preview'`, BEX-459 — see the `iframe_href` note below); `src/lang/preview-messages.ts` was recreated for its one string. Action links are the whole of the UI-app surface a published build can author.
 
 Everything below in this section is durable technical reference for the `ui_app` contract and stays load-bearing.
 
@@ -83,7 +91,9 @@ The `type === 'corporate'` discriminator on `/v3/account/info` that account reso
 
 **Two blocks are compared through one normalization**, `canonicalizeUiApp` / `uiAppEquals` in `src/app-types/ui/compare.ts` (it delegates the wire-only strip to `src/app-types/wire.ts`). It was private to `app upload` until `app install`'s drift check needed the same answer; a second implementation would have drifted from this one the first time a server-stamped key was added. `app upload`'s per-field diff is `formatPlacementDiffLines` in `src/app-types/ui/fields.ts`, table-driven off the same `VALUE_ROWS` as the plain renderer so a new per-entry field cannot appear in one and not the other. It matches entries by `surface_point_name` (never by index — list order is registry order, not authored order) and falls back to plain lines when the server echoes no block at all, since an absent block is no evidence that a placement is new.
 
-**The presence of `ui_app` is the app-type discriminator** — the `app_type` key in `app-config.json` is a label, written by `app create` / `app scaffold` so the file says in one word what it is (BEX-468). **It is read for validation, never for detection.** `app upload`'s `assertAppTypeAgrees` compares it against the blocks and refuses a contradiction with a migration hint; nothing anywhere branches on it, and a config that omits it — every file written before BEX-468 — uploads unchanged, which is why the check is an early return on absence rather than a default. Ordered last in `runLocalPreflight`, deliberately: the label is the least authoritative statement in the file, so a structural refusal (a malformed `ui_app`, `APP_UI_IFRAME_PRIVATE_ONLY`) must always be the error a partner sees first — fixing a label and re-uploading only to hit the real reason is the failure that ordering avoids. **`app_type` is file-only and never travels**: `UploadAppPayload` and the create body in `src/types.ts` are closed structs that `upload.ts` / `create.ts` build key by key, so there is no spread that could carry it onto the wire and no strip step to keep in sync — bo-be needs no change to accept a field that never arrives. Keep both payloads closed if either is refactored; `upload.test.ts` pins the payload's key set. **Every key in `app-config.json` is snake_case** (`app_id`, `app_name`, `logo_uri`, `app_type`, `auth.redirect_uris`, …); the camelCase spellings earlier releases wrote are folded on read by the alias tables in `src/lib/config.ts` and dropped on the next write, and `app upload` / `app scaffold` rewrite an in-sync legacy file on their no-op paths (`migrateProjectConfigKeys`) so the migration is not gated on drift. Every branch that needs to tell the two types apart goes through `isUiAppConfig()` in `src/lib/config.ts`; use it rather than testing for the key inline, so the discriminator can change in one place.
+**The presence of `ui_app` is the app-type discriminator** — the `app_type` key in `app-config.json` is a label, written by `app create` / `app scaffold` so the file says in one word what it is (BEX-468). **It is read for validation, never for detection.** `app upload`'s `assertAppTypeAgrees` compares it against the blocks and refuses a contradiction with a migration hint; nothing anywhere branches on it, and a config that omits it — every file written before BEX-468 — uploads unchanged, which is why the check is an early return on absence rather than a default. Ordered last in `runLocalPreflight`, deliberately: the label is the least authoritative statement in the file, so a structural refusal (a malformed `ui_app`, `APP_UI_IFRAME_PRIVATE_ONLY`) must always be the error a partner sees first — fixing a label and re-uploading only to hit the real reason is the failure that ordering avoids. **The file's `app_type` is file-only and never travels**: `UploadAppPayload` and the create body in `src/types.ts` are closed structs that `upload.ts` / `create.ts` build key by key, so there is no spread that could carry it onto the wire and no strip step to keep in sync. Keep both payloads closed if either is refactored; `upload.test.ts` pins the payload's key set. **Every key in `app-config.json` is snake_case** (`app_id`, `app_name`, `logo_uri`, `app_type`, `auth.redirect_uris`, …); the camelCase spellings earlier releases wrote are folded on read by the alias tables in `src/lib/config.ts` and dropped on the next write, and `app upload` / `app scaffold` rewrite an in-sync legacy file on their no-op paths (`migrateProjectConfigKeys`) so the migration is not gated on drift. Every branch that needs to tell the two types apart goes through `isUiAppConfig()` in `src/lib/config.ts`; use it rather than testing for the key inline, so the discriminator can change in one place.
+
+**`brevo app create` does send an `app_type`, and it is a different field that happens to share the name.** The create body carries a top-level `app_type` of `oauth.consent`, `oauth.m2m`, `ui_app.<extension_type>` (`ui_app.actionLink` today) or `brevo_function` — `WIRE_APP_TYPE` in `src/lib/constants.ts`. Four things keep the two apart, and all four are load-bearing: the vocabularies differ (the file says `oauth`, the wire says which *flow* of it), the wire value is **derived from the request's own discriminator block** by `wireAppTypeForBlock` rather than read from any config — which is what makes the label structurally incapable of contradicting the body, the thing `assertAppTypeAgrees` can only *check* for on the file side — `app upload` still sends no `app_type` whatsoever (the upload endpoint 400s on an unknown top-level key, so this is create-only on purpose), and no command's `--json` output changed (`appType` is still `oauth` / `ui` / `function`, with `authType: "m2m"` alongside it). Do not "unify" them, and do not source the wire value from `config.app_type`.
 
 ## Non-interactive (non-TTY) UI app creation — required before merging `feat/ui-app-noninteractive-create` to `main`
 
@@ -129,10 +139,14 @@ footgun this feature exists to remove.
 The internal working docs are committed on feature branches only and **must never land
 on `main`** — this repo is public, and they consolidate internal release state:
 
+- `docs.md` and `QA-TESTCASES.md` on `feature_set-brevo-cli-v2` (the public-apps
+  halves) — **both deleted from the branch at the main-merge prep (PR #142)**, their
+  still-open items now tracked as GitHub issues (the release-gate gap is #145) and
+  readable at the pre-deletion commit. `RELEASE-CHECKLIST.md` and
+  `PUBLIC-APPS-RELEASE-STATUS.md` were here too until public apps went GA; the runbook
+  was worked through and both were deleted, so do not go looking for any of them.
 - `UI-APPS-RELEASE-STATUS.md`, `RELEASE-CHECKLIST.md`, `docs.md` and `QA-TESTCASES.md`
-  on `feat/bex-416-entry-size` (this branch — the UI-apps halves)
-- `PUBLIC-APPS-RELEASE-STATUS.md`, `RELEASE-CHECKLIST.md`, `docs.md` and
-  `QA-TESTCASES.md` on `feature_set-brevo-cli-v2` (the public-apps halves)
+  on `feat/bex-416-entry-size` (the UI-apps halves)
 
 Before merging any branch that carries one of these files into `main`, delete the file
 from the branch first. Do not "helpfully" move their content into README, docs, or the
@@ -257,12 +271,12 @@ src/
 
 The CLI ships two agent-facing docs at the repo root, both bundled into the published tarball via `package.json` `files:`:
 
-- `agent-context/SKILL.md` — the Claude Code skill. Installed into `~/.claude/skills/brevo-cli/` by `brevo skill:cli install` and **auto-refreshed** on every subsequent `brevo` invocation (opt out: `BREVO_NO_SKILL_AUTOREFRESH=1`). It is also the source `src/skills/index.ts` reads via `SKILLS_BUNDLE_DIR` — there is no second copy.
+- `agent-context/SKILL.md` — the agent skill, in the open Agent Skills format. It is the source the `brevo-skills` catalog gets the `brevo-cli` skill from: the repository that publishes that catalog pulls this file from this repo's latest release, and nothing here pushes or needs a token for it. So `brevo skill install` (or `brevo skill install brevo-cli`) normally installs it from the catalog release into `~/.claude/skills/brevo-cli/` (Claude Code, the default) and, with `--agent codex|gemini|all`, into `~/.agents/skills/brevo-cli/` (read by both Codex and Gemini CLI); offline, the bundled copy is installed instead, read by `src/skills/index.ts` via `SKILLS_BUNDLE_DIR` — there is no second copy. After `brevo` invocations, when the catalog cache is older than 12 hours, one stderr line names the installed, unpinned skills that are behind and points to `brevo skill update`; `BREVO_SKILL_AUTOREFRESH=1` reinstalls them right away instead, and `BREVO_NO_SKILL_AUTOREFRESH=1` turns the check off. Keep its wording agent-neutral: name an agent only where a step really differs per agent.
 - `agent-context/AGENTS.md` — the broader `agents.md`-format reference for any agent-aware tool.
 
 **Whenever you change user-visible CLI behavior, update both files in the same PR.** An out-of-sync skill actively misleads any AI helping a user with this CLI — that's worse than no skill at all.
 
-**Keep `AGENTS.md` and `SKILL.md` in sync with each other.** Even when no CLI behavior changed, if you edit one of these files, check the other still aligns before opening the PR. They cover the same command surface, hard rules, version-check procedure, and exit codes — `AGENTS.md` is the broader reference (also documents env vars and the Claude-vs-non-Claude install path), `SKILL.md` is the Claude-focused subset. Pure-doc edits aren't "user-visible CLI behavior," so the rule above doesn't catch them — this rule does. If a difference is intentional (e.g. AGENTS.md branches by agent type because SKILL.md is Claude-only by construction), say so in the PR description so a future reader doesn't try to "fix" it.
+**Keep `AGENTS.md` and `SKILL.md` in sync with each other.** Even when no CLI behavior changed, if you edit one of these files, check the other still aligns before opening the PR. They cover the same command surface, hard rules, version-check procedure, and exit codes — `AGENTS.md` is the broader reference (also documents env vars and the install path for agents with and without a skills directory), `SKILL.md` is the subset an agent loads as a skill. Pure-doc edits aren't "user-visible CLI behavior," so the rule above doesn't catch them — this rule does. If a difference is intentional (e.g. AGENTS.md branches by whether the agent loads skills, which SKILL.md never needs to), say so in the PR description so a future reader doesn't try to "fix" it.
 
 **What counts as user-visible:**
 
@@ -271,20 +285,23 @@ The CLI ships two agent-facing docs at the repo root, both bundled into the publ
 - New or removed `BREVO_*` env vars, or changes to existing-var semantics.
 - Changed defaults (new opt-in/opt-out, changed prompt behavior).
 - Changed exit codes or error messages that scripts may match on.
-- Removed features that the docs currently advertise (e.g. removing `brevo skill:cli update` requires removing it from both docs).
-- **A feature going GA.** Taking a feature out of a `## Before …GA` section in `RELEASE-CHECKLIST.md` is a user-visible change like any other — it adds commands, flags or prompts to the published CLI. **Update `agent-context/SKILL.md` and `agent-context/AGENTS.md` for that feature in the same PR**, before ticking it off the checklist. Their reference text for a gated feature was *deleted* rather than hidden, so recover it from git rather than rewriting it — each GA section names the commit to recover from. A GA release that ships the commands but not the docs is the worst of both: agents keep telling users the feature doesn't exist, and the docs say so in writing.
+- Removed features that the docs currently advertise (e.g. removing `brevo skill update` requires removing it from both docs).
+- **A feature going GA.** Flipping a `FEATURE_STAGE` row to `'ga'` is a user-visible change like any other — it adds commands, flags or prompts to the published CLI. **Update `agent-context/SKILL.md` and `agent-context/AGENTS.md` for that feature in the same PR.** A GA release that ships the commands but not the docs is the worst of both: agents keep telling users the feature doesn't exist, and the docs say so in writing.
+
+  If a gated feature's reference text was *deleted* rather than hidden, recover it from git rather than rewriting it — but **verify the recovered text before pasting it**, and don't trust a recorded `git log -S` recipe. Public-apps GA is the worked example: the runbook's two recipes returned nothing (the search strings had never existed at those paths), the real source was `51cdf52`, and the text recovered from it carried two stale claims — a review state renamed on the wire (`configured` → `draft`, BEX-382) and a wire field that had since been renamed (`app_version` → `version`). Recovered text is a draft, not an answer.
 
 **What does NOT count:** internal refactors, bug fixes that preserve UX, dependency bumps, test-only changes, log-line formatting tweaks that aren't part of the documented contract.
 
-**A feature going GA must join the smoke test's live suites, in the same PR.** The smoke runner splits by surface: `scripts/smoke-test.ts`'s `SUITES` registry holds one suite per app type, and `.github/workflows/smoke.yml`'s `suite` input defaults to the **live** set — the suites whose commands are in the published bundle. A preview suite (today: `public`) is only meaningful on a `PREVIEW=1` build, which is why `smoke.yml` **refuses** a public-containing suite unless `against=local` rather than letting its steps auto-skip into a green run. So when a feature leaves `FEATURE_STAGE`'s `'preview'`:
+**A feature going GA must join the smoke test's live suites, in the same PR.** The smoke runner splits by surface: `scripts/smoke-test.ts`'s `SUITES` registry holds one suite per app type, and `.github/workflows/smoke.yml`'s `suite` input defaults to the **live** set — the suites whose commands are in the published bundle. Every suite is live today (`smoke.yml`'s dispatch default is `private,ui,public,function`), because nothing is gated; `public` was the last preview suite and joined the default at public-apps GA. So when a feature leaves `FEATURE_STAGE`'s `'preview'`:
 
 1. Move its steps out of the preview suite, or add a suite for it, in `scripts/smoke/`.
 2. Add it to `smoke.yml`'s `suite` **default** and its `options`, so the manual button and any new lane cover it.
-3. Decide, deliberately, whether the release lanes should cover it — `smoke-pre-merge.yml`, `smoke-post-merge.yml` and `release.yaml`'s dispatch each **pin** `suite` explicitly so a retuned default can never silently change what a publish gate verifies. Widening a gate is a real decision: verify the suite passes on `ubuntu-latest` first, since a suite that only ever ran on a dev machine (a pty-driven one especially) has not been proven headless.
+3. **Check `scripts/smoke/core.ts`'s build step.** `stepReinstall` used to build `PREVIEW=1` whenever the selected suites needed a gated surface. That fork is gone with the gate — a local run now always builds the published artifact — but if a suite is ever build-specific again, re-add it there *and* re-add `smoke.yml`'s refusal of the impossible pairing. Letting a preview-only suite run against a published package auto-skips every step into a green run, which reads as coverage the run never had.
+4. Decide, deliberately, whether the release lanes should cover it — `smoke-pre-merge.yml`, `smoke-post-merge.yml` and `release.yaml`'s dispatch each **pin** `suite` explicitly so a retuned default can never silently change what a publish gate verifies. Widening a gate is a real decision: verify the suite passes on `ubuntu-latest` first, since a suite that only ever ran on a dev machine (a pty-driven one especially) has not been proven headless. As of public-apps GA, `smoke-pre-merge.yml` pins `private,public,ui,init` plus a dedicated `function` job (non-blocking, `against=local`) while `smoke-post-merge.yml` stays pinned at `private,ui` plus `function` against the published package — so the review lifecycle is **not** yet a publish gate. Tracked in issue #145.
 
 A GA'd feature the smoke never exercises is the mirror of the docs problem above: the release gate reports green on a surface it never touched.
 
-**Skill version tracks the CLI version automatically.** `SKILL_CATALOG[brevo-cli].version` is computed at module-init from `package.json` (`CLI_VERSION` in `src/skills/index.ts`), so every published CLI release auto-refreshes installed skills — even when `SKILL.md` content didn't change. You only need to land your changeset; the skill version takes care of itself.
+**The bundled skill's version tracks the CLI version automatically.** `SKILL_CATALOG[brevo-cli].version` is computed at module-init from `package.json` (`CLI_VERSION` in `src/skills/index.ts`), so an offline (bundled) install is stamped with the CLI version and refreshed from the bundle after a CLI upgrade. A catalog install carries the skill's own version from `brevo-skills`, where the text is synced to and released; `src/services/skill.ts` is the installer (catalog client in `skill-catalog.ts`, MCP registration in `skill-mcp.ts`), and `brevo skill check` compares each installed directory's hash against the marker.
 
 ## Testing patterns
 
@@ -293,46 +310,33 @@ A GA'd feature the smoke never exercises is the mirror of the docs problem above
 - Services are tested against mocked API client responses.
 - Template tests verify variable substitution, not file I/O.
 
-## Working docs: `RELEASE-CHECKLIST.md`, `docs.md` and `QA-TESTCASES.md`
+## Working docs: `docs.md` and `QA-TESTCASES.md` — deleted; the pattern stays
 
-Three working docs with different jobs, **split by feature across the two feature
-branches** (all branch-local — see the never-merge rule above): this branch's copies
-carry the **UI-apps halves**, and `feature_set-brevo-cli-v2`'s copies carry the
-**public-apps halves** (release copy, the *Before public-apps GA* runbook, QA suites 2,
-5, 6, 7, 10 and 13). They lived on a separate `docs/public-cli-ui-apps-feature-changes`
-branch until 2026-08-24; that branch is deleted (final pre-split state in closed PR
-#53). Read this before editing any of them.
+The two public-apps working docs that lived at this branch's root — `docs.md` (the
+open-questions log) and `QA-TESTCASES.md` (the manual test plan, suites 2, 5, 6, 7, 10,
+13) — were **deleted at the main-merge prep (PR #142)**, per the never-merge rule above.
+Their final state is readable at that PR's pre-deletion commit, and the items still open
+when they were deleted moved out: the release-gate coverage gap is GitHub issue #145, and
+the BEX-355 / BEX-350 / BEX-437 sign-offs live on their Jira tickets. The UI-apps halves
+still exist on `feat/bex-416-entry-size`.
 
-- **`RELEASE-CHECKLIST.md` — the GA runbook.** Ordered, mechanical steps for the day a
-  feature ships. The public-apps runbook (on `feature_set-brevo-cli-v2`) is **durable**:
-  it stays until public apps ship — do not delete it as cleanup. This branch's copy is
-  the record of the UI-apps flip (worked through at BEX-290); it stays until the release
-  publishes.
-- **`docs.md` — the open-questions log.** Part 1 is release copy held until GA (the
-  UI-apps half is superseded by this branch's pending changeset and kept as background);
-  Part 2 is everything still unknown or undecided, including assumptions that survive a
-  GA.
-- **`QA-TESTCASES.md` — the manual test plan**, with the recorded sweep results. This
-  branch's copy is Suite 12 (UI apps), which matches this branch's surface and runs on a
-  plain build; the public-app suites (on `feature_set-brevo-cli-v2`) need `PREVIEW=1`.
+Working rules that outlive the files:
 
-None of the three is in `package.json` `files:`, so nothing ships to npm — but the
-never-merge rule applies regardless, because branches are public too.
-
-The split is *what to do on the day* versus *what is still unknown*. An item moves from
-`docs.md` to `RELEASE-CHECKLIST.md` when it turns into a release step, and is deleted from
-`docs.md` when it resolves.
-
-Working rules:
-
-- **Whenever you identify follow-up work that isn't done in the current change**, add it to
-  `docs.md` → *Part 2* rather than letting it fall through silently — this branch's copy
-  for UI-apps work, `feature_set-brevo-cli-v2`'s for public-apps work. (There was a
-  `TODO.md` here; it was folded into `docs.md` because its contents were entirely
-  public-app / UI-app follow-ups.)
-- **Per-branch verification notes are scratch.** When a branch keeps a
-  `## Per-branch verification` section in a local `RELEASE-CHECKLIST.md`, clear it before
-  merging into `main` — per-branch working state doesn't belong in `main`'s history.
+- **Whenever you identify follow-up work that isn't done in the current change**, give it
+  a durable home rather than letting it fall through silently — a branch-local working
+  doc while a feature branch is active, a GitHub issue or Jira ticket once the branch is
+  merge-bound (issues on this public repo must follow the public-repo rules above).
+- **When tracked follow-up turns into a set of ordered release steps, it needs a
+  runbook.** There was a `RELEASE-CHECKLIST.md` here for exactly that and it was deleted
+  once public apps shipped — recreate one rather than growing an open-questions log into
+  it. Keep the split: the log is *what is still unknown*, a runbook is *what to do on the
+  day*.
+- **Before merging any branch carrying a working doc into `main`, delete the doc from the
+  branch first** (the never-merge rule above), moving its still-open items to a durable
+  home in the same PR.
+- **Per-branch verification notes are scratch.** If a branch keeps a
+  `## Per-branch verification` section in a working doc, clear it before merging into
+  `main` — per-branch working state doesn't belong in `main`'s history.
 
 ## Adding a new command
 
@@ -374,7 +378,7 @@ Two rules the README shares with the rest of this file: it is **public** (the pr
 
 Shared: required files present, forbidden files absent (the branch-local working docs above, plus `.env` / `credentials.json` / `.brevo.json` / keys), every `src/templates/files/*.tmpl` shipped, no secret-shaped string in packed content, and **the tarball installs into an empty tree where `brevo --version` runs** — the only check on the dependency closure, since deps stay external and one that drifted into `devDependencies` would pack fine and die on the first install. `post` adds the registry metadata: `latest` moved, a SLSA provenance attestation is attached, the publisher is the OIDC identity, and the download matches `dist.integrity`. If those last two fail, fix the trusted publisher on npmjs.com — **do not** add an `NPM_TOKEN`.
 
-Two things it deliberately doesn't do: re-check the gated public-app surface (`scripts/build.mjs` owns `LEAK_MARKERS` / `GA_MARKERS` and `prepublishOnly` reruns it, so a copy here could only drift), and stand in for the smoke test (`smoke.yml` authenticates and drives real commands; this only proves the artifact). `.tmpl` paths are skipped in the forbidden-*filename* scan — the template set includes `.env.example.tmpl` and `app-config.json.tmpl` on purpose — but their content is still secret-scanned.
+Two things it deliberately doesn't do: re-check which surface the bundle carries (`scripts/build.mjs` owns `LEAK_MARKERS` / `GA_MARKERS` and `prepublishOnly` reruns it, so a copy here could only drift), and stand in for the smoke test (`smoke.yml` authenticates and drives real commands; this only proves the artifact). `.tmpl` paths are skipped in the forbidden-*filename* scan — the template set includes `.env.example.tmpl` and `app-config.json.tmpl` on purpose — but their content is still secret-scanned.
 
 **npm auth: Trusted Publishing (OIDC), no long-lived token.** Publishes authenticate to npm via the GitHub Actions OIDC token (`id-token: write`) — there is no `NPM_TOKEN` secret. The trust relationship is configured on npmjs.com for `@getbrevo/cli` and binds publishes to: repo `getbrevo/brevo-cli`, the specific workflow file, and the GitHub environment (`npm-publish` for stable, `npm-prerelease` for alphas). See https://docs.npmjs.com/trusted-publishers.
 

@@ -1,5 +1,4 @@
 import { CliError } from './errors';
-import { previewCli, previewEndpoints } from './preview-constants';
 
 // Track whether URL suffix parts were stripped for deferred warning (avoid side effects at import time)
 let strippedUrlSuffix: string | undefined;
@@ -124,6 +123,24 @@ const coreEndpoints = {
   // gateway — see resolveAppStoreUrl above and services/cli-info.ts.
   CLI_INFO: '/cli/info',
   APP_STORE_APP_UPLOAD: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/upload`,
+  // BEX-486 / BEX-481 — scopes-only PATCH for an M2M app. ASSUMPTION pending BEX-481:
+  // path and body shape (`{ scopes }`) are not yet confirmed against a real backend
+  // implementation — see the plan for BEX-486. Must not touch grant_types/redirect_uris/
+  // public; only the scopes array changes. The CLI always sends the full desired scope
+  // list — the app's new scopes are exactly what's in the request — never a partial
+  // add/remove delta, so the server can apply it as a straight replace.
+  APP_STORE_APP_SCOPES: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/scopes`,
+  // BEX-482 / backend "brevo app token [Backend]" (not yet built at the time this was
+  // written) — mints a short-lived M2M access token for an app. ASSUMPTION pending that
+  // ticket: path and body shape (`{ scopes? }`) are a reasonable guess, not a verified
+  // implementation — see the plan for BEX-482.
+  APP_STORE_APP_TOKEN: (appId: string) => `/v3/app-store/apps/${encodeURIComponent(appId)}/token`,
+  // BEX-484 / backend "brevo app secret rotate [Backend]" (not yet built at the time this
+  // was written) — rotates an M2M app's client secret. ASSUMPTION pending that ticket:
+  // path and response shape are a reasonable guess, not a verified implementation — see
+  // the plan for BEX-484.
+  APP_STORE_APP_SECRET_ROTATE: (appId: string) =>
+    `/v3/app-store/apps/${encodeURIComponent(appId)}/secret/rotate`,
   // Per-account availability for UI apps (BEX-290). Until an in-product
   // enable/disable surface ships, this endpoint *is* the install mechanism for
   // an action link: POST to install into an account, DELETE to remove.
@@ -147,6 +164,14 @@ const coreEndpoints = {
   // record-page prompt and then narrows the row read with `?location=<csv>`, rather than
   // pulling the whole registry to derive the same handful of strings client-side.
   APP_STORE_SURFACE_POINT_LOCATIONS: '/v3/app-store/surface-points/locations',
+  // The public-app review lifecycle (BEX-405). Moved here from `preview-constants.ts` at
+  // public-apps GA. `APP_STATE` is the canonical review-state read, shared by
+  // `app status` and `app submit`'s preflight; the withdraw route answers 404 for both
+  // "no such app" and "no such submission" — see `uninstallApp`/`withdrawApp` in
+  // `services/app.ts` for why neither can be told apart by status code.
+  APP_STATE: (appId: string): string => `/v3/app-store/apps/${encodeURIComponent(appId)}/state`,
+  APP_STORE_APP_WITHDRAW: (appId: string): string =>
+    `/v3/app-store/apps/${encodeURIComponent(appId)}/withdraw`,
   DP_FUNCTIONS: '/v3/dp-functions/functions',
   DP_FUNCTION: (id: string) => `/v3/dp-functions/functions/${encodeURIComponent(id)}`,
   DP_FUNCTION_GENERATE_STREAM: '/v3/dp-functions/generate/stream',
@@ -160,10 +185,9 @@ const coreEndpoints = {
   OAUTH_TOKEN: '/oauth/token',
 } as const;
 
-// ELIMINATION SITE — see the note on `CLI` below; same reasoning, same shape.
+// Kept as a wrapper around `coreEndpoints` — see the note on `CLI` below.
 export const ENDPOINTS = {
   ...coreEndpoints,
-  ...(__BREVO_PREVIEW__ ? previewEndpoints : ({} as typeof previewEndpoints)),
 };
 
 /**
@@ -217,6 +241,30 @@ const coreCli = {
   APP_START: (feature?: string) =>
     feature ? `brevo app start ${feature}` : 'brevo app start <feature>',
   APP_SCOPES: 'brevo app available-scopes',
+  // The public-app review lifecycle (BEX-405). Moved here from `preview-constants.ts` at
+  // public-apps GA. `APP_STATUS` takes no app ID because every message quoting it is
+  // already about a resolved app; the other two take an optional one so an error can name
+  // the exact app to re-run against, falling back to a `<id>` placeholder.
+  APP_STATUS: 'brevo app status',
+  APP_SUBMIT: (appId?: string): string =>
+    appId ? `brevo app submit --app-id ${appId}` : 'brevo app submit --app-id <id>',
+  APP_WITHDRAW: (appId?: string): string =>
+    appId ? `brevo app withdraw --app-id ${appId}` : 'brevo app withdraw --app-id <id>',
+  // Distinct from APP_SCOPES above (`available-scopes` lists the catalog; this updates an
+  // existing M2M app's granted scopes).
+  // `scopes` fills the --scopes value with the caller's real list (quoted) — pass it
+  // whenever the list is in hand, so a hint is copy-pasteable rather than carrying the
+  // `<a,b,c>` placeholder, which a shell parses as two redirections.
+  APP_SCOPES_UPDATE: (appId?: string, scopes?: string) =>
+    `brevo app scopes update --app-id ${appId ?? '<id>'} --scopes ${
+      scopes ? `"${scopes}"` : '<a,b,c>'
+    }`,
+  // Mints a short-lived M2M access token for an app (BEX-482).
+  APP_TOKEN: (appId?: string) =>
+    appId ? `brevo app token --app-id ${appId}` : 'brevo app token --app-id <id>',
+  // Rotates an M2M app's client secret (BEX-484).
+  APP_SECRET_ROTATE: (appId?: string) =>
+    appId ? `brevo app secret rotate --app-id ${appId}` : 'brevo app secret rotate --app-id <id>',
   FUNCTION_LIST: 'brevo function list',
   FUNCTION_GET: 'brevo function get --id <id>',
   FUNCTION_ACTIVATE: 'brevo function activate --id <id>',
@@ -224,18 +272,21 @@ const coreCli = {
   FUNCTION_DELETE: 'brevo function delete --id <id>',
   FUNCTION_INIT: 'brevo function init',
   FUNCTION_DEPLOY: 'brevo function deploy --id <draft-id>',
-  SKILL_INSTALL: 'brevo skill:cli install',
-  SKILL_UNINSTALL: 'brevo skill:cli uninstall',
+  SKILL_INSTALL: 'brevo skill install',
+  SKILL_UPDATE: 'brevo skill update',
+  SKILL_UNINSTALL: 'brevo skill uninstall',
+  SKILL_LIST: 'brevo skill list',
+  SKILL_CHECK: 'brevo skill check',
 } as const;
 
-// ELIMINATION SITE — the raw global rather than `isFeatureAvailable`, so esbuild folds
-// the spread to `{}` and drops ./preview-constants entirely. `CLI` is one object literal,
-// so a property can only be removed by removing the whole object it arrived in. The
-// `as typeof previewCli` cast keeps every call site type-safe in both builds; see that
-// module for why the lie is safe.
+// Nothing is gated any more, so there is no second object to spread in. Kept as a wrapper
+// around `coreCli` rather than collapsed into one export: `CLI` is what every call site
+// imports, and this is where a future gated-constants module would spread back in.
+// `lib/preview.ts` explains why such a module is needed at all — esbuild cannot prune a
+// property from an object literal, so gated `CLI.*` names shipped as readable strings in
+// the published binary until they were split out.
 export const CLI = {
   ...coreCli,
-  ...(__BREVO_PREVIEW__ ? previewCli : ({} as typeof previewCli)),
 };
 
 export const DEFAULT_APP_FOLDER = 'my-app';
@@ -265,11 +316,81 @@ function resolveOauthBaseUrl(): string {
 export const OAUTH_BASE = resolveOauthBaseUrl();
 export const OAUTH_REALM = 'partner';
 export const OAUTH_SCOPES_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/scopes`;
+// The token endpoint, spelled out once. `ENDPOINTS.OAUTH_TOKEN` is the bare path used
+// against the API client's base URL; this is the absolute URL, which is what guidance
+// copy has to print — an M2M app's whole runtime contract is a POST to it, and the
+// created-app box is the only place the CLI ever tells the partner where that is.
+export const OAUTH_TOKEN_URL = `${OAUTH_BASE}/realms/${OAUTH_REALM}/oauth/token`;
 
 // Legacy catch-all OAuth scope being deprecated (BEX-214). Single source of
 // truth for the spelling — every detection path goes through
 // `containsLegacyAllScope` in lib/validators.
 export const LEGACY_ALL_SCOPE = 'all';
+
+/**
+ * The `auth.type` value that marks an app as machine-to-machine on the wire.
+ *
+ * Sent on `POST /v3/app-store/apps` inside the `auth` block. A consent-based app sends
+ * **no** `type` key at all rather than some counterpart value; the flow it is in is stated
+ * once, at the top level, by `WIRE_APP_TYPE.OAUTH_CONSENT`. There is deliberately no
+ * `'consent'` constant to pair with this one.
+ */
+export const M2M_AUTH_TYPE = 'm2m';
+
+/**
+ * The `app_type` values `brevo app create` sends on `POST /v3/app-store/apps`.
+ *
+ * **Not the same vocabulary as `app-config.json`'s `app_type` key**, which is a one-word
+ * local label (`oauth` / `ui` / `function`) written by the project writer and never sent
+ * anywhere. This one names the app type *and* the variant within it, because the two
+ * things the platform has to branch on — which contract, and which flow of it — are not
+ * separable at the top level of the request. The two fields share a name and nothing else:
+ * different values, different source (derived from the request's own discriminator block,
+ * see `wireAppTypeForBlock`), different lifetime.
+ *
+ * A UI app's value is completed with the block's `extension_type`
+ * (`ui_app.actionLink` today), so the day another extension type becomes authorable there
+ * is nothing here to remember to update.
+ */
+export const WIRE_APP_TYPE = {
+  FUNCTION: 'brevo_function',
+  UI_PREFIX: 'ui_app',
+  OAUTH_CONSENT: 'oauth.consent',
+  OAUTH_M2M: 'oauth.m2m',
+} as const;
+
+/**
+ * The `?type=` values `GET /v3/app-store/apps` filters on, keyed by the token
+ * `brevo app list --type` accepts.
+ *
+ * **A third vocabulary — do not unify it with either of the other two.** Only
+ * `brevo_function` coincides with `WIRE_APP_TYPE` above: `app create` sends
+ * `oauth.consent` / `oauth.m2m` / `ui_app.<extension_type>`, while this filter
+ * takes a bare `oauth` / `ui_app` / `m2m`. `app-config.json`'s local `app_type`
+ * label is a third spelling again. Same reasoning as the `app_type` pair: a
+ * shared name is not a shared vocabulary.
+ *
+ * The **keys** are the user-facing side, and they follow the CLI's own words
+ * rather than the wire's — `appType` in `--json` output is `oauth` / `ui` /
+ * `function` and `authType` is `m2m`, so a user who read one output can type
+ * the other. The wire spellings are deliberately *not* accepted as input.
+ *
+ * Kept here rather than in `src/app-types/` because `m2m` is an auth flow, not
+ * an app type: adding it to `AppTypeId` would break every exhaustive branch the
+ * registry relies on, which is exactly what that type exists to do — and a
+ * filter token must not be what triggers it.
+ */
+export const LIST_FILTER_APP_TYPE = {
+  oauth: 'oauth',
+  ui: 'ui_app',
+  function: 'brevo_function',
+  m2m: 'm2m',
+} as const;
+
+export type ListFilterAppType = keyof typeof LIST_FILTER_APP_TYPE;
+
+/** The accepted `--type` tokens, in help/error order. One source for both. */
+export const LIST_FILTER_APP_TYPE_VALUES = Object.keys(LIST_FILTER_APP_TYPE) as ListFilterAppType[];
 
 export const DEFAULT_SCOPES: readonly string[] = [
   'contacts:read',
@@ -375,3 +496,4 @@ export const BREVO_DOCS_URL = 'https://developers.brevo.com';
 export const BREVO_CLI_REFERENCE_URL = 'https://developers.brevo.com/docs/cli-reference';
 export const BREVO_OAUTH_SCOPES_DOCS_URL =
   'https://developers.brevo.com/docs/oauth-scopes#scope-catalog';
+export const BREVO_DEVELOPER_TERMS_URL = 'https://developers.brevo.com/docs/apps-developer-terms';

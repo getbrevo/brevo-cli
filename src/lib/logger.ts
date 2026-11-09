@@ -13,6 +13,27 @@ export function color(code: string, text: string): string {
 
 export const COLOR_RED = '31';
 
+export const INTENSITY_BOLD = '1';
+export const INTENSITY_DIM = '2';
+
+/**
+ * Bold or dim `text`, closing with the **intensity** reset (`22`) rather than the full SGR
+ * reset (`0`) {@link color} uses.
+ *
+ * The difference matters wherever styled text is handed to something that colours the whole
+ * line around it. inquirer wraps the row its pointer is on in cyan
+ * (`chalk.cyan(pointer + line)`), so a `0` inside that row ends the cyan partway through and
+ * the rest of the highlighted line comes out plain — the row the user is actually on being
+ * the one that loses its highlight. `22` turns off bold/dim and leaves the colour alone, so
+ * the two compose in either order.
+ *
+ * Gated on the same {@link color} rules, so `NO_COLOR` and a piped stdout fall back to plain
+ * text rather than to escapes nothing will interpret.
+ */
+export function intensity(code: string, text: string): string {
+  return useColor() ? `\x1b[${code}m${text}\x1b[22m` : text;
+}
+
 const SENSITIVE_KEYS = new Set([
   'api-key',
   'api_key',

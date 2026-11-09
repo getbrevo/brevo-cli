@@ -457,4 +457,61 @@ describe('app/list', () => {
       expect(output).toContain('http://localhost:5000');
     });
   });
+  // The filter is applied by the SERVER (`?type=`), never by a local `.filter()`
+  // — these assert the CLI token is mapped to the wire value, since a drift
+  // between the two vocabularies is silent otherwise.
+  describe('--type filter', () => {
+    it('sends no filter when --type is omitted', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
+
+      await listCommand({ json: false });
+
+      expect(appService.fetchAppsList).toHaveBeenCalledWith(undefined);
+    });
+
+    it.each([
+      ['oauth', 'oauth'],
+      ['ui', 'ui_app'],
+      ['function', 'brevo_function'],
+      ['m2m', 'm2m'],
+    ])('maps --type %s to the wire value %s', async (token, wire) => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
+
+      await listCommand({ json: false, type: token as 'oauth' | 'ui' | 'function' | 'm2m' });
+
+      expect(appService.fetchAppsList).toHaveBeenCalledWith({ type: wire });
+    });
+
+    it('shows the filtered empty message, not the create prompt', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
+
+      await listCommand({ json: false, type: 'function' });
+
+      const output = stdoutSpy.mock.calls.map((c) => c[0]).join('');
+      expect(output).toContain('No apps match --type function');
+      expect(output).not.toContain('Create one with');
+    });
+
+    it('shows the filtered header when rows come back', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([
+        { app_id: 'app-1', name: 'UI One', client_id: '' },
+      ]);
+
+      await listCommand({ json: false, type: 'ui' });
+
+      const output = stdoutSpy.mock.calls.map((c) => c[0]).join('');
+      expect(output).toContain('Your apps (--type ui):');
+      expect(output).not.toContain('Your apps:\n');
+    });
+
+    it('emits a bare JSON array under --json, with no prose', async () => {
+      (appService.fetchAppsList as jest.Mock).mockResolvedValue([]);
+
+      await listCommand({ json: true, type: 'oauth' });
+
+      const output = stdoutSpy.mock.calls.map((c) => c[0]).join('');
+      expect(JSON.parse(output)).toEqual([]);
+      expect(appService.fetchAppsList).toHaveBeenCalledWith({ type: 'oauth' });
+    });
+  });
 });

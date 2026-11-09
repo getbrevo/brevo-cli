@@ -2,7 +2,11 @@ import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
 import { logDebug, logInfo } from '../../lib/logger';
 import { messages } from '../../lang/en';
-import { fetchSupportedScopes, ScopeEntry } from '../../services/oauth-metadata';
+import {
+  fetchSupportedScopes,
+  groupScopesByCategory,
+  ScopeEntry,
+} from '../../services/oauth-metadata';
 import { startScopesWebServer } from '../../services/scopes-web';
 import { openBrowser } from '../../lib/browser';
 
@@ -23,29 +27,19 @@ function waitForShutdownSignal(): Promise<void> {
   });
 }
 
-function groupByCategory(entries: ScopeEntry[]): Map<string, string[]> {
-  const byCategory = new Map<string, string[]>();
-  for (const entry of entries) {
-    const list = byCategory.get(entry.category);
-    if (list) {
-      list.push(entry.name);
-    } else {
-      byCategory.set(entry.category, [entry.name]);
-    }
-  }
-  return byCategory;
-}
-
 function printScopesByCategory(entries: ScopeEntry[]): void {
-  const byCategory = groupByCategory(entries);
+  // Headed by the raw category KEY, not the catalog's English label, and the names carry no
+  // blurb — this list is a stable, greppable inventory, and both are available in the
+  // richer surfaces (`--web`, and the `app create` scope picker).
+  const byCategory = groupScopesByCategory(entries);
 
   let first = true;
-  for (const [category, names] of byCategory) {
+  for (const [category, scopes] of byCategory) {
     if (!first) logInfo('');
     first = false;
     logInfo(`${category}:`);
-    for (const name of names) {
-      logInfo(`  ${name}`);
+    for (const scope of scopes) {
+      logInfo(`  ${scope.name}`);
     }
   }
 
@@ -59,11 +53,11 @@ async function runWebMode(entries: ScopeEntry[]): Promise<void> {
   const server = await startScopesWebServer(entries, { refetch: fetchSupportedScopes });
   logInfo('');
   logInfo(messages.APP_SCOPES_WEB_LISTENING(server.url));
-  try {
-    openBrowser(server.url);
-  } catch (err) {
-    logDebug('openBrowser failed', { message: (err as Error).message });
-  }
+  // The failure is only observable via openBrowser's async error callback — a try/catch
+  // can never fire here (see `src/lib/browser.ts`). The URL is already printed above.
+  openBrowser(server.url, (err) => {
+    logDebug('openBrowser failed', { message: err.message });
+  });
   await waitForShutdownSignal();
   await server.close();
 }

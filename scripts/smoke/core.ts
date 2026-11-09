@@ -118,6 +118,10 @@ export interface State {
   publicApp: SmokeApp | null;
   // The UI app the `ui` suite created (`redirectUri` is '' — a UI app has none).
   uiApp: SmokeApp | null;
+  // The M2M app the `private` suite created. Both `redirectUri` and `projectDir` are ''
+  // — an M2M app has no callback AND no project on disk, which is the property the steps
+  // that use this assert.
+  m2mApp: SmokeApp | null;
   initAppId: string | null;
   linked: boolean;
   caps: Record<string, boolean> | null;
@@ -215,8 +219,8 @@ export interface ExecOptions {
   inherit?: boolean;
   // Hard cap, used by the trap paths so cleanup can't hang on a signal.
   timeoutMs?: number;
-  // Merged over process.env. Only the build in stepReinstall needs this, to ask
-  // for the preview surface (PREVIEW=1); every `brevo` call inherits plain env.
+  // Merged over process.env. Used by the suites that need to steer a single command
+  // (e.g. a scripted pty run); every plain `brevo` call inherits unmodified env.
   env?: Record<string, string | undefined>;
 }
 
@@ -855,17 +859,68 @@ export const GATED_COMMANDS = [
 export type GatedCommand = (typeof GATED_COMMANDS)[number];
 
 /**
- * Gated *features* — surface that is missing from a build without a command going with
- * it, so command detection can't see it.
+ * Gated *features* — surface that can be missing from an installed CLI without a command
+ * going with it, so command detection can't see it.
  *
- * `public-distribution` is the one that matters: since BEX-405 the published build drops
- * `--distribution public` (`assertFeatureAvailable('public-distribution')` refuses it with
- * a typed CliError) while `app create` itself is obviously still there. The public suite
- * opens by creating a public app, so without this the whole lifecycle *failed* on a
- * published-surface build instead of skipping — and `yarn build` has produced that surface
- * by default since `link:dev` stopped implying preview.
+ * `public-distribution` named a real build-time gate until public-apps GA: `yarn build`
+ * dropped `--distribution public` (`assertFeatureAvailable('public-distribution')` refused
+ * it with a typed CliError) while `app create` itself was obviously still there, so
+ * without this entry the public suite — which opens by creating a public app — *failed* on
+ * a published-surface build instead of skipping.
+ *
+ * It still earns its place on `--against=published`, where the npm `latest` tag can be an
+ * older CLI that genuinely refuses the flag. That is now the only way this fires: a local
+ * build has the whole surface. Detection is unchanged either way — it probes the installed
+ * binary rather than assuming anything about which build produced it.
+ *
+ * `m2m-flag` is gated by RELEASE, not by the build: `--m2m` is GA and ships in every
+ * artefact this repo produces, but it is newer than the version npm currently serves, so
+ * `--against=published` runs a `brevo app create` that answers `unknown option '--m2m'`.
+ * Detected for the same reason as the one above — the four M2M steps live in the DEFAULT
+ * `private` suite, so without this every published-surface run reports them as four hard
+ * failures. This row can be dropped once the release carrying `--m2m` is on `latest`.
+ *
+ * `m2m-scopes-update` (BEX-486) is gated the same way as `m2m-flag` and for the same
+ * reason: `app scopes update` is new, GA, and newer than what `--against=published` may be
+ * running. It ALSO has a second, independent way to be unavailable that `m2m-flag` does
+ * not: the scopes-update command depends on a backend endpoint (BEX-481) that had not
+ * shipped as of this writing, so even a build that offers the command can still have it
+ * refused server-side. `stepM2mScopesUpdate` in `private-app.ts` downgrades this same
+ * capability with `markFeatureUnavailable` on that failure, exactly like
+ * `public-distribution` does for a build that offers `--distribution public` but whose
+ * environment declines the create — see that step for the pattern.
+ *
+ * `m2m-app-token` (BEX-482) is gated the same two ways as `m2m-scopes-update`: the CLI
+ * build may predate `brevo app token` (checked via `appTokenOffered`), or the build may
+ * have it while the backend it depends on ("brevo app token [Backend]", not yet built as
+ * of this writing) has not shipped in this environment. `stepM2mAppToken` in
+ * `private-app.ts` downgrades this capability with `markFeatureUnavailable` on that
+ * second failure, exactly like `m2m-scopes-update` does.
+ *
+ * `m2m-secret-rotate` (BEX-484) is gated the same two ways as `m2m-app-token`: the CLI
+ * build may predate `brevo app secret rotate` (checked via `secretRotateOffered`), or the
+ * build may have it while the backend it depends on ("brevo app secret rotate [Backend]",
+ * not yet built as of this writing) has not shipped in this environment.
+ * `stepM2mSecretRotate` in `private-app.ts` downgrades this capability with
+ * `markFeatureUnavailable` on that second failure, exactly like `m2m-app-token` does.
+ *
+ * `list-type-filter` (BEX-495) is gated the ONE way `m2m-flag` is, and not the two the
+ * three rows above it are: `brevo app list --type` is a new flag on an old command, GA in
+ * every artefact this repo produces but newer than what npm may be serving, so an
+ * `--against=published` run answers `unknown option '--type'`. There is no second,
+ * environment-side gate to discover at runtime — the filter is a query parameter on the
+ * list endpoint the suite already calls on every run, so a build that offers the flag can
+ * reach it. Detected via `listTypeFilterOffered` rather than a command probe because the
+ * command (`app list`) has shipped since the first release; only the option is new.
  */
-export const GATED_FEATURES = ['public-distribution'] as const;
+export const GATED_FEATURES = [
+  'public-distribution',
+  'm2m-flag',
+  'm2m-scopes-update',
+  'm2m-app-token',
+  'm2m-secret-rotate',
+  'list-type-filter',
+] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];
 
@@ -876,12 +931,17 @@ export function listedInHelp(helpText: string, command: string): boolean {
 /**
  * Commands that are registered but appear on no help screen.
  *
- * `withdraw` carries `hidden: true` (see `src/commands/preview-definitions.ts`): fully
- * callable, simply not advertised. Root-help detection reads that as *absent* and would
- * skip the withdraw step on a build that has it — a silent loss of coverage, which is
- * the one failure mode a smoke run must not have. These are probed directly instead.
+ * **Empty since public-apps GA.** `withdraw` was the only entry: it carried
+ * `hidden: true` while the review lifecycle was being finished — fully callable, simply
+ * not advertised — and root-help detection reads that as *absent*, which would have
+ * skipped the withdraw step on a build that has the command. That is a silent loss of
+ * coverage, the one failure mode a smoke run must not have, so it was probed directly
+ * instead. The flag is gone and `brevo app withdraw` is on both help screens now.
+ *
+ * Kept as the mechanism rather than deleted: a `hidden` command is a normal thing to
+ * ship (a deprecation shim, a command mid-rollout) and this is where its name goes.
  */
-const UNLISTED_COMMANDS: ReadonlySet<string> = new Set(['withdraw']);
+const UNLISTED_COMMANDS: ReadonlySet<string> = new Set<string>();
 
 /**
  * Ask a subcommand for its own help and see whether it answers as itself.
@@ -911,6 +971,103 @@ export function publicDistributionOffered(state: State): boolean {
   return /Distribution type \([^)]*\bpublic\b/.test(r.stdout + r.stderr);
 }
 
+/** An option line for `--m2m`, tested against a help line whose indent is already off. */
+const M2M_OPTION_LINE = /^--m2m\b/;
+
+/**
+ * Does this build's `app create` take `--m2m`?
+ *
+ * Matched as an option LINE rather than anywhere in the text, because `--scopes`' own
+ * description and two of the command's examples name the flag as well — a substring match
+ * would answer "present" off a build that only mentions it. Same help-only reasoning as
+ * the probe above: running the flag for real either creates an app or burns a call to be
+ * told it can't.
+ *
+ * Split-and-trim rather than the obvious `/^\s+--m2m\b/m`, which Sonar rejects (S8786)
+ * and is right to: `\s` matches a newline, so under `/m` the quantifier can run across
+ * line boundaries and every start position backtracks against every other — super-linear
+ * on a long help screen. Anchoring at the start of an already-trimmed line has no
+ * quantifier to backtrack at all.
+ */
+export function m2mFlagOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'create', '--help'], state);
+  return (r.stdout + r.stderr).split('\n').some((line) => M2M_OPTION_LINE.test(line.trimStart()));
+}
+
+/** An option line for `--type`, tested against a help line whose indent is already off. */
+const LIST_TYPE_OPTION_LINE = /^--type\b/;
+
+/**
+ * Does this build's `app list` take `--type`? (BEX-495)
+ *
+ * `app list` itself has shipped since the first release, so `listedInHelp` /
+ * `respondsToOwnHelp` cannot answer this — only the OPTION is new, which makes it the same
+ * shape of probe as `m2mFlagOffered` rather than the command probes around it.
+ *
+ * Matched as an option LINE for the same reason `--m2m` is: `app list`'s own examples name
+ * the flag (`$ brevo app list --type function`), so a substring match would answer
+ * "present" off a build that only advertises it in prose. Those example lines start with
+ * `$` once trimmed, so an anchored per-line test cannot see them.
+ *
+ * Split-and-trim rather than `/^\s+--type\b/m`, for the super-linear-backtracking reason
+ * spelled out on `m2mFlagOffered` above (Sonar S8786).
+ */
+export function listTypeFilterOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'list', '--help'], state);
+  return (r.stdout + r.stderr)
+    .split('\n')
+    .some((line) => LIST_TYPE_OPTION_LINE.test(line.trimStart()));
+}
+
+/**
+ * Does this build register `brevo app scopes update`?
+ *
+ * `scopes update` is nested one level deeper than the commands `respondsToOwnHelp` probes
+ * (`app <command>`), so it gets its own probe rather than reusing that one: Commander
+ * still answers a registered subcommand's own `--help` with its own usage line
+ * (`Usage: brevo app scopes update`), falling back to the PARENT group's usage
+ * (`Usage: brevo app scopes [options] [command]`) when `update` isn't registered — so the
+ * same line-prefix check `respondsToOwnHelp` relies on for `withdraw` still distinguishes
+ * present from absent here. Split-and-check per line, not a multiline regex, for the same
+ * super-linear-regex reason `m2mFlagOffered` above avoids one.
+ */
+export function scopesUpdateOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'scopes', 'update', '--help'], state);
+  return (r.stdout + r.stderr)
+    .split('\n')
+    .some((line) => line.startsWith('Usage: brevo app scopes update'));
+}
+
+/**
+ * Does this build register `brevo app token`?
+ *
+ * Same `respondsToOwnHelp`-style probe as the commands in `GATED_COMMANDS`, kept
+ * separate because `token` is a feature (gated by release readiness, not by the build —
+ * see the `m2m-app-token` doc comment on `GATED_FEATURES`) rather than a command whose
+ * presence is assumed.
+ */
+export function appTokenOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'token', '--help'], state);
+  return (r.stdout + r.stderr)
+    .split('\n')
+    .some((line) => line.startsWith('Usage: brevo app token'));
+}
+
+/**
+ * Does this build register `brevo app secret rotate`?
+ *
+ * Nested one level deeper than the commands `respondsToOwnHelp` probes, same reasoning as
+ * `scopesUpdateOffered`: a registered subcommand answers its own `--help` with its own
+ * usage line (`Usage: brevo app secret rotate`), falling back to the parent group's usage
+ * (`Usage: brevo app secret [options] [command]`) when `rotate` isn't registered.
+ */
+export function secretRotateOffered(state: State): boolean {
+  const r = exec(brevoCmd(state), ['app', 'secret', 'rotate', '--help'], state);
+  return (r.stdout + r.stderr)
+    .split('\n')
+    .some((line) => line.startsWith('Usage: brevo app secret rotate'));
+}
+
 // Detection is help-text based, with one probe per unlisted command (see above).
 export function detectCapabilities(state: State): Record<string, boolean> {
   const help = exec(brevoCmd(state), ['--help'], state);
@@ -933,11 +1090,27 @@ export function detectCapabilities(state: State): Record<string, boolean> {
   }
 
   for (const name of GATED_COMMANDS) {
-    caps[name] = UNLISTED_COMMANDS.has(name)
-      ? respondsToOwnHelp(state, name)
-      : listedInHelp(helpText, name);
+    caps[name] = listedInHelp(helpText, name);
+  }
+  // Guarded on the set being non-empty, same as the leak scans in `scripts/build.mjs`
+  // (9bf1240): an empty UNLISTED_COMMANDS is the NORMAL state between features, not a
+  // dead branch, but a static analyser that can prove the set is never added to reads
+  // an unguarded `.has(...)` as unreachable and reports the mechanism as dead code
+  // (SonarCloud S4158 did exactly that on PR #143). Do not "simplify" the guard away,
+  // and do not delete the set because a tool called it empty.
+  if (UNLISTED_COMMANDS.size > 0) {
+    for (const name of GATED_COMMANDS) {
+      if (UNLISTED_COMMANDS.has(name)) {
+        caps[name] = respondsToOwnHelp(state, name);
+      }
+    }
   }
   caps['public-distribution'] = publicDistributionOffered(state);
+  caps['m2m-flag'] = m2mFlagOffered(state);
+  caps['m2m-scopes-update'] = scopesUpdateOffered(state);
+  caps['m2m-app-token'] = appTokenOffered(state);
+  caps['m2m-secret-rotate'] = secretRotateOffered(state);
+  caps['list-type-filter'] = listTypeFilterOffered(state);
   logToFile(state, `capabilities: ${JSON.stringify(caps)}`);
   state.caps = caps;
   return caps;
@@ -958,9 +1131,10 @@ export function requireCommand(state: State, name: GatedCommand): void {
 export function requireFeature(state: State, name: GatedFeature): void {
   if (state.caps?.[name] !== false) return;
   // A runtime downgrade outranks the build explanation. The build DID offer the
-  // command in that case — a PREVIEW=1 run has the whole public surface — so
-  // saying "not available in this build" would be plainly false, and points a
-  // reader at scripts/build.mjs when the refusal came from the API.
+  // command in that case, so saying "not available in this build" would be plainly
+  // false, and points a reader at scripts/build.mjs when the refusal came from the API.
+  // With nothing gated, the build branch below can now only fire on
+  // `--against=published` where npm's `latest` predates a command on this branch.
   const downgraded = state.capDowngrades[name];
   skip(
     downgraded
@@ -1074,15 +1248,15 @@ export function stepReinstall(state: State): string {
 
   let buildNote = '';
   if (state.opts.against === 'local') {
-    // `yarn build` produces the *published* surface — the pre-GA commands and
-    // `--distribution public` are eliminated from it (BEX-405). The public suite exists to
-    // exercise exactly that surface, so it needs the preview artefact; asking for it here
-    // is what keeps the coverage rather than skipping the suite on a local run. Everything
-    // the private suite touches is present in both, so a private-only run stays published —
-    // and is then the only local run that tests what npm actually ships.
-    const needsPreview = state.opts.suites.includes('public');
-    buildNote = needsPreview ? ', build=preview' : ', build=published';
-    execOrThrow(PKG_YARN, ['build'], state, needsPreview ? { env: { PREVIEW: '1' } } : {});
+    // Always the PUBLISHED surface. This used to fork: `yarn build` eliminated the
+    // review-lifecycle commands and `--distribution public` (BEX-405), so a run that
+    // selected the public suite asked for `PREVIEW=1` instead, since that surface existed
+    // nowhere else. Public apps went GA and the fork went with it — deliberately, not by
+    // neglect: keeping it would leave the one suite that exercises the review lifecycle
+    // permanently pointed at an artifact nobody installs. Nothing is gated now, so every
+    // suite's commands are in the published build and every local run tests what npm ships.
+    buildNote = ', build=published';
+    execOrThrow(PKG_YARN, ['build'], state);
     execOrThrow(PKG_YARN, ['link'], state);
   } else {
     execOrThrow(PKG_NPM, ['install', '-g', `${PACKAGE_NAME}@latest`], state);
@@ -1194,7 +1368,6 @@ export const BASE_SCAFFOLD_FILES = [
 export interface CreateSmokeAppOptions {
   label: string;
   distribution: 'private' | 'public';
-  logoUri?: string;
 }
 
 // Shared create path for both lifecycles: runs `brevo app create --json` from
@@ -1213,9 +1386,11 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     name,
     '--distribution',
     opts.distribution,
+    // A non-interactive public create is refused without explicit Developer Terms
+    // consent — the smoke run consents the way a script is meant to, via the flag.
+    ...(opts.distribution === 'public' ? ['--accept-developer-terms'] : []),
     '--redirect-uri',
     redirectUri,
-    ...(opts.logoUri ? ['--logo-uri', opts.logoUri] : []),
     '--json',
   ];
   const created = parseJson<Record<string, unknown>>(
@@ -1240,13 +1415,6 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     asStringArray(created.redirectUri, 'create redirectUri').includes(redirectUri),
     `create response is missing redirect URI ${redirectUri}`,
   );
-  if (opts.logoUri) {
-    must(
-      created.logoUri === opts.logoUri,
-      `create returned logoUri ${JSON.stringify(created.logoUri)}`,
-    );
-  }
-
   // Default directory: `./<slug>` relative to the cwd create ran in. A build
   // from before BEX-255 doesn't create one — record that and let the steps that
   // need a project directory skip themselves (see requireProjectDir), instead of
@@ -1294,10 +1462,6 @@ export async function createSmokeApp(state: State, opts: CreateSmokeAppOptions):
     !('permittedUrls' in cfg) && !('support' in cfg),
     'app-config.json still carries the removed permittedUrls/support blocks',
   );
-  if (opts.logoUri) {
-    const cfgLogo = configField(cfg, 'logo_uri', 'logoUri');
-    must(cfgLogo === opts.logoUri, `app-config.json logo_uri ${JSON.stringify(cfgLogo)}`);
-  }
   const cfgUrls = asStringArray(configRedirectUris(cfg), 'app-config.json auth.redirect_uris');
   must(cfgUrls.includes(redirectUri), `app-config.json is missing redirect URL ${redirectUri}`);
 
@@ -1485,6 +1649,13 @@ export function stepDeleteLeftoverApps(state: State): string {
       clear: () => (state.uiApp = null),
     });
   }
+  if (state.m2mApp) {
+    leftovers.push({
+      label: 'm2m',
+      appId: state.m2mApp.appId,
+      clear: () => (state.m2mApp = null),
+    });
+  }
   if (state.initAppId) {
     leftovers.push({
       label: 'init',
@@ -1587,6 +1758,10 @@ export function trapDeleteApps(state: State): void {
     state.mainApp?.appId,
     state.publicApp?.appId,
     state.uiApp?.appId,
+    // Listed here as well as in `stepDeleteLeftoverApps`: the loop below is the only
+    // thing that turns a live app into an orphan REPORT, and `state.m2mApp` is cleared
+    // unconditionally a few lines down — so omitting it here dropped the id silently.
+    state.m2mApp?.appId,
     state.initAppId,
   ]) {
     if (!appId) continue;
@@ -1614,6 +1789,7 @@ export function trapDeleteApps(state: State): void {
   state.mainApp = null;
   state.publicApp = null;
   state.uiApp = null;
+  state.m2mApp = null;
   state.initAppId = null;
 
   if (orphans.length > 0) {
