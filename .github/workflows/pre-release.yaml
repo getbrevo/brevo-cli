@@ -135,22 +135,22 @@ jobs:
         run: yarn test
 
       - name: Create prerelease PR
-        # changesets/action@v2.1.2
-        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51
+        # changesets/action@v1.7.0
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d
         with:
-          pr-title: "chore(release): version packages (alpha)"
-          version-script: yarn version:packages
+          title: "chore(release): version packages (alpha)"
+          version: yarn version:packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to npm
         id: changesets
         if: steps.check_files.outputs.files_exists == 'true' && contains(github.event.head_commit.message, 'Version Packages')
-        # changesets/action@v2.1.2
-        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51
+        # changesets/action@v1.7.0
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d
         with:
-          version-script: echo "This step should never version"
-          publish-script: yarn publish:packages
+          version: echo "This step should never version"
+          publish: yarn publish:packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No NPM_TOKEN — auth is via npm Trusted Publishing (OIDC).
@@ -165,7 +165,7 @@ jobs:
         continue-on-error: true
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PACKAGE_RELEASE_WEBHOOK_URL }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
           REPO: ${{ github.repository }}
           ACTOR: ${{ github.actor }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
