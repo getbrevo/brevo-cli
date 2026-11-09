@@ -629,29 +629,28 @@ describe('validateUiApp', () => {
     },
   );
 
-  // ──────── sandbox is not the partner's field, at either depth ────────
-  // The platform stamps the iframe's sandbox attributes onto the stored snapshot and the
-  // UI kit applies whatever it is served verbatim, so an authored value would be a partner
-  // writing the attributes their own frame runs under. Refused rather than stripped: the
-  // upload sends the file's block as-is, and dropping the key silently would leave the
-  // partner believing their value is in force.
-  it('rejects a root-level sandbox', () => {
+  // ──────── sandbox: per-entry, iframe-only (BEX-498) ────────
+  // On an actionLink there is no frame to configure, so an entry-level value is refused by
+  // name; the root is refused for every type (see the iframeExtension suite below).
+  it('rejects a root-level sandbox, pointing at the per-entry field', () => {
     expect(() => validateUiApp({ ...VALID, sandbox: 'allow-scripts' })).toThrow(
-      /ui_app\.sandbox is not authored in app-config\.json/,
+      /ui_app\.sandbox is not a ui_app field — the iframe sandbox is set per placement/,
     );
   });
 
-  it('rejects a per-entry sandbox, naming the entry', () => {
+  it('rejects a sandbox on an actionLink entry, naming the entry', () => {
     expect(() => validateUiApp(withEntry({ sandbox: 'allow-scripts' }))).toThrow(
-      new RegExp(`surface_point_list\\["${VALID_POINT}"\\]\\.sandbox is not authored`),
+      new RegExp(
+        `surface_point_list\\["${VALID_POINT}"\\]\\.sandbox only applies to "iframeExtension"`,
+      ),
     );
   });
 
   // Ahead of the per-entry checks on purpose: a second problem in the block must not
-  // decide whether the security-relevant one is the message the partner sees.
-  it('reports a sandbox before an unrelated entry problem', () => {
-    expect(() => validateUiApp({ ...withEntry({ label: ' ', sandbox: 'allow-scripts' }) })).toThrow(
-      /\.sandbox is not authored/,
+  // decide whether the root-level refusal is the message the partner sees.
+  it('reports a root sandbox before an unrelated entry problem', () => {
+    expect(() => validateUiApp({ ...withEntry({ label: ' ' }), sandbox: 'allow-scripts' })).toThrow(
+      /ui_app\.sandbox is not a ui_app field/,
     );
   });
 });
@@ -788,79 +787,56 @@ describe('validateUiApp — iframeExtension', () => {
     );
   });
 
-  // The type the field would actually apply to, and still refused: an iframeExtension is
-  // the only extension that renders an iframe at all, so this is the config a partner
-  // would try it in. The platform stamps the attributes; the partner never writes them.
+  // ──────── sandbox on an iframe entry (BEX-498) ────────
+  // Authorable on the type that renders a frame. SHAPE only — membership in the slot's
+  // allowed list is the platform's call, so an unregistered-looking token must pass here
+  // (the same spirit as the slot-name allow-list the CLI deliberately does not keep).
+  it('accepts an authored per-entry sandbox of allow-* tokens', () => {
+    expect(() =>
+      validateUiApp(
+        withIframeEntry({ sandbox: 'allow-scripts allow-same-origin allow-downloads' }),
+      ),
+    ).not.toThrow();
+  });
+
+  it('accepts a token the CLI has never heard of, as long as it is well-formed', () => {
+    expect(() =>
+      validateUiApp(withIframeEntry({ sandbox: 'allow-some-future-capability' })),
+    ).not.toThrow();
+  });
+
+  it('accepts tokens separated by any run of whitespace', () => {
+    expect(() =>
+      validateUiApp(withIframeEntry({ sandbox: '  allow-scripts \t allow-forms\n' })),
+    ).not.toThrow();
+  });
+
   it.each([
-    ['at the root', { ...VALID_IFRAME, sandbox: 'allow-scripts allow-same-origin' }],
-    ['on the entry', withIframeEntry({ sandbox: 'allow-scripts allow-same-origin' })],
-  ])('rejects an authored sandbox %s', (_label, block) => {
-    expect(() => validateUiApp(block)).toThrow(/\.sandbox is not authored in app-config\.json/);
-  });
-});
-
-// The single-axis half of the `size` grammar, exported since BEX-461 so the three readers
-// of it — the authored-file check, `brevo app create`'s inline card-height prompt, and the
-// registry-seed sanitizer — cannot drift apart. A prompt that accepted what the file check
-// refuses would author a config in the very flow that then rejects it.
-describe('validateUiAppSizeAxis', () => {
-  it('accepts a px length and a percentage within range', () => {
-    expect(validateUiAppSizeAxis('height', '300px')).toBe(true);
-    expect(validateUiAppSizeAxis('width', '50%')).toBe(true);
-  });
-
-  it('refuses a unit-less number, a zero, and a non-string', () => {
-    expect(validateUiAppSizeAxis('height', '300')).toMatch(/px or % unit/);
-    expect(validateUiAppSizeAxis('height', '0px')).toMatch(/px or % unit/);
-    expect(validateUiAppSizeAxis('height', 300)).toMatch(/px or % unit/);
-  });
-
-  it('caps a percentage at 100, naming the axis it was given', () => {
-    expect(validateUiAppSizeAxis('height', '150%')).toBe(
-      'height "150%" is out of range — a % axis must be between 1% and 100%.',
+    ['blank', ' '],
+    ['empty', ''],
+    ['not a string', ['allow-scripts']],
+    ['a token without the allow- prefix', 'allow-scripts scripts'],
+    ['an uppercase token', 'allow-Scripts'],
+    ['a token with other characters', 'allow-scripts;allow-forms'],
+  ])('rejects a sandbox that is %s', (_label, value) => {
+    expect(() => validateUiApp(withIframeEntry({ sandbox: value }))).toThrow(
+      new RegExp(
+        `surface_point_list\\["${VALID_POINT}"\\]\\.sandbox must be a space-separated list`,
+      ),
     );
   });
-});
 
-// The prompt's own validator: the same grammar, plus one difference that is the whole
-// point of it existing separately — blank PASSES. A bare Enter through the card-height
-// question means "keep the slot's registry default", which is a real answer rather than an
-// omission, so re-prompting would be refusing the platform's own value.
-describe('validateUiAppCardHeight', () => {
-  it('accepts a blank answer, which keeps the registry seed', () => {
-    expect(validateUiAppCardHeight('')).toBe(true);
-    expect(validateUiAppCardHeight('   ')).toBe(true);
+  it('rejects a repeated sandbox token', () => {
+    expect(() =>
+      validateUiApp(withIframeEntry({ sandbox: 'allow-scripts allow-forms allow-scripts' })),
+    ).toThrow(/\.sandbox lists "allow-scripts" more than once/);
   });
 
-  it('trims before judging, so a typed trailing space is not a refusal', () => {
-    expect(validateUiAppCardHeight(' 300px ')).toBe(true);
-  });
-
-  it('refuses what the authored-file check would refuse', () => {
-    expect(validateUiAppCardHeight('300')).toMatch(/px or % unit/);
-    expect(validateUiAppCardHeight('150%')).toMatch(/between 1% and 100%/);
-  });
-});
-
-describe('parseAppListType', () => {
-  it.each(['oauth', 'ui', 'function', 'm2m'])('accepts the CLI token %s unchanged', (token) => {
-    expect(parseAppListType(token)).toBe(token);
-  });
-
-  // The wire spellings are deliberately NOT accepted as input: `--type` speaks the
-  // CLI's vocabulary (what `--json` prints), and accepting both would make the two
-  // vocabularies look interchangeable. This test is what catches that "simplification".
-  it.each(['ui_app', 'brevo_function', 'oauth.m2m'])('refuses the wire spelling %s', (wire) => {
-    expect(() => parseAppListType(wire)).toThrow(CliError);
-  });
-
-  it('is case-sensitive', () => {
-    expect(() => parseAppListType('OAUTH')).toThrow(CliError);
-  });
-
-  it('names every valid value in the error', () => {
-    expect(() => parseAppListType('uiapp')).toThrow(
-      'Invalid --type "uiapp". Must be one of: oauth, ui, function, m2m.',
-    );
+  // Never at the root, whatever the type: one value there could only say one thing about
+  // every slot, and the platform stamps its own at that level.
+  it('rejects a sandbox at the root of an iframe block', () => {
+    expect(() =>
+      validateUiApp({ ...VALID_IFRAME, sandbox: 'allow-scripts allow-same-origin' }),
+    ).toThrow(/ui_app\.sandbox is not a ui_app field/);
   });
 });

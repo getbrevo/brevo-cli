@@ -236,6 +236,31 @@ export interface SurfacePointEntry {
    * layout. Absent means the host slot's default size applies entirely (BEX-416).
    */
   size?: { width?: string; height?: string };
+  /**
+   * `iframeExtension` entries on a PRIVATE app only: the iframe `sandbox` tokens the
+   * developer chose to run this entry's page under, as one space-separated string —
+   * e.g. `"allow-scripts allow-same-origin allow-forms"`.
+   *
+   * AUTHORED ONLY WHEN THE DEVELOPER ASKED FOR MORE than the platform's default.
+   * Absent means the platform stamps its own default on its stored copy and the server
+   * echoes that back — which is why the config round-trip only keeps an echoed value for
+   * an entry whose local copy authored one (`src/app-types/wire.ts`). The permitted set
+   * is the registry row's `metadata.sandbox.allowed` and is enforced server-side; the
+   * CLI checks the shape only. Refused on an `actionLink` entry and at the block root.
+   */
+  sandbox?: string;
+}
+
+/**
+ * The iframe `sandbox` policy a registry row declares in `metadata.sandbox` — a SEED and
+ * a menu, modelled on `default_size`: `default` is what the platform applies to an entry
+ * that authors nothing, and `allowed` is every token a private app may ask for (the
+ * default's own tokens included). Both are token lists once sanitized; on the wire the
+ * default is one space-separated string.
+ */
+export interface SurfacePointSandboxPolicy {
+  default?: string;
+  allowed?: string[];
 }
 
 /**
@@ -298,6 +323,13 @@ export interface SurfacePointRow {
    * so seeding from it cannot author a config the CLI's own upload rejects.
    */
   default_size?: { width?: string; height?: string } | null;
+  /**
+   * Free-form per-row registry metadata. The only key the CLI reads is `sandbox`, the
+   * iframe policy an `iframeExtension` entry on this slot may be authored under (BEX-498).
+   * Absent on a bo-be that predates it, and then the CLI offers no sandbox question and
+   * writes no `sandbox` — the platform's own default keeps applying.
+   */
+  metadata?: { sandbox?: SurfacePointSandboxPolicy | null } | null;
   /** Which `extension_type` values this slot can serve. */
   extension_type_list?: string[];
   /** Registry lifecycle marker; anything other than `active` is not offerable. */

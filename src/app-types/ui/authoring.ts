@@ -22,6 +22,7 @@ import {
 import { messages } from '../../lang/en';
 import { CliError } from '../../lib/errors';
 import {
+  parseSandboxTokens,
   validateUiApp,
   validateUiAppCardHeight,
   validateUiAppLabel,
@@ -32,7 +33,13 @@ import {
 import { printBox, createSpinner, indentChoices } from '../../lib/ui';
 import { isFeatureAvailable } from '../../lib/preview';
 import { appService } from '../../container';
-import { CreateAppResponse, SurfacePointEntry, SurfacePointRow, UiApp } from '../../types';
+import {
+  CreateAppResponse,
+  SurfacePointEntry,
+  SurfacePointRow,
+  SurfacePointSandboxPolicy,
+  UiApp,
+} from '../../types';
 import { formatPlacementLines } from './fields';
 
 // UI-app configuration (BEX-290) — this is step 4b of the `app create` flow, replacing the
@@ -62,6 +69,11 @@ import { formatPlacementLines } from './fields';
 //       9. card height      → `inline` only: the card IS the embedded page there, so its
 //                             height is the partner's call rather than the slot's.
 //                             Pre-filled from the row's `default_size`.
+//
+//      10. sandbox         → iframe on a PRIVATE app only, and only when the picked slot's
+//                             registry row declares `metadata.sandbox.allowed` (BEX-498): a
+//                             multi-select of the allowed permissions the platform's default
+//                             does not already grant. None chosen writes no `sandbox` at all.
 //
 //     Five questions for a Link, one optional, and two registry reads that ask for
 //     different things:
@@ -471,6 +483,15 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
   // action slot renders no card, a Link's card shows a CTA rather than a page).
   const cardHeight = await promptInlineCardHeight(isIframe, layout, selectedRows);
 
+  // Extra iframe permissions — the one private-app-only question. Asked only when the
+  // registry row offers a menu (`metadata.sandbox.allowed`); a bo-be that predates the
+  // metadata serves none and the question, like the key, is simply absent. The raw
+  // `__BREVO_PREVIEW__` is the elimination site, so the question's strings (in
+  // `preview-messages.ts`) leave a published bundle with it.
+  const sandbox = __BREVO_PREVIEW__
+    ? await promptIframeSandbox(isIframe && distribution === 'private', selectedRows)
+    : undefined;
+
   const uiApp: UiApp = {
     extension_type: extensionType,
     // One entry for the selected placement, seeded from THAT row's
@@ -501,6 +522,7 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
       url: String(url ?? '').trim(),
       layout,
       modal_size: modalSize,
+      sandbox,
     }),
     // No link_target: `brevo app upload` injects `_blank`. See the field's note in
     // types.ts — the server refuses `_self`, so a field in the file would only
@@ -689,6 +711,76 @@ async function promptInlineCardHeight(
 }
 
 /**
+ * A registry row's sandbox policy reduced to what the prompt can use, or `undefined`.
+ *
+ * Sanitized the way `sanitizeSeededSize` treats `default_size`: the registry is the only
+ * source, but a server predating the metadata — or echoing an unexpected shape — must
+ * degrade to "no question" rather than seat a choice the file check then refuses. SHAPE
+ * only (`parseSandboxTokens`): the CLI never decides which tokens are permitted, it offers
+ * exactly the list the platform served. `allowed` tokens already in `default` are dropped
+ * from the menu (the default applies regardless), and an empty menu means nothing to ask.
+ */
+function sandboxPolicyFor(
+  rows: UsableSurfacePoint[],
+): { defaults: string[]; extras: string[] } | undefined {
+  for (const row of rows) {
+    const policy: SurfacePointSandboxPolicy | null | undefined = row.metadata?.sandbox;
+    if (!policy || typeof policy !== 'object' || !Array.isArray(policy.allowed)) continue;
+    // `default` absent is a legitimate "the platform default grants nothing extra"; a
+    // present-but-malformed one is not trusted, so the row offers no question at all
+    // rather than composing a value on top of a default the CLI could not read.
+    const defaults = policy.default === undefined ? [] : parseSandboxTokens(policy.default);
+    if (!defaults) continue;
+    const extras = [
+      ...new Set(
+        policy.allowed.filter(
+          (token): token is string =>
+            typeof token === 'string' && parseSandboxTokens(token)?.length === 1,
+        ),
+      ),
+    ].filter((token) => !defaults.includes(token));
+    if (extras.length > 0) return { defaults: [...new Set(defaults)], extras };
+  }
+  return undefined;
+}
+
+/**
+ * Ask whether the embedded page needs permissions beyond the platform's default sandbox
+ * (BEX-498) — private iframe apps only, and only where the slot's registry row lists what
+ * may be added.
+ *
+ * Default is none, and NONE WRITES NOTHING: no `sandbox` key means the platform's own
+ * default applies, which is also what a developer who just presses Enter wants. A choice
+ * writes the whole string, `<registry default> <chosen>`, composed here at create time from
+ * the default the registry served — so what lands in the file is the complete policy the
+ * entry will run under, not a delta a reader has to know the default to apply. The platform
+ * validates the result against `allowed`; this only offers what it listed.
+ */
+async function promptIframeSandbox(
+  applies: boolean,
+  rows: UsableSurfacePoint[],
+): Promise<string | undefined> {
+  if (!applies) return undefined;
+  const policy = sandboxPolicyFor(rows);
+  if (!policy) return undefined;
+  const { sandbox } = await inquirer.prompt([
+    {
+      type: 'checkbox',
+      name: 'sandbox',
+      message: messages.APP_CREATE_UI_SANDBOX_PROMPT,
+      choices: indentChoices(policy.extras.map((token) => ({ name: token, value: token }))),
+    },
+  ]);
+  // A checkbox answers with a subset of its own choices; filtering by the offered list
+  // keeps a stubbed or unexpected answer from writing anything the registry did not offer.
+  const chosen = (Array.isArray(sandbox) ? sandbox : []).filter((token: unknown) =>
+    policy.extras.includes(token as string),
+  ) as string[];
+  if (chosen.length === 0) return undefined;
+  return [...policy.defaults, ...chosen].join(' ');
+}
+
+/**
  * The card height to pre-fill: the first selected row's registry default, when it is one
  * this flow's own validator accepts.
  *
@@ -778,6 +870,10 @@ interface SurfacePointEntryFields {
   /** Written as answered, `'large'` included. Absent only when the field does not apply: a
    * Link, or an entry whose `layout` is `'inline'` and so opens no modal to size. */
   modal_size?: 'small' | 'medium' | 'large';
+  /** Written verbatim when present: the composed `<registry default> <chosen>` string the
+   * create prompt built. Absent when nothing was chosen — the platform default applies and
+   * the file says nothing. Only the iframe prompt ever sets it. */
+  sandbox?: string;
 }
 
 export function buildSurfacePointList(
@@ -826,6 +922,7 @@ function toSurfacePointEntry(
     ...(fields.more_info ? { more_info: fields.more_info } : {}),
     ...(fields.layout ? { layout: fields.layout } : {}),
     ...(fields.modal_size ? { modal_size: fields.modal_size } : {}),
+    ...(fields.sandbox ? { sandbox: fields.sandbox } : {}),
     [fields.urlField]: fields.url,
   };
 }

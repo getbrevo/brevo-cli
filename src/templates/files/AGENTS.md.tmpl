@@ -94,7 +94,7 @@ Declares where the app appears inside Brevo's CRM (which record page, which slot
   - `size` (optional) — `{ "width": "280px", "height": "160px" }`; a positive integer with an explicit `px` or `%` unit, `%` capped at 100.
 - A card's title is the app name. There is no field for it.
 - Never author `link_target`, `version` or `extension_point_name` — the platform owns them, `brevo app upload` injects or strips them, and a copy in the file reads as permanent drift in the upload diff.
-- Never author `sandbox`. What an embedded iframe is allowed to do is Brevo's decision, stamped onto the stored app at write time; `brevo app upload` refuses an authored one by name, at the root and on an entry.
+- Author `sandbox` only on an `iframeExtension` entry of a private app, as a space-separated string of `allow-*` tokens from the list the platform allows for that slot; otherwise leave it out and the platform default applies. `brevo app upload` refuses it at the root, on an `actionLink` entry and on a public app.
 - Root-level `label` / `more_info` / `redirect_link` / `iframe_href` / `context` / `link_target`, and the older `heading` / `subheading`, are all refused by name with a migration hint.
 
 ## Record context

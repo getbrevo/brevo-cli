@@ -38,8 +38,12 @@ export const previewMessages = {
     "2. If you send a Content-Security-Policy, frame-ancestors must allow Brevo's app origin(s) or be omitted.",
     '3. iframe_href must be an absolute https:// URL, not an IP address or localhost.',
     '4. Do not rely on third-party cookies inside the frame; read the record identifiers from the query parameters. Cookies need SameSite=None; Secure to be sent at all, and Safari and Firefox still block or partition third-party cookies, so a cookie session may fail for some users. Pass state in the query parameters or a short-lived token instead.',
-    '5. The platform sets the iframe sandbox. It cannot be authored in app-config.json.',
+    '5. The platform sets the iframe sandbox default. A private app may add permissions from the list the platform allows for the slot, by adding a "sandbox" string to the entry; anything else is refused.',
   ],
+  // The iframe-permissions question in `app create` (BEX-498). Gated for the same reason as
+  // the checklist: its only read sits behind `__BREVO_PREVIEW__` in `resolveUiApp`, so a
+  // published build carries neither the question nor its text (`LEAK_STRINGS` asserts it).
+  APP_CREATE_UI_SANDBOX_PROMPT: 'Does your page need extra iframe permissions?',
   APP_IFRAME_CHECKLIST_UPLOAD_HINT:
     'Before your iframe renders: your page must allow framing by non-same-origin parents (no X-Frame-Options DENY/SAMEORIGIN; frame-ancestors must allow the Brevo app origin). A blocked frame shows blank with no CLI error.',
 } as const;

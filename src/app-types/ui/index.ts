@@ -30,22 +30,23 @@ import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
  *   - `extension_point_name` — the dotted slot name the platform resolves from each entry's
  *                      `surface_point_name` slug and stamps onto its own copy. Also INSIDE
  *                      an entry, which — with `link_target` — is why the strip recurses.
- *   - `sandbox`      — the iframe sandbox attributes the platform decides and stamps onto
- *                      the stored snapshot. Server policy, not partner policy: what an
- *                      iframe is allowed to do is the platform's call, and both `validateUiApp`
- *                      (`rejectAuthoredSandbox`) and bo-be refuse an authored one — it is
- *                      simply not the partner's field to write. And the stamp is
- *                      LOAD-BEARING rather than decorative: the platform stamps the policy,
- *                      app-store-backend serves it on the manifest, and the UI kit applies it
- *                      verbatim with **no default of its own** — `@dtsl/extensibility-ui-kit`
- *                      0.11.0 deleted the fallback constant it used to render under. An entry
- *                      served without a sandbox renders the fail-closed `sandbox=""`: an inert
- *                      frame whose scripts never run. So this is not merely a field the partner
- *                      may not author, it is one whose *absence* breaks the app. Don't
- *                      re-justify this by who *reads* the value — the rule is authorability,
- *                      and a reader with no fallback of its own only makes it matter more.
+ *   - `sandbox`      — the iframe sandbox the platform stamps onto the stored snapshot. The
+ *                      one key on this list that is ALSO authorable, and only in one place: a
+ *                      PRIVATE app's `iframeExtension` entry may author its own `sandbox`
+ *                      (BEX-498), from the list the slot's registry row allows. Everywhere
+ *                      else it is platform-owned — at the block root, and on any entry that
+ *                      did not author one, where the stamped default comes back on the echo
+ *                      and must not reach the file or read as drift.
  *
- * All four exist on the server's side of a comparison only. Left in, the first successful
+ *                      So the strip is the DEFAULT and the exception is explicit: the shared
+ *                      traversal (`./wire`) drops `sandbox` at every depth unless handed the
+ *                      LOCAL block whose entry authored one, in which case that entry keeps
+ *                      the value it carries. The stamp is load-bearing, not decorative — the
+ *                      UI kit applies the served value verbatim with no default of its own —
+ *                      which is why an entry that authors nothing is left to the platform
+ *                      rather than written as an empty string.
+ *
+ * All four exist on the server's side of a comparison only (`sandbox` unless authored). Left in, the first successful
  * upload writes them into the file this command just decided to keep them out of, and every
  * subsequent upload reports drift on fields the partner cannot edit — so "already up to date"
  * would never print for a UI app again.

@@ -148,7 +148,7 @@ function stringField(value: unknown): string {
 /**
  * Keys a `--ui-config` file may not carry because they are `iframeExtension`-only, and
  * this route authors `actionLink` alone — see the refusal in `parseUiConfigFile`. The
- * same four fields `validateUiApp` refuses on an `actionLink` entry of a hand-authored
+ * same fields `validateUiApp` refuses on an `actionLink` entry of a hand-authored
  * `app-config.json`, refused here for the same reason and one layer earlier.
  */
 const UI_CONFIG_IFRAME_ONLY_KEYS: readonly string[] = [
@@ -156,6 +156,10 @@ const UI_CONFIG_IFRAME_ONLY_KEYS: readonly string[] = [
   'layout',
   'modal_size',
   'modal_height',
+  // `sandbox` is authorable on an iframe entry of a private app (BEX-498), so on this
+  // actionLink-only route it is refused as iframe-only — "put it in app-config.json" is
+  // true advice for it — rather than as a platform-owned key.
+  'sandbox',
 ] as const;
 
 /**
@@ -166,13 +170,13 @@ const UI_CONFIG_IFRAME_ONLY_KEYS: readonly string[] = [
  * `stripUiAppWireOnlyKeys` is the only stripper — a second copy of that list is a copy
  * that lags it. When the platform stamps a fifth key, `--ui-config` refuses it for free.
  *
- * `sandbox` is refused on both authoring paths, and this is the earlier of the two:
- * `validateUiApp` refuses one in a hand-authored `app-config.json` (`rejectAuthoredSandbox`),
- * this refuses one in a `--ui-config` file before the block is even assembled. Both name it
- * locally, ahead of any network call, rather than leaving a value the partner should never
- * have written to come back as a bo-be 400.
+ * `sandbox` is deliberately NOT among them even though it is on that list: a private
+ * app's iframe entry may author one (BEX-498), so it is refused above as an
+ * `iframeExtension`-only key, with advice that is true for it.
  */
-const UI_CONFIG_SERVER_OWNED_KEYS: readonly string[] = uiAppType.wireOnlyKeys;
+const UI_CONFIG_SERVER_OWNED_KEYS: readonly string[] = uiAppType.wireOnlyKeys.filter(
+  (key) => !UI_CONFIG_IFRAME_ONLY_KEYS.includes(key),
+);
 
 /** The `--ui-config <file>` half of `resolveUiAppNonInteractiveInput`. */
 function parseUiConfigFile(configPath: string): UiAppNonInteractiveInput {

@@ -167,6 +167,10 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
 // `src/app-types/ui/compare.ts`, which strips through the same traversal.
 const stripInjectedKeys = stripUiAppWireOnlyKeysFrom;
 
+// Both sides of every comparison below are normalized against the LOCAL block (`authored`):
+// the server stamps a default `sandbox` on every entry, and that default is a difference
+// only where the developer authored one of their own (BEX-498) — see `stripUiAppWireOnlyKeys`.
+
 /**
  * Drop the wire-only keys above from a block, before it is written back to
  * app-config.json. They are stripped for the same reason and by the same list the diff
@@ -174,8 +178,8 @@ const stripInjectedKeys = stripUiAppWireOnlyKeysFrom;
  * echo, and writing one into the file would put a key the partner cannot usefully edit into
  * the file this command just decided to keep it out of.
  */
-function withoutInjectedKeys(uiApp: UiApp): UiApp {
-  return stripInjectedKeys(uiApp) as UiApp;
+function withoutInjectedKeys(uiApp: UiApp, authored?: UiApp): UiApp {
+  return stripInjectedKeys(uiApp, authored) as UiApp;
 }
 
 /**
@@ -251,7 +255,7 @@ function renderUploadDiff(diff: UploadDiff): void {
 // app is the one thing worth seeing before saying yes. Every differing value now
 // reads `before → after`, exactly like the Name / Version / Scopes rows above it.
 function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
-  const changed = canonicalizeUiApp(next) !== canonicalizeUiApp(current);
+  const changed = canonicalizeUiApp(next, next) !== canonicalizeUiApp(current, next);
   logInfo(`  ${messages.APP_UPLOAD_UI_APP_SUMMARY}${changed ? ' (changed)' : ''}`);
   const typePrefix =
     current && current.extension_type !== next.extension_type ? `${current.extension_type} → ` : '';
@@ -264,7 +268,10 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   // Matched by slot slug, not by position — `surface_point_list` order is not meaningful
   // (see `canonicalizeUiApp`), so an index-wise comparison would report a reordered list
   // as a wholesale rewrite.
-  formatPlacementDiffLines(next, current).forEach((line, i) => {
+  // The server's block with its stamped default `sandbox` removed wherever this file authored
+  // none, so an entry that never asked for one does not print `default → (none)`.
+  const shownCurrent = current ? withoutInjectedKeys(current, next) : undefined;
+  formatPlacementDiffLines(next, shownCurrent).forEach((line, i) => {
     logInfo(`    ${i === 0 ? 'Placement:      ' : '                '}${line}`);
   });
   // No link_target row: app-config.json does not carry the field, so printing a value
@@ -316,7 +323,8 @@ function hasNoChanges(diff: UploadDiff): boolean {
     (diff.currentVersion || '') === (diff.nextVersion || '') &&
     // Without this, editing only the `ui_app` block reports "Already up to date"
     // and the change is never pushed.
-    canonicalizeUiApp(diff.currentUiApp) === canonicalizeUiApp(diff.nextUiApp)
+    canonicalizeUiApp(diff.currentUiApp, diff.nextUiApp) ===
+      canonicalizeUiApp(diff.nextUiApp, diff.nextUiApp)
   );
 }
 
@@ -511,7 +519,7 @@ function buildUploadWriteBack(
     // app-config.json fields the partner never authored — undoing, on the very
     // first successful upload, the decision to keep them out of the file.
     ...(ctx.isUiApp && (response.ui_app ?? config.ui_app)
-      ? { ui_app: withoutInjectedKeys((response.ui_app ?? config.ui_app)!) }
+      ? { ui_app: withoutInjectedKeys((response.ui_app ?? config.ui_app)!, config.ui_app) }
       : {}),
   };
 }
