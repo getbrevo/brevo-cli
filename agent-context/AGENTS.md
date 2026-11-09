@@ -126,7 +126,7 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 1. Your page must not send `X-Frame-Options: DENY` or `SAMEORIGIN`.
 2. If it sends a `Content-Security-Policy`, `frame-ancestors` must allow Brevo's app origin(s) or be omitted.
 3. `iframe_href` must be an absolute `https://` URL, not an IP address or `localhost`.
-4. Do not rely on third-party cookies inside the frame; read the record identifiers from the query parameters.
+4. Do not rely on third-party cookies inside the frame; read the record identifiers from the query parameters. Cookies need SameSite=None; Secure to be sent at all, and Safari and Firefox still block or partition third-party cookies, so a cookie session may fail for some users. Pass state in the query parameters or a short-lived token instead.
 5. The platform sets the iframe sandbox. It cannot be authored in `app-config.json`.
 
 The CLI does not name Brevo's origin hostnames; check the platform's current documentation for the exact origin(s) your `frame-ancestors` must allow.
