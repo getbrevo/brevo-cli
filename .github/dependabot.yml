@@ -9,3 +9,8 @@ updates:
       github-actions:
         patterns:
           - "*"
+    ignore:
+      # changesets/action v2 requires @changesets/cli v3; this repo is on v2.
+      # Re-enable together with a @changesets/cli v3 upgrade.
+      - dependency-name: "changesets/action"
+        update-types: ["version-update:semver-major"]
