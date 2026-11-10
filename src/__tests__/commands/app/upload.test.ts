@@ -1458,8 +1458,10 @@ describe('app/upload', () => {
         expect(out()).not.toContain('sandbox:');
       });
 
-      // (a) again, on the write-back: the stamped default must not land in the file.
-      it('does not write the server-stamped default back into the file', async () => {
+      // The write-back records what the platform holds: a file that authored no sandbox gets the
+      // server's stamped default written into each iframe entry, so the file shows the policy
+      // the app actually runs under. The block root stays stripped.
+      it('writes the server-stamped default back into the file for an iframe entry', async () => {
         (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: IFRAME_UI_APP });
         (appService.uploadApp as jest.Mock).mockResolvedValue({
           ...BASE_UPLOAD_RESPONSE,
@@ -1472,8 +1474,27 @@ describe('app/upload', () => {
 
         const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
         expect(written.ui_app).not.toHaveProperty('sandbox');
-        expect(written.ui_app.surface_point_list[0]).not.toHaveProperty('sandbox');
-        expect(written.ui_app).toEqual(IFRAME_UI_APP);
+        expect(written.ui_app.surface_point_list[0].sandbox).toBe(DEFAULT);
+      });
+
+      // An authored "" is a fully locked frame: the platform echoes it back as "" and the
+      // write-back keeps it. It must not be dropped (that would read as "use the default").
+      it('keeps an empty-string sandbox (a locked frame) in the write-back', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: iframeBlock({ sandbox: '' }),
+        });
+        (appService.uploadApp as jest.Mock).mockResolvedValue({
+          ...BASE_UPLOAD_RESPONSE,
+          name: 'Invoice Manager',
+          auth: { distribution_type: 'private' as const },
+          ui_app: iframeBlock({ sandbox: '' }),
+        });
+
+        await uploadCommand({ yes: true });
+
+        const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+        expect(written.ui_app.surface_point_list[0]).toHaveProperty('sandbox', '');
       });
 
       // (b) again: an authored value survives the write-back, and the root stays stripped.

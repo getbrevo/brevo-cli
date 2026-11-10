@@ -519,7 +519,15 @@ function buildUploadWriteBack(
     // app-config.json fields the partner never authored — undoing, on the very
     // first successful upload, the decision to keep them out of the file.
     ...(ctx.isUiApp && (response.ui_app ?? config.ui_app)
-      ? { ui_app: withoutInjectedKeys((response.ui_app ?? config.ui_app)!, config.ui_app) }
+      ? {
+          // The block written back is the SERVER's echo, so it is also the `authored` argument:
+          // every entry's echoed `sandbox` (the platform's stamped default, an authored value
+          // or "" for a locked frame) is kept, and the file records what the platform holds.
+          ui_app: withoutInjectedKeys(
+            (response.ui_app ?? config.ui_app)!,
+            response.ui_app ?? config.ui_app,
+          ),
+        }
       : {}),
   };
 }

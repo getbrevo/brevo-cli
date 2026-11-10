@@ -449,10 +449,15 @@ export function parseSandboxTokens(value: unknown): string[] | null {
  */
 function validateEntrySandbox(row: Record<string, unknown>, at: EntryFieldPath): void {
   if (row.sandbox === undefined) return;
+  // An empty string is a deliberate, fully locked frame (HTML `sandbox=""`: no scripts, forms,
+  // popups or same-origin). It is NOT "use the default" — that is the field being absent — so
+  // it passes here with no tokens to check. A whitespace-only value is a mistake and is refused
+  // below like any other malformed one.
+  if (row.sandbox === '') return;
   const tokens = parseSandboxTokens(row.sandbox);
   if (!tokens) {
     throw new CliError(
-      `${at('sandbox')} must be a space-separated list of sandbox tokens, e.g. "allow-scripts allow-forms". Each token starts with "allow-"; to keep the platform default, remove the field.`,
+      `${at('sandbox')} must be a space-separated list of sandbox tokens, e.g. "allow-scripts allow-forms". Each token starts with "allow-"; to keep the platform default, remove the field; an empty string "" locks the frame completely (no scripts, forms or popups).`,
     );
   }
   const repeated = tokens.find((token, i) => tokens.indexOf(token) !== i);

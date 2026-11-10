@@ -127,7 +127,7 @@ Run `brevo --help` or `brevo <command> --help` for the full set.
 2. If it sends a `Content-Security-Policy`, `frame-ancestors` must allow Brevo's app origin(s) or be omitted.
 3. `iframe_href` must be an absolute `https://` URL, not an IP address or `localhost`.
 4. Do not rely on third-party cookies inside the frame; read the record identifiers from the query parameters. Cookies need SameSite=None; Secure to be sent at all, and Safari and Firefox still block or partition third-party cookies, so a cookie session may fail for some users. Pass state in the query parameters or a short-lived token instead.
-5. The platform sets the iframe sandbox default. A private app may add permissions from the list the platform allows for the slot, by adding a `sandbox` string to the entry; others are refused.
+5. The platform sets the iframe sandbox default. A private app may add permissions from the list the platform allows for the slot, by adding a `sandbox` string to the entry; others are refused. An empty string (`"sandbox": ""`) is a deliberate, fully locked frame — no scripts, forms or popups — and is not the same as leaving the field out (which keeps the platform default). After `brevo app upload` or `brevo app scaffold`, the file records the sandbox the platform holds for each iframe entry, `""` included.
 
 The CLI does not name Brevo's origin hostnames; check the platform's current documentation for the exact origin(s) your `frame-ancestors` must allow.
 - **`brevo app create` refuses to run inside an already-linked directory.** If `app-config.json` exists in cwd, it throws immediately (no confirm, no override) — the error points at moving elsewhere or running `brevo app scaffold` there.
