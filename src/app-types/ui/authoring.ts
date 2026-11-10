@@ -710,6 +710,10 @@ async function promptInlineCardHeight(
   return String(cardHeight ?? '').trim() || undefined;
 }
 
+// The one sandbox token the CLI treats specially: pre-ticked in the private-app sandbox
+// question. Which tokens are PERMITTED is still the platform's call (`metadata.sandbox`).
+const SANDBOX_SAME_ORIGIN = 'allow-same-origin';
+
 /**
  * A slot's published sandbox policy reduced to what the prompt can use, or `undefined`.
  *
@@ -749,8 +753,9 @@ function sandboxPolicyFor(
  * (BEX-498) — private iframe apps only, and only where the slot's registry row lists what
  * may be added.
  *
- * Default is none, and NONE WRITES NOTHING: no `sandbox` key means the platform's own
- * default applies, which is also what a developer who just presses Enter wants. A choice
+ * `allow-same-origin` is pre-ticked (private apps only), so pressing Enter writes the
+ * default plus it; clearing every box writes NOTHING: no `sandbox` key means the platform's
+ * own default applies, which no longer includes same-origin. A choice
  * writes the whole string, `<registry default> <chosen>`, composed here at create time from
  * the default the registry served — so what lands in the file is the complete policy the
  * entry will run under, not a delta a reader has to know the default to apply. The platform
@@ -768,7 +773,17 @@ async function promptIframeSandbox(
       type: 'checkbox',
       name: 'sandbox',
       message: messages.APP_CREATE_UI_SANDBOX_PROMPT,
-      choices: indentChoices(policy.extras.map((token) => ({ name: token, value: token }))),
+      // `allow-same-origin` arrives pre-ticked: a private app's own page needs its own origin
+      // (cookies, storage, credentialed fetches to its own server), and the platform no longer
+      // grants it by default. This prompt only runs for a PRIVATE app (`applies`), so a public
+      // app is never offered it. Unticking it, or ticking nothing, writes no `sandbox` at all.
+      choices: indentChoices(
+        policy.extras.map((token) => ({
+          name: token,
+          value: token,
+          checked: token === SANDBOX_SAME_ORIGIN,
+        })),
+      ),
     },
   ]);
   // A checkbox answers with a subset of its own choices; filtering by the offered list

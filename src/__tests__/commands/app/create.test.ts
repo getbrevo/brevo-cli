@@ -2071,6 +2071,35 @@ describe('app/create', () => {
         expect(question?.default).toBeUndefined();
       });
 
+      it('pre-ticks allow-same-origin for a private app when the platform lists it as an extra', async () => {
+        registryHas([
+          REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+            metadata: {
+              sandbox: {
+                default: 'allow-scripts allow-forms allow-popups',
+                allowed: ['allow-same-origin', 'allow-downloads', 'allow-modals'],
+              },
+            },
+          }),
+        ]);
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-same-origin'] });
+
+        await createCommand(CLI_OPTIONS);
+
+        const choices = (questionNamed('sandbox')?.choices ?? []) as Array<{
+          value?: string;
+          checked?: boolean;
+        }>;
+        expect(choices.map((c) => [c.value, Boolean(c.checked)])).toEqual([
+          ['allow-same-origin', true],
+          ['allow-downloads', false],
+          ['allow-modals', false],
+        ]);
+        expect(collectedUiApp().surface_point_list[0].sandbox).toBe(
+          'allow-scripts allow-forms allow-popups allow-same-origin',
+        );
+      });
+
       it('writes no sandbox when nothing is chosen', async () => {
         withSandboxRow();
         answerPrompts({ ...IFRAME_ANSWERS, sandbox: [] });

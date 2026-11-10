@@ -38,7 +38,7 @@ export const previewMessages = {
     "2. If you send a Content-Security-Policy, frame-ancestors must allow Brevo's app origin(s) or be omitted.",
     '3. iframe_href must be an absolute https:// URL, not an IP address or localhost.',
     '4. Do not rely on third-party cookies inside the frame; read the record identifiers from the query parameters. Cookies need SameSite=None; Secure to be sent at all, and Safari and Firefox still block or partition third-party cookies, so a cookie session may fail for some users. Pass state in the query parameters or a short-lived token instead.',
-    '5. The platform sets the iframe sandbox default. A private app may add permissions from the list the platform allows for the slot, by adding a "sandbox" string to the entry; anything else is refused.',
+    '5. The platform sets the iframe sandbox default. A private app may add permissions from the list the platform allows for the slot (including allow-same-origin, which the default no longer grants), by adding a "sandbox" string to the entry; anything else is refused.',
   ],
   // The iframe-permissions question in `app create` (BEX-498). Gated for the same reason as
   // the checklist: its only read sits behind `__BREVO_PREVIEW__` in `resolveUiApp`, so a
