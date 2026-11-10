@@ -420,7 +420,7 @@ function rejectRootSandbox(block: Record<string, unknown>): void {
 }
 
 // One sandbox token. SHAPE only, deliberately: whether a token is one the platform permits
-// on a given slot is the registry's (`metadata.sandbox.allowed`) and bo-be's call, and the
+// on a given slot is the platform's (`metadata.sandbox.allowed`) call, and the
 // CLI holds no copy of that list — a local allow-list could only lag it, in both directions.
 const SANDBOX_TOKEN_PATTERN = /^allow-[a-z-]+$/;
 

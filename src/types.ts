@@ -245,14 +245,14 @@ export interface SurfacePointEntry {
    * Absent means the platform stamps its own default on its stored copy and the server
    * echoes that back — which is why the config round-trip only keeps an echoed value for
    * an entry whose local copy authored one (`src/app-types/wire.ts`). The permitted set
-   * is the registry row's `metadata.sandbox.allowed` and is enforced server-side; the
+   * is the platform's `metadata.sandbox.allowed` for the slot and is enforced server-side; the
    * CLI checks the shape only. Refused on an `actionLink` entry and at the block root.
    */
   sandbox?: string;
 }
 
 /**
- * The iframe `sandbox` policy a registry row declares in `metadata.sandbox` — a SEED and
+ * The iframe `sandbox` policy the platform publishes per slot as `metadata.sandbox` — a SEED and
  * a menu, modelled on `default_size`: `default` is what the platform applies to an entry
  * that authors nothing, and `allowed` is every token a private app may ask for (the
  * default's own tokens included). Both are token lists once sanitized; on the wire the
@@ -324,7 +324,7 @@ export interface SurfacePointRow {
    */
   default_size?: { width?: string; height?: string } | null;
   /**
-   * Free-form per-row registry metadata. The only key the CLI reads is `sandbox`, the
+   * Per-row metadata published by the surface-points read. The only key the CLI reads is `sandbox`, the
    * iframe policy an `iframeExtension` entry on this slot may be authored under (BEX-498).
    * Absent on a bo-be that predates it, and then the CLI offers no sandbox question and
    * writes no `sandbox` — the platform's own default keeps applying.

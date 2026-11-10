@@ -71,7 +71,7 @@ import { formatPlacementLines } from './fields';
 //                             Pre-filled from the row's `default_size`.
 //
 //      10. sandbox         → iframe on a PRIVATE app only, and only when the picked slot's
-//                             registry row declares `metadata.sandbox.allowed` (BEX-498): a
+//                             platform publishes `metadata.sandbox.allowed` (BEX-498): a
 //                             multi-select of the allowed permissions the platform's default
 //                             does not already grant. None chosen writes no `sandbox` at all.
 //
@@ -484,7 +484,7 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
   const cardHeight = await promptInlineCardHeight(isIframe, layout, selectedRows);
 
   // Extra iframe permissions — the one private-app-only question. Asked only when the
-  // registry row offers a menu (`metadata.sandbox.allowed`); a bo-be that predates the
+  // platform offers a menu (`metadata.sandbox.allowed`); a bo-be that predates the
   // metadata serves none and the question, like the key, is simply absent. The raw
   // `__BREVO_PREVIEW__` is the elimination site, so the question's strings (in
   // `preview-messages.ts`) leave a published bundle with it.
@@ -711,7 +711,7 @@ async function promptInlineCardHeight(
 }
 
 /**
- * A registry row's sandbox policy reduced to what the prompt can use, or `undefined`.
+ * A slot's published sandbox policy reduced to what the prompt can use, or `undefined`.
  *
  * Sanitized the way `sanitizeSeededSize` treats `default_size`: the registry is the only
  * source, but a server predating the metadata — or echoing an unexpected shape — must
