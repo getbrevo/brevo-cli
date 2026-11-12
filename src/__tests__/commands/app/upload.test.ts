@@ -431,6 +431,56 @@ describe('app/upload', () => {
   // Earlier CLI versions guaranteed `ui_app` was never sent at all. That
   // guarantee now applies to OAuth apps only (BEX-290) — the UI-app half of the
   // contract is covered in the 'UI apps' block below.
+  // Framing/CSP checklist pointer (BEX-498): only for an iframeExtension config, text mode only.
+  describe('iframe framing checklist pointer', () => {
+    const uiConfig = (extensionType: 'iframeExtension' | 'actionLink') => ({
+      ...BASE_CONFIG,
+      auth: {},
+      ui_app: {
+        extension_type: extensionType,
+        surface_point_list: [
+          extensionType === 'iframeExtension'
+            ? {
+                surface_point_name: 'contactDetails.header.menu',
+                label: 'View in CRM',
+                iframe_href: 'https://example.com/embed',
+              }
+            : {
+                surface_point_name: 'contactDetails.header.menu',
+                label: 'View in CRM',
+                redirect_link: 'https://example.com/brevo',
+              },
+        ],
+      },
+    });
+    const output = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+    beforeEach(() => {
+      (appService.uploadApp as jest.Mock).mockResolvedValue({
+        ...BASE_UPLOAD_RESPONSE,
+        auth: undefined,
+      });
+    });
+
+    it('prints the pointer after a successful iframe upload', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(uiConfig('iframeExtension'));
+      await uploadCommand({ yes: true });
+      expect(output()).toContain(messages.APP_IFRAME_CHECKLIST_UPLOAD_HINT);
+    });
+
+    it('does not print the pointer for an action link', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(uiConfig('actionLink'));
+      await uploadCommand({ yes: true });
+      expect(output()).not.toContain(messages.APP_IFRAME_CHECKLIST_UPLOAD_HINT);
+    });
+
+    it('does not print the pointer under --json', async () => {
+      (readProjectConfig as jest.Mock).mockReturnValue(uiConfig('iframeExtension'));
+      await uploadCommand({ json: true });
+      expect(output()).not.toContain(messages.APP_IFRAME_CHECKLIST_UPLOAD_HINT);
+    });
+  });
+
   it('never sends a ui_app field for an OAuth app', async () => {
     const changedConfig = { ...BASE_CONFIG, app_name: 'Renamed App' };
     (readProjectConfig as jest.Mock).mockReturnValue(changedConfig);
@@ -1277,21 +1327,209 @@ describe('app/upload', () => {
       await expect(uploadCommand({ yes: true })).rejects.toThrow(/only used by "iframeExtension"/i);
     });
 
-    // `sandbox` is the platform's own iframe policy, stamped onto the stored snapshot at
-    // write time — and this command sends the file's block verbatim, so before the local
-    // refusal an authored value was the one thing in the file that travelled to the wire
-    // unexamined. Refused at both depths the wire-only strip recurses through, ahead of
-    // every round trip.
-    it.each([
-      ['at the root', { ...UI_APP, sandbox: 'allow-scripts allow-same-origin' }],
-      ['on an entry', withUiEntry({ sandbox: 'allow-scripts allow-same-origin' })],
-    ])('rejects an authored sandbox %s before any round trip', async (_label, uiApp) => {
-      (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: uiApp });
+    // The iframe `sandbox` (BEX-498): authorable per entry, on an iframeExtension of a
+    // private app, and nowhere else. The platform stamps its own default on every entry, so
+    // the round trip has to tell an authored value from the stamped default.
+    describe('iframe sandbox', () => {
+      const AUTHORED = 'allow-scripts allow-same-origin allow-downloads';
+      const DEFAULT = 'allow-scripts allow-same-origin';
+      const IFRAME_ENTRY = IFRAME_UI_APP.surface_point_list[0];
+      const iframeBlock = (entry: Record<string, unknown>) => ({
+        ...IFRAME_UI_APP,
+        surface_point_list: [{ ...IFRAME_ENTRY, ...entry }],
+      });
+      const out = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
 
-      await expect(uploadCommand({ yes: true })).rejects.toThrow(
-        /\.sandbox is not authored in app-config\.json/,
+      it.each([
+        [
+          'at the root',
+          { ...IFRAME_UI_APP, sandbox: AUTHORED },
+          /ui_app\.sandbox is not a ui_app field/,
+        ],
+        [
+          'on an actionLink entry',
+          withUiEntry({ sandbox: AUTHORED }),
+          /\.sandbox only applies to "iframeExtension"/,
+        ],
+      ])(
+        'refuses an authored sandbox %s before any round trip',
+        async (_label, uiApp, expected) => {
+          (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: uiApp });
+
+          await expect(uploadCommand({ yes: true })).rejects.toThrow(expected);
+          expect(appService.uploadApp).not.toHaveBeenCalled();
+        },
       );
-      expect(appService.uploadApp).not.toHaveBeenCalled();
+
+      it('refuses an authored sandbox on a public app (iframe is private-only)', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          distribution_type: 'public',
+          ui_app: iframeBlock({ sandbox: AUTHORED }),
+        });
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(/private-only/i);
+        expect(appService.uploadApp).not.toHaveBeenCalled();
+      });
+
+      it('sends an authored per-entry sandbox verbatim', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: iframeBlock({ sandbox: AUTHORED }),
+        });
+
+        await uploadCommand({ yes: true });
+
+        const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+        expect(payload.ui_app.surface_point_list[0].sandbox).toBe(AUTHORED);
+        expect(payload.ui_app).not.toHaveProperty('sandbox');
+      });
+
+      it('sends no sandbox for an entry that authored none', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: IFRAME_UI_APP });
+
+        await uploadCommand({ yes: true });
+
+        const payload = (appService.uploadApp as jest.Mock).mock.calls[0][1];
+        expect(payload.ui_app.surface_point_list[0]).not.toHaveProperty('sandbox');
+      });
+
+      // (a) No drift: the server's stamped default is on the echo and not in the file.
+      it('reports up to date when the file authors none and the server echoes its default', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: IFRAME_UI_APP });
+        (appService.fetchApp as jest.Mock).mockResolvedValue({
+          ...UI_REMOTE,
+          ui_app: { ...iframeBlock({ sandbox: DEFAULT }), sandbox: DEFAULT, version: '1.0.0' },
+        });
+
+        await uploadCommand({ json: true });
+
+        expect(appService.uploadApp).not.toHaveBeenCalled();
+        expect(JSON.parse(out()).upToDate).toBe(true);
+      });
+
+      it('reports up to date when the authored value matches the echo in another token order', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: iframeBlock({ sandbox: 'allow-forms allow-scripts' }),
+        });
+        (appService.fetchApp as jest.Mock).mockResolvedValue({
+          ...UI_REMOTE,
+          ui_app: iframeBlock({ sandbox: 'allow-scripts allow-forms' }),
+        });
+
+        await uploadCommand({ json: true });
+
+        expect(appService.uploadApp).not.toHaveBeenCalled();
+      });
+
+      // (b) An authored value is a real change against the stamped default, and shows.
+      it('pushes and shows an authored sandbox as default → authored', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: iframeBlock({ sandbox: AUTHORED }),
+        });
+        (appService.fetchApp as jest.Mock).mockResolvedValue({
+          ...UI_REMOTE,
+          ui_app: iframeBlock({ sandbox: DEFAULT }),
+        });
+
+        await uploadCommand({ yes: true });
+
+        expect(appService.uploadApp).toHaveBeenCalled();
+        expect(out()).toContain(`sandbox:       ${DEFAULT} → ${AUTHORED}`);
+      });
+
+      it('does not print a sandbox row for an entry that authored none', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: {
+            ...IFRAME_UI_APP,
+            surface_point_list: [{ ...IFRAME_ENTRY, label: 'New label' }],
+          },
+        });
+        (appService.fetchApp as jest.Mock).mockResolvedValue({
+          ...UI_REMOTE,
+          ui_app: iframeBlock({ sandbox: DEFAULT }),
+        });
+
+        await uploadCommand({ yes: true });
+
+        expect(out()).not.toContain('sandbox:');
+      });
+
+      // The write-back records what the platform holds: a file that authored no sandbox gets the
+      // server's stamped default written into each iframe entry, so the file shows the policy
+      // the app actually runs under. The block root stays stripped.
+      it('writes the server-stamped default back into the file for an iframe entry', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: IFRAME_UI_APP });
+        (appService.uploadApp as jest.Mock).mockResolvedValue({
+          ...BASE_UPLOAD_RESPONSE,
+          name: 'Invoice Manager',
+          auth: { distribution_type: 'private' as const },
+          ui_app: { ...iframeBlock({ sandbox: DEFAULT }), sandbox: DEFAULT },
+        });
+
+        await uploadCommand({ yes: true });
+
+        const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+        expect(written.ui_app).not.toHaveProperty('sandbox');
+        expect(written.ui_app.surface_point_list[0].sandbox).toBe(DEFAULT);
+      });
+
+      // An authored "" is a fully locked frame: the platform echoes it back as "" and the
+      // write-back keeps it. It must not be dropped (that would read as "use the default").
+      it('keeps an empty-string sandbox (a locked frame) in the write-back', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: iframeBlock({ sandbox: '' }),
+        });
+        (appService.uploadApp as jest.Mock).mockResolvedValue({
+          ...BASE_UPLOAD_RESPONSE,
+          name: 'Invoice Manager',
+          auth: { distribution_type: 'private' as const },
+          ui_app: iframeBlock({ sandbox: '' }),
+        });
+
+        await uploadCommand({ yes: true });
+
+        const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+        expect(written.ui_app.surface_point_list[0]).toHaveProperty('sandbox', '');
+      });
+
+      // (b) again: an authored value survives the write-back, and the root stays stripped.
+      it('keeps an authored per-entry sandbox in the write-back and strips the root', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: iframeBlock({ sandbox: AUTHORED }),
+        });
+        (appService.uploadApp as jest.Mock).mockResolvedValue({
+          ...BASE_UPLOAD_RESPONSE,
+          name: 'Invoice Manager',
+          auth: { distribution_type: 'private' as const },
+          ui_app: { ...iframeBlock({ sandbox: AUTHORED }), sandbox: DEFAULT },
+        });
+
+        await uploadCommand({ yes: true });
+
+        const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+        expect(written.ui_app.surface_point_list[0].sandbox).toBe(AUTHORED);
+        expect(written.ui_app).not.toHaveProperty('sandbox');
+      });
+
+      // The 400 text comes from bo-be, which names the offending tokens; the CLI shows it
+      // as it arrives rather than rewording or guessing at a code.
+      it('surfaces a server 400 about the sandbox verbatim', async () => {
+        const serverMessage =
+          'ui_app.surface_point_list["contact-details-header-menu"].sandbox contains unsupported token(s): allow-top-navigation';
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UI_CONFIG,
+          ui_app: iframeBlock({ sandbox: 'allow-scripts allow-top-navigation' }),
+        });
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(serverMessage, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(serverMessage);
+      });
     });
 
     it('writes the ui_app block back into app-config.json, preferring the server copy', async () => {

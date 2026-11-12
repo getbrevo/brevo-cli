@@ -38,6 +38,10 @@ const VALUE_ROWS: ReadonlyArray<{
   { label: 'modal size:    ', read: (e) => e.modal_size },
   { label: 'modal height:  ', read: (e) => e.modal_height },
   { label: 'card size:     ', read: (e) => formatSize(e.size) },
+  // Only ever present on an entry that authored one (BEX-498): callers hand this table a
+  // block whose stamped default `sandbox` has already been stripped (see `./compare`), so a
+  // row appears exactly when the developer asked for permissions beyond the platform's.
+  { label: 'sandbox:       ', read: (e) => e.sandbox },
 ];
 
 /** `{ width, height }` as one row — each axis is optional, so an absent one is omitted. */

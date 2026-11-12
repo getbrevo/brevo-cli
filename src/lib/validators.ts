@@ -389,48 +389,80 @@ export function validateUiApp(uiApp: unknown): void {
 
   rejectPreBex290Fields(block);
   rejectRootCtaFields(block);
-  rejectAuthoredSandbox(block);
+  rejectRootSandbox(block);
 
   validateSurfacePointList(block.surface_point_list, extensionType);
 }
 
 /**
- * Refuse an authored `sandbox`, at the block root or on any entry.
+ * Refuse a `sandbox` at the `ui_app` ROOT.
  *
- * What an embedded iframe is allowed to do is the PLATFORM's decision, not the partner's:
- * bo-be stamps the attributes onto the stored snapshot at write time, app-store-backend
- * serves that stored value on the manifest, and the UI kit applies whatever it is served
- * verbatim — it keeps no default of its own any more, and renders the fail-closed
- * `sandbox=""` when nothing arrives. So an authored value is not a preference weighed
- * against the platform's own; it is a partner writing the attributes their own frame runs
- * under, which is the one key on this block that must never be authorable.
+ * The iframe sandbox is a PER-ENTRY, iframe-only, private-app-only field (BEX-498): a
+ * private developer may add permissions on an `iframeExtension` entry, from the list the
+ * slot's registry row allows. The block root has no such meaning — one value there could
+ * only ever say one thing about every slot — and the platform stamps its own value at that
+ * level, which is why the wire-only strip (`src/app-types/wire.ts`) still removes a root
+ * `sandbox` from every server echo. So an authored root value is refused by name, with the
+ * place it belongs.
  *
  * Refused rather than stripped: dropping a security-relevant key without a word would
- * leave a partner believing the file's value is in force. Refused HERE rather than left to
- * bo-be's `unknown key` 400, because `app upload` sends the file's block verbatim — the
- * wire-only strip in `src/app-types/wire.ts` runs on what comes BACK, so nothing local
- * stood between an authored value and the wire. `--ui-config` already refuses it one layer
- * earlier (`UI_CONFIG_SERVER_OWNED_KEYS` in `app create`); this closes the hand-authored
- * path, which is the one a partner actually reaches.
- *
- * Checked at both depths the strip recurses through, so the key cannot slip in one level
- * down inside an entry. Ahead of `validateSurfacePointList` on purpose: a blank label on
- * entry one must not decide whether this is reported at all.
+ * leave a developer believing the file's value is in force. And refused HERE rather than
+ * left to bo-be's `unknown key` 400, because `app upload` sends the file's block verbatim
+ * — the strip runs on what comes BACK, so nothing local stood between an authored value
+ * and the wire. Ahead of `validateSurfacePointList` on purpose: a blank label on entry one
+ * must not decide whether this is reported at all.
  */
-function rejectAuthoredSandbox(block: Record<string, unknown>): void {
-  const refusal = (at: string) =>
-    `${at}.sandbox is not authored in app-config.json — what an embedded iframe is allowed to do is the Brevo platform's decision, and it stamps the attributes onto the stored app itself. Remove it from the file.`;
+function rejectRootSandbox(block: Record<string, unknown>): void {
+  if (block.sandbox === undefined) return;
+  throw new CliError(
+    'ui_app.sandbox is not a ui_app field — the iframe sandbox is set per placement. On a private app, an "iframeExtension" entry may carry its own "sandbox" (a space-separated list of allow-* tokens, from the list the platform allows for that slot); otherwise remove it and the platform applies its default.',
+  );
+}
 
-  if (block.sandbox !== undefined) throw new CliError(refusal('ui_app'));
+// One sandbox token. SHAPE only, deliberately: whether a token is one the platform permits
+// on a given slot is the platform's (`metadata.sandbox.allowed`) call, and the
+// CLI holds no copy of that list — a local allow-list could only lag it, in both directions.
+const SANDBOX_TOKEN_PATTERN = /^allow-[a-z-]+$/;
 
-  if (!Array.isArray(block.surface_point_list)) return;
-  for (const entry of block.surface_point_list) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
-    const row = entry as Record<string, unknown>;
-    if (row.sandbox === undefined) continue;
+/**
+ * Split a `sandbox` string into its tokens, or `null` when it is not a well-formed one:
+ * non-blank, whitespace-separated, every token `allow-<lowercase-and-dashes>`.
+ *
+ * Shared by the file check below, the registry-seed sanitizer and the create prompt, so the
+ * three can never disagree about what a sandbox string is — a prompt that composed what the
+ * file check then refuses authors a config in the very flow that rejects it.
+ */
+export function parseSandboxTokens(value: unknown): string[] | null {
+  if (typeof value !== 'string') return null;
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+  return tokens.every((token) => SANDBOX_TOKEN_PATTERN.test(token)) ? tokens : null;
+}
+
+/**
+ * Validate one entry's authored `sandbox` (an `iframeExtension` entry on a private app).
+ *
+ * Shape only: a non-blank string of whitespace-separated `allow-*` tokens with no
+ * repeats. Which tokens are PERMITTED is the platform's answer — it validates against the
+ * slot's registry `allowed` list and 400s naming the offending tokens, and that message is
+ * surfaced to the developer as it arrives.
+ */
+function validateEntrySandbox(row: Record<string, unknown>, at: EntryFieldPath): void {
+  if (row.sandbox === undefined) return;
+  // An empty string is a deliberate, fully locked frame (HTML `sandbox=""`: no scripts, forms,
+  // popups or same-origin). It is NOT "use the default" — that is the field being absent — so
+  // it passes here with no tokens to check. A whitespace-only value is a mistake and is refused
+  // below like any other malformed one.
+  if (row.sandbox === '') return;
+  const tokens = parseSandboxTokens(row.sandbox);
+  if (!tokens) {
     throw new CliError(
-      refusal(`ui_app.surface_point_list["${asText(row.surface_point_name).trim()}"]`),
+      `${at('sandbox')} must be a space-separated list of sandbox tokens, e.g. "allow-scripts allow-forms". Each token starts with "allow-"; to keep the platform default, remove the field; an empty string "" locks the frame completely (no scripts, forms or popups).`,
     );
+  }
+  const repeated = tokens.find((token, i) => tokens.indexOf(token) !== i);
+  if (repeated !== undefined) {
+    throw new CliError(`${at('sandbox')} lists "${repeated}" more than once.`);
   }
 }
 
@@ -707,6 +739,13 @@ function validateEntryCtaFields(
     validateIframeEntryFields(row, at);
     return;
   }
+  // The sandbox is an iframe concept: an action link navigates to its URL and embeds
+  // nothing, so a value here would configure a frame that never exists.
+  if (row.sandbox !== undefined) {
+    throw new CliError(
+      `${at('sandbox')} only applies to "${EXTENSION_TYPE_IFRAME}" entries — an "${EXTENSION_TYPE_ACTION_LINK}" embeds no frame. Remove it.`,
+    );
+  }
   validateActionLinkEntryFields(row, at);
 }
 
@@ -737,6 +776,7 @@ function validateIframeEntryFields(row: Record<string, unknown>, at: EntryFieldP
   }
 
   validateEntryModalHeight(row, at);
+  validateEntrySandbox(row, at);
 
   // A modal embeds its URL rather than navigating to it, so there is no link target to
   // set. Refused rather than ignored: the server refuses it per entry as well, and a

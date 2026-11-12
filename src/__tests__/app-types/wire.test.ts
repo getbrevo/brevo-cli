@@ -116,4 +116,59 @@ describe('stripUiAppWireOnlyKeys', () => {
     stripUiAppWireOnlyKeys(input);
     expect(input).toEqual(snapshot);
   });
+
+  // ──────── sandbox: stripped by default, kept where the LOCAL entry authored one ────────
+  // (BEX-498) The server stamps a default on every entry; only an entry whose local copy
+  // authored its own keeps the value it carries.
+  describe('per-entry sandbox', () => {
+    const entry = (name: string, extra: Record<string, unknown> = {}) => ({
+      surface_point_name: name,
+      label: 'View',
+      iframe_href: 'https://example.com/embed',
+      ...extra,
+    });
+    const block = (entries: unknown[], extra: Record<string, unknown> = {}) =>
+      ({ extension_type: 'iframeExtension', surface_point_list: entries, ...extra }) as UiApp;
+
+    it('strips every sandbox when no local block is given (the scaffold pull)', () => {
+      const stripped = stripUiAppWireOnlyKeys(
+        block([entry('a', { sandbox: 'allow-scripts' })], { sandbox: 'allow-scripts' }),
+      );
+      expect(stripped).not.toHaveProperty('sandbox');
+      expect(stripped.surface_point_list?.[0]).not.toHaveProperty('sandbox');
+    });
+
+    it('strips the echoed default from an entry the local block did not author one for', () => {
+      const echoed = block([entry('a', { sandbox: 'allow-scripts' })]);
+      const local = block([entry('a')]);
+      expect(stripUiAppWireOnlyKeys(echoed, local).surface_point_list?.[0]).not.toHaveProperty(
+        'sandbox',
+      );
+    });
+
+    it("keeps the input's own value for an entry the local block authored one for", () => {
+      const echoed = block([entry('a', { sandbox: 'allow-scripts allow-forms' })]);
+      const local = block([entry('a', { sandbox: 'allow-forms' })]);
+      expect(stripUiAppWireOnlyKeys(echoed, local).surface_point_list?.[0]?.sandbox).toBe(
+        'allow-scripts allow-forms',
+      );
+    });
+
+    it('matches entries by slot, not by position', () => {
+      const echoed = block([
+        entry('a', { sandbox: 'allow-scripts' }),
+        entry('b', { sandbox: 'allow-scripts allow-forms' }),
+      ]);
+      const local = block([entry('b', { sandbox: 'allow-forms' }), entry('a')]);
+      const [a, b] = stripUiAppWireOnlyKeys(echoed, local).surface_point_list ?? [];
+      expect(a).not.toHaveProperty('sandbox');
+      expect(b?.sandbox).toBe('allow-scripts allow-forms');
+    });
+
+    it('always strips a root sandbox, even when entries authored one', () => {
+      const echoed = block([entry('a', { sandbox: 'allow-forms' })], { sandbox: 'allow-scripts' });
+      const local = block([entry('a', { sandbox: 'allow-forms' })]);
+      expect(stripUiAppWireOnlyKeys(echoed, local)).not.toHaveProperty('sandbox');
+    });
+  });
 });

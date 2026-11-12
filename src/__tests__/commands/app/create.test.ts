@@ -2028,6 +2028,246 @@ describe('app/create', () => {
       expect(entry).not.toHaveProperty('link_target');
     });
 
+    // ──────── Iframe permissions (BEX-498) ────────
+    // The registry row carries `metadata.sandbox = { default, allowed }`; the CLI only
+    // offers what the row lists and composes `<default> <chosen>`. None chosen writes
+    // nothing, and a row with no metadata (an older bo-be) never produces the question.
+    describe('iframe sandbox question', () => {
+      const SANDBOX_META = {
+        sandbox: {
+          default: 'allow-scripts allow-same-origin',
+          allowed: [
+            'allow-scripts',
+            'allow-same-origin',
+            'allow-forms',
+            'allow-popups',
+            'allow-downloads',
+          ],
+        },
+      };
+      const IFRAME_ANSWERS = {
+        integrationType: 'iframeExtension',
+        url: 'https://example.com/embed',
+      } as const;
+      const withSandboxRow = () =>
+        registryHas([
+          REGISTRY_ROW('contactDetails', 'headerMenu', 'action', { metadata: SANDBOX_META }),
+        ]);
+
+      it('offers only the allowed tokens the default does not already grant, defaulting to none', async () => {
+        withSandboxRow();
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: [] });
+
+        await createCommand(CLI_OPTIONS);
+
+        const question = questionNamed('sandbox');
+        expect(question?.type).toBe('checkbox');
+        expect(question?.message).toBe('Does your page need extra iframe permissions?');
+        expect(choiceValuesOf('sandbox')).toEqual([
+          'allow-forms',
+          'allow-popups',
+          'allow-downloads',
+        ]);
+        expect(question?.default).toBeUndefined();
+      });
+
+      it('pre-ticks allow-same-origin for a private app when the platform lists it as an extra', async () => {
+        registryHas([
+          REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+            metadata: {
+              sandbox: {
+                default: 'allow-scripts allow-forms allow-popups',
+                allowed: ['allow-same-origin', 'allow-downloads', 'allow-modals'],
+              },
+            },
+          }),
+        ]);
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-same-origin'] });
+
+        await createCommand(CLI_OPTIONS);
+
+        const choices = (questionNamed('sandbox')?.choices ?? []) as Array<{
+          value?: string;
+          checked?: boolean;
+        }>;
+        expect(choices.map((c) => [c.value, Boolean(c.checked)])).toEqual([
+          ['allow-same-origin', true],
+          ['allow-downloads', false],
+          ['allow-modals', false],
+        ]);
+        expect(collectedUiApp().surface_point_list[0].sandbox).toBe(
+          'allow-scripts allow-forms allow-popups allow-same-origin',
+        );
+      });
+
+      it('writes no sandbox when nothing is chosen', async () => {
+        withSandboxRow();
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: [] });
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+        expect(collectedUiApp()).not.toHaveProperty('sandbox');
+      });
+
+      it('composes the registry default with the chosen tokens', async () => {
+        withSandboxRow();
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-forms', 'allow-downloads'] });
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(collectedUiApp().surface_point_list[0].sandbox).toBe(
+          'allow-scripts allow-same-origin allow-forms allow-downloads',
+        );
+      });
+
+      it('sends the composed sandbox on the create payload', async () => {
+        withSandboxRow();
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-popups'] });
+
+        await createCommand(CLI_OPTIONS);
+
+        const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+        expect(payload.ui_app.surface_point_list[0].sandbox).toBe(
+          'allow-scripts allow-same-origin allow-popups',
+        );
+        expect(payload.ui_app).not.toHaveProperty('sandbox');
+      });
+
+      it('ignores a chosen token the registry did not offer', async () => {
+        withSandboxRow();
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-top-navigation'] });
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+      });
+
+      it('does not ask when the row carries no sandbox metadata (an older bo-be)', async () => {
+        registryHas([REGISTRY_ROW('contactDetails', 'headerMenu', 'action')]);
+        answerPrompts(IFRAME_ANSWERS);
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(questionNamed('sandbox')).toBeUndefined();
+        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+      });
+
+      it.each([
+        ['allowed is not a list', { default: 'allow-scripts', allowed: 'allow-forms' }],
+        ['the default is malformed', { default: 'scripts', allowed: ['allow-forms'] }],
+        [
+          'the allowed list adds nothing to the default',
+          {
+            default: 'allow-scripts',
+            allowed: ['allow-scripts'],
+          },
+        ],
+        [
+          'allowed holds only malformed tokens',
+          { default: 'allow-scripts', allowed: ['Forms', 7] },
+        ],
+      ])('does not ask when %s', async (_label, sandbox) => {
+        registryHas([
+          REGISTRY_ROW('contactDetails', 'headerMenu', 'action', { metadata: { sandbox } }),
+        ]);
+        answerPrompts(IFRAME_ANSWERS);
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(questionNamed('sandbox')).toBeUndefined();
+      });
+
+      it('never asks for a Link, even when the row offers a policy', async () => {
+        withSandboxRow();
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(questionNamed('sandbox')).toBeUndefined();
+        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+      });
+
+      it('never asks on a public app', async () => {
+        withSandboxRow();
+        answerPrompts({ ...IFRAME_ANSWERS, distribution: 'public' });
+
+        await createCommand({
+          name: 'Invoice Manager',
+          distribution: 'public',
+          acceptDeveloperTerms: true,
+        }).catch(() => undefined);
+
+        expect(questionNamed('sandbox')).toBeUndefined();
+      });
+
+      it('never asks on a published build', async () => {
+        withSandboxRow();
+        answerPrompts(IFRAME_ANSWERS);
+
+        globalThis.__BREVO_PREVIEW__ = false;
+        try {
+          await createCommand(CLI_OPTIONS);
+        } finally {
+          globalThis.__BREVO_PREVIEW__ = true;
+        }
+
+        expect(questionNamed('sandbox')).toBeUndefined();
+      });
+
+      it('never prompts under --json (a UI app cannot be authored there)', async () => {
+        withSandboxRow();
+
+        await createCommand({ ...CLI_OPTIONS, json: true });
+
+        expect(questionNamed('sandbox')).toBeUndefined();
+        const payload = (appService.createApp as jest.Mock).mock.calls[0][0];
+        expect(payload).not.toHaveProperty('ui_app');
+      });
+    });
+
+    // Framing/CSP checklist (BEX-498): a second box after the created-app box, iframe only.
+    describe('framing checklist', () => {
+      const printed = () => stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+
+      it('prints the checklist after creating an iframe app in text mode', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+
+        await createCommand(CLI_OPTIONS);
+
+        const out = printed();
+        expect(out).toContain(messages.APP_IFRAME_CHECKLIST_TITLE);
+        expect(out).toContain('X-Frame-Options: DENY or SAMEORIGIN');
+        expect(out).toContain('frame-ancestors');
+        expect(out).toContain('absolute https:// URL');
+        expect(out).toContain('third-party cookies');
+        expect(out).toContain('iframe sandbox');
+      });
+
+      it('does not print the checklist for an action link', async () => {
+        await createCommand(CLI_OPTIONS);
+
+        expect(printed()).not.toContain(messages.APP_IFRAME_CHECKLIST_TITLE);
+      });
+
+      it('does not print the checklist under --json', async () => {
+        await createCommand({ ...CLI_OPTIONS, json: true });
+
+        expect(printed()).not.toContain(messages.APP_IFRAME_CHECKLIST_TITLE);
+      });
+
+      it('does not print the checklist on a published build', async () => {
+        answerPrompts({ integrationType: 'iframeExtension', url: 'https://example.com/embed' });
+        globalThis.__BREVO_PREVIEW__ = false;
+        try {
+          await createCommand(CLI_OPTIONS);
+        } finally {
+          globalThis.__BREVO_PREVIEW__ = true;
+        }
+
+        expect(printed()).not.toContain('Before your iframe renders');
+      });
+    });
+
     // Inline cards: the layout question is asked only for an Iframe on a WIDGET slot, and
     // BOTH answers are written — the entry states how it presents rather than leaving a
     // reader of app-config.json to know what an absent `layout` falls back to.
@@ -3102,6 +3342,9 @@ describe('app/create', () => {
         ['layout', 'inline'],
         ['modal_size', 'small'],
         ['modal_height', '600px'],
+        // Authorable on a private iframe entry (BEX-498), so refused here as iframe-only
+        // with advice that is true for it, not as a platform-owned key.
+        ['sandbox', 'allow-scripts allow-forms'],
       ])('rejects an iframe-only %s key in --ui-config before any network call', (key, value) =>
         expectUiConfigKeyRejected(
           key,
@@ -3112,14 +3355,12 @@ describe('app/create', () => {
 
       // The second silent-drop class: keys the PLATFORM owns and stamps onto the stored
       // snapshot. Not authorable anywhere, so the refusal says "remove it" rather than
-      // "put it in app-config.json" — and for `sandbox` this is the CLI's only local
-      // refusal at all (`validateUiApp` has no unknown-key sweep, so a `sandbox` in
-      // app-config.json reaches the wire and comes back a 400).
+      // "put it in app-config.json". (`sandbox` is not in this class: a private app's iframe
+      // entry may author one, so it is refused above as an iframe-only key.)
       it.each([
         ['link_target', '_blank'],
         ['version', '3'],
         ['extension_point_name', 'contactDetails.headerMenu.action'],
-        ['sandbox', 'allow-scripts'],
       ])('rejects the server-owned %s key in --ui-config before any network call', (key, value) =>
         expectUiConfigKeyRejected(
           key,
