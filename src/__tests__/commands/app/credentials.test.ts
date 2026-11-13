@@ -297,6 +297,24 @@ describe('app/credentials', () => {
       expect(output).not.toContain('clientId');
     });
 
+    // An iframe extension signs its tokens with the app's OAuth client_secret,
+    // so the platform returns credentials for it: the gate keys on the record
+    // carrying a client_id, not on the app type.
+    it('shows credentials for a UI app whose record carries a client_id', async () => {
+      (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(
+        mockUiApp({
+          client_id: 'cli-iframe',
+          client_secret: 'secret-iframe',
+          ui_app: { extension_type: 'iframeExtension', surface_point_list: [] },
+        }),
+      );
+
+      await credentialsCommand({ appId: 'ui-1', json: true });
+
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join('');
+      expect(output).toContain('cli-iframe');
+    });
+
     // The record classifier calls a record with no OAuth material a UI app even
     // when the response omits the ui_app block — same bias as install's gate,
     // and right here for the same reason: there is nothing to print either way.
