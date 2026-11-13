@@ -1,5 +1,7 @@
 /**
- * The UI app type (BEX-290) — an action link that renders inside a Brevo CRM record.
+ * The UI app type (BEX-290) — an extension that renders inside a Brevo CRM record: an
+ * action link that opens the partner's URL, or an iframe extension whose page opens in a
+ * modal (private-only in v1).
  *
  * GA since BEX-290: live on the platform (private distribution) and shipped in every
  * build. `availability` is metadata for doc generation only — the CLI deliberately has
@@ -10,7 +12,9 @@
  * just to print a `Type:` row.
  */
 import { messages } from '../../lang/en';
+import { CliError } from '../../lib/errors';
 import { validateUiApp } from '../../lib/validators';
+import { assertFeatureAvailable } from '../../lib/preview';
 import type { AppTypeModule } from '../contract';
 import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
 
@@ -26,8 +30,23 @@ import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
  *   - `extension_point_name` — the dotted slot name the platform resolves from each entry's
  *                      `surface_point_name` slug and stamps onto its own copy. Also INSIDE
  *                      an entry, which — with `link_target` — is why the strip recurses.
+ *   - `sandbox`      — the iframe sandbox the platform stamps onto the stored snapshot. The
+ *                      one key on this list that is ALSO authorable, and only in one place: a
+ *                      PRIVATE app's `iframeExtension` entry may author its own `sandbox`
+ *                      (BEX-498), from the list the slot's registry row allows. Everywhere
+ *                      else it is platform-owned — at the block root, and on any entry that
+ *                      did not author one, where the stamped default comes back on the echo
+ *                      and must not reach the file or read as drift.
  *
- * All three exist on the server's side of a comparison only. Left in, the first successful
+ *                      So the strip is the DEFAULT and the exception is explicit: the shared
+ *                      traversal (`./wire`) drops `sandbox` at every depth unless handed the
+ *                      LOCAL block whose entry authored one, in which case that entry keeps
+ *                      the value it carries. The stamp is load-bearing, not decorative — the
+ *                      UI kit applies the served value verbatim with no default of its own —
+ *                      which is why an entry that authors nothing is left to the platform
+ *                      rather than written as an empty string.
+ *
+ * All four exist on the server's side of a comparison only (`sandbox` unless authored). Left in, the first successful
  * upload writes them into the file this command just decided to keep them out of, and every
  * subsequent upload reports drift on fields the partner cannot edit — so "already up to date"
  * would never print for a UI app again.
@@ -36,6 +55,7 @@ const UI_APP_WIRE_ONLY_KEYS: readonly string[] = [
   'link_target',
   'version',
   'extension_point_name',
+  'sandbox',
 ] as const;
 
 export const uiAppType: AppTypeModule = {
@@ -72,7 +92,29 @@ export const uiAppType: AppTypeModule = {
     // Shape only, and only ever about the FILE — a missing label, a bare-string placement, a
     // pre-BEX-290 field name. Whether a slot is registered is the upload endpoint's call; the
     // CLI holds no copy of that registry, on purpose.
+    // Iframe extensions are pre-GA (BEX-459): the platform's extension-point registry has
+    // no slot enabled for them and bo-be gates authoring per account, so a published build
+    // refuses a hand-authored block rather than pushing one the server answers with an
+    // opaque 400. First, ahead of the shape checks: "this isn't released yet" is the whole
+    // answer, and field-level advice about a block that cannot be uploaded only misleads.
+    // The create prompt cannot author the combination in such a build — the Iframe choice
+    // is eliminated from it — so this is the hand-edited config's path alone.
+    if (config.ui_app?.extension_type === 'iframeExtension') {
+      assertFeatureAvailable('ui-iframe-type');
+    }
     validateUiApp(config.ui_app);
+    // The one cross-field rule, and it IS answerable from the file alone: iframe
+    // extensions are private-only (v1). The create prompt never authors the combination
+    // (Iframe is hidden on a public app), so this catches the hand-edited config before a
+    // round trip the platform would 400 with the same rule. Not folded into
+    // `validateUiApp`: that validator judges the block, and `distribution_type` lives
+    // outside it.
+    if (
+      config.ui_app?.extension_type === 'iframeExtension' &&
+      config.distribution_type !== 'private'
+    ) {
+      throw new CliError(messages.APP_UI_IFRAME_PRIVATE_ONLY);
+    }
   },
 
   wireOnlyKeys: UI_APP_WIRE_ONLY_KEYS,

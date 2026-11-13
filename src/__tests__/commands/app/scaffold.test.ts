@@ -473,14 +473,22 @@ describe('app/scaffold', () => {
 
         it('errors instead of prompting when stdin is not a TTY', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
-          const stdin = process.stdin as unknown as { isTTY?: boolean };
-          const original = stdin.isTTY;
-          stdin.isTTY = false;
+          // Descriptor, not assignment — see the note on the enclosing describe's beforeEach.
+          const original = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+          Object.defineProperty(process.stdin, 'isTTY', {
+            configurable: true,
+            writable: true,
+            value: false,
+          });
           try {
             await expect(scaffoldCommand({})).rejects.toThrow(/app-config\.json/i);
             expect(mockPrompt).not.toHaveBeenCalled();
           } finally {
-            stdin.isTTY = original;
+            if (original) {
+              Object.defineProperty(process.stdin, 'isTTY', original);
+            } else {
+              Reflect.deleteProperty(process.stdin, 'isTTY');
+            }
           }
         });
 

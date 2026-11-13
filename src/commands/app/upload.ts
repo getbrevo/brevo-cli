@@ -5,7 +5,7 @@ import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { withCommandHandler } from '../../lib/command-handler';
 import { jsonOutput } from '../../lib/json-output';
-import { CliError } from '../../lib/errors';
+import { ApiError, CliError, isIframeExtensionDisabledRefusal } from '../../lib/errors';
 import { appService } from '../../container';
 import { createSpinner } from '../../lib/ui';
 import {
@@ -19,7 +19,7 @@ import {
 } from '../../lib/config';
 import { validateScopes, containsLegacyAllScope } from '../../lib/validators';
 import { DEFAULT_LINK_TARGET, EXTENSION_TYPE_ACTION_LINK } from '../../lib/constants';
-import { OAuthApp, UiApp, UploadAppResponse } from '../../types';
+import { OAuthApp, UiApp, UploadAppPayload, UploadAppResponse } from '../../types';
 import { resolveFromConfig } from '../../app-types';
 import { isFunctionAppConfig } from '../../app-types/function';
 import { stripUiAppWireOnlyKeysFrom } from '../../app-types/wire';
@@ -167,6 +167,10 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
 // `src/app-types/ui/compare.ts`, which strips through the same traversal.
 const stripInjectedKeys = stripUiAppWireOnlyKeysFrom;
 
+// Both sides of every comparison below are normalized against the LOCAL block (`authored`):
+// the server stamps a default `sandbox` on every entry, and that default is a difference
+// only where the developer authored one of their own (BEX-498) — see `stripUiAppWireOnlyKeys`.
+
 /**
  * Drop the wire-only keys above from a block, before it is written back to
  * app-config.json. They are stripped for the same reason and by the same list the diff
@@ -174,8 +178,8 @@ const stripInjectedKeys = stripUiAppWireOnlyKeysFrom;
  * echo, and writing one into the file would put a key the partner cannot usefully edit into
  * the file this command just decided to keep it out of.
  */
-function withoutInjectedKeys(uiApp: UiApp): UiApp {
-  return stripInjectedKeys(uiApp) as UiApp;
+function withoutInjectedKeys(uiApp: UiApp, authored?: UiApp): UiApp {
+  return stripInjectedKeys(uiApp, authored) as UiApp;
 }
 
 /**
@@ -251,7 +255,7 @@ function renderUploadDiff(diff: UploadDiff): void {
 // app is the one thing worth seeing before saying yes. Every differing value now
 // reads `before → after`, exactly like the Name / Version / Scopes rows above it.
 function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
-  const changed = canonicalizeUiApp(next) !== canonicalizeUiApp(current);
+  const changed = canonicalizeUiApp(next, next) !== canonicalizeUiApp(current, next);
   logInfo(`  ${messages.APP_UPLOAD_UI_APP_SUMMARY}${changed ? ' (changed)' : ''}`);
   const typePrefix =
     current && current.extension_type !== next.extension_type ? `${current.extension_type} → ` : '';
@@ -264,7 +268,10 @@ function renderUiAppDiff(next: UiApp, current: UiApp | undefined): void {
   // Matched by slot slug, not by position — `surface_point_list` order is not meaningful
   // (see `canonicalizeUiApp`), so an index-wise comparison would report a reordered list
   // as a wholesale rewrite.
-  formatPlacementDiffLines(next, current).forEach((line, i) => {
+  // The server's block with its stamped default `sandbox` removed wherever this file authored
+  // none, so an entry that never asked for one does not print `default → (none)`.
+  const shownCurrent = current ? withoutInjectedKeys(current, next) : undefined;
+  formatPlacementDiffLines(next, shownCurrent).forEach((line, i) => {
     logInfo(`    ${i === 0 ? 'Placement:      ' : '                '}${line}`);
   });
   // No link_target row: app-config.json does not carry the field, so printing a value
@@ -316,9 +323,42 @@ function hasNoChanges(diff: UploadDiff): boolean {
     (diff.currentVersion || '') === (diff.nextVersion || '') &&
     // Without this, editing only the `ui_app` block reports "Already up to date"
     // and the change is never pushed.
-    canonicalizeUiApp(diff.currentUiApp) === canonicalizeUiApp(diff.nextUiApp)
+    canonicalizeUiApp(diff.currentUiApp, diff.nextUiApp) ===
+      canonicalizeUiApp(diff.nextUiApp, diff.nextUiApp)
   );
 }
+
+/**
+ * Whether a failed upload is the platform refusing an iframe `layout`.
+ *
+ * A translation, deliberately NOT a local guard — the same reasoning as
+ * `isPublicDistributionRefusal` in `app create`, and CLAUDE.md's standing rule. Whether a
+ * slot renders a card is a REGISTRY fact and the CLI holds no copy of the registry, so a
+ * local check could only ever lag it in both directions. The server is the authority; this
+ * only puts its answer into words that name the file and the field to edit.
+ *
+ * Narrowed twice. By a 400 that mentions `layout`, so an unrelated 400 on a UI-app upload
+ * (a bad `logo_uri`, an unregistered slot) keeps the server's own text. And by the app
+ * actually BEING a UI app — the word "layout" is not reserved, so a 400 from an OAuth or
+ * Function upload that happens to contain it would otherwise be rewritten into advice to
+ * edit a `surface_point_list` entry in a file that has no `ui_app` block at all. That
+ * second conjunct is the one `isPublicDistributionRefusal` carries as `distribution ===
+ * 'public'`; this is the same idea against a different discriminator.
+ *
+ * If the server rewords its sentence this stops matching and the raw message surfaces
+ * again — the previous behaviour, not a new failure mode.
+ */
+function isUiLayoutRefusal(err: unknown, isUiApp: boolean): err is ApiError {
+  return (
+    isUiApp && err instanceof ApiError && err.statusCode === 400 && /layout/i.test(err.message)
+  );
+}
+
+// isIframeExtensionDisabledRefusal (shared with `app create`) lives in `lib/errors.ts` —
+// the flag guards both write paths, so one definition rather than two. Reachable here
+// (not just from create) because an existing app's FIRST upload authoring
+// `iframeExtension` — e.g. an `actionLink` app hand-edited to switch types — hits the
+// same server-side gate.
 
 export interface ConfigUploadOutcome {
   confirmedVersion: string;
@@ -351,47 +391,18 @@ export async function uploadProjectConfig(
   const spinner = createSpinner('Uploading app...', { silent: opts.silent });
   let response: UploadAppResponse;
   try {
-    response = await appService.uploadApp(config.app_id, {
-      app_id: config.app_id,
-      name: config.app_name,
-      logo_uri: config.logo_uri ?? '',
-      version: appVersion,
-      distribution_type: config.distribution_type,
-      // UI apps and Function apps have no OAuth block — the whole `auth` key is
-      // omitted, not sent with empty arrays. A UI app mirrors `auth: {}` in the
-      // config; a Function app has no `auth` block at all.
-      ...(isUiApp || isFnApp
-        ? {}
-        : {
-            auth: {
-              scopes,
-              redirect_uris: redirectUris,
-            },
-          }),
-      // Spread rather than a fixed key so OAuth uploads keep their exact
-      // historical payload shape — `ui_app` is absent, not `undefined`.
-      //
-      // `link_target` is injected here rather than authored into app-config.json
-      // (BEX-290): there was never a choice to make, since the server refuses
-      // `_self`, so a field in the file only invited a partner to edit it into a
-      // value that 400s. It is still sent explicitly rather than left to the
-      // server's own default, which is gated on the pre-BEX-350 spelling of
-      // extension_type and therefore no longer fires for CLI-authored apps.
-      //
-      // Onto each ENTRY, not the block root (BEX-426): it qualifies that entry's
-      // `redirect_link`, so it followed the destination off the root, and the root
-      // spelling is now refused by name server-side. An entry that already carries
-      // one keeps it — `validateUiApp` has already pinned any authored value to
-      // `_blank`, so this only fills the blanks.
-      //
-      // Only for an `actionLink`. An `iframeExtension` embeds its URL in a modal
-      // instead of navigating, has no link target to set, and both `validateUiApp`
-      // and the server refuse the field per entry — so injecting it would send the
-      // one field the CLI just told the partner not to write.
-      ...(isUiApp && config.ui_app ? { ui_app: withInjectedLinkTargets(config.ui_app) } : {}),
-      // A Function app sends its static discriminator block on the wire.
-      ...(isFnApp ? { brevo_function: {} } : {}),
-    });
+    response = await appService.uploadApp(
+      config.app_id,
+      buildUploadPayload(config, { appVersion, isUiApp, isFnApp, scopes, redirectUris }),
+    );
+  } catch (err) {
+    if (isUiLayoutRefusal(err, isUiApp)) {
+      throw new CliError(messages.APP_UPLOAD_UI_LAYOUT_REJECTED(err.message));
+    }
+    if (isIframeExtensionDisabledRefusal(err)) {
+      throw new CliError(messages.APP_UPLOAD_UI_IFRAME_DISABLED(err.message));
+    }
+    throw err;
   } finally {
     spinner.stop();
   }
@@ -405,24 +416,100 @@ export async function uploadProjectConfig(
   // to the version we sent — so a server-confirmed bump always wins.
   const confirmedVersion = response.version ?? response.app_version ?? appVersion;
 
-  writeProjectConfig({
+  writeProjectConfig(
+    buildUploadWriteBack(config, response, {
+      confirmedVersion,
+      finalName,
+      isUiApp,
+      isFnApp,
+      scopes,
+      redirectUris,
+    }),
+  );
+
+  return { confirmedVersion, finalName };
+}
+
+/**
+ * What the upload sends. Extracted from `uploadProjectConfig` so that function reads as
+ * the sequence it is — resolve a version, send, translate, persist — and so the two
+ * app-type spreads that decide the body's shape sit next to their own reasoning.
+ */
+function buildUploadPayload(
+  config: NonNullable<ProjectConfig>,
+  ctx: UploadShape & { appVersion: string },
+): UploadAppPayload {
+  return {
+    app_id: config.app_id,
+    name: config.app_name,
+    logo_uri: config.logo_uri ?? '',
+    version: ctx.appVersion,
+    distribution_type: config.distribution_type,
+    // UI apps and Function apps have no OAuth block — the whole `auth` key is
+    // omitted, not sent with empty arrays. A UI app mirrors `auth: {}` in the
+    // config; a Function app has no `auth` block at all.
+    ...(ctx.isUiApp || ctx.isFnApp
+      ? {}
+      : {
+          auth: {
+            scopes: ctx.scopes,
+            redirect_uris: ctx.redirectUris,
+          },
+        }),
+    // Spread rather than a fixed key so OAuth uploads keep their exact
+    // historical payload shape — `ui_app` is absent, not `undefined`.
+    //
+    // `link_target` is injected here rather than authored into app-config.json
+    // (BEX-290): there was never a choice to make, since the server refuses
+    // `_self`, so a field in the file only invited a partner to edit it into a
+    // value that 400s. It is still sent explicitly rather than left to the
+    // server's own default, which is gated on the pre-BEX-350 spelling of
+    // extension_type and therefore no longer fires for CLI-authored apps.
+    //
+    // Onto each ENTRY, not the block root (BEX-426): it qualifies that entry's
+    // `redirect_link`, so it followed the destination off the root, and the root
+    // spelling is now refused by name server-side. An entry that already carries
+    // one keeps it — `validateUiApp` has already pinned any authored value to
+    // `_blank`, so this only fills the blanks.
+    //
+    // Only for an `actionLink`. An `iframeExtension` embeds its URL in a modal
+    // instead of navigating, has no link target to set, and both `validateUiApp`
+    // and the server refuse the field per entry — so injecting it would send the
+    // one field the CLI just told the partner not to write.
+    ...(ctx.isUiApp && config.ui_app ? { ui_app: withInjectedLinkTargets(config.ui_app) } : {}),
+    // A Function app sends its static discriminator block on the wire.
+    ...(ctx.isFnApp ? { brevo_function: {} } : {}),
+  };
+}
+
+/**
+ * What the upload persists back into `app-config.json`. Same reason as the payload
+ * builder above: the write-back's own app-type branches are a body of their own, and the
+ * command tail is easier to follow without them inline.
+ */
+function buildUploadWriteBack(
+  config: NonNullable<ProjectConfig>,
+  response: UploadAppResponse,
+  ctx: UploadShape & { confirmedVersion: string; finalName: string },
+): NonNullable<ProjectConfig> {
+  return {
     ...config,
-    app_name: finalName,
+    app_name: ctx.finalName,
     logo_uri: response.logo_uri ?? config.logo_uri,
     distribution_type: response.distribution_type ?? config.distribution_type,
-    version: confirmedVersion,
+    version: ctx.confirmedVersion,
     // A UI app's auth block is always written back as the canonical empty
     // `{}` — never reconciled from the server's echo, which reports null
     // scopes/redirect_uris for UI-only apps anyway.
     // A Function app has no auth block at all — omit it from the write-back.
-    ...(isFnApp
+    ...(ctx.isFnApp
       ? {}
       : {
-          auth: isUiApp
+          auth: ctx.isUiApp
             ? {}
             : {
-                scopes: response.auth?.scopes ?? scopes,
-                redirect_uris: response.auth?.redirect_uris ?? redirectUris,
+                scopes: response.auth?.scopes ?? ctx.scopes,
+                redirect_uris: response.auth?.redirect_uris ?? ctx.redirectUris,
               },
         }),
     // Prefer the server's normalized block when it echoes one back, otherwise
@@ -431,12 +518,27 @@ export async function uploadProjectConfig(
     // echoes both, so passing the echo through verbatim would write back into
     // app-config.json fields the partner never authored — undoing, on the very
     // first successful upload, the decision to keep them out of the file.
-    ...(isUiApp && (response.ui_app ?? config.ui_app)
-      ? { ui_app: withoutInjectedKeys((response.ui_app ?? config.ui_app)!) }
+    ...(ctx.isUiApp && (response.ui_app ?? config.ui_app)
+      ? {
+          // The block written back is the SERVER's echo, so it is also the `authored` argument:
+          // every entry's echoed `sandbox` (the platform's stamped default, an authored value
+          // or "" for a locked frame) is kept, and the file records what the platform holds.
+          ui_app: withoutInjectedKeys(
+            (response.ui_app ?? config.ui_app)!,
+            response.ui_app ?? config.ui_app,
+          ),
+        }
       : {}),
-  });
+  };
+}
 
-  return { confirmedVersion, finalName };
+/** The two app-type facts both builders branch on, plus the OAuth pair only an OAuth app
+ * uses. Passed as one object so neither builder grows a parameter list nobody can read. */
+interface UploadShape {
+  isUiApp: boolean;
+  isFnApp: boolean;
+  scopes: string[];
+  redirectUris: string[];
 }
 
 // The auth block's shape follows the app type, and a mismatch is a hard error
@@ -635,5 +737,10 @@ export const uploadCommand = withCommandHandler(async (options: UploadOptions): 
   logSuccess(messages.APP_UPLOAD_SUCCESS);
   logInfo(`  Version: ${confirmedVersion || '(unknown)'}`);
   if (migratingKeys) logInfo(`  ${messages.APP_CONFIG_KEYS_MIGRATED}`);
+  // One-line pointer to the framing checklist (BEX-498). `__BREVO_PREVIEW__` is the
+  // elimination site for the gated string; see `preview-messages.ts`.
+  if (__BREVO_PREVIEW__ && config.ui_app?.extension_type === 'iframeExtension') {
+    logInfo(`  ${messages.APP_IFRAME_CHECKLIST_UPLOAD_HINT}`);
+  }
   process.stdout.write('\n');
 });

@@ -69,13 +69,15 @@ export type PreviewFeature =
   | 'review-lifecycle'
   /** The *UI app* choice in `app create`'s app-type prompt. GA at BEX-290. */
   | 'ui-app-type'
+  /** The *Iframe* choice in `app create`'s UI-app integration-type prompt. */
+  | 'ui-iframe-type'
   /** `app create --distribution public`. GA at BEX-405. */
   | 'public-distribution';
 
 export type FeatureStage = 'ga' | 'preview';
 
 /**
- * Readiness per feature. **All rows are `'ga'` — nothing is gated today.**
+ * Readiness per feature. **One row is `'preview'`: `ui-iframe-type` (BEX-459).** Every other row is `'ga'`.
  *
  * Flipping a row to `'preview'` is the first step of holding a feature back, not the
  * whole of it: see the header for the two traps (`preview-definitions.ts` and the
@@ -88,6 +90,12 @@ export const FEATURE_STAGE: Readonly<Record<PreviewFeature, FeatureStage>> = {
   'account-install': 'ga',
   'review-lifecycle': 'ga',
   'ui-app-type': 'ga',
+  // Iframe extensions are not live on the platform: the extension-point registry has no
+  // slot enabled for `iframeExtension` yet, and bo-be gates authoring behind a per-account
+  // Unleash flag that is off by default. So the choice would dead-end for every partner —
+  // in `APP_CREATE_UI_POINTS_NONE_FOR_TYPE` on an un-flipped registry, or a `400` past it —
+  // which reads as a CLI bug. Gated until both land; the rest of UI apps stays GA.
+  'ui-iframe-type': 'preview',
   'public-distribution': 'ga',
 } as const;
 

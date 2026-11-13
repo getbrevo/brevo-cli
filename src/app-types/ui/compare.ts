@@ -32,23 +32,48 @@ function sortKeysDeep(value: unknown): unknown {
  *   2. `surface_point_list` ORDER is not meaningful — the server returns registry order,
  *      which need not match the order the partner picked their pages in. Without sorting,
  *      an authored [deal, contact] against an echoed [contact, deal] is phantom drift.
- *   3. The server-managed keys exist on one side only — stripped via
+ *   3. The server-managed keys exist on one side only (`sandbox` only where `authored` — the
+ *      local block — wrote one; see `stripUiAppWireOnlyKeys`) — stripped via
  *      `stripUiAppWireOnlyKeysFrom`, the single owner of that list, rather than by a
  *      filter duplicated here.
  */
-export function canonicalizeUiApp(uiApp: UiApp | undefined): string {
+export function canonicalizeUiApp(uiApp: UiApp | undefined, authored?: UiApp): string {
   if (!uiApp) return '';
-  const normalized = sortKeysDeep(stripUiAppWireOnlyKeysFrom(uiApp)) as Record<string, unknown>;
+  const normalized = sortKeysDeep(stripUiAppWireOnlyKeysFrom(uiApp, authored)) as Record<
+    string,
+    unknown
+  >;
   const entries = normalized.surface_point_list;
   if (Array.isArray(entries)) {
-    normalized.surface_point_list = [...entries].sort((a, b) =>
-      JSON.stringify(a).localeCompare(JSON.stringify(b)),
-    );
+    normalized.surface_point_list = entries
+      .map(canonicalizeEntrySandbox)
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   }
   return JSON.stringify(normalized);
 }
 
-/** Whether two blocks describe the same configuration. An absent block equals an absent one. */
-export function uiAppEquals(a: UiApp | undefined, b: UiApp | undefined): boolean {
-  return canonicalizeUiApp(a) === canonicalizeUiApp(b);
+/**
+ * An entry's `sandbox` as a set: tokens sorted and de-duplicated. The string is a token
+ * LIST, so `"allow-forms allow-scripts"` and `"allow-scripts allow-forms"` are one policy,
+ * and a server that echoes them in its own order must not read as an edit.
+ */
+function canonicalizeEntrySandbox(entry: unknown): unknown {
+  const row = entry as { sandbox?: unknown } | null;
+  if (!row || typeof row.sandbox !== 'string') return entry;
+  const tokens = [...new Set(row.sandbox.trim().split(/\s+/).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
+  return { ...(row as Record<string, unknown>), sandbox: tokens.join(' ') };
+}
+
+/**
+ * Whether the local block and the server's describe the same configuration. An absent
+ * block equals an absent one.
+ *
+ * Directional on one point: `sandbox` is compared only on entries the LOCAL block authored
+ * one for (the server stamps a default on every entry, and that default is not a
+ * difference). So `local` is the first argument, and the server's block the second.
+ */
+export function uiAppEquals(local: UiApp | undefined, server: UiApp | undefined): boolean {
+  return canonicalizeUiApp(local, local) === canonicalizeUiApp(server, local);
 }

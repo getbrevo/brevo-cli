@@ -193,7 +193,11 @@ async function resolveBootstrapPlan(appId: string, jsonMode: boolean): Promise<S
   // `extension_point_name` onto every entry. None is authored, and writing one into the
   // file puts a value there that the very next `app upload` rejects as an unknown key.
   // Same owner the upload diff and write-back use; see `src/app-types/wire.ts`.
-  const serverUiApp = record?.ui_app ? stripUiAppWireOnlyKeys(record.ui_app) : undefined;
+  // The server's own per-entry `sandbox` is kept (it is the block's `authored` argument): a
+  // pulled file records what the platform holds for an iframe entry, `""` included.
+  const serverUiApp = record?.ui_app
+    ? stripUiAppWireOnlyKeys(record.ui_app, record.ui_app)
+    : undefined;
   const ctx = serverUiApp ? { ...probe, uiApp: serverUiApp } : probe;
   return { cancelled: false, appId, ctx, refreshBase: true };
 }

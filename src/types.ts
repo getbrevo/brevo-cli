@@ -74,11 +74,11 @@ export interface SubAccountsResponse {
  * the extension-point grammar; the pre-BEX-350 snake_case spellings are not
  * accepted (see the note on the constants in `lib/constants.ts`).
  *
- * - `actionLink` — a redirect-only CTA driven by `redirect_link`. The only type
- *   the CLI authors today.
- * - `iframeExtension` — opens `modal_iframe_url` in a modal iframe. The UI kit
- *   keeps `modal_iframe_url` *only* for this type, so authoring one on any other
- *   type is silently dropped.
+ * - `actionLink` — a redirect-only CTA driven by `redirect_link`.
+ * - `iframeExtension` — opens `iframe_href` in a modal iframe. The UI kit
+ *   keeps `iframe_href` *only* for this type, so authoring one on any other
+ *   type is silently dropped. Authorable since the iframe-extension launch, on
+ *   private apps only (v1).
  * - `legacyComponent` — the pre-extensibility interpreter path used by earlier
  *   integrations. Never CLI-authored; listed so a hand-edited config round-trips.
  */
@@ -154,6 +154,39 @@ export interface SurfacePointEntry {
   surface_point_name: string;
   context?: string[];
   /**
+   * `iframeExtension` entries on widget slots only: how this entry presents its
+   * `iframe_href` — `'inline'` embeds the page directly in the card body, `'modal'`
+   * (or absent, the default) opens it from the card's CTA. The platform refuses the field
+   * on an `actionLink` entry and `'inline'` on a slot that renders no card.
+   *
+   * `brevo app create` writes BOTH answers, `'modal'` included: the entry states how it
+   * presents rather than leaving a reader to know what absent falls back to. Absent is
+   * still accepted everywhere it was — configs authored before the field was written, and
+   * the `actionLink` entries that must not carry one at all.
+   */
+  layout?: 'inline' | 'modal';
+  /**
+   * `iframeExtension` entries that open a MODAL: how big that modal is. Which entries
+   * those are is not the same set `layout` applies to — an `.action` slot's menu entry
+   * always opens one (and takes no `layout` at all), while a widget slot opens one only
+   * when its `layout` is `'modal'` or absent. An entry with `layout: 'inline'` embeds the
+   * page in the card and opens nothing, so a size here would size nothing.
+   *
+   * `'large'` is what absent means, and is also what `brevo app create` writes when the
+   * partner takes the default — same contract as `layout` above, and for the same reason.
+   * Absent stays valid for configs authored before it was written. Refused on an
+   * `actionLink` entry, same as `layout`.
+   */
+  modal_size?: 'small' | 'medium' | 'large';
+  /**
+   * `iframeExtension` entries that open a MODAL, same set `modal_size` applies to: an
+   * explicit height override, a CSS length string — `"<positive integer>px"` (absolute),
+   * `"<1-100>vh"` or `"<1-100>%"` (both viewport-relative, hence the bound). Absent means
+   * the dialog kit's own default height applies, so height-less configs stay
+   * byte-identical. Refused on an `actionLink` entry, same as `modal_size`.
+   */
+  modal_height?: string;
+  /**
    * The entry's own text: the menu entry's label on an `.action` slot, the card's CTA
    * button text on a `.widget` slot. Per placement since BEX-426 — an app on three slots
    * can label each differently. Required in practice (`validateUiApp` refuses an empty
@@ -177,7 +210,7 @@ export interface SurfacePointEntry {
    * `iframeExtension` only — the URL the modal embeds. Per placement since BEX-426.
    * Refused on an `actionLink`, where the kit would silently drop it.
    */
-  modal_iframe_url?: string;
+  iframe_href?: string;
   /**
    * Where THIS entry's `redirect_link` opens. It followed the CTA fields off the block
    * root because it qualifies a per-entry destination — a root value could only ever say
@@ -203,6 +236,31 @@ export interface SurfacePointEntry {
    * layout. Absent means the host slot's default size applies entirely (BEX-416).
    */
   size?: { width?: string; height?: string };
+  /**
+   * `iframeExtension` entries on a PRIVATE app only: the iframe `sandbox` tokens the
+   * developer chose to run this entry's page under, as one space-separated string —
+   * e.g. `"allow-scripts allow-same-origin allow-forms"`.
+   *
+   * AUTHORED ONLY WHEN THE DEVELOPER ASKED FOR MORE than the platform's default.
+   * Absent means the platform stamps its own default on its stored copy and the server
+   * echoes that back — which is why the config round-trip only keeps an echoed value for
+   * an entry whose local copy authored one (`src/app-types/wire.ts`). The permitted set
+   * is the platform's `metadata.sandbox.allowed` for the slot and is enforced server-side; the
+   * CLI checks the shape only. Refused on an `actionLink` entry and at the block root.
+   */
+  sandbox?: string;
+}
+
+/**
+ * The iframe `sandbox` policy the platform publishes per slot as `metadata.sandbox` — a SEED and
+ * a menu, modelled on `default_size`: `default` is what the platform applies to an entry
+ * that authors nothing, and `allowed` is every token a private app may ask for (the
+ * default's own tokens included). Both are token lists once sanitized; on the wire the
+ * default is one space-separated string.
+ */
+export interface SurfacePointSandboxPolicy {
+  default?: string;
+  allowed?: string[];
 }
 
 /**
@@ -265,6 +323,13 @@ export interface SurfacePointRow {
    * so seeding from it cannot author a config the CLI's own upload rejects.
    */
   default_size?: { width?: string; height?: string } | null;
+  /**
+   * Per-row metadata published by the surface-points read. The only key the CLI reads is `sandbox`, the
+   * iframe policy an `iframeExtension` entry on this slot may be authored under (BEX-498).
+   * Absent on a bo-be that predates it, and then the CLI offers no sandbox question and
+   * writes no `sandbox` — the platform's own default keeps applying.
+   */
+  metadata?: { sandbox?: SurfacePointSandboxPolicy | null } | null;
   /** Which `extension_type` values this slot can serve. */
   extension_type_list?: string[];
   /** Registry lifecycle marker; anything other than `active` is not offerable. */
@@ -328,7 +393,7 @@ export interface UiApp {
    */
   surface_point_list: SurfacePointEntry[];
   /**
-   * NOTE (BEX-426): `label`, `more_info`, `redirect_link`, `modal_iframe_url` and
+   * NOTE (BEX-426): `label`, `more_info`, `redirect_link`, `iframe_href` and
    * `link_target` are deliberately NOT fields of this block any more — they live on each
    * `surface_point_list` entry, so two placements can carry different copy, different
    * destinations and their own link target. `validateUiApp` refuses the root spellings by

@@ -5,6 +5,7 @@ import {
   EXTENSION_TYPE_IFRAME,
   LIST_FILTER_APP_TYPE_VALUES,
   UPLOADABLE_LINK_TARGETS,
+  UI_APP_MODAL_SIZES,
   type ListFilterAppType,
 } from './constants';
 
@@ -388,8 +389,81 @@ export function validateUiApp(uiApp: unknown): void {
 
   rejectPreBex290Fields(block);
   rejectRootCtaFields(block);
+  rejectRootSandbox(block);
 
   validateSurfacePointList(block.surface_point_list, extensionType);
+}
+
+/**
+ * Refuse a `sandbox` at the `ui_app` ROOT.
+ *
+ * The iframe sandbox is a PER-ENTRY, iframe-only, private-app-only field (BEX-498): a
+ * private developer may add permissions on an `iframeExtension` entry, from the list the
+ * slot's registry row allows. The block root has no such meaning — one value there could
+ * only ever say one thing about every slot — and the platform stamps its own value at that
+ * level, which is why the wire-only strip (`src/app-types/wire.ts`) still removes a root
+ * `sandbox` from every server echo. So an authored root value is refused by name, with the
+ * place it belongs.
+ *
+ * Refused rather than stripped: dropping a security-relevant key without a word would
+ * leave a developer believing the file's value is in force. And refused HERE rather than
+ * left to bo-be's `unknown key` 400, because `app upload` sends the file's block verbatim
+ * — the strip runs on what comes BACK, so nothing local stood between an authored value
+ * and the wire. Ahead of `validateSurfacePointList` on purpose: a blank label on entry one
+ * must not decide whether this is reported at all.
+ */
+function rejectRootSandbox(block: Record<string, unknown>): void {
+  if (block.sandbox === undefined) return;
+  throw new CliError(
+    'ui_app.sandbox is not a ui_app field — the iframe sandbox is set per placement. On a private app, an "iframeExtension" entry may carry its own "sandbox" (a space-separated list of allow-* tokens, from the list the platform allows for that slot); otherwise remove it and the platform applies its default.',
+  );
+}
+
+// One sandbox token. SHAPE only, deliberately: whether a token is one the platform permits
+// on a given slot is the platform's (`metadata.sandbox.allowed`) call, and the
+// CLI holds no copy of that list — a local allow-list could only lag it, in both directions.
+const SANDBOX_TOKEN_PATTERN = /^allow-[a-z-]+$/;
+
+/**
+ * Split a `sandbox` string into its tokens, or `null` when it is not a well-formed one:
+ * non-blank, whitespace-separated, every token `allow-<lowercase-and-dashes>`.
+ *
+ * Shared by the file check below, the registry-seed sanitizer and the create prompt, so the
+ * three can never disagree about what a sandbox string is — a prompt that composed what the
+ * file check then refuses authors a config in the very flow that rejects it.
+ */
+export function parseSandboxTokens(value: unknown): string[] | null {
+  if (typeof value !== 'string') return null;
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+  return tokens.every((token) => SANDBOX_TOKEN_PATTERN.test(token)) ? tokens : null;
+}
+
+/**
+ * Validate one entry's authored `sandbox` (an `iframeExtension` entry on a private app).
+ *
+ * Shape only: a non-blank string of whitespace-separated `allow-*` tokens with no
+ * repeats. Which tokens are PERMITTED is the platform's answer — it validates against the
+ * slot's registry `allowed` list and 400s naming the offending tokens, and that message is
+ * surfaced to the developer as it arrives.
+ */
+function validateEntrySandbox(row: Record<string, unknown>, at: EntryFieldPath): void {
+  if (row.sandbox === undefined) return;
+  // An empty string is a deliberate, fully locked frame (HTML `sandbox=""`: no scripts, forms,
+  // popups or same-origin). It is NOT "use the default" — that is the field being absent — so
+  // it passes here with no tokens to check. A whitespace-only value is a mistake and is refused
+  // below like any other malformed one.
+  if (row.sandbox === '') return;
+  const tokens = parseSandboxTokens(row.sandbox);
+  if (!tokens) {
+    throw new CliError(
+      `${at('sandbox')} must be a space-separated list of sandbox tokens, e.g. "allow-scripts allow-forms". Each token starts with "allow-"; to keep the platform default, remove the field; an empty string "" locks the frame completely (no scripts, forms or popups).`,
+    );
+  }
+  const repeated = tokens.find((token, i) => tokens.indexOf(token) !== i);
+  if (repeated !== undefined) {
+    throw new CliError(`${at('sandbox')} lists "${repeated}" more than once.`);
+  }
 }
 
 /**
@@ -430,7 +504,7 @@ function rejectPreBex290Fields(block: Record<string, unknown>): void {
 /**
  * Refuse the four CTA fields at the `ui_app` root with a migration hint (BEX-426).
  *
- * `label`, `more_info`, `redirect_link` and `modal_iframe_url` moved into each
+ * `label`, `more_info`, `redirect_link` and `iframe_href` moved into each
  * `surface_point_list` entry so an app on three slots can label each differently and
  * deep-link each somewhere else — the same move `context` and `size` already made, for
  * the same reason. Hard move, no root fallback: a root value silently mirrored onto
@@ -446,7 +520,7 @@ function rejectRootCtaFields(block: Record<string, unknown>): void {
     ['label', '"label": "Open in Acme"'],
     ['more_info', '"more_info": "See this record in Acme"'],
     ['redirect_link', '"redirect_link": "https://example.com/open"'],
-    ['modal_iframe_url', '"modal_iframe_url": "https://example.com/embed"'],
+    ['iframe_href', '"iframe_href": "https://example.com/embed"'],
   ];
   for (const [key, hint] of moved) {
     if (block[key] !== undefined) {
@@ -475,8 +549,8 @@ function rejectRootCtaFields(block: Record<string, unknown>): void {
  *
  * Since BEX-426 each entry also carries its own CTA fields, so the per-type rules run
  * per entry (`extensionType` selects which set): an `actionLink` entry needs `label` and
- * `redirect_link` and must not carry `modal_iframe_url`; an `iframeExtension` entry needs
- * `label` and `modal_iframe_url` and must not carry `redirect_link`. Every message names
+ * `redirect_link` and must not carry `iframe_href`; an `iframeExtension` entry needs
+ * `label` and `iframe_href` and must not carry `redirect_link`. Every message names
  * the offending entry — "ui_app.redirect_link is required" is useless once there are
  * three of them.
  *
@@ -527,6 +601,39 @@ function validateSurfacePointList(entries: unknown, extensionType: string): void
 // always a CSS length the record page can apply verbatim.
 const SIZE_AXIS_PATTERN = /^([1-9]\d*)(px|%)$/;
 
+// One authored modal height: a positive integer with a px, vh or % unit. vh and % are
+// both viewport-relative, so both are bounded 1-100 the same way a % size axis is; px is
+// unbounded because the dialog is max-height-capped, so an oversized value only clips
+// rather than overflowing the layout.
+const MODAL_HEIGHT_PATTERN = /^([1-9]\d*)(px|vh|%)$/;
+
+/**
+ * Validate ONE authored size axis — the whole grammar `size` has, in the one place every
+ * reader of it shares. Split out of `validateSurfacePointSize` below when `brevo app
+ * create` grew a card-height question (BEX-461): the prompt judges a single axis, the
+ * file check judges an object of them, and the registry-seed sanitizer judges what the
+ * platform served. None of the three may disagree about what a valid axis is — a prompt
+ * that accepted what upload refuses, or a seed that wrote one, authors a config in the
+ * very flow that then rejects it.
+ *
+ * Deliberately does NOT trim: an authored `" 100px "` in `app-config.json` is a refusal,
+ * exactly as before. The prompt trims its own answer before calling in, because a trailing
+ * space typed at a terminal is a slip rather than a statement.
+ */
+export function validateUiAppSizeAxis(axis: string, value: unknown): true | string {
+  const match = typeof value === 'string' ? SIZE_AXIS_PATTERN.exec(value) : null;
+  if (!match) {
+    return `${axis} must be a positive integer with a px or % unit, e.g. "280px" or "50%".`;
+  }
+  if (match[2] === '%' && Number(match[1]) > 100) {
+    // `match[0]` rather than `value`: the pattern is anchored, so the whole match IS
+    // the authored string — and it is typed `string`, so the message can never quote
+    // an `unknown`'s default stringification ("[object Object]").
+    return `${axis} "${match[0]}" is out of range — a % axis must be between 1% and 100%.`;
+  }
+  return true;
+}
+
 /**
  * Validate one entry's authored card size: an object with `width` and/or `height`, each a
  * CSS length string — "<positive integer>px" (absolute) or "<1-100>%" (relative to the host
@@ -543,18 +650,28 @@ function validateSurfacePointSize(size: unknown): true | string {
   const { width, height } = size as Record<string, unknown>;
   for (const [axis, value] of Object.entries({ width, height })) {
     if (value === undefined) continue;
-    const match = typeof value === 'string' ? SIZE_AXIS_PATTERN.exec(value) : null;
-    if (!match) {
-      return `${axis} must be a positive integer with a px or % unit, e.g. "280px" or "50%".`;
-    }
-    if (match[2] === '%' && Number(match[1]) > 100) {
-      // `match[0]` rather than `value`: the pattern is anchored, so the whole match IS
-      // the authored string — and it is typed `string`, so the message can never quote
-      // an `unknown`'s default stringification ("[object Object]").
-      return `${axis} "${match[0]}" is out of range — a % axis must be between 1% and 100%.`;
-    }
+    const check = validateUiAppSizeAxis(axis, value);
+    if (check !== true) return check;
   }
   return true;
+}
+
+/**
+ * Validate the card-height answer `brevo app create` asks for an inline iframe — the one
+ * axis of `size` the flow prompts for, because an inline card IS the embedded page and its
+ * height is the only thing the slot cannot decide for the partner (BEX-461).
+ *
+ * Optional: blank passes, and means "keep the slot's registry default" rather than "no
+ * height" — the entry is seeded from the row's `default_size` either way, so a bare Enter
+ * writes exactly what an unprompted flow would have written.
+ *
+ * Judged by `validateSizeAxis`, the same check `app upload` runs on the authored file, so
+ * an answer this prompt accepts is one the block it lands in survives.
+ */
+export function validateUiAppCardHeight(value: string): true | string {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return true;
+  return validateUiAppSizeAxis('height', trimmed);
 }
 
 /**
@@ -588,17 +705,29 @@ function validateEntrySize(row: Record<string, unknown>, name: string): void {
   }
 }
 
+/** One entry's field path, so every message names the exact key the partner must edit. */
+type EntryFieldPath = (field: string) => string;
+
+// Rendered once, at module level, rather than inside the message template: the choice list
+// is the same for every entry, and interpolating a `.map()` of template literals into
+// another one is a nested template literal (Sonar S4624) for no gain.
+const MODAL_SIZE_CHOICES = UI_APP_MODAL_SIZES.map((size) => `"${size}"`).join(', ');
+
 /**
  * Validate one entry's CTA fields — its own label, supporting text and destination
  * (BEX-426). Runs per entry because the fields live per entry: an app on three slots
  * shows three labels and opens three URLs, and each violation must name its entry.
+ *
+ * Label and supporting text are common to both extension types; everything past them is
+ * the type's own contract, so each type gets its own function rather than one body with a
+ * branch running through it.
  */
 function validateEntryCtaFields(
   row: Record<string, unknown>,
   name: string,
   extensionType: string,
 ): void {
-  const at = (field: string) => `ui_app.surface_point_list["${name}"].${field}`;
+  const at: EntryFieldPath = (field) => `ui_app.surface_point_list["${name}"].${field}`;
 
   const labelCheck = validateUiAppLabel(asText(row.label));
   if (labelCheck !== true) throw new CliError(`${at('label')}: ${labelCheck}`);
@@ -607,31 +736,98 @@ function validateEntryCtaFields(
   if (moreInfoCheck !== true) throw new CliError(`${at('more_info')}: ${moreInfoCheck}`);
 
   if (extensionType === EXTENSION_TYPE_IFRAME) {
-    const urlCheck = validateUiAppUrl(asText(row.modal_iframe_url));
-    if (urlCheck !== true) throw new CliError(`${at('modal_iframe_url')}: ${urlCheck}`);
-
-    // A modal embeds its URL rather than navigating to it, so there is no link target to
-    // set. Refused rather than ignored: the server refuses it per entry as well, and a
-    // stored `_blank` on an iframe entry is a field the read path serves and nothing
-    // applies.
-    if (isPresentField(row.link_target)) {
-      throw new CliError(
-        `${at('link_target')} has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL in a modal rather than navigating to it. Remove it.`,
-      );
-    }
-
-    // Refused because the two delivery paths disagree about which URL wins: the
-    // widget-card path pairs strictly by extension_type and opens the modal, while the
-    // header-menu path routes on redirect_link first and never opens it. The same entry
-    // would behave differently depending on the kind of slot it names.
-    if (isPresentField(row.redirect_link)) {
-      throw new CliError(
-        `${at('redirect_link')} cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the modal, while a card would open the modal. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
-      );
-    }
+    validateIframeEntryFields(row, at);
     return;
   }
+  // The sandbox is an iframe concept: an action link navigates to its URL and embeds
+  // nothing, so a value here would configure a frame that never exists.
+  if (row.sandbox !== undefined) {
+    throw new CliError(
+      `${at('sandbox')} only applies to "${EXTENSION_TYPE_IFRAME}" entries — an "${EXTENSION_TYPE_ACTION_LINK}" embeds no frame. Remove it.`,
+    );
+  }
+  validateActionLinkEntryFields(row, at);
+}
 
+/**
+ * The `iframeExtension` half of an entry: the embedded URL, the two presentation fields,
+ * the explicit height override, and the two fields an iframe entry must NOT carry.
+ */
+function validateIframeEntryFields(row: Record<string, unknown>, at: EntryFieldPath): void {
+  const urlCheck = validateUiAppUrl(asText(row.iframe_href));
+  if (urlCheck !== true) throw new CliError(`${at('iframe_href')}: ${urlCheck}`);
+
+  // layout is optional (absent = modal, the launch behavior) and pinned to the vocabulary;
+  // whether the slot actually renders a card for an 'inline' value needs the registry and
+  // is the upload endpoint's call, same as every other registry fact.
+  const layout = asText(row.layout);
+  if (layout && layout !== 'modal' && layout !== 'inline') {
+    throw new CliError(`${at('layout')} "${layout}" is not supported — use "modal" or "inline".`);
+  }
+
+  // modal_size is optional (absent = large, the default) and pinned the same way. Which
+  // entries it applies to is a slot fact — an inline card opens no modal — so that part
+  // is the upload endpoint's call, exactly like the layout vocabulary above.
+  const modalSize = asText(row.modal_size);
+  if (modalSize && !UI_APP_MODAL_SIZES.includes(modalSize)) {
+    throw new CliError(
+      `${at('modal_size')} "${modalSize}" is not supported — use ${MODAL_SIZE_CHOICES}.`,
+    );
+  }
+
+  validateEntryModalHeight(row, at);
+  validateEntrySandbox(row, at);
+
+  // A modal embeds its URL rather than navigating to it, so there is no link target to
+  // set. Refused rather than ignored: the server refuses it per entry as well, and a
+  // stored `_blank` on an iframe entry is a field the read path serves and nothing
+  // applies.
+  if (isPresentField(row.link_target)) {
+    throw new CliError(
+      `${at('link_target')} has no effect on "${EXTENSION_TYPE_IFRAME}" extensions, which embed their URL rather than navigating to it. Remove it.`,
+    );
+  }
+
+  // Refused because the two delivery paths disagree about which URL wins: the
+  // widget-card path pairs strictly by extension_type and shows the iframe, while the
+  // header-menu path routes on redirect_link first and never opens it. The same entry
+  // would behave differently depending on the kind of slot it names.
+  if (isPresentField(row.redirect_link)) {
+    throw new CliError(
+      `${at('redirect_link')} cannot be combined with "${EXTENSION_TYPE_IFRAME}": a menu entry would follow the redirect instead of opening the iframe, while a card would show the iframe. Remove it, or use "${EXTENSION_TYPE_ACTION_LINK}" instead.`,
+    );
+  }
+}
+
+/**
+ * Validate an iframe entry's `modal_height`. Optional (absent = the dialog kit's own
+ * default) and, unlike `modal_size`, not a preset vocabulary — a CSS length the platform
+ * enforces the same grammar and bound on, so accepting more here would only defer the 400
+ * to `app upload`.
+ */
+function validateEntryModalHeight(row: Record<string, unknown>, at: EntryFieldPath): void {
+  const modalHeight = asText(row.modal_height);
+  if (!modalHeight) return;
+
+  const match = MODAL_HEIGHT_PATTERN.exec(modalHeight);
+  if (!match) {
+    throw new CliError(
+      `${at('modal_height')} "${modalHeight}" is invalid — use a positive integer with a px, vh or % unit, e.g. "600px", "80vh" or "50%".`,
+    );
+  }
+  const unit = match[2];
+  if ((unit === 'vh' || unit === '%') && Number(match[1]) > 100) {
+    throw new CliError(
+      `${at('modal_height')} "${modalHeight}" is out of range — a ${unit} value must be between 1${unit} and 100${unit}.`,
+    );
+  }
+}
+
+/**
+ * The `actionLink` half of an entry: its destination, the pinned link target, and the four
+ * fields only an `iframeExtension` can carry.
+ */
+function validateActionLinkEntryFields(row: Record<string, unknown>, at: EntryFieldPath): void {
   const urlCheck = validateUiAppUrl(asText(row.redirect_link));
   if (urlCheck !== true) throw new CliError(`${at('redirect_link')}: ${urlCheck}`);
 
@@ -646,14 +842,31 @@ function validateEntryCtaFields(
     );
   }
 
-  // The UI kit keeps `modal_iframe_url` only for an `iframeExtension` item, so one
-  // carried by an actionLink entry is dropped without a word. Reject rather than let a
-  // partner ship a URL that will never open.
-  if (isPresentField(row.modal_iframe_url)) {
-    throw new CliError(
-      `${at('modal_iframe_url')} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it, or use redirect_link instead.`,
-    );
-  }
+  // The UI kit keeps each of these for an `iframeExtension` item only, so one carried by an
+  // actionLink entry is dropped without a word. Rejected rather than letting a partner ship
+  // a URL that will never open, a presentation that never applies, or a modal size for a
+  // modal that never opens.
+  rejectIframeOnlyField(row, at, 'iframe_href', ', or use redirect_link instead');
+  rejectIframeOnlyField(row, at, 'layout');
+  rejectIframeOnlyField(row, at, 'modal_size');
+  rejectIframeOnlyField(row, at, 'modal_height');
+}
+
+/**
+ * Refuse one `iframeExtension`-only field on an `actionLink` entry. One function for all
+ * four because the refusal is the same sentence each time — `extra` carries the only
+ * variation, `iframe_href`'s pointer at the field the partner probably meant.
+ */
+function rejectIframeOnlyField(
+  row: Record<string, unknown>,
+  at: EntryFieldPath,
+  field: 'iframe_href' | 'layout' | 'modal_size' | 'modal_height',
+  extra = '',
+): void {
+  if (!isPresentField(row[field])) return;
+  throw new CliError(
+    `${at(field)} is only used by "${EXTENSION_TYPE_IFRAME}" extensions and is ignored for "${EXTENSION_TYPE_ACTION_LINK}". Remove it${extra}.`,
+  );
 }
 
 /**

@@ -55,23 +55,27 @@ function withGatedFeature<T>(feature: PreviewFeature, run: () => T): T {
 
 describe('lib/preview', () => {
   describe('FEATURE_STAGE', () => {
-    // Guards the intent of the current release state: everything has shipped. UI apps
-    // (the create choice and install/uninstall) went GA at BEX-290; public distribution
-    // and its review lifecycle followed at BEX-405. When a feature is next held back,
-    // this is the assertion that fails and points at the GA checklist.
+    // Guards the intent of the current release state: everything has shipped except the
+    // iframe integration type (BEX-459). UI apps went GA at BEX-290; public distribution and
+    // its review lifecycle at BEX-405. When another feature is held back or ships, this is
+    // the assertion that fails and points at the GA checklist.
     it('matches the released feature set', () => {
       expect(FEATURE_STAGE).toEqual({
         'account-install': 'ga',
         'review-lifecycle': 'ga',
         'ui-app-type': 'ga',
+        'ui-iframe-type': 'preview',
         'public-distribution': 'ga',
       });
     });
 
-    // Stated separately from the table above so the reason a published build now carries
-    // the whole surface is written down, not inferred from four string literals.
-    it('gates nothing — every feature has shipped', () => {
-      expect(Object.values(FEATURE_STAGE).every((stage) => stage === 'ga')).toBe(true);
+    // Stated separately from the table above so the one held-back feature is written
+    // down, not inferred from a string literal.
+    it('gates only the iframe integration type', () => {
+      const gated = Object.entries(FEATURE_STAGE)
+        .filter(([, stage]) => stage !== 'ga')
+        .map(([feature]) => feature);
+      expect(gated).toEqual(['ui-iframe-type']);
     });
   });
 
@@ -85,7 +89,8 @@ describe('lib/preview', () => {
     });
 
     it('makes every shipped feature available', () => {
-      for (const feature of Object.keys(FEATURE_STAGE)) {
+      for (const [feature, stage] of Object.entries(FEATURE_STAGE)) {
+        if (stage !== 'ga') continue;
         expect(isFeatureAvailable(feature as PreviewFeature)).toBe(true);
       }
     });

@@ -136,10 +136,11 @@ fs.chmodSync(outfile, builtMode | ((builtMode & 0o444) >> 2));
 // is caught by `orphanedPreviewMessageKeys` below, which works the opposite way round:
 // it asserts on names that must be ABSENT from a public build's surviving code.
 //
-// EMPTY BY DESIGN: nothing is gated today (every `FEATURE_STAGE` row is `'ga'`), so
-// there is no binding a public build must lack. The list is not vestigial — it is where
-// the next gated module's binding goes, and it is asserted in BOTH directions below, so
-// a name left here after its feature ships fails the build both ways.
+// EMPTY BY DESIGN: the one gated feature (`ui-iframe-type`) is a prompt label, covered by
+// `LEAK_STRINGS`, not a module-level binding, so there is no binding a public build must
+// lack. The list is not vestigial — it is where the next gated module's binding goes, and
+// it is asserted in BOTH directions below, so a name left here after its feature ships
+// fails the build both ways.
 const LEAK_MARKERS = [];
 
 // What a reader actually sees. LEAK_MARKERS names bindings, which is the right check for
@@ -155,8 +156,22 @@ const LEAK_MARKERS = [];
 // collide with GA copy: `brevo app status` must not match `brevo app start`, and a bare
 // path fragment like `/withdraw` would false-positive on unrelated text.
 //
-// EMPTY BY DESIGN — same reason as `LEAK_MARKERS`: nothing is gated today.
-const LEAK_STRINGS = [];
+// Three entries today: the gated *Iframe* integration choice (BEX-459), its checklist and
+// the sandbox-permissions question (BEX-498).
+const LEAK_STRINGS = [
+  // Not a command name, so nothing in LEAK_MARKERS covers it: it is a prompt label, and
+  // the only thing a reader of the bundle could learn the feature from. Its definition
+  // lives in `preview-messages.ts` and its only read sits inside `promptIntegrationType`'s
+  // `__BREVO_PREVIEW__` branch, so a hit here means one of those two moved back into
+  // always-shipped code.
+  'Iframe (Embeds',
+  // The framing/CSP checklist title (BEX-498): same story, lives in `preview-messages.ts`
+  // and is read only behind `__BREVO_PREVIEW__` in `renderCreatedUiApp` and `app upload`.
+  'Before your iframe renders',
+  // The iframe-permissions question (BEX-498): same story — defined in `preview-messages.ts`,
+  // read only from `promptIframeSandbox`, which `resolveUiApp` calls behind `__BREVO_PREVIEW__`.
+  'Does your page need extra iframe permissions',
+];
 
 // Every file the tarball carries, because that is the scope this particular check has
 // always claimed: not "what did the bundler emit" but "what can someone read in an
@@ -209,10 +224,9 @@ const GA_MARKERS = [
 // `messages.KEY` appears verbatim; the definition cannot, because the module is dropped.
 // A hit therefore means exactly one thing: a live reader with no definition.
 function orphanedPreviewMessageKeys(bundle) {
-  // The module only exists while something is gated, and nothing is today — it emptied
-  // and was deleted at public-apps GA. No file means no gated keys, so there is nothing
-  // that can be orphaned. Guarded rather than deleted so recreating `preview-messages.ts`
-  // for the next gated feature re-arms this check with no edit here.
+  // The module only exists while something is gated. No file means no gated keys, so
+  // there is nothing that can be orphaned. Guarded rather than deleted so the check
+  // survives the module being removed at GA and re-armed by the next gated feature.
   const modulePath = path.join(root, 'src/lang/preview-messages.ts');
   if (!fs.existsSync(modulePath)) return [];
   const source = fs.readFileSync(modulePath, 'utf-8');
