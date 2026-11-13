@@ -72,8 +72,9 @@ import { formatPlacementLines } from './fields';
 //
 //      10. sandbox         → iframe on a PRIVATE app only, and only when the picked slot's
 //                             platform publishes `metadata.sandbox.allowed` (BEX-498): a
-//                             multi-select of the allowed permissions the platform's default
-//                             does not already grant. None chosen writes no `sandbox` at all.
+//                             multi-select of every permission the platform served, its
+//                             default ones pre-ticked. The platform default (or none) writes
+//                             no `sandbox` at all.
 //
 //     Five questions for a Link, one optional, and two registry reads that ask for
 //     different things:
@@ -721,12 +722,12 @@ const SANDBOX_SAME_ORIGIN = 'allow-same-origin';
  * source, but a server predating the metadata — or echoing an unexpected shape — must
  * degrade to "no question" rather than seat a choice the file check then refuses. SHAPE
  * only (`parseSandboxTokens`): the CLI never decides which tokens are permitted, it offers
- * exactly the list the platform served. `allowed` tokens already in `default` are dropped
- * from the menu (the default applies regardless), and an empty menu means nothing to ask.
+ * exactly the list the platform served: every `allowed` token (and the `default` ones) is
+ * a menu entry, and an empty menu means nothing to ask.
  */
 function sandboxPolicyFor(
   rows: UsableSurfacePoint[],
-): { defaults: string[]; extras: string[] } | undefined {
+): { defaults: string[]; options: string[] } | undefined {
   for (const row of rows) {
     const policy: SurfacePointSandboxPolicy | null | undefined = row.metadata?.sandbox;
     if (!policy || typeof policy !== 'object' || !Array.isArray(policy.allowed)) continue;
@@ -735,31 +736,36 @@ function sandboxPolicyFor(
     // rather than composing a value on top of a default the CLI could not read.
     const defaults = policy.default === undefined ? [] : parseSandboxTokens(policy.default);
     if (!defaults) continue;
-    const extras = [
-      ...new Set(
-        policy.allowed.filter(
+    // The menu is everything the platform served: its `default` tokens (so they can be
+    // seen and unticked) followed by every `allowed` token.
+    const options = [
+      ...new Set([
+        ...defaults,
+        ...policy.allowed.filter(
           (token): token is string =>
             typeof token === 'string' && parseSandboxTokens(token)?.length === 1,
         ),
-      ),
-    ].filter((token) => !defaults.includes(token));
-    if (extras.length > 0) return { defaults: [...new Set(defaults)], extras };
+      ]),
+    ];
+    // Nothing beyond the default to grant means no choice to make, so no question.
+    if (options.some((token) => !defaults.includes(token))) {
+      return { defaults: [...new Set(defaults)], options };
+    }
   }
   return undefined;
 }
 
 /**
- * Ask whether the embedded page needs permissions beyond the platform's default sandbox
- * (BEX-498) — private iframe apps only, and only where the slot's registry row lists what
- * may be added.
+ * Ask which sandbox permissions the embedded page needs (BEX-498) — private iframe apps
+ * only, and only where the slot's registry row lists what may be granted.
  *
- * `allow-same-origin` is pre-ticked (private apps only), so pressing Enter writes the
- * default plus it; clearing every box writes NOTHING: no `sandbox` key means the platform's
- * own default applies, which no longer includes same-origin. A choice
- * writes the whole string, `<registry default> <chosen>`, composed here at create time from
- * the default the registry served — so what lands in the file is the complete policy the
- * entry will run under, not a delta a reader has to know the default to apply. The platform
- * validates the result against `allowed`; this only offers what it listed.
+ * Every token the platform served (`metadata.sandbox.allowed`) is a choice, and the
+ * platform's own `default` tokens arrive pre-ticked, as does `allow-same-origin` (a private
+ * page needs its own origin for cookies, storage and credentialed fetches). Enter therefore
+ * writes the complete string the entry will run under. If the final selection is exactly the
+ * platform default, or nothing is ticked, NO `sandbox` key is written and the platform
+ * default applies. The platform validates the result against `allowed`; this only offers
+ * what it listed.
  */
 async function promptIframeSandbox(
   applies: boolean,
@@ -773,26 +779,23 @@ async function promptIframeSandbox(
       type: 'checkbox',
       name: 'sandbox',
       message: messages.APP_CREATE_UI_SANDBOX_PROMPT,
-      // `allow-same-origin` arrives pre-ticked: a private app's own page needs its own origin
-      // (cookies, storage, credentialed fetches to its own server), and the platform no longer
-      // grants it by default. This prompt only runs for a PRIVATE app (`applies`), so a public
-      // app is never offered it. Unticking it, or ticking nothing, writes no `sandbox` at all.
       choices: indentChoices(
-        policy.extras.map((token) => ({
+        policy.options.map((token) => ({
           name: token,
           value: token,
-          checked: token === SANDBOX_SAME_ORIGIN,
+          checked: policy.defaults.includes(token) || token === SANDBOX_SAME_ORIGIN,
         })),
       ),
     },
   ]);
   // A checkbox answers with a subset of its own choices; filtering by the offered list
   // keeps a stubbed or unexpected answer from writing anything the registry did not offer.
-  const chosen = (Array.isArray(sandbox) ? sandbox : []).filter((token: unknown) =>
-    policy.extras.includes(token as string),
-  ) as string[];
+  const picked = Array.isArray(sandbox) ? sandbox : [];
+  const chosen = policy.options.filter((token) => picked.includes(token));
   if (chosen.length === 0) return undefined;
-  return [...policy.defaults, ...chosen].join(' ');
+  const isPlatformDefault =
+    chosen.length === policy.defaults.length && chosen.every((t) => policy.defaults.includes(t));
+  return isPlatformDefault ? undefined : chosen.join(' ');
 }
 
 /**

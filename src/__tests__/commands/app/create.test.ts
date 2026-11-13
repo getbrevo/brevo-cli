@@ -2054,7 +2054,12 @@ describe('app/create', () => {
           REGISTRY_ROW('contactDetails', 'headerMenu', 'action', { metadata: SANDBOX_META }),
         ]);
 
-      it('offers only the allowed tokens the default does not already grant, defaulting to none', async () => {
+      const checkedState = () =>
+        (
+          (questionNamed('sandbox')?.choices ?? []) as Array<{ value?: string; checked?: boolean }>
+        ).map((c) => [c.value, Boolean(c.checked)]);
+
+      it('offers every allowed token, with the platform default pre-ticked', async () => {
         withSandboxRow();
         answerPrompts({ ...IFRAME_ANSWERS, sandbox: [] });
 
@@ -2063,15 +2068,16 @@ describe('app/create', () => {
         const question = questionNamed('sandbox');
         expect(question?.type).toBe('checkbox');
         expect(question?.message).toBe('Does your page need extra iframe permissions?');
-        expect(choiceValuesOf('sandbox')).toEqual([
-          'allow-forms',
-          'allow-popups',
-          'allow-downloads',
+        expect(checkedState()).toEqual([
+          ['allow-scripts', true],
+          ['allow-same-origin', true],
+          ['allow-forms', false],
+          ['allow-popups', false],
+          ['allow-downloads', false],
         ]);
-        expect(question?.default).toBeUndefined();
       });
 
-      it('pre-ticks allow-same-origin for a private app when the platform lists it as an extra', async () => {
+      it('also pre-ticks allow-same-origin for a private app when it is not in the default', async () => {
         registryHas([
           REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
             metadata: {
@@ -2082,15 +2088,17 @@ describe('app/create', () => {
             },
           }),
         ]);
-        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-same-origin'] });
+        answerPrompts({
+          ...IFRAME_ANSWERS,
+          sandbox: ['allow-scripts', 'allow-forms', 'allow-popups', 'allow-same-origin'],
+        });
 
         await createCommand(CLI_OPTIONS);
 
-        const choices = (questionNamed('sandbox')?.choices ?? []) as Array<{
-          value?: string;
-          checked?: boolean;
-        }>;
-        expect(choices.map((c) => [c.value, Boolean(c.checked)])).toEqual([
+        expect(checkedState()).toEqual([
+          ['allow-scripts', true],
+          ['allow-forms', true],
+          ['allow-popups', true],
           ['allow-same-origin', true],
           ['allow-downloads', false],
           ['allow-modals', false],
@@ -2110,9 +2118,21 @@ describe('app/create', () => {
         expect(collectedUiApp()).not.toHaveProperty('sandbox');
       });
 
-      it('composes the registry default with the chosen tokens', async () => {
+      it('writes no sandbox when the selection is exactly the platform default', async () => {
         withSandboxRow();
-        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-forms', 'allow-downloads'] });
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-scripts', 'allow-same-origin'] });
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+      });
+
+      it('writes the chosen tokens in menu order', async () => {
+        withSandboxRow();
+        answerPrompts({
+          ...IFRAME_ANSWERS,
+          sandbox: ['allow-downloads', 'allow-forms', 'allow-scripts', 'allow-same-origin'],
+        });
 
         await createCommand(CLI_OPTIONS);
 
@@ -2121,9 +2141,12 @@ describe('app/create', () => {
         );
       });
 
-      it('sends the composed sandbox on the create payload', async () => {
+      it('sends the chosen sandbox on the create payload', async () => {
         withSandboxRow();
-        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-popups'] });
+        answerPrompts({
+          ...IFRAME_ANSWERS,
+          sandbox: ['allow-scripts', 'allow-same-origin', 'allow-popups'],
+        });
 
         await createCommand(CLI_OPTIONS);
 
