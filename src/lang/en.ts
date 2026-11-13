@@ -673,6 +673,7 @@ const coreMessages = {
    * the account now renders the file they were just editing.
    */
   APP_INSTALL_CONFIG_DRIFT: `Your local app-config.json differs from the configuration above. The install uses what the server has stored — run \`${CLI.APP_UPLOAD}\` first if you meant to install your local changes.`,
+  APP_INSTALL_UPLOAD_FIRST_CONFIRM: `Your local app-config.json has changes that are not uploaded yet. Upload them before installing?`,
   APP_INSTALL_CONFIRM: (name: string, appId: string, account: string) =>
     `Install app "${name}" (${appId}) into ${account}?`,
   APP_INSTALL_CANCELLED: 'Install cancelled.',
