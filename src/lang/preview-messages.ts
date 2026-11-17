@@ -40,6 +40,7 @@ export const previewMessages = {
     '3. iframe_href must be an absolute https:// URL, not an IP address or localhost.',
     '4. Do not rely on third-party cookies inside the frame; read the record identifiers from the query parameters. Cookies need SameSite=None; Secure to be sent at all, and Safari and Firefox still block or partition third-party cookies, so a cookie session may fail for some users. Pass state in the query parameters or a short-lived token instead.',
     '5. The platform sets the iframe sandbox default. A private app may add permissions from the list the platform allows for the slot (including allow-same-origin, which the default no longer grants), by adding a "sandbox" string to the entry; anything else is refused.',
+    "6. Record context reaches your page as query parameters today. An upcoming update will also deliver it, and later updates to it, to your page as window.postMessage events, so a page that listens for messages from Brevo's app origin will receive them without a reload. Query parameters stay supported; verify event.origin before trusting a message.",
   ],
   // The iframe-permissions question in `app create` (BEX-498). Gated for the same reason as
   // the checklist: its only read sits behind `__BREVO_PREVIEW__` in `resolveUiApp`, so a

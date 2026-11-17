@@ -171,6 +171,8 @@ const LEAK_STRINGS = [
   // The iframe-permissions question (BEX-498): same story — defined in `preview-messages.ts`,
   // read only from `promptIframeSandbox`, which `resolveUiApp` calls behind `__BREVO_PREVIEW__`.
   'Does your page need extra iframe permissions',
+  // The postMessage line of the same checklist (BEX-498): lives in `preview-messages.ts`.
+  'window.postMessage events',
   // The rest of the iframe authoring copy (BEX-459): the layout / modal-size / card-height
   // questions, the iframe URL question, and the two refusal translations. All live in
   // `preview-messages.ts`; the generic orphan scan below covers every key name, these cover
