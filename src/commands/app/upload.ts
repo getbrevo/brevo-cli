@@ -22,7 +22,7 @@ import { DEFAULT_LINK_TARGET, EXTENSION_TYPE_ACTION_LINK } from '../../lib/const
 import { OAuthApp, UiApp, UploadAppPayload, UploadAppResponse } from '../../types';
 import { resolveFromConfig } from '../../app-types';
 import { isFunctionAppConfig } from '../../app-types/function';
-import { stripUiAppWireOnlyKeysFrom } from '../../app-types/wire';
+import { resolveWrittenSandbox, stripUiAppWireOnlyKeysFrom } from '../../app-types/wire';
 import { formatPlacementDiffLines } from '../../app-types/ui/fields';
 import { canonicalizeUiApp } from '../../app-types/ui/compare';
 
@@ -168,7 +168,7 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
 const stripInjectedKeys = stripUiAppWireOnlyKeysFrom;
 
 // Both sides of every comparison below are normalized against the LOCAL block (`authored`):
-// the server stamps a default `sandbox` on every entry, and that default is a difference
+// the server stamps a default `sandbox` on every iframe entry, and that default is a difference
 // only where the developer authored one of their own (BEX-498) — see `stripUiAppWireOnlyKeys`.
 
 /**
@@ -337,8 +337,10 @@ function hasNoChanges(diff: UploadDiff): boolean {
  * local check could only ever lag it in both directions. The server is the authority; this
  * only puts its answer into words that name the file and the field to edit.
  *
- * Narrowed twice. By a 400 that mentions `layout`, so an unrelated 400 on a UI-app upload
- * (a bad `logo_uri`, an unregistered slot) keeps the server's own text. And by the app
+ * Narrowed twice. By a 400 that names the refusal itself — `surface_point_list` together
+ * with `layout "inline"`, the two stable parts of bo-be's sentence — so an unrelated 400 on
+ * a UI-app upload (a bad `logo_uri`, an unregistered slot, a different `layout` complaint)
+ * keeps the server's own text. And by the app
  * actually BEING a UI app — the word "layout" is not reserved, so a 400 from an OAuth or
  * Function upload that happens to contain it would otherwise be rewritten into advice to
  * edit a `surface_point_list` entry in a file that has no `ui_app` block at all. That
@@ -350,7 +352,10 @@ function hasNoChanges(diff: UploadDiff): boolean {
  */
 function isUiLayoutRefusal(err: unknown, isUiApp: boolean): err is ApiError {
   return (
-    isUiApp && err instanceof ApiError && err.statusCode === 400 && /layout/i.test(err.message)
+    isUiApp &&
+    err instanceof ApiError &&
+    err.statusCode === 400 &&
+    /surface_point_list\b.*\blayout "inline"/i.test(err.message)
   );
 }
 
@@ -396,10 +401,12 @@ export async function uploadProjectConfig(
       buildUploadPayload(config, { appVersion, isUiApp, isFnApp, scopes, redirectUris }),
     );
   } catch (err) {
-    if (isUiLayoutRefusal(err, isUiApp)) {
+    // `__BREVO_PREVIEW__` is the elimination site: both translations' strings live in
+    // `preview-messages.ts`, so a published build keeps the server's own text instead.
+    if (__BREVO_PREVIEW__ && isUiLayoutRefusal(err, isUiApp)) {
       throw new CliError(messages.APP_UPLOAD_UI_LAYOUT_REJECTED(err.message));
     }
-    if (isIframeExtensionDisabledRefusal(err)) {
+    if (__BREVO_PREVIEW__ && isIframeExtensionDisabledRefusal(err)) {
       throw new CliError(messages.APP_UPLOAD_UI_IFRAME_DISABLED(err.message));
     }
     throw err;
@@ -519,7 +526,12 @@ function buildUploadWriteBack(
     // app-config.json fields the partner never authored — undoing, on the very
     // first successful upload, the decision to keep them out of the file.
     ...(ctx.isUiApp && (response.ui_app ?? config.ui_app)
-      ? { ui_app: withoutInjectedKeys((response.ui_app ?? config.ui_app)!, config.ui_app) }
+      ? {
+          // The block written back is the SERVER's echo, with the platform's keys stripped and
+          // each iframe entry's `sandbox` resolved: this file's own value, else the server's,
+          // else "" (locked). An action link never carries one. See `resolveWrittenSandbox`.
+          ui_app: resolveWrittenSandbox((response.ui_app ?? config.ui_app)!, config.ui_app),
+        }
       : {}),
   };
 }

@@ -138,6 +138,10 @@ export const UI_CREATE_EXPECT = {
   // opens (so: not after an inline layout answer).
   layout: /How should it appear\b/,
   modalSize: /How big should the modal\b/,
+  // The iframe-permissions checkbox (BEX-498): private iframe apps only, and only when the
+  // picked slot's registry row publishes `metadata.sandbox` — so, like the two above, it
+  // may not be asked at all.
+  sandbox: /Does your page need extra iframe permissions\?/,
   outputDir: /Output directory:/,
 } as const;
 
@@ -186,9 +190,13 @@ function createExchanges(integration: UiIntegration): PtyExchange[] {
     ...(integration === 'iframe'
       ? [
           { expect: UI_CREATE_EXPECT.layout, send: '', optional: true },
-          // Enter takes the pre-selected default (Large), which writes no `modal_size` —
-          // requireUiEntry below asserts exactly that.
+          // Enter takes the pre-selected default (Large), which is WRITTEN as
+          // `modal_size: "large"` — requireUiEntry below asserts exactly that.
           { expect: UI_CREATE_EXPECT.modalSize, send: '', optional: true },
+          // Enter keeps the pre-ticked boxes (the platform's default tokens plus
+          // `allow-same-origin`). Optional: it exists only where the slot's registry row
+          // carries a sandbox policy.
+          { expect: UI_CREATE_EXPECT.sandbox, send: '', optional: true },
         ]
       : []),
     { expect: UI_CREATE_EXPECT.outputDir, send: '' },
@@ -311,13 +319,27 @@ function assertEntryDestination(entry: Record<string, unknown>, integration: UiI
     !('redirect_link' in entry),
     `iframe entry must carry no redirect_link: ${JSON.stringify(entry)}`,
   );
-  // Both conditional questions were answered with their DEFAULT (Enter): modal for the
-  // layout, Large for the modal size. Neither default is written, so an entry authored
-  // this way stays byte-identical to one from before the questions existed — the whole
-  // point of the omit-the-default contract, and the only part of it a real run can prove.
+  // The conditional questions were answered with their DEFAULT (Enter): modal for the
+  // layout, Large for the modal size. Both defaults ARE written (the file says what an
+  // absent key would only imply), so a key that is present must carry exactly that value;
+  // either may be absent when its question was not asked (an action slot has no layout, a
+  // build predating the field has neither).
   must(
-    !('layout' in entry) && !('modal_size' in entry),
-    `default layout/modal size answers must write nothing: ${JSON.stringify(entry)}`,
+    !('layout' in entry) || entry.layout === 'modal',
+    `default layout answer must write "modal": ${JSON.stringify(entry)}`,
+  );
+  must(
+    !('modal_size' in entry) || entry.modal_size === 'large',
+    `default modal size answer must write "large": ${JSON.stringify(entry)}`,
+  );
+  // Enter on the sandbox checkbox keeps `allow-same-origin` ticked. If the question was asked
+  // and that differs from the platform default, the entry carries a string that includes it;
+  // a selection equal to the platform default writes no key, so absence is also fine.
+  must(
+    !('sandbox' in entry) ||
+      (typeof entry.sandbox === 'string' &&
+        entry.sandbox.split(/\s+/).includes('allow-same-origin')),
+    `default sandbox answer must write a string including allow-same-origin, or nothing: ${JSON.stringify(entry)}`,
   );
 }
 

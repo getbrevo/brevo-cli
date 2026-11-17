@@ -1,4 +1,4 @@
-import { stripUiAppWireOnlyKeys } from '../../app-types/wire';
+import { resolveWrittenSandbox, stripUiAppWireOnlyKeys } from '../../app-types/wire';
 import { appTypeById } from '../../app-types';
 import type { UiApp } from '../../types';
 
@@ -170,5 +170,69 @@ describe('stripUiAppWireOnlyKeys', () => {
       const local = block([entry('a', { sandbox: 'allow-forms' })]);
       expect(stripUiAppWireOnlyKeys(echoed, local)).not.toHaveProperty('sandbox');
     });
+  });
+});
+
+describe('resolveWrittenSandbox', () => {
+  const entry = (name: string, extra: Record<string, unknown> = {}) => ({
+    surface_point_name: name,
+    label: 'Open',
+    iframe_href: 'https://example.com/embed',
+    ...extra,
+  });
+  const iframe = (...entries: Array<Record<string, unknown>>): UiApp =>
+    ({ extension_type: 'iframeExtension', surface_point_list: entries }) as unknown as UiApp;
+  const sandboxes = (block: UiApp) =>
+    (block.surface_point_list as Array<{ sandbox?: string }>).map((e) => e.sandbox);
+
+  it('never writes a sandbox on an action link, even one the server stamped', () => {
+    const server = {
+      extension_type: 'actionLink',
+      surface_point_list: [{ surface_point_name: 'a.b.c', label: 'x', sandbox: 'allow-scripts' }],
+    } as unknown as UiApp;
+    expect(sandboxes(resolveWrittenSandbox(server))).toEqual([undefined]);
+  });
+
+  it("keeps the local entry's value over the server's", () => {
+    const server = iframe(entry('a.b.c', { sandbox: 'allow-scripts' }));
+    const local = iframe(entry('a.b.c', { sandbox: 'allow-scripts allow-forms' }));
+    expect(sandboxes(resolveWrittenSandbox(server, local))).toEqual(['allow-scripts allow-forms']);
+  });
+
+  it('keeps a local "" (a locked frame) rather than falling through to the server value', () => {
+    const server = iframe(entry('a.b.c', { sandbox: 'allow-scripts' }));
+    const local = iframe(entry('a.b.c', { sandbox: '' }));
+    expect(sandboxes(resolveWrittenSandbox(server, local))).toEqual(['']);
+  });
+
+  it("takes the server's value when the local entry has none", () => {
+    const server = iframe(entry('a.b.c', { sandbox: 'allow-scripts' }));
+    const local = iframe(entry('a.b.c'));
+    expect(sandboxes(resolveWrittenSandbox(server, local))).toEqual(['allow-scripts']);
+  });
+
+  it('writes "" when neither side has one', () => {
+    expect(
+      sandboxes(resolveWrittenSandbox(iframe(entry('a.b.c')), iframe(entry('a.b.c')))),
+    ).toEqual(['']);
+    expect(sandboxes(resolveWrittenSandbox(iframe(entry('a.b.c'))))).toEqual(['']);
+  });
+
+  it('matches entries by slot name, not position', () => {
+    const server = iframe(entry('x.y.z', { sandbox: 'allow-forms' }), entry('a.b.c'));
+    const local = iframe(entry('a.b.c', { sandbox: 'allow-popups' }));
+    expect(sandboxes(resolveWrittenSandbox(server, local))).toEqual([
+      'allow-forms',
+      'allow-popups',
+    ]);
+  });
+
+  it('still strips the other wire-only keys and does not mutate its inputs', () => {
+    const server = iframe(entry('a.b.c', { link_target: '_blank', extension_point_name: 'x.y.z' }));
+    const before = JSON.stringify(server);
+    const out = resolveWrittenSandbox(server);
+    expect(out.surface_point_list?.[0]).not.toHaveProperty('link_target');
+    expect(out.surface_point_list?.[0]).not.toHaveProperty('extension_point_name');
+    expect(JSON.stringify(server)).toBe(before);
   });
 });

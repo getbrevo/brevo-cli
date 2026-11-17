@@ -12,6 +12,8 @@ jest.mock('../../../container', () => ({
   },
 }));
 
+jest.mock('../../../commands/app/upload', () => ({ uploadCommand: jest.fn() }));
+
 jest.mock('../../../lib/config', () => ({
   readProjectConfig: jest.fn(),
   getOrganizationId: jest.fn(),
@@ -22,6 +24,7 @@ import { appInstallCommand } from '../../../commands/app/install';
 import { appService, accountService } from '../../../container';
 import { readProjectConfig, getOrganizationId } from '../../../lib/config';
 import { ApiError } from '../../../lib/errors';
+import { uploadCommand } from '../../../commands/app/upload';
 
 const mockPrompt = inquirer.prompt as unknown as jest.Mock;
 
@@ -763,6 +766,73 @@ describe('app/install', () => {
       // Informational: the install still happens, because the stored configuration is a
       // legitimate thing to install.
       expect(appService.installApp).toHaveBeenCalled();
+    });
+
+    describe('offering to upload local changes first', () => {
+      const driftedConfig = () => ({
+        ...UPLOADED_CONFIG,
+        ui_app: {
+          ...LOCAL_UI_APP,
+          surface_point_list: [{ ...LOCAL_UI_APP.surface_point_list[0], label: 'Open in Acme' }],
+        },
+      });
+      const uploadQuestions = () =>
+        mockPrompt.mock.calls.filter(([qs]) => qs[0]?.name === 'upload');
+
+      beforeEach(() => {
+        (readProjectConfig as jest.Mock).mockReturnValue(driftedConfig());
+      });
+
+      it('uploads first when the partner agrees, then re-reads the server and installs', async () => {
+        mockPrompt
+          .mockResolvedValueOnce({ upload: true })
+          .mockResolvedValueOnce({ confirmed: true });
+
+        await appInstallCommand({ accountId: '99999' });
+
+        expect(uploadCommand).toHaveBeenCalledTimes(1);
+        // once for the gates and summary, once more after the upload
+        expect((appService.fetchApp as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2);
+        expect(appService.installApp).toHaveBeenCalled();
+      });
+
+      it('installs what the server has, with the notice, when the partner declines', async () => {
+        mockPrompt
+          .mockResolvedValueOnce({ upload: false })
+          .mockResolvedValueOnce({ confirmed: true });
+
+        await appInstallCommand({ accountId: '99999' });
+
+        expect(uploadCommand).not.toHaveBeenCalled();
+        expect(output()).toMatch(/differs from the configuration above/);
+        expect(appService.installApp).toHaveBeenCalled();
+      });
+
+      it('does not ask under --force', async () => {
+        await appInstallCommand({ accountId: '99999', force: true });
+
+        expect(uploadQuestions()).toHaveLength(0);
+        expect(uploadCommand).not.toHaveBeenCalled();
+      });
+
+      it('does not ask under --json', async () => {
+        await appInstallCommand({ accountId: '99999', json: true });
+
+        expect(uploadQuestions()).toHaveLength(0);
+        expect(uploadCommand).not.toHaveBeenCalled();
+      });
+
+      it('does not ask when the local config matches the server', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({
+          ...UPLOADED_CONFIG,
+          ui_app: LOCAL_UI_APP,
+        });
+        mockPrompt.mockResolvedValueOnce({ confirmed: true });
+
+        await appInstallCommand({ accountId: '99999' });
+
+        expect(uploadQuestions()).toHaveLength(0);
+      });
     });
 
     // Drift can only be claimed against a file that describes THIS app. `--app-id` names

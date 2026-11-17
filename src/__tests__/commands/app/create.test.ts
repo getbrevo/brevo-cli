@@ -2054,7 +2054,12 @@ describe('app/create', () => {
           REGISTRY_ROW('contactDetails', 'headerMenu', 'action', { metadata: SANDBOX_META }),
         ]);
 
-      it('offers every available token, with the platform defaults preticked', async () => {
+      const checkedState = () =>
+        (
+          (questionNamed('sandbox')?.choices ?? []) as Array<{ value?: string; checked?: boolean }>
+        ).map((c) => [c.value, Boolean(c.checked)]);
+
+      it('offers every allowed token, with the platform default pre-ticked', async () => {
         withSandboxRow();
         answerPrompts({ ...IFRAME_ANSWERS, sandbox: [] });
 
@@ -2063,37 +2068,70 @@ describe('app/create', () => {
         const question = questionNamed('sandbox');
         expect(question?.type).toBe('checkbox');
         expect(question?.message).toBe('Does your page need extra iframe permissions?');
-        expect(choiceValuesOf('sandbox')).toEqual([
-          'allow-scripts',
-          'allow-same-origin',
-          'allow-forms',
-          'allow-popups',
-          'allow-downloads',
+        expect(checkedState()).toEqual([
+          ['allow-scripts', true],
+          ['allow-same-origin', true],
+          ['allow-forms', false],
+          ['allow-popups', false],
+          ['allow-downloads', false],
         ]);
-        const checked = (question?.choices as Array<{ value: string; checked?: boolean }>)
-          .filter((c) => c.checked)
-          .map((c) => c.value);
-        expect(checked).toEqual(['allow-scripts', 'allow-same-origin']);
       });
 
-      it('writes no sandbox when only the defaults stay ticked', async () => {
-        withSandboxRow();
+      it('also pre-ticks allow-same-origin for a private app when it is not in the default', async () => {
+        registryHas([
+          REGISTRY_ROW('contactDetails', 'headerMenu', 'action', {
+            metadata: {
+              sandbox: {
+                default: 'allow-scripts allow-forms allow-popups',
+                allowed: ['allow-same-origin', 'allow-downloads', 'allow-modals'],
+              },
+            },
+          }),
+        ]);
         answerPrompts({
           ...IFRAME_ANSWERS,
-          sandbox: ['allow-scripts', 'allow-same-origin'],
+          sandbox: ['allow-scripts', 'allow-forms', 'allow-popups', 'allow-same-origin'],
         });
 
         await createCommand(CLI_OPTIONS);
 
-        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+        expect(checkedState()).toEqual([
+          ['allow-scripts', true],
+          ['allow-forms', true],
+          ['allow-popups', true],
+          ['allow-same-origin', true],
+          ['allow-downloads', false],
+          ['allow-modals', false],
+        ]);
+        expect(collectedUiApp().surface_point_list[0].sandbox).toBe(
+          'allow-scripts allow-forms allow-popups allow-same-origin',
+        );
+      });
+
+      it('writes sandbox "" (a locked frame) when every box is unticked', async () => {
+        withSandboxRow();
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: [] });
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(collectedUiApp().surface_point_list[0].sandbox).toBe('');
         expect(collectedUiApp()).not.toHaveProperty('sandbox');
       });
 
-      it('composes the registry default with the chosen tokens', async () => {
+      it('writes no sandbox when the selection is exactly the platform default', async () => {
+        withSandboxRow();
+        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-scripts', 'allow-same-origin'] });
+
+        await createCommand(CLI_OPTIONS);
+
+        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+      });
+
+      it('writes the chosen tokens in menu order', async () => {
         withSandboxRow();
         answerPrompts({
           ...IFRAME_ANSWERS,
-          sandbox: ['allow-scripts', 'allow-same-origin', 'allow-forms', 'allow-downloads'],
+          sandbox: ['allow-downloads', 'allow-forms', 'allow-scripts', 'allow-same-origin'],
         });
 
         await createCommand(CLI_OPTIONS);
@@ -2103,7 +2141,7 @@ describe('app/create', () => {
         );
       });
 
-      it('sends the composed sandbox on the create payload', async () => {
+      it('sends the chosen sandbox on the create payload', async () => {
         withSandboxRow();
         answerPrompts({
           ...IFRAME_ANSWERS,
@@ -2119,13 +2157,13 @@ describe('app/create', () => {
         expect(payload.ui_app).not.toHaveProperty('sandbox');
       });
 
-      it('ignores a chosen token the registry did not offer', async () => {
+      it('drops a chosen token the registry did not offer (leaving nothing ticked: "")', async () => {
         withSandboxRow();
         answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-top-navigation'] });
 
         await createCommand(CLI_OPTIONS);
 
-        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+        expect(collectedUiApp().surface_point_list[0].sandbox).toBe('');
       });
 
       it('does not ask when the row carries no sandbox metadata (an older bo-be)', async () => {

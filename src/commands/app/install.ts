@@ -1,3 +1,4 @@
+import inquirer from 'inquirer';
 import { logSuccess, logInfo, logWarn } from '../../lib/logger';
 import { messages } from '../../lang/en';
 import { ApiError, CliError } from '../../lib/errors';
@@ -16,6 +17,7 @@ import { readProjectConfig } from '../../lib/config';
 import { OAuthApp } from '../../types';
 import { formatPlacementLines } from '../../app-types/ui/fields';
 import { uiAppEquals } from '../../app-types/ui/compare';
+import { uploadCommand } from './upload';
 
 interface InstallOptions {
   /**
@@ -50,7 +52,7 @@ export const appInstallCommand = withCommandHandler(
     // from `app-config.json` — the summary has to show what the SERVER stores, because
     // that is what the install makes visible, and a local file that has drifted from it
     // would describe an install that isn't the one about to happen.
-    const serverApp = await fetchInstallSnapshot(appId, { silent: options.json });
+    let serverApp = await fetchInstallSnapshot(appId, { silent: options.json });
 
     await assertInstallable(appId, {
       requireUploaded: true,
@@ -58,6 +60,33 @@ export const appInstallCommand = withCommandHandler(
       fromLinkedConfig: appFromLinkedConfig,
       serverApp,
     });
+
+    // Local edits that were never uploaded: offer to upload them first, so the install
+    // below is of the configuration the partner is looking at. The upload is the real
+    // `app upload` flow (diff, installed-accounts notice, its own confirmation), never a
+    // silent push — and it is only ever OFFERED, in an interactive run. `--force`, `--json`
+    // and any non-TTY run keep the old behaviour: the drift notice below, install goes on.
+    if (
+      appFromLinkedConfig &&
+      hasConfigDrift(serverApp) &&
+      !options.force &&
+      !options.json &&
+      process.stdin.isTTY
+    ) {
+      const { upload } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'upload',
+          message: messages.APP_INSTALL_UPLOAD_FIRST_CONFIRM,
+          default: true,
+        },
+      ]);
+      if (upload) {
+        await uploadCommand({});
+        // The install summary and `--json` output must show what the server holds NOW.
+        serverApp = await fetchInstallSnapshot(appId, { silent: options.json });
+      }
+    }
 
     if (!options.json) {
       renderInstallSummary(appId, appLabel, serverApp, appFromLinkedConfig);
@@ -159,8 +188,14 @@ function renderInstallSummary(
   // believe they are installing what they last edited. Compared through the same
   // normalization the upload diff uses, so key order, placement order and the
   // server-managed keys don't register as a difference.
-  const localConfig = appFromLinkedConfig ? readProjectConfig() : null;
-  if (localConfig?.ui_app && !uiAppEquals(localConfig.ui_app, serverApp.ui_app)) {
+  if (appFromLinkedConfig && hasConfigDrift(serverApp)) {
     logWarn(`  ${messages.APP_INSTALL_CONFIG_DRIFT}\n`);
   }
+}
+
+/** True when the linked project's `ui_app` differs from the block the server stores. */
+function hasConfigDrift(serverApp: OAuthApp | null): boolean {
+  if (!serverApp) return false;
+  const localConfig = readProjectConfig();
+  return !!localConfig?.ui_app && !uiAppEquals(localConfig.ui_app, serverApp.ui_app);
 }

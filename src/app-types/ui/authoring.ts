@@ -71,9 +71,10 @@ import { formatPlacementLines } from './fields';
 //                             Pre-filled from the row's `default_size`.
 //
 //      10. sandbox         → iframe on a PRIVATE app only, and only when the picked slot's
-//                             registry row declares `metadata.sandbox.allowed` (BEX-498): a
-//                             multi-select of the allowed permissions the platform's default
-//                             does not already grant. None chosen writes no `sandbox` at all.
+//                             platform publishes `metadata.sandbox.allowed` (BEX-498): a
+//                             multi-select of every permission the platform served, its
+//                             default ones pre-ticked. The platform default writes no
+//                             `sandbox` at all; ticking nothing writes `sandbox: ""` (locked).
 //
 //     Five questions for a Link, one optional, and two registry reads that ask for
 //     different things:
@@ -456,9 +457,10 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
     {
       type: 'input',
       name: 'url',
-      message: isIframe
-        ? messages.APP_CREATE_UI_IFRAME_HREF_PROMPT
-        : messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
+      message:
+        __BREVO_PREVIEW__ && isIframe
+          ? messages.APP_CREATE_UI_IFRAME_HREF_PROMPT
+          : messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
       validate: validateUiAppUrl,
     },
   ]);
@@ -467,24 +469,28 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
   // entry must open something, so it is a modal by definition and the question would have
   // one honest answer. Both answers are written to the entry, the default included: an
   // authored `layout: "modal"` says in the file what an absent key only implies.
-  const layout = await promptIframeLayout(isIframe, selectedRows);
+  // `__BREVO_PREVIEW__` is the elimination site for this and the next two questions:
+  // their strings live in `preview-messages.ts`, so a published bundle must not reference them.
+  const layout = __BREVO_PREVIEW__ ? await promptIframeLayout(isIframe, selectedRows) : undefined;
 
   // How big that modal is — asked whenever one actually opens, which is a DIFFERENT set of
   // entries from the layout question above. Layout is widget-only; a modal opens on an
   // action slot (always) and on a widget slot unless the answer above was `inline`, which
   // embeds the page in the card and opens nothing. Written for every answer, `large`
   // included, same contract as the layout above.
-  const modalSize = await promptModalSize(isIframe, layout);
+  const modalSize = __BREVO_PREVIEW__ ? await promptModalSize(isIframe, layout) : undefined;
 
   // How tall the card is — asked for the one presentation where the card IS the embedded
   // page. An `inline` answer above means the iframe renders in the card body, so its
   // height is the partner's decision and the slot's default is only a starting point;
   // everything else keeps the silent seed (a modal sizes itself from `modal_size`, an
   // action slot renders no card, a Link's card shows a CTA rather than a page).
-  const cardHeight = await promptInlineCardHeight(isIframe, layout, selectedRows);
+  const cardHeight = __BREVO_PREVIEW__
+    ? await promptInlineCardHeight(isIframe, layout, selectedRows)
+    : undefined;
 
   // Extra iframe permissions — the one private-app-only question. Asked only when the
-  // registry row offers a menu (`metadata.sandbox.allowed`); a bo-be that predates the
+  // platform offers a menu (`metadata.sandbox.allowed`); a bo-be that predates the
   // metadata serves none and the question, like the key, is simply absent. The raw
   // `__BREVO_PREVIEW__` is the elimination site, so the question's strings (in
   // `preview-messages.ts`) leave a published bundle with it.
@@ -710,19 +716,23 @@ async function promptInlineCardHeight(
   return String(cardHeight ?? '').trim() || undefined;
 }
 
+// The one sandbox token the CLI treats specially: pre-ticked in the private-app sandbox
+// question. Which tokens are PERMITTED is still the platform's call (`metadata.sandbox`).
+const SANDBOX_SAME_ORIGIN = 'allow-same-origin';
+
 /**
- * A registry row's sandbox policy reduced to what the prompt can use, or `undefined`.
+ * A slot's published sandbox policy reduced to what the prompt can use, or `undefined`.
  *
  * Sanitized the way `sanitizeSeededSize` treats `default_size`: the registry is the only
  * source, but a server predating the metadata — or echoing an unexpected shape — must
  * degrade to "no question" rather than seat a choice the file check then refuses. SHAPE
  * only (`parseSandboxTokens`): the CLI never decides which tokens are permitted, it offers
- * exactly the list the platform served. `allowed` tokens already in `default` are dropped
- * from the menu (the default applies regardless), and an empty menu means nothing to ask.
+ * exactly the list the platform served: every `allowed` token (and the `default` ones) is
+ * a menu entry, and an empty menu means nothing to ask.
  */
 function sandboxPolicyFor(
   rows: UsableSurfacePoint[],
-): { defaults: string[]; extras: string[] } | undefined {
+): { defaults: string[]; options: string[] } | undefined {
   for (const row of rows) {
     const policy: SurfacePointSandboxPolicy | null | undefined = row.metadata?.sandbox;
     if (!policy || typeof policy !== 'object' || !Array.isArray(policy.allowed)) continue;
@@ -731,30 +741,36 @@ function sandboxPolicyFor(
     // rather than composing a value on top of a default the CLI could not read.
     const defaults = policy.default === undefined ? [] : parseSandboxTokens(policy.default);
     if (!defaults) continue;
-    const extras = [
-      ...new Set(
-        policy.allowed.filter(
+    // The menu is everything the platform served: its `default` tokens (so they can be
+    // seen and unticked) followed by every `allowed` token.
+    const options = [
+      ...new Set([
+        ...defaults,
+        ...policy.allowed.filter(
           (token): token is string =>
             typeof token === 'string' && parseSandboxTokens(token)?.length === 1,
         ),
-      ),
-    ].filter((token) => !defaults.includes(token));
-    if (extras.length > 0) return { defaults: [...new Set(defaults)], extras };
+      ]),
+    ];
+    // Nothing beyond the default to grant means no choice to make, so no question.
+    if (options.some((token) => !defaults.includes(token))) {
+      return { defaults: [...new Set(defaults)], options };
+    }
   }
   return undefined;
 }
 
 /**
- * Ask whether the embedded page needs permissions beyond the platform's default sandbox
- * (BEX-498) — private iframe apps only, and only where the slot's registry row lists what
- * may be added.
+ * Ask which sandbox permissions the embedded page needs (BEX-498) — private iframe apps
+ * only, and only where the slot's registry row lists what may be granted.
  *
- * Default is none, and NONE WRITES NOTHING: no `sandbox` key means the platform's own
- * default applies, which is also what a developer who just presses Enter wants. A choice
- * writes the whole string, `<registry default> <chosen>`, composed here at create time from
- * the default the registry served — so what lands in the file is the complete policy the
- * entry will run under, not a delta a reader has to know the default to apply. The platform
- * validates the result against `allowed`; this only offers what it listed.
+ * Every token the platform served (`metadata.sandbox.allowed`) is a choice, and the
+ * platform's own `default` tokens arrive pre-ticked, as does `allow-same-origin` (a private
+ * page needs its own origin for cookies, storage and credentialed fetches). Enter therefore
+ * writes the complete string the entry will run under. If the final selection is exactly the
+ * platform default, NO `sandbox` key is written and the platform default applies; if nothing
+ * is ticked, `""` is written (a fully locked frame). The platform validates the result against `allowed`; this only offers
+ * what it listed.
  */
 async function promptIframeSandbox(
   applies: boolean,
@@ -763,32 +779,29 @@ async function promptIframeSandbox(
   if (!applies) return undefined;
   const policy = sandboxPolicyFor(rows);
   if (!policy) return undefined;
-  // The whole menu — the platform defaults AND the extras — with the defaults preticked, so
-  // the partner sees the complete policy the entry will run under, not just the delta.
-  const offered = [...policy.defaults, ...policy.extras];
   const { sandbox } = await inquirer.prompt([
     {
       type: 'checkbox',
       name: 'sandbox',
       message: messages.APP_CREATE_UI_SANDBOX_PROMPT,
       choices: indentChoices(
-        offered.map((token) => ({
+        policy.options.map((token) => ({
           name: token,
           value: token,
-          checked: policy.defaults.includes(token),
+          checked: policy.defaults.includes(token) || token === SANDBOX_SAME_ORIGIN,
         })),
       ),
     },
   ]);
   // A checkbox answers with a subset of its own choices; filtering by the offered list
   // keeps a stubbed or unexpected answer from writing anything the registry did not offer.
-  const chosen = offered.filter((token) => Array.isArray(sandbox) && sandbox.includes(token));
-  // Nothing chosen, or exactly the defaults, writes nothing: the platform default applies.
-  const isDefault =
-    chosen.length === policy.defaults.length &&
-    policy.defaults.every((token) => chosen.includes(token));
-  if (chosen.length === 0 || isDefault) return undefined;
-  return chosen.join(' ');
+  const picked = Array.isArray(sandbox) ? sandbox : [];
+  const chosen = policy.options.filter((token) => picked.includes(token));
+  const isPlatformDefault =
+    chosen.length === policy.defaults.length && chosen.every((t) => policy.defaults.includes(t));
+  // Exactly the platform default writes nothing; anything else is written in full, and an
+  // empty selection (every box unticked) is `""` — a deliberately fully locked frame.
+  return isPlatformDefault ? undefined : chosen.join(' ');
 }
 
 /**
@@ -903,7 +916,7 @@ export function buildSurfacePointList(
     // non-interactive routes, a future flow) would author a block the upload endpoint
     // rejects, and the partner would meet the rule one round trip later, phrased by the
     // server. Named per entry, in the same shape `validateUiApp` uses.
-    if (fields.layout && row.component_type !== 'widget') {
+    if (__BREVO_PREVIEW__ && fields.layout && row.component_type !== 'widget') {
       throw new CliError(messages.APP_CREATE_UI_LAYOUT_NOT_WIDGET(row.surface_point_name));
     }
     entries.push(toSurfacePointEntry(row, fields));
@@ -933,7 +946,8 @@ function toSurfacePointEntry(
     ...(fields.more_info ? { more_info: fields.more_info } : {}),
     ...(fields.layout ? { layout: fields.layout } : {}),
     ...(fields.modal_size ? { modal_size: fields.modal_size } : {}),
-    ...(fields.sandbox ? { sandbox: fields.sandbox } : {}),
+    // `!== undefined`, not truthiness: `""` is a locked frame the file must record.
+    ...(fields.sandbox !== undefined ? { sandbox: fields.sandbox } : {}),
     [fields.urlField]: fields.url,
   };
 }

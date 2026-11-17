@@ -173,6 +173,16 @@ const LEAK_STRINGS = [
   'Does your page need extra iframe permissions',
   // The postMessage line of the same checklist (BEX-498): lives in `preview-messages.ts`.
   'window.postMessage events',
+  // The rest of the iframe authoring copy (BEX-459): the layout / modal-size / card-height
+  // questions, the iframe URL question, and the two refusal translations. All live in
+  // `preview-messages.ts`; the generic orphan scan below covers every key name, these cover
+  // what a reader of the published bundle would actually see.
+  'How big should the modal be',
+  'how tall the embedded page is',
+  'Embedded directly on the page',
+  'the page Brevo embeds in the record',
+  "This account can't create iframe extensions yet",
+  "Brevo rejected this app's iframe",
 ];
 
 // Every file the tarball carries, because that is the scope this particular check has

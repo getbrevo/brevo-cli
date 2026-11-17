@@ -933,7 +933,8 @@ function rethrowTranslatedCreateFailure(
   if (isPublicDistributionRefusal(err, inputs.distribution)) {
     throw new CliError(messages.APP_CREATE_PUBLIC_REJECTED(err.message));
   }
-  if (isIframeExtensionDisabledRefusal(err)) {
+  // Elimination site — the string lives in `preview-messages.ts`.
+  if (__BREVO_PREVIEW__ && isIframeExtensionDisabledRefusal(err)) {
     throw new CliError(messages.APP_CREATE_UI_IFRAME_DISABLED(err.message));
   }
 }

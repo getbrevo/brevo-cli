@@ -420,7 +420,7 @@ function rejectRootSandbox(block: Record<string, unknown>): void {
 }
 
 // One sandbox token. SHAPE only, deliberately: whether a token is one the platform permits
-// on a given slot is the registry's (`metadata.sandbox.allowed`) and bo-be's call, and the
+// on a given slot is the platform's (`metadata.sandbox.allowed`) call, and the
 // CLI holds no copy of that list — a local allow-list could only lag it, in both directions.
 const SANDBOX_TOKEN_PATTERN = /^allow-[a-z-]+$/;
 
@@ -449,10 +449,15 @@ export function parseSandboxTokens(value: unknown): string[] | null {
  */
 function validateEntrySandbox(row: Record<string, unknown>, at: EntryFieldPath): void {
   if (row.sandbox === undefined) return;
+  // An empty string is a deliberate, fully locked frame (HTML `sandbox=""`: no scripts, forms,
+  // popups or same-origin). It is NOT "use the default" — that is the field being absent — so
+  // it passes here with no tokens to check. A whitespace-only value is a mistake and is refused
+  // below like any other malformed one.
+  if (row.sandbox === '') return;
   const tokens = parseSandboxTokens(row.sandbox);
   if (!tokens) {
     throw new CliError(
-      `${at('sandbox')} must be a space-separated list of sandbox tokens, e.g. "allow-scripts allow-forms". Each token starts with "allow-"; to keep the platform default, remove the field.`,
+      `${at('sandbox')} must be a space-separated list of sandbox tokens, e.g. "allow-scripts allow-forms". Each token starts with "allow-"; to keep the platform default, remove the field; an empty string "" locks the frame completely (no scripts, forms or popups).`,
     );
   }
   const repeated = tokens.find((token, i) => tokens.indexOf(token) !== i);
@@ -660,7 +665,7 @@ function validateSurfacePointSize(size: unknown): true | string {
  * height" — the entry is seeded from the row's `default_size` either way, so a bare Enter
  * writes exactly what an unprompted flow would have written.
  *
- * Judged by `validateSizeAxis`, the same check `app upload` runs on the authored file, so
+ * Judged by `validateUiAppSizeAxis`, the same check `app upload` runs on the authored file, so
  * an answer this prompt accepts is one the block it lands in survives.
  */
 export function validateUiAppCardHeight(value: string): true | string {

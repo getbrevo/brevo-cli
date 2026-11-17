@@ -799,6 +799,12 @@ describe('validateUiApp — iframeExtension', () => {
     ).not.toThrow();
   });
 
+  // "" is a deliberate fully locked frame (HTML sandbox=""), distinct from the field being
+  // absent (which keeps the platform default). Whitespace-only stays a mistake (see below).
+  it('accepts an empty-string sandbox as a fully locked frame', () => {
+    expect(() => validateUiApp(withIframeEntry({ sandbox: '' }))).not.toThrow();
+  });
+
   it('accepts a token the CLI has never heard of, as long as it is well-formed', () => {
     expect(() =>
       validateUiApp(withIframeEntry({ sandbox: 'allow-some-future-capability' })),
@@ -813,7 +819,6 @@ describe('validateUiApp — iframeExtension', () => {
 
   it.each([
     ['blank', ' '],
-    ['empty', ''],
     ['not a string', ['allow-scripts']],
     ['a token without the allow- prefix', 'allow-scripts scripts'],
     ['an uppercase token', 'allow-Scripts'],
