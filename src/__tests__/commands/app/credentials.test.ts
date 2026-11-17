@@ -297,9 +297,8 @@ describe('app/credentials', () => {
       expect(output).not.toContain('clientId');
     });
 
-    // An iframe extension signs its tokens with the app's OAuth client_secret,
-    // so the platform returns credentials for it: the gate keys on the record
-    // carrying a client_id, not on the app type.
+    // The platform returns credentials for any app that has OAuth material: the
+    // gate keys on the record carrying a client_id, not on the app type.
     it('shows credentials for a UI app whose record carries a client_id', async () => {
       (appService.resolveAppCredentials as jest.Mock).mockResolvedValue(
         mockUiApp({

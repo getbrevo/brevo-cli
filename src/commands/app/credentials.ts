@@ -118,9 +118,10 @@ export const credentialsCommand = withCommandHandler(
     // A UI app with no OAuth material has nothing to show — refuse before any
     // side effect (name cache, credential cache, config backfill) rather than
     // printing a blank credential form. The gate is keyed on the record
-    // actually carrying a client_id, not on the app type: an iframe extension
-    // signs its tokens with the app's OAuth client_secret (BEX-526), so the
-    // platform returns credentials for it and the developer needs to see them.
+    // actually carrying a client_id, not on the app type: the read endpoint is
+    // a credential-reveal one and returns the client_id / client_secret of any
+    // app that has OAuth material, so whatever the platform returns is shown
+    // (the secret still sits behind --reveal-secret in an interactive terminal).
     if (!app.client_id) {
       const distribution: Distribution = app.distribution_type === 'public' ? 'public' : 'private';
       assertCapability(
