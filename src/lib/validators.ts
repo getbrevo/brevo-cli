@@ -665,7 +665,7 @@ function validateSurfacePointSize(size: unknown): true | string {
  * height" — the entry is seeded from the row's `default_size` either way, so a bare Enter
  * writes exactly what an unprompted flow would have written.
  *
- * Judged by `validateSizeAxis`, the same check `app upload` runs on the authored file, so
+ * Judged by `validateUiAppSizeAxis`, the same check `app upload` runs on the authored file, so
  * an answer this prompt accepts is one the block it lands in survives.
  */
 export function validateUiAppCardHeight(value: string): true | string {
