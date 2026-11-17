@@ -396,10 +396,12 @@ export async function uploadProjectConfig(
       buildUploadPayload(config, { appVersion, isUiApp, isFnApp, scopes, redirectUris }),
     );
   } catch (err) {
-    if (isUiLayoutRefusal(err, isUiApp)) {
+    // `__BREVO_PREVIEW__` is the elimination site: both translations' strings live in
+    // `preview-messages.ts`, so a published build keeps the server's own text instead.
+    if (__BREVO_PREVIEW__ && isUiLayoutRefusal(err, isUiApp)) {
       throw new CliError(messages.APP_UPLOAD_UI_LAYOUT_REJECTED(err.message));
     }
-    if (isIframeExtensionDisabledRefusal(err)) {
+    if (__BREVO_PREVIEW__ && isIframeExtensionDisabledRefusal(err)) {
       throw new CliError(messages.APP_UPLOAD_UI_IFRAME_DISABLED(err.message));
     }
     throw err;

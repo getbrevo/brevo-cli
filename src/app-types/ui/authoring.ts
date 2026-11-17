@@ -457,9 +457,10 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
     {
       type: 'input',
       name: 'url',
-      message: isIframe
-        ? messages.APP_CREATE_UI_IFRAME_HREF_PROMPT
-        : messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
+      message:
+        __BREVO_PREVIEW__ && isIframe
+          ? messages.APP_CREATE_UI_IFRAME_HREF_PROMPT
+          : messages.APP_CREATE_UI_REDIRECT_LINK_PROMPT,
       validate: validateUiAppUrl,
     },
   ]);
@@ -468,21 +469,25 @@ export async function resolveUiApp(distribution: string): Promise<UiApp> {
   // entry must open something, so it is a modal by definition and the question would have
   // one honest answer. Both answers are written to the entry, the default included: an
   // authored `layout: "modal"` says in the file what an absent key only implies.
-  const layout = await promptIframeLayout(isIframe, selectedRows);
+  // `__BREVO_PREVIEW__` is the elimination site for this and the next two questions:
+  // their strings live in `preview-messages.ts`, so a published bundle must not reference them.
+  const layout = __BREVO_PREVIEW__ ? await promptIframeLayout(isIframe, selectedRows) : undefined;
 
   // How big that modal is — asked whenever one actually opens, which is a DIFFERENT set of
   // entries from the layout question above. Layout is widget-only; a modal opens on an
   // action slot (always) and on a widget slot unless the answer above was `inline`, which
   // embeds the page in the card and opens nothing. Written for every answer, `large`
   // included, same contract as the layout above.
-  const modalSize = await promptModalSize(isIframe, layout);
+  const modalSize = __BREVO_PREVIEW__ ? await promptModalSize(isIframe, layout) : undefined;
 
   // How tall the card is — asked for the one presentation where the card IS the embedded
   // page. An `inline` answer above means the iframe renders in the card body, so its
   // height is the partner's decision and the slot's default is only a starting point;
   // everything else keeps the silent seed (a modal sizes itself from `modal_size`, an
   // action slot renders no card, a Link's card shows a CTA rather than a page).
-  const cardHeight = await promptInlineCardHeight(isIframe, layout, selectedRows);
+  const cardHeight = __BREVO_PREVIEW__
+    ? await promptInlineCardHeight(isIframe, layout, selectedRows)
+    : undefined;
 
   // Extra iframe permissions — the one private-app-only question. Asked only when the
   // platform offers a menu (`metadata.sandbox.allowed`); a bo-be that predates the
@@ -911,7 +916,7 @@ export function buildSurfacePointList(
     // non-interactive routes, a future flow) would author a block the upload endpoint
     // rejects, and the partner would meet the rule one round trip later, phrased by the
     // server. Named per entry, in the same shape `validateUiApp` uses.
-    if (fields.layout && row.component_type !== 'widget') {
+    if (__BREVO_PREVIEW__ && fields.layout && row.component_type !== 'widget') {
       throw new CliError(messages.APP_CREATE_UI_LAYOUT_NOT_WIDGET(row.surface_point_name));
     }
     entries.push(toSurfacePointEntry(row, fields));
