@@ -473,14 +473,22 @@ describe('app/scaffold', () => {
 
         it('errors instead of prompting when stdin is not a TTY', async () => {
           (readProjectConfig as jest.Mock).mockReturnValue(null);
-          const stdin = process.stdin as unknown as { isTTY?: boolean };
-          const original = stdin.isTTY;
-          stdin.isTTY = false;
+          // Descriptor, not assignment — see the note on the enclosing describe's beforeEach.
+          const original = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+          Object.defineProperty(process.stdin, 'isTTY', {
+            configurable: true,
+            writable: true,
+            value: false,
+          });
           try {
             await expect(scaffoldCommand({})).rejects.toThrow(/app-config\.json/i);
             expect(mockPrompt).not.toHaveBeenCalled();
           } finally {
-            stdin.isTTY = original;
+            if (original) {
+              Object.defineProperty(process.stdin, 'isTTY', original);
+            } else {
+              Reflect.deleteProperty(process.stdin, 'isTTY');
+            }
           }
         });
 
@@ -566,6 +574,64 @@ describe('app/scaffold', () => {
         expect(JSON.parse(output)).toEqual(
           expect.objectContaining({ features: [], reason: expect.any(String) }),
         );
+      });
+    });
+
+    // The pulled `ui_app` is written through `resolveWrittenSandbox`: there is no local file to
+    // prefer, so an iframe entry gets the server's `sandbox` (else "" — a locked frame) and an
+    // action link never gets one, even when the server stamped a default on it.
+    describe('sandbox in a pulled ui_app', () => {
+      // The block reaches the file through the base template's `{{UI_APP_JSON}}` variable (the
+      // template itself is mocked here), so that variable is where the pulled block is visible.
+      const writtenUiApp = (): { surface_point_list: Array<Record<string, unknown>> } => {
+        const { loadBaseTemplates } = require('../../../templates');
+        const calls = (loadBaseTemplates as jest.Mock).mock.calls;
+        const vars = calls[calls.length - 1][0] as Record<string, string>;
+        return JSON.parse(vars['{{UI_APP_JSON}}'] ?? '{}');
+      };
+      const pull = async (ui_app: Record<string, unknown>): Promise<void> => {
+        (readProjectConfig as jest.Mock).mockReturnValue(null);
+        (appService.resolveAppCredentials as jest.Mock).mockResolvedValue({
+          diffs: [],
+          app: { ...serverApp, ui_app },
+        });
+        await scaffoldCommand({ appId: '1', json: true });
+      };
+
+      it('keeps the server sandbox on an iframe entry and writes "" where it holds none', async () => {
+        await pull({
+          extension_type: 'iframeExtension',
+          surface_point_list: [
+            {
+              surface_point_name: 'a.b.c',
+              label: 'One',
+              iframe_href: 'https://example.com/1',
+              sandbox: 'allow-scripts',
+            },
+            { surface_point_name: 'd.e.f', label: 'Two', iframe_href: 'https://example.com/2' },
+          ],
+        });
+
+        expect(writtenUiApp().surface_point_list.map((e) => e.sandbox)).toEqual([
+          'allow-scripts',
+          '',
+        ]);
+      });
+
+      it('writes no sandbox on an action-link entry even when the server stamped one', async () => {
+        await pull({
+          extension_type: 'actionLink',
+          surface_point_list: [
+            {
+              surface_point_name: 'a.b.c',
+              label: 'One',
+              redirect_link: 'https://example.com/1',
+              sandbox: 'allow-scripts',
+            },
+          ],
+        });
+
+        expect(writtenUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
       });
     });
 

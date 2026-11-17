@@ -115,19 +115,22 @@ export const credentialsCommand = withCommandHandler(
     }
     const { app, diffs } = result;
 
-    // A UI app has no OAuth material, so there is nothing to show — refuse
-    // before any side effect (name cache, credential cache, config backfill)
-    // rather than printing a blank credential form. The classifier's bias
-    // (a record with no OAuth material reads as UI even without the ui_app
-    // block) is right here for the same reason it is on install's gate: a
-    // record with neither client_id nor callbacks has no credentials either way.
-    const distribution: Distribution = app.distribution_type === 'public' ? 'public' : 'private';
-    assertCapability(
-      resolveFromRecord(app).id,
-      distribution,
-      'oauth-flow',
-      messages.APP_CREDENTIALS_UI_APP(appId),
-    );
+    // A UI app with no OAuth material has nothing to show — refuse before any
+    // side effect (name cache, credential cache, config backfill) rather than
+    // printing a blank credential form. The gate is keyed on the record
+    // actually carrying a client_id, not on the app type: the read endpoint is
+    // a credential-reveal one and returns the client_id / client_secret of any
+    // app that has OAuth material, so whatever the platform returns is shown
+    // (the secret still sits behind --reveal-secret in an interactive terminal).
+    if (!app.client_id) {
+      const distribution: Distribution = app.distribution_type === 'public' ? 'public' : 'private';
+      assertCapability(
+        resolveFromRecord(app).id,
+        distribution,
+        'oauth-flow',
+        messages.APP_CREDENTIALS_UI_APP(appId),
+      );
+    }
 
     if (app.name) saveAppName(appId, app.name);
 

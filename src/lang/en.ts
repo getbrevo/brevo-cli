@@ -4,6 +4,7 @@ import {
   BREVO_DEVELOPER_TERMS_URL,
   BREVO_OAUTH_SCOPES_DOCS_URL,
 } from '../lib/constants';
+import { previewMessages } from './preview-messages';
 
 /**
  * How a scaffold report describes what it just did, given the files it wrote and the
@@ -263,6 +264,24 @@ const coreMessages = {
     `${flag} is for OAuth apps only and cannot be combined with --ui-config or --ui-app.`,
   APP_CREATE_UI_NONINTERACTIVE_CONFIG_INVALID: (file: string, reason: string) =>
     `Could not read --ui-config "${file}": ${reason}`,
+  // --ui-config reads a FIXED key set and drops everything else, so a key it does not
+  // read has to be refused by name rather than ignored: silently dropping `iframe_href`,
+  // `layout` or `modal_size` would create an app that renders differently from the file
+  // that asked for it, with no error anywhere. All three are `iframeExtension`-only
+  // fields and both non-interactive routes author `actionLink`, so there is no version of
+  // this file that could carry one and be honoured. They ARE authorable elsewhere — in an
+  // iframe app's `app-config.json` — which is what the second sentence points at.
+  APP_CREATE_UI_NONINTERACTIVE_UNSUPPORTED_KEY: (key: string) =>
+    `"${key}" is not supported by --ui-config: it applies to "iframeExtension" entries only, and non-interactive UI app creation authors "actionLink". Create the app interactively instead, or add it to the \`ui_app\` block in app-config.json and run \`${CLI.APP_UPLOAD}\`.`,
+  // The other silent-drop class, and a different failure: these are not authored ANYWHERE.
+  // The platform stamps them onto the stored snapshot — `link_target` is injected by
+  // `app upload`, `extension_point_name` is derived from the slug, `version` is
+  // server-managed — and the CLI strips them off the echo so none reaches
+  // `app-config.json`. (`sandbox` is NOT in this class any more: a private app's iframe
+  // entry may author one, so `--ui-config` refuses it as iframe-only instead.) So the advice cannot be "put it in app-config.json instead"; it is
+  // "delete it", the same thing `validateUiApp` says about a root `link_target`.
+  APP_CREATE_UI_NONINTERACTIVE_SERVER_OWNED_KEY: (key: string) =>
+    `"${key}" is not supported by --ui-config: the Brevo platform owns it and stamps it onto the stored app itself. It is never authored in the ui_app block — not here, and not in app-config.json. Remove it from the file.`,
   APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_RECORD_PAGE: (page: string, valid: string[]) =>
     `Unknown --record-page "${page}". Valid record pages: ${valid.join(', ')}.`,
   APP_CREATE_UI_NONINTERACTIVE_UNKNOWN_PLACEMENT: (
@@ -283,8 +302,10 @@ const coreMessages = {
   APP_CREATE_UI_PLACEMENT_PAGE_PROMPT: (page: string) =>
     `Where should it appear on the ${page} page?`,
   // Integration type — asked SECOND, before any placement, because it is the decision a
-  // partner arrives with. Only Link is offered for now: the disabled "coming soon"
-  // Iframe choice was removed 2026-08-19 until iframe support is ready to author.
+  // partner arrives with. Iframe is back since the iframe-extension launch (it was removed
+  // 2026-08-19 while authoring wasn't ready) but is offered only on a PRIVATE app —
+  // iframe extensions are private-only in v1, and the same rule is enforced by
+  // `validateConfig` locally and by the platform at upload/create.
   APP_CREATE_UI_INTEGRATION_PROMPT: 'What type of integration are you adding?',
   APP_CREATE_UI_INTEGRATION_EXTERNAL_LINK: 'Link (Opens your URL in a new tab)',
   // Each field renders in two places (`label` is the menu entry's text AND a card's CTA
@@ -317,7 +338,14 @@ const coreMessages = {
     'Values are placeholders. Read them as query parameters — the path is never templated.',
   // Also the pointer to MORE placements: the flow authors one, and each further one is a
   // hand-written `surface_point_list` entry carrying its own label and destination.
-  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and redirect link — then run \`${CLI.APP_UPLOAD}\`.`,
+  APP_CREATE_UI_BOX_HINT: `Edit the \`ui_app\` block in app-config.json to change any of this — add more placements as extra \`surface_point_list\` entries, each with its own label and destination URL — then run \`${CLI.APP_UPLOAD}\`.`,
+  // The private-only rule (iframe-extension v1), enforced in three places that all say the
+  // same thing: the create prompt only offers Iframe on a private app, this message refuses
+  // a hand-authored combination locally before any round trip, and the platform 400s it at
+  // upload/create. Named the same way the server's own refusal is, so the two read as one
+  // rule rather than two opinions.
+  APP_UI_IFRAME_PRIVATE_ONLY:
+    'ui_app.extension_type "iframeExtension" requires distribution_type "private" — iframe extensions are private-only. Change distribution_type to "private", or use "actionLink".',
 
   // App create — M2M (machine-to-machine) OAuth apps.
   //
@@ -580,6 +608,7 @@ const coreMessages = {
    * the account now renders the file they were just editing.
    */
   APP_INSTALL_CONFIG_DRIFT: `Your local app-config.json differs from the configuration above. The install uses what the server has stored — run \`${CLI.APP_UPLOAD}\` first if you meant to install your local changes.`,
+  APP_INSTALL_UPLOAD_FIRST_CONFIRM: `Your local app-config.json has changes that are not uploaded yet. Upload them before installing?`,
   APP_INSTALL_CONFIRM: (name: string, appId: string, account: string) =>
     `Install app "${name}" (${appId}) into ${account}?`,
   APP_INSTALL_CANCELLED: 'Install cancelled.',
@@ -1373,11 +1402,15 @@ const coreMessages = {
   ABORTED: 'Aborted.',
 } as const;
 
-// Nothing is gated any more, so there is no second object to spread in. This stayed a
-// wrapper around `coreMessages` rather than collapsing into one export because that is
-// what every call site imports; the indirection is also where a future gated-strings
-// module would spread back in. See `lib/preview.ts` for why object literals need their
-// own module to be gatable at all — esbuild cannot prune a property from one.
+// ELIMINATION SITE — the raw global rather than `isFeatureAvailable`, so esbuild folds
+// the spread to `{}` and drops ./preview-messages entirely. `messages` is one object
+// literal, so a property can only be removed by removing the whole object it arrived in.
+// The `as typeof previewMessages` cast keeps every call site type-safe in both builds;
+// see that module for why the lie is safe. The iframe surface's strings are gated today
+// (BEX-459, BEX-498) — every read of one sits behind `__BREVO_PREVIEW__`, and `build.mjs`
+// fails a public build whose bundle still names one; everything else is GA and lives in
+// `coreMessages`.
 export const messages = {
   ...coreMessages,
+  ...(__BREVO_PREVIEW__ ? previewMessages : ({} as typeof previewMessages)),
 };

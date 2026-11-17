@@ -128,7 +128,6 @@ Brevo **UI app** — an action link that renders inside Brevo CRM records, scaff
 | Value | What it does | Destination field |
 |-------|--------------|-------------------|
 | `actionLink` | Opens your URL in a new tab | `redirect_link` |
-| `iframeExtension` | Embeds your URL in a modal | `modal_iframe_url` |
 
 Each entry in `surface_point_list` is one placement, with its own text and destination:
 
@@ -138,7 +137,6 @@ Each entry in `surface_point_list` is one placement, with its own text and desti
 | `label` | yes | Max 48 chars — the menu entry's text, or a card's button |
 | `more_info` | no | Max 255 chars — the menu entry's second line, or a card's description |
 | `redirect_link` | for `actionLink` | `https://` (or `http://localhost`) |
-| `modal_iframe_url` | for `iframeExtension` | `https://` (or `http://localhost`) |
 | `context` | no | Narrows the record context Brevo sends |
 | `size` | no | `{ "width": "280px", "height": "160px" }` — `px`, or `%` up to 100 |
 
