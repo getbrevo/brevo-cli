@@ -2054,7 +2054,7 @@ describe('app/create', () => {
           REGISTRY_ROW('contactDetails', 'headerMenu', 'action', { metadata: SANDBOX_META }),
         ]);
 
-      it('offers only the allowed tokens the default does not already grant, defaulting to none', async () => {
+      it('offers every available token, with the platform defaults preticked', async () => {
         withSandboxRow();
         answerPrompts({ ...IFRAME_ANSWERS, sandbox: [] });
 
@@ -2064,16 +2064,24 @@ describe('app/create', () => {
         expect(question?.type).toBe('checkbox');
         expect(question?.message).toBe('Does your page need extra iframe permissions?');
         expect(choiceValuesOf('sandbox')).toEqual([
+          'allow-scripts',
+          'allow-same-origin',
           'allow-forms',
           'allow-popups',
           'allow-downloads',
         ]);
-        expect(question?.default).toBeUndefined();
+        const checked = (question?.choices as Array<{ value: string; checked?: boolean }>)
+          .filter((c) => c.checked)
+          .map((c) => c.value);
+        expect(checked).toEqual(['allow-scripts', 'allow-same-origin']);
       });
 
-      it('writes no sandbox when nothing is chosen', async () => {
+      it('writes no sandbox when only the defaults stay ticked', async () => {
         withSandboxRow();
-        answerPrompts({ ...IFRAME_ANSWERS, sandbox: [] });
+        answerPrompts({
+          ...IFRAME_ANSWERS,
+          sandbox: ['allow-scripts', 'allow-same-origin'],
+        });
 
         await createCommand(CLI_OPTIONS);
 
@@ -2083,7 +2091,10 @@ describe('app/create', () => {
 
       it('composes the registry default with the chosen tokens', async () => {
         withSandboxRow();
-        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-forms', 'allow-downloads'] });
+        answerPrompts({
+          ...IFRAME_ANSWERS,
+          sandbox: ['allow-scripts', 'allow-same-origin', 'allow-forms', 'allow-downloads'],
+        });
 
         await createCommand(CLI_OPTIONS);
 
@@ -2094,7 +2105,10 @@ describe('app/create', () => {
 
       it('sends the composed sandbox on the create payload', async () => {
         withSandboxRow();
-        answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-popups'] });
+        answerPrompts({
+          ...IFRAME_ANSWERS,
+          sandbox: ['allow-scripts', 'allow-same-origin', 'allow-popups'],
+        });
 
         await createCommand(CLI_OPTIONS);
 

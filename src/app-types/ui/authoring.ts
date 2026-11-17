@@ -763,21 +763,32 @@ async function promptIframeSandbox(
   if (!applies) return undefined;
   const policy = sandboxPolicyFor(rows);
   if (!policy) return undefined;
+  // The whole menu — the platform defaults AND the extras — with the defaults preticked, so
+  // the partner sees the complete policy the entry will run under, not just the delta.
+  const offered = [...policy.defaults, ...policy.extras];
   const { sandbox } = await inquirer.prompt([
     {
       type: 'checkbox',
       name: 'sandbox',
       message: messages.APP_CREATE_UI_SANDBOX_PROMPT,
-      choices: indentChoices(policy.extras.map((token) => ({ name: token, value: token }))),
+      choices: indentChoices(
+        offered.map((token) => ({
+          name: token,
+          value: token,
+          checked: policy.defaults.includes(token),
+        })),
+      ),
     },
   ]);
   // A checkbox answers with a subset of its own choices; filtering by the offered list
   // keeps a stubbed or unexpected answer from writing anything the registry did not offer.
-  const chosen = (Array.isArray(sandbox) ? sandbox : []).filter((token: unknown) =>
-    policy.extras.includes(token as string),
-  ) as string[];
-  if (chosen.length === 0) return undefined;
-  return [...policy.defaults, ...chosen].join(' ');
+  const chosen = offered.filter((token) => Array.isArray(sandbox) && sandbox.includes(token));
+  // Nothing chosen, or exactly the defaults, writes nothing: the platform default applies.
+  const isDefault =
+    chosen.length === policy.defaults.length &&
+    policy.defaults.every((token) => chosen.includes(token));
+  if (chosen.length === 0 || isDefault) return undefined;
+  return chosen.join(' ');
 }
 
 /**
