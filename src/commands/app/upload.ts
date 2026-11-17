@@ -22,7 +22,7 @@ import { DEFAULT_LINK_TARGET, EXTENSION_TYPE_ACTION_LINK } from '../../lib/const
 import { OAuthApp, UiApp, UploadAppPayload, UploadAppResponse } from '../../types';
 import { resolveFromConfig } from '../../app-types';
 import { isFunctionAppConfig } from '../../app-types/function';
-import { stripUiAppWireOnlyKeysFrom } from '../../app-types/wire';
+import { resolveWrittenSandbox, stripUiAppWireOnlyKeysFrom } from '../../app-types/wire';
 import { formatPlacementDiffLines } from '../../app-types/ui/fields';
 import { canonicalizeUiApp } from '../../app-types/ui/compare';
 
@@ -520,13 +520,10 @@ function buildUploadWriteBack(
     // first successful upload, the decision to keep them out of the file.
     ...(ctx.isUiApp && (response.ui_app ?? config.ui_app)
       ? {
-          // The block written back is the SERVER's echo, so it is also the `authored` argument:
-          // every entry's echoed `sandbox` (the platform's stamped default, an authored value
-          // or "" for a locked frame) is kept, and the file records what the platform holds.
-          ui_app: withoutInjectedKeys(
-            (response.ui_app ?? config.ui_app)!,
-            response.ui_app ?? config.ui_app,
-          ),
+          // The block written back is the SERVER's echo, with the platform's keys stripped and
+          // each iframe entry's `sandbox` resolved: this file's own value, else the server's,
+          // else "" (locked). An action link never carries one. See `resolveWrittenSandbox`.
+          ui_app: resolveWrittenSandbox((response.ui_app ?? config.ui_app)!, config.ui_app),
         }
       : {}),
   };

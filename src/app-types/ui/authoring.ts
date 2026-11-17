@@ -73,8 +73,8 @@ import { formatPlacementLines } from './fields';
 //      10. sandbox         → iframe on a PRIVATE app only, and only when the picked slot's
 //                             platform publishes `metadata.sandbox.allowed` (BEX-498): a
 //                             multi-select of every permission the platform served, its
-//                             default ones pre-ticked. The platform default (or none) writes
-//                             no `sandbox` at all.
+//                             default ones pre-ticked. The platform default writes no
+//                             `sandbox` at all; ticking nothing writes `sandbox: ""` (locked).
 //
 //     Five questions for a Link, one optional, and two registry reads that ask for
 //     different things:
@@ -763,8 +763,8 @@ function sandboxPolicyFor(
  * platform's own `default` tokens arrive pre-ticked, as does `allow-same-origin` (a private
  * page needs its own origin for cookies, storage and credentialed fetches). Enter therefore
  * writes the complete string the entry will run under. If the final selection is exactly the
- * platform default, or nothing is ticked, NO `sandbox` key is written and the platform
- * default applies. The platform validates the result against `allowed`; this only offers
+ * platform default, NO `sandbox` key is written and the platform default applies; if nothing
+ * is ticked, `""` is written (a fully locked frame). The platform validates the result against `allowed`; this only offers
  * what it listed.
  */
 async function promptIframeSandbox(
@@ -792,9 +792,10 @@ async function promptIframeSandbox(
   // keeps a stubbed or unexpected answer from writing anything the registry did not offer.
   const picked = Array.isArray(sandbox) ? sandbox : [];
   const chosen = policy.options.filter((token) => picked.includes(token));
-  if (chosen.length === 0) return undefined;
   const isPlatformDefault =
     chosen.length === policy.defaults.length && chosen.every((t) => policy.defaults.includes(t));
+  // Exactly the platform default writes nothing; anything else is written in full, and an
+  // empty selection (every box unticked) is `""` — a deliberately fully locked frame.
   return isPlatformDefault ? undefined : chosen.join(' ');
 }
 
@@ -940,7 +941,8 @@ function toSurfacePointEntry(
     ...(fields.more_info ? { more_info: fields.more_info } : {}),
     ...(fields.layout ? { layout: fields.layout } : {}),
     ...(fields.modal_size ? { modal_size: fields.modal_size } : {}),
-    ...(fields.sandbox ? { sandbox: fields.sandbox } : {}),
+    // `!== undefined`, not truthiness: `""` is a locked frame the file must record.
+    ...(fields.sandbox !== undefined ? { sandbox: fields.sandbox } : {}),
     [fields.urlField]: fields.url,
   };
 }

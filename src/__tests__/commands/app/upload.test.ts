@@ -1497,6 +1497,46 @@ describe('app/upload', () => {
         expect(written.ui_app.surface_point_list[0]).toHaveProperty('sandbox', '');
       });
 
+      // Neither the file nor the server holds one: the write-back records a locked frame.
+      it('writes "" for an iframe entry when neither the file nor the server has a sandbox', async () => {
+        (readProjectConfig as jest.Mock).mockReturnValue({ ...UI_CONFIG, ui_app: IFRAME_UI_APP });
+        (appService.uploadApp as jest.Mock).mockResolvedValue({
+          ...BASE_UPLOAD_RESPONSE,
+          name: 'Invoice Manager',
+          auth: { distribution_type: 'private' as const },
+          ui_app: iframeBlock({}),
+        });
+
+        await uploadCommand({ yes: true });
+
+        const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+        expect(written.ui_app.surface_point_list[0]).toHaveProperty('sandbox', '');
+      });
+
+      // An action link embeds no frame: a platform-stamped sandbox on its echo never reaches
+      // the file (the next upload would refuse it).
+      it('writes no sandbox for an action-link entry even when the server echoes one', async () => {
+        const local = UI_CONFIG.ui_app;
+        (readProjectConfig as jest.Mock).mockReturnValue(UI_CONFIG);
+        (appService.uploadApp as jest.Mock).mockResolvedValue({
+          ...BASE_UPLOAD_RESPONSE,
+          name: 'Invoice Manager',
+          auth: { distribution_type: 'private' as const },
+          ui_app: {
+            ...local,
+            surface_point_list: local.surface_point_list.map((e: object) => ({
+              ...e,
+              sandbox: DEFAULT,
+            })),
+          },
+        });
+
+        await uploadCommand({ yes: true });
+
+        const written = (writeProjectConfig as jest.Mock).mock.calls[0][0];
+        expect(written.ui_app.surface_point_list[0]).not.toHaveProperty('sandbox');
+      });
+
       // (b) again: an authored value survives the write-back, and the root stays stripped.
       it('keeps an authored per-entry sandbox in the write-back and strips the root', async () => {
         (readProjectConfig as jest.Mock).mockReturnValue({

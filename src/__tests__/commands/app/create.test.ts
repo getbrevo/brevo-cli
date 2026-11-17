@@ -2108,13 +2108,13 @@ describe('app/create', () => {
         );
       });
 
-      it('writes no sandbox when nothing is chosen', async () => {
+      it('writes sandbox "" (a locked frame) when every box is unticked', async () => {
         withSandboxRow();
         answerPrompts({ ...IFRAME_ANSWERS, sandbox: [] });
 
         await createCommand(CLI_OPTIONS);
 
-        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+        expect(collectedUiApp().surface_point_list[0].sandbox).toBe('');
         expect(collectedUiApp()).not.toHaveProperty('sandbox');
       });
 
@@ -2157,13 +2157,13 @@ describe('app/create', () => {
         expect(payload.ui_app).not.toHaveProperty('sandbox');
       });
 
-      it('ignores a chosen token the registry did not offer', async () => {
+      it('drops a chosen token the registry did not offer (leaving nothing ticked: "")', async () => {
         withSandboxRow();
         answerPrompts({ ...IFRAME_ANSWERS, sandbox: ['allow-top-navigation'] });
 
         await createCommand(CLI_OPTIONS);
 
-        expect(collectedUiApp().surface_point_list[0]).not.toHaveProperty('sandbox');
+        expect(collectedUiApp().surface_point_list[0].sandbox).toBe('');
       });
 
       it('does not ask when the row carries no sandbox metadata (an older bo-be)', async () => {
