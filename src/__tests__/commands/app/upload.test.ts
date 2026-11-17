@@ -1925,6 +1925,16 @@ describe('app/upload', () => {
         await expect(uploadCommand({ yes: true })).rejects.toThrow(/render no card/);
       });
 
+      // A 400 that merely contains the word must not be rewritten into advice about
+      // `layout: "inline"`: here the complaint is about a different value of the field.
+      it('leaves a different layout complaint with the server text', async () => {
+        const other = 'ui_app.surface_point_list["x"].layout must be "inline" or "modal"';
+        (appService.uploadApp as jest.Mock).mockRejectedValue(new ApiError(other, 400));
+
+        await expect(uploadCommand({ yes: true })).rejects.toThrow(other);
+        await expect(uploadCommand({ yes: true })).rejects.not.toThrow(/iframe layout/);
+      });
+
       it('leaves an unrelated 400 with the server text', async () => {
         (appService.uploadApp as jest.Mock).mockRejectedValue(
           new ApiError('logo_uri must be an https URL', 400),
