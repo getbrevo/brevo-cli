@@ -243,8 +243,9 @@ export interface SurfacePointEntry {
    *
    * AUTHORED ONLY WHEN THE DEVELOPER ASKED FOR MORE than the platform's default.
    * Absent means the platform stamps its own default on its stored copy and the server
-   * echoes that back — which is why the config round-trip only keeps an echoed value for
-   * an entry whose local copy authored one (`src/app-types/wire.ts`). The permitted set
+   * echoes that back; after an upload or pull the file records the entry's sandbox as the
+   * local value, else the platform's, else `""` (`resolveWrittenSandbox`,
+   * `src/app-types/wire.ts`). The permitted set
    * is the platform's `metadata.sandbox.allowed` for the slot and is enforced server-side; the
    * CLI checks the shape only. Refused on an `actionLink` entry and at the block root.
    */

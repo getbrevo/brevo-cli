@@ -44,7 +44,9 @@ import { isUiAppConfigShape, isUiAppRecordShape } from './detect';
  *                      the value it carries. The stamp is load-bearing, not decorative — the
  *                      UI kit applies the served value verbatim with no default of its own —
  *                      which is why an entry that authors nothing is left to the platform
- *                      rather than written as an empty string.
+ *                      on upload (nothing is sent). What gets written back into the file
+ *                      afterwards is a separate rule, `resolveWrittenSandbox` in `./wire`:
+ *                      an iframe entry records the local value, else the platform's, else "".
  *
  * All four exist on the server's side of a comparison only (`sandbox` unless authored). Left in, the first successful
  * upload writes them into the file this command just decided to keep them out of, and every

@@ -36,8 +36,9 @@ function stripKeysDeep(value: unknown, keys: readonly string[]): unknown {
  *
  * `sandbox` is the one wire-only key a developer may also write (BEX-498): a private
  * app's `iframeExtension` entry can carry its own. Everywhere else — the block root, and
- * any entry that authored none — it is the platform's stamped default, which comes back on
- * every echo and must neither reach `app-config.json` nor read as drift. The two cases are
+ * any entry that authored none — it is platform-owned: on an iframe entry the stamped
+ * default (the platform stamps iframe entries only, never an action link), which comes back
+ * on every echo and must not read as drift. The two cases are
  * told apart by asking the LOCAL block, which is the only party that knows what was
  * authored: an echoed entry keeps its `sandbox` exactly when the local entry for the same
  * slot has one. Matched by `surface_point_name`, never by position — list order is the

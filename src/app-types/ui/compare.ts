@@ -71,7 +71,7 @@ function canonicalizeEntrySandbox(entry: unknown): unknown {
  * block equals an absent one.
  *
  * Directional on one point: `sandbox` is compared only on entries the LOCAL block authored
- * one for (the server stamps a default on every entry, and that default is not a
+ * one for (the server stamps a default on every IFRAME entry, and that default is not a
  * difference). So `local` is the first argument, and the server's block the second.
  */
 export function uiAppEquals(local: UiApp | undefined, server: UiApp | undefined): boolean {

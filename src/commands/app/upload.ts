@@ -168,7 +168,7 @@ function buildDiff(config: NonNullable<ProjectConfig>, remote: OAuthApp): Upload
 const stripInjectedKeys = stripUiAppWireOnlyKeysFrom;
 
 // Both sides of every comparison below are normalized against the LOCAL block (`authored`):
-// the server stamps a default `sandbox` on every entry, and that default is a difference
+// the server stamps a default `sandbox` on every iframe entry, and that default is a difference
 // only where the developer authored one of their own (BEX-498) — see `stripUiAppWireOnlyKeys`.
 
 /**
